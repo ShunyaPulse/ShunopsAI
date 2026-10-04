@@ -49,7 +49,9 @@ async function runSentinelCron() {
   console.log("🕵️ [Sentinel Cron] Proactively auditing repositories for security flaws & logic bugs...");
   try {
     const auditReports = await runMultiRepoAutonomousAuditor();
-    console.log(`[Sentinel Cron] Audited ${auditReports.length} repository/repositories.`);
+    const skippedCount = auditReports.filter((r) => r.skipped).length;
+    const remediatedCount = auditReports.reduce((acc, r) => acc + (r.flawsRemediated || 0), 0);
+    console.log(`[Sentinel Cron] Proactive Auditor: ${auditReports.length} repo(s) processed (${skippedCount} skipped by smart quota guardrail, ${remediatedCount} flaw(s) remediated).`);
   } catch (err: any) {
     console.error(`[Sentinel Cron] Proactive auditor notice: ${err.message}`);
   }
