@@ -399,16 +399,31 @@ async def main():
 
         d = duration(a_path) + 0.35
 
-        # 2. Extract WordBoundary subtitle cues for this scene
-        scene_srt = submaker.get_srt()
-        cues = parse_srt_cues(scene_srt, current_time_offset)
-        if not cues:
-            cues.append({
-                "start": current_time_offset,
-                "end": current_time_offset + duration(a_path),
-                "text": sc["narration"].strip()
-            })
-        master_cues.extend(cues)
+        # 2. Extract Subtitle cues for this scene (Pure English captions)
+        eng_caption = sc.get("caption", "").strip()
+        if eng_caption:
+            words = eng_caption.split()
+            chunk_size = 7
+            chunks = [" ".join(words[j:j+chunk_size]) for j in range(0, len(words), chunk_size)]
+            if not chunks:
+                chunks = [eng_caption]
+            chunk_dur = d / len(chunks)
+            for c_idx, ch in enumerate(chunks):
+                master_cues.append({
+                    "start": current_time_offset + (c_idx * chunk_dur),
+                    "end": current_time_offset + ((c_idx + 1) * chunk_dur),
+                    "text": ch
+                })
+        else:
+            scene_srt = submaker.get_srt()
+            cues = parse_srt_cues(scene_srt, current_time_offset)
+            if not cues:
+                cues.append({
+                    "start": current_time_offset,
+                    "end": current_time_offset + duration(a_path),
+                    "text": sc["narration"].strip()
+                })
+            master_cues.extend(cues)
         current_time_offset += d
 
         # 3. Generate non-repeating continuous video montage on GPU

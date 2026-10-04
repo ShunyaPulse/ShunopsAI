@@ -155,8 +155,8 @@ export async function uploadToYouTube(options: YouTubeUploadOptions): Promise<Yo
         description,
         tags: tags.slice(0, 20),
         categoryId,
-        defaultLanguage: langCode,
-        defaultAudioLanguage: langCode,
+        defaultLanguage: "en", // English / Hinglish Roman script for Title & Description
+        defaultAudioLanguage: "hi", // Spoken Hindi voiceover
       },
       status: {
         privacyStatus,

@@ -6,9 +6,21 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 10
+    # Ignore minor and patch version updates (only open PRs for major updates or security vulnerabilities)
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-minor"
+          - "version-update:semver-patch"
 
   # Maintain GitHub Actions dependencies
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
+    # Ignore minor and patch version updates for GitHub Actions
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-minor"
+          - "version-update:semver-patch"
