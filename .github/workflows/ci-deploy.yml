@@ -147,3 +147,17 @@ jobs:
               git push origin "HEAD:main"
             fi
           fi
+
+      # 11. Autonomous Code Scanning Alert Self-Healing (Runs on every main push automatically)
+      - name: Autonomous Code Scanning Self-Healing
+        if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          GH_PAT: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+        run: |
+          echo "🤖 [Autonomous Security] Resolving open CodeQL, Semgrep, and Trivy alerts..."
+          git config --global user.name "ShunopsAI-AutoResolver[bot]"
+          git config --global user.email "shunopsai-agent@users.noreply.github.com"
+          npx tsx src/tools/code-scanner-resolver.ts 10
