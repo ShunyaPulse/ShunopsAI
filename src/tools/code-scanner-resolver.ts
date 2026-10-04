@@ -1,8 +1,15 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import OpenAI from "openai";
 import * as dotenv from "dotenv";
+import {
+  DEFAULT_PROPOSER,
+  DEFAULT_AUDITOR,
+  BACKUP_OPENROUTER_PROPOSER,
+  BACKUP_GROQ_AUDITOR,
+  callModel,
+} from "../ai/consensus.js";
 
 dotenv.config();
 
@@ -112,12 +119,15 @@ export async function resolveAlertWithAI(alert: CodeAlert): Promise<{ success: b
   const endIdx = Math.min(lines.length, lineNo + 12);
   const snippet = lines.slice(startIdx, endIdx).join("\n");
 
-  console.log(`\n${colors.cyan}${colors.bold}🔧 Resolving Alert #${alert.number} [${toolName}] ${ruleId}${colors.reset}`);
+  console.log(`\n${colors.cyan}${colors.bold}🔧 Resolving Alert #${alert.number} [${toolName}] ${ruleId} via Dual-Model Consensus${colors.reset}`);
   console.log(`${colors.gray}File: ${filePath}:${lineNo}${colors.reset}`);
 
-  const { client, model } = getLLMClient();
-
-  const prompt = `You are an elite Security & TypeScript Engineer fixing a GitHub Code Scanning alert.
+  try {
+    // -------------------------------------------------------------
+    // Round 1: Model 1 (Gemini 2.5 Flash) — Propose Security Patch
+    // -------------------------------------------------------------
+    console.log(`${colors.gray}🧠 [Round 1/2] Proposer (${DEFAULT_PROPOSER.name}) analyzing alert & drafting patch...${colors.reset}`);
+    const m1Prompt = `You are Model 1 (Lead Security Engineer & Proposer) fixing a GitHub Code Scanning alert in ShunopsAI.
 Alert Details:
 - Tool: ${toolName}
 - Rule: ${ruleId}
@@ -143,53 +153,105 @@ RULES FOR SECURITY FIX:
    - Ensure the first argument of console.error/console.log is a constant string literal without variable interpolations, or use string concatenation.
 
 OUTPUT FORMAT:
-Output ONLY a JSON object with two fields:
+Output ONLY a JSON object:
 {
   "search": "exact string to find in the snippet",
-  "replace": "replacement string with the security fix"
+  "replace": "replacement string with the security fix",
+  "rationale": "1-sentence explanation"
 }
-Do NOT include any markdown code blocks, conversational text, or explanation. ONLY the raw JSON.`;
+Do NOT include any markdown code blocks, conversational text, or explanation outside the JSON.`;
 
-  try {
-    const res = await client.chat.completions.create({
-      model,
-      messages: [
-        { role: "system", content: "You are an automated security patching engine. Return ONLY valid JSON with search and replace keys." },
-        { role: "user", content: prompt },
+    const m1Response = await callModel(
+      DEFAULT_PROPOSER,
+      [
+        { role: "system", content: "You are an automated security patching engine. Return ONLY valid JSON with search, replace, and rationale." },
+        { role: "user", content: m1Prompt },
       ],
-      temperature: 0.1,
-    });
+      BACKUP_OPENROUTER_PROPOSER,
+      0.1
+    );
 
-    const reply = res.choices[0]?.message?.content?.trim() || "";
-    const jsonMatch = reply.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      return { success: false, message: `Model did not return valid JSON: ${reply.slice(0, 100)}` };
+    const m1Match = m1Response.text.match(/\{[\s\S]*\}/);
+    if (!m1Match) {
+      return { success: false, message: `Model 1 did not return valid JSON: ${m1Response.text.slice(0, 100)}` };
+    }
+    const m1Proposal = JSON.parse(m1Match[0]);
+
+    // -------------------------------------------------------------
+    // Round 2: Model 2 (Groq GPT-OSS 120B) — Cross-Audit Security Patch
+    // -------------------------------------------------------------
+    console.log(`${colors.gray}🕵️ [Round 2/2] Auditor (${DEFAULT_AUDITOR.name}) cross-examining proposed patch...${colors.reset}`);
+    const m2Prompt = `You are Model 2 (Senior Security Auditor & Critic) in ShunopsAI's Dual-Model Consensus Protocol.
+Audit Model 1's proposed security patch against the target file snippet and CodeQL/Semgrep rule.
+Verify:
+1. Does the 'search' string exist precisely and uniquely in the snippet?
+2. Does 'replace' eliminate the security vulnerability without breaking TypeScript types or runtime semantics?
+
+Target File: ${filePath}
+Rule: ${ruleId}
+Snippet:
+\`\`\`typescript
+${snippet}
+\`\`\`
+
+Model 1 Proposal:
+${JSON.stringify(m1Proposal, null, 2)}
+
+Return ONLY valid JSON:
+{
+  "approved": boolean,
+  "finalSearch": "exact string to replace in snippet",
+  "finalReplace": "verified secure replacement string",
+  "auditCritique": "1-sentence audit critique"
+}
+Do NOT include any text outside the JSON.`;
+
+    const m2Response = await callModel(
+      DEFAULT_AUDITOR,
+      [
+        { role: "system", content: "You are a code audit engine. Return ONLY valid JSON." },
+        { role: "user", content: m2Prompt },
+      ],
+      BACKUP_GROQ_AUDITOR,
+      0.1
+    );
+
+    const m2Match = m2Response.text.match(/\{[\s\S]*\}/);
+    if (!m2Match) {
+      return { success: false, message: `Model 2 did not return valid JSON: ${m2Response.text.slice(0, 100)}` };
+    }
+    const m2Decision = JSON.parse(m2Match[0]);
+
+    if (!m2Decision.approved) {
+      return { success: false, message: `Auditor rejected patch: ${m2Decision.auditCritique}` };
     }
 
-    const { search, replace } = JSON.parse(jsonMatch[0]);
-    if (!search || typeof replace !== "string") {
-      return { success: false, message: "Parsed JSON missing search or replace string" };
+    const searchTarget = m2Decision.finalSearch || m1Proposal.search;
+    const replaceTarget = m2Decision.finalReplace || m1Proposal.replace;
+
+    if (!searchTarget || typeof replaceTarget !== "string") {
+      return { success: false, message: "Missing valid search or replace strings in consensus result" };
     }
 
-    if (!fileContent.includes(search)) {
+    if (!fileContent.includes(searchTarget)) {
       return { success: false, message: `Search target not found in ${filePath}` };
     }
 
-    const patchedCode = fileContent.replace(search, replace);
+    const patchedCode = fileContent.replace(searchTarget, replaceTarget);
     await fs.writeFile(fullPath, patchedCode, "utf-8");
 
     // Verify typecheck
     try {
-      execFileSync("npm", ["run", "typecheck"], { stdio: "pipe" });
-      console.log(`${colors.green}✓ Alert #${alert.number} successfully patched & verified with typecheck!${colors.reset}`);
-      return { success: true, message: `Patched ${filePath} for ${ruleId}` };
+      execSync("npm run typecheck", { stdio: "pipe" });
+      console.log(`${colors.green}✓ Alert #${alert.number} successfully patched & verified via Dual-Model Consensus (${m1Response.modelName} + ${m2Response.modelName})!${colors.reset}`);
+      return { success: true, message: `Patched ${filePath} for ${ruleId} via Consensus` };
     } catch (typeErr: any) {
       console.warn(`${colors.yellow}⚠️ Typecheck failed after patch. Rolling back file ${filePath}...${colors.reset}`);
       await fs.writeFile(fullPath, fileContent, "utf-8");
       return { success: false, message: `Typecheck failed: ${typeErr.message}` };
     }
   } catch (err: any) {
-    return { success: false, message: `LLM inference or parse failed: ${err.message}` };
+    return { success: false, message: `Consensus inference or parse failed: ${err.message}` };
   }
 }
 

@@ -46,12 +46,12 @@ async function main() {
 
       const tokenData = (await tokenRes.json()) as any;
       if (!tokenRes.ok || !tokenData.refresh_token) {
-        console.error("❌ Token exchange error:", JSON.stringify(tokenData, null, 2));
+        console.error("❌ Token exchange error:", tokenRes.status, tokenRes.statusText);
         return false;
       }
 
       const refreshToken = tokenData.refresh_token;
-      console.log(`\n✅ YOUTUBE_REFRESH_TOKEN acquired: ${refreshToken.slice(0, 10)}...`);
+      console.log(`\n✅ YOUTUBE_REFRESH_TOKEN acquired.`);
 
       const envPath = path.resolve(process.cwd(), ".env");
       let envContent = await fs.readFile(envPath, "utf-8");
@@ -83,7 +83,7 @@ async function main() {
       console.log("\n🚀 Setup complete! You are ready to upload private YouTube videos directly.");
       process.exit(0);
     } catch (err: any) {
-      console.error("Error during token exchange:", err.message);
+      console.error("Error during token exchange. Please verify your YouTube API credentials and try again.");
       return false;
     }
   };

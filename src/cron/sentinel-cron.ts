@@ -1,5 +1,7 @@
 import { runComprehensiveSentinelScan, autoHealService } from "../tools/sentinel.js";
 import { runAutoAlertResolver } from "../tools/code-scanner-resolver.js";
+import { fetchOpenPRs, reviewAndResolvePR } from "../tools/pr-auto-resolver.js";
+import { runMultiRepoAutonomousAuditor } from "../tools/autonomous-repo-auditor.js";
 import * as dotenv from "dotenv";
 
 dotenv.config();
@@ -23,13 +25,33 @@ async function runSentinelCron() {
     }
   }
 
-  // 3. Autonomous Code Scanning Alert Auto-Healing
+  // 3. Autonomous Code Scanning Alert Auto-Healing (Dual-Model Consensus)
   console.log("🔍 [Sentinel Cron] Checking and resolving open GitHub Code Scanning alerts...");
   try {
     const alertResult = await runAutoAlertResolver(10);
     console.log(`[Sentinel Cron] Code scanning alerts handled: ${alertResult.resolved}/${alertResult.total}`);
   } catch (err: any) {
     console.error(`[Sentinel Cron] Alert resolver notice: ${err.message}`);
+  }
+
+  // 4. Autonomous Open Pull Requests Review & Auto-Merge (Dual-Model Consensus)
+  console.log("🤝 [Sentinel Cron] Reviewing and resolving open PRs via Dual-Model Consensus...");
+  try {
+    const openPRs = await fetchOpenPRs();
+    for (const pr of openPRs) {
+      await reviewAndResolvePR(pr);
+    }
+  } catch (err: any) {
+    console.error(`[Sentinel Cron] PR resolver notice: ${err.message}`);
+  }
+
+  // 5. Proactive Multi-Repo Security & Bug Auditor (Finds & Heals bugs without waiting for outside PRs)
+  console.log("🕵️ [Sentinel Cron] Proactively auditing repositories for security flaws & logic bugs...");
+  try {
+    const auditReports = await runMultiRepoAutonomousAuditor();
+    console.log(`[Sentinel Cron] Audited ${auditReports.length} repository/repositories.`);
+  } catch (err: any) {
+    console.error(`[Sentinel Cron] Proactive auditor notice: ${err.message}`);
   }
 
   // 4. Optional fail-fast signal for scheduled runs.
