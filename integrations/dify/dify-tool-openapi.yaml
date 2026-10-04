@@ -1,0 +1,50 @@
+openapi: 3.0.1
+info:
+  title: ShunopsAI Multi-Cloud Operations API
+  description: Autonomous Multi-Agent orchestrator for DevOps, Video Automation, Database, and Cloud execution.
+  version: 1.0.0
+servers:
+  - url: http://localhost:4000
+    description: Local or Cloud Run ShunopsAI Server
+paths:
+  /api/task:
+    post:
+      summary: Execute Autonomous Goal with Tools
+      operationId: executeShunopsTask
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                goal:
+                  type: string
+                  description: The goal or prompt to achieve
+                maxSteps:
+                  type: integer
+                  description: Maximum reasoning steps
+                  default: 6
+              required:
+                - goal
+      responses:
+        "200":
+          description: Agent execution response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  finalAnswer:
+                    type: string
+                  stepsTaken:
+                    type: integer
+  /api/sentinel/status:
+    get:
+      summary: Get live health status of Neon, Redis, Cloudflare, Cloud Run, and Kaggle
+      operationId: getSentinelStatus
+      responses:
+        "200":
+          description: Live infrastructure health report
