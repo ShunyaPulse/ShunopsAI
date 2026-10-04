@@ -1,10 +1,13 @@
-name: "ShunopsAI Cloud Ops Dispatch (Cloud Run, OCI Redis, Neon, Cloudflare, Kaggle)"
+name: "ShunopsAI Cloud Operations & Sentinel"
 
 on:
+  schedule:
+    # Automated scheduled monitoring every 6 hours
+    - cron: "0 */6 * * *"
   workflow_dispatch:
     inputs:
       target_service:
-        description: "Target Cloud Service / Component"
+        description: "Target Cloud Service"
         required: true
         type: choice
         default: "all_services_health_check"
@@ -17,13 +20,9 @@ on:
           - "kaggle_gpu_pipeline"
           - "github_gitops_remediation"
       task_goal:
-        description: "Specific task / action to execute on the selected service"
+        description: "Action or task to perform on the service"
         required: true
         default: "Perform full health check and auto-heal any degraded services"
-      max_steps:
-        description: "Max agent reasoning steps (default: 8)"
-        required: false
-        default: "8"
   issues:
     types: [labeled]
 
@@ -33,26 +32,25 @@ permissions:
   pull-requests: write
 
 jobs:
-  execute-cloud-ops:
-    name: "Execute Cloud Operations Task"
-    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'issues' && (contains(github.event.issue.labels.*.name, 'cloud-ops') || contains(github.event.issue.labels.*.name, 'shunops') || contains(github.event.issue.labels.*.name, 'shunopsai')))
+  cloud-ops:
+    name: "Cloud Operations Execution"
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
     steps:
-      - name: Checkout Repository
+      - name: Checkout Code
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_PAT || secrets.GITHUB_TOKEN }}
 
       - name: Setup Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: "npm"
 
       - name: Setup Python & Kaggle CLI
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
@@ -64,7 +62,53 @@ jobs:
       - name: Install Node Dependencies
         run: npm ci
 
-      - name: Execute Cloud Agent Task
+      - name: Run Sentinel Health Check (Scheduled)
+        if: github.event_name == 'schedule'
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          SARALGATI_DATABASE_URL: ${{ secrets.SARALGATI_DATABASE_URL }}
+          KANBAN_DATABASE_URL: ${{ secrets.KANBAN_DATABASE_URL }}
+          REDIS_URL: ${{ secrets.REDIS_URL }}
+          REDIS_HOST: ${{ secrets.REDIS_HOST }}
+          REDIS_PORT: ${{ secrets.REDIS_PORT }}
+          REDIS_PASSWORD: ${{ secrets.REDIS_PASSWORD }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_AI_MODEL: ${{ secrets.CLOUDFLARE_AI_MODEL }}
+          SARALGATI_APP_URL: ${{ secrets.SARALGATI_APP_URL }}
+          KANBAN_APP_URL: ${{ secrets.KANBAN_APP_URL }}
+          KAGGLE_USERNAME: ${{ secrets.KAGGLE_USERNAME }}
+          KAGGLE_KEY: ${{ secrets.KAGGLE_KEY }}
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+          VIDEO_TOKEN: ${{ secrets.VIDEO_TOKEN }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          FAIL_ON_DOWN: "true"
+        run: |
+          npx tsx src/cron/sentinel-cron.ts
+
+      - name: Report Incident on Scheduled Outage
+        if: failure() && github.event_name == 'schedule'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = `🚨 [Sentinel Outage] Cloud Service Alert at ${new Date().toISOString()}`;
+            const body = `### Infrastructure Sentinel Outage Detected\n\nOne or more services (Cloud Run, OCI Redis, Neon, Cloudflare AI, Kaggle) reported failure.\n\nView [workflow logs](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}) for diagnostics.`;
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: title,
+              body: body,
+              labels: ['incident', 'cloud-ops', 'bug']
+            });
+
+      - name: Execute Manual Dispatch or Issue Task
+        if: github.event_name == 'workflow_dispatch' || github.event_name == 'issues'
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
@@ -94,5 +138,4 @@ jobs:
         run: |
           echo "🎯 [Cloud Ops] Target: $TARGET_SERVICE"
           echo "🎯 [Cloud Ops] Goal: $TASK_GOAL"
-
           npx tsx agent.ts "Target Service: $TARGET_SERVICE. Action: $TASK_GOAL"
