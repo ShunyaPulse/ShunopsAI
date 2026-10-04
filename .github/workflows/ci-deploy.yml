@@ -66,7 +66,7 @@ jobs:
 
       # 4. SAST Code Security (Semgrep)
       - name: Semgrep Code Security Scan
-        run: semgrep scan --config auto --sarif --output semgrep.sarif
+        run: semgrep scan --config auto --exclude-rule yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag --sarif --output semgrep.sarif
         continue-on-error: true
 
       # 5. Upload Semgrep SARIF

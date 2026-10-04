@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 import * as dotenv from "dotenv";
+import { randomInt } from "node:crypto";
 
 dotenv.config();
 
@@ -89,7 +90,7 @@ function createClient(target: ModelEndpoint): OpenAI {
       .split(",")
       .map((k) => k.trim())
       .filter(Boolean);
-    const key = keys[Math.floor(Math.random() * keys.length)] || "dummy-gemini-key";
+    const key = keys.length > 0 ? keys[randomInt(0, keys.length)] : "dummy-gemini-key";
     return new OpenAI({
       baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/",
       apiKey: key,
@@ -338,7 +339,7 @@ if (isMain) {
       process.exit(0);
     })
     .catch((err) => {
-      console.error(`${colors.red}Consensus failed:${colors.reset}`, err);
+      console.error(`Consensus failed: ${err instanceof Error ? err.message : String(err)}`);
       process.exit(1);
     });
 }
