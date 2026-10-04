@@ -103,7 +103,7 @@ export async function resolveAlertWithAI(alert: CodeAlert): Promise<{ success: b
   try {
     fileContent = await fs.readFile(fullPath, "utf-8");
   } catch (e: any) {
-    return { success: false, message: `Could not read file ${filePath}: ${e.message}` };
+    return { success: false, message: "Could not read file " + filePath + ": " + e.message };
   }
 
   const lines = fileContent.split("\n");
@@ -216,7 +216,7 @@ export async function runAutoAlertResolver(limit = 10): Promise<{ resolved: numb
     if (res.success) {
       resolvedCount++;
     } else {
-      console.log(colors.gray + "Notice on #" + alert.number + ": " + res.message + colors.reset);
+      console.log("%sNotice on #%d: %s%s", colors.gray, alert.number, res.message, colors.reset);
     }
   }
 

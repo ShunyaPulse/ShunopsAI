@@ -145,7 +145,7 @@ export async function uploadToYouTube(options: YouTubeUploadOptions): Promise<Yo
     const stats = await fs.stat(videoPath);
     const fileSize = stats.size;
 
-    console.log(`[YouTube] Initiating resumable upload for "${title ? title.slice(0, 10) + '...' : '[REDACTED]'}" (${(fileSize / 1024 / 1024).toFixed(1)} MB)...`);
+    console.log('[YouTube] Initiating resumable upload for "[REDACTED]" (' + (fileSize / 1024 / 1024).toFixed(1) + ' MB)...');
     console.log(`[YouTube] Privacy status: ${privacyStatus.toUpperCase()} | Language: ${langCode} | AI Use: YES | Likes Public: NO`);
 
     // Step 1: Initiate resumable session (inherits user's YouTube Studio Upload Defaults)
