@@ -1,6 +1,13 @@
 import { execFileSync } from "node:child_process";
 import OpenAI from "openai";
 import * as dotenv from "dotenv";
+import {
+  DEFAULT_PROPOSER,
+  DEFAULT_AUDITOR,
+  BACKUP_OPENROUTER_PROPOSER,
+  BACKUP_GROQ_AUDITOR,
+  callModel,
+} from "../ai/consensus.js";
 
 dotenv.config();
 
@@ -90,64 +97,90 @@ export async function reviewAndResolvePR(pr: PullRequestItem, repo = "ShunyaPuls
   // Truncate diff if very large
   const truncatedDiff = diff.length > 8000 ? diff.slice(0, 8000) + "\n... [diff truncated]" : diff;
 
-  const { client, model, provider } = getLLMClient();
+  console.log(`${colors.cyan}🤝 Initiating Dual-Model Consensus Review for PR #${pr.number}...${colors.reset}`);
 
-  const prompt = `You are an elite Senior Staff Security & DevOps Architect conducting an automated Pull Request Code Review for ShunopsAI repository.
-PR Metadata:
-- Number: #${pr.number}
-- Title: ${pr.title}
-- Author: @${pr.author.login}
-- Head Branch: ${pr.headRefName}
-
-PR Diff:
-\`\`\`diff
-${truncatedDiff}
-\`\`\`
-
-AUDIT REQUIREMENTS:
-1. Is this a legitimate, safe update (e.g. official GitHub Action version bump, security patch, bugfix)?
-2. Does this introduce any malicious code, backdoors, syntax errors, or breaking changes?
-3. Output ONLY a JSON object with this exact schema:
+  try {
+    // -------------------------------------------------------------
+    // Round 1: Model 1 (Gemini 2.5 Flash) — Lead Architectural Review
+    // -------------------------------------------------------------
+    console.log(`${colors.gray}🧠 [Round 1/2] Proposer (${DEFAULT_PROPOSER.name}) analyzing diff...${colors.reset}`);
+    const m1Messages: OpenAI.ChatCompletionMessageParam[] = [
+      {
+        role: "system",
+        content: `You are Model 1 (Lead Proposer & Code Architect) in ShunopsAI's Dual-Model Consensus Review.
+Evaluate this PR diff for security, correctness, and functional integrity.
+Return ONLY valid JSON with this schema:
 {
   "approved": boolean,
   "confidence": number,
-  "rationale": "Clear, concise 1-2 sentence explanation of why this PR is approved or rejected"
+  "riskLevel": "low" | "medium" | "high",
+  "rationale": "Concise 1-2 sentence explanation"
 }
-Do NOT include any conversational filler, markdown formatting outside JSON, or reasoning tokens. ONLY the raw JSON object.`;
+Do NOT return conversational filler or codeblocks outside the JSON.`,
+      },
+      {
+        role: "user",
+        content: `PR #${pr.number}: "${pr.title}" by @${pr.author.login}\nBranch: ${pr.headRefName}\n\nDiff:\n\`\`\`diff\n${truncatedDiff}\n\`\`\``,
+      },
+    ];
 
-  try {
-    const res = await client.chat.completions.create({
-      model,
-      messages: [
-        { role: "system", content: "You are an automated PR reviewer. Return ONLY valid JSON with approved, confidence, and rationale fields." },
-        { role: "user", content: prompt },
-      ],
-      temperature: 0.1,
-    });
-
-    const reply = res.choices[0]?.message?.content?.trim() || "";
-    const jsonMatch = reply.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      return { approved: false, merged: false, message: `Model did not return valid JSON: ${reply.slice(0, 100)}` };
+    const m1Response = await callModel(DEFAULT_PROPOSER, m1Messages, BACKUP_OPENROUTER_PROPOSER, 0.1);
+    const m1Match = m1Response.text.match(/\{[\s\S]*\}/);
+    if (!m1Match) {
+      return { approved: false, merged: false, message: `Model 1 did not return valid JSON: ${m1Response.text.slice(0, 100)}` };
     }
+    const m1Decision = JSON.parse(m1Match[0]);
+    console.log(`${colors.gray}Model 1 Verdict: ${m1Decision.approved ? colors.green + "APPROVED" : colors.red + "REJECTED"} (Risk: ${m1Decision.riskLevel}) - ${m1Decision.rationale}${colors.reset}`);
 
-    const { approved, confidence, rationale } = JSON.parse(jsonMatch[0]);
-    console.log(`${colors.gray}AI Verdict: ${approved ? colors.green + "APPROVED" : colors.red + "REJECTED"} (Confidence: ${confidence}) - ${rationale}${colors.reset}`);
+    // -------------------------------------------------------------
+    // Round 2: Model 2 (Groq GPT-OSS 120B) — Security Audit & Cross-Examination
+    // -------------------------------------------------------------
+    console.log(`${colors.gray}🕵️ [Round 2/2] Auditor (${DEFAULT_AUDITOR.name}) cross-examining review...${colors.reset}`);
+    const m2Messages: OpenAI.ChatCompletionMessageParam[] = [
+      {
+        role: "system",
+        content: `You are Model 2 (Senior Security Auditor & Critic) in ShunopsAI's Dual-Model Consensus Protocol.
+Audit Model 1's proposal and the PR diff. Check for hidden vulnerabilities, unredacted secrets/logs, command injection, breaking changes, or backdoors.
+Return ONLY valid JSON with this schema:
+{
+  "agreedWithModel1": boolean,
+  "finalApproved": boolean,
+  "auditorCritique": "Concise 1-2 sentence audit findings"
+}
+Do NOT return conversational filler or codeblocks outside the JSON.`,
+      },
+      {
+        role: "user",
+        content: `PR #${pr.number}: "${pr.title}"\nDiff:\n\`\`\`diff\n${truncatedDiff}\n\`\`\`\n\nModel 1 Review:\n${JSON.stringify(m1Decision, null, 2)}`,
+      },
+    ];
+
+    const m2Response = await callModel(DEFAULT_AUDITOR, m2Messages, BACKUP_GROQ_AUDITOR, 0.1);
+    const m2Match = m2Response.text.match(/\{[\s\S]*\}/);
+    if (!m2Match) {
+      return { approved: false, merged: false, message: `Model 2 did not return valid JSON: ${m2Response.text.slice(0, 100)}` };
+    }
+    const m2Decision = JSON.parse(m2Match[0]);
+    console.log(`${colors.gray}Model 2 Verdict: ${m2Decision.finalApproved ? colors.green + "APPROVED" : colors.red + "REJECTED"} (Agreement: ${m2Decision.agreedWithModel1}) - ${m2Decision.auditorCritique}${colors.reset}`);
+
+    // Consensus evaluation: both models must approve
+    const approved = Boolean(m1Decision.approved && m2Decision.finalApproved);
+    const consensusRationale = `Model 1 (${m1Response.modelName}): ${m1Decision.rationale} | Model 2 (${m2Response.modelName}): ${m2Decision.auditorCritique}`;
 
     const authEnv = getAuthEnv();
 
     if (approved) {
-      // 1. Submit approval review
+      // 1. Submit approval review with dual signatures
       try {
         execFileSync(
           "gh",
           [
             "pr", "review", String(pr.number), "--repo", repo, "--approve",
-            "--body", `🤖 **ShunopsAI Autonomous Review (${provider}:${model})**: Approved. ${rationale}`,
+            "--body", `🤝 **ShunopsAI Dual-Model Consensus Review (Unanimously Approved)**\n\n- **Model 1 (${m1Response.modelName})**: ${m1Decision.rationale} *(Risk: ${m1Decision.riskLevel})*\n- **Model 2 (${m2Response.modelName})**: ${m2Decision.auditorCritique}`,
           ],
           { stdio: "pipe", env: authEnv }
         );
-        console.log(`${colors.green}✓ Approved PR #${pr.number}${colors.reset}`);
+        console.log(`${colors.green}✓ Approved PR #${pr.number} with Dual-Model Consensus!${colors.reset}`);
       } catch (reviewErr: any) {
         console.warn(`[Review notice] ${reviewErr.message}`);
       }
@@ -160,7 +193,7 @@ Do NOT include any conversational filler, markdown formatting outside JSON, or r
           { stdio: "pipe", env: authEnv }
         );
         console.log(`${colors.green}${colors.bold}🚀 Successfully Merged PR #${pr.number} & deleted branch ${pr.headRefName}!${colors.reset}`);
-        return { approved: true, merged: true, message: rationale };
+        return { approved: true, merged: true, message: consensusRationale };
       } catch (mergeErr: any) {
         console.warn(`Could not direct-merge #${pr.number} (trying auto-merge): ${mergeErr.message}`);
         try {
@@ -169,29 +202,29 @@ Do NOT include any conversational filler, markdown formatting outside JSON, or r
             ["pr", "merge", String(pr.number), "--repo", repo, "--squash", "--auto"],
             { stdio: "pipe", env: authEnv }
           );
-          return { approved: true, merged: true, message: `Auto-merge enabled: ${rationale}` };
+          return { approved: true, merged: true, message: `Auto-merge enabled: ${consensusRationale}` };
         } catch (autoErr: any) {
           return { approved: true, merged: false, message: `Approved, but merge requires status check: ${autoErr.message}` };
         }
       }
     } else {
-      // Leave comment on PR with rejection reasons
+      // Leave comment on PR with consensus rejection reasons
       try {
         execFileSync(
           "gh",
           [
             "pr", "comment", String(pr.number), "--repo", repo,
-            "--body", `⚠️ **ShunopsAI Security Audit**: Changes not approved. ${rationale}`,
+            "--body", `⚠️ **ShunopsAI Dual-Model Security Audit (Changes Required)**\n\n- **Model 1 (${m1Response.modelName})**: ${m1Decision.rationale}\n- **Model 2 (${m2Response.modelName})**: ${m2Decision.auditorCritique}`,
           ],
           { stdio: "pipe", env: authEnv }
         );
       } catch (commentErr: any) {
         console.error(`Comment error on #${pr.number}: ${commentErr.message}`);
       }
-      return { approved: false, merged: false, message: rationale };
+      return { approved: false, merged: false, message: consensusRationale };
     }
   } catch (err: any) {
-    return { approved: false, merged: false, message: `Inference failed: ${err.message}` };
+    return { approved: false, merged: false, message: `Consensus inference failed: ${err.message}` };
   }
 }
 

@@ -52,31 +52,32 @@ export interface ConsensusResult {
 }
 
 // Fallback Model Targets
-const DEFAULT_PROPOSER: ModelEndpoint = {
+export const DEFAULT_PROPOSER: ModelEndpoint = {
   provider: "gemini",
   model: "gemini-2.5-flash",
   name: "Gemini 2.5 Flash",
 };
 
-const DEFAULT_AUDITOR: ModelEndpoint = {
-  provider: "groq",
-  model: "llama-3.3-70b-versatile",
-  name: "Groq LLaMA 3.3 70B",
-};
-
-const BACKUP_OPENROUTER_PROPOSER: ModelEndpoint = {
-  provider: "openrouter",
-  model: "meta-llama/llama-3.3-70b-instruct:free",
-  name: "OpenRouter LLaMA 3.3 70B (Free)",
-};
-
-const BACKUP_GROQ_AUDITOR: ModelEndpoint = {
+export const DEFAULT_AUDITOR: ModelEndpoint = {
   provider: "groq",
   model: "openai/gpt-oss-120b",
   name: "Groq GPT-OSS 120B",
 };
 
-function createClient(target: ModelEndpoint): OpenAI {
+export const BACKUP_PROPOSER: ModelEndpoint = {
+  provider: "groq",
+  model: "qwen/qwen3.8-27b",
+  name: "Groq Qwen 3 27B",
+};
+export const BACKUP_OPENROUTER_PROPOSER = BACKUP_PROPOSER;
+
+export const BACKUP_GROQ_AUDITOR: ModelEndpoint = {
+  provider: "groq",
+  model: "openai/gpt-oss-20b",
+  name: "Groq GPT-OSS 20B",
+};
+
+export function createClient(target: ModelEndpoint): OpenAI {
   if (target.provider === "groq") {
     return new OpenAI({
       baseURL: "https://api.groq.com/openai/v1",
@@ -110,7 +111,7 @@ function createClient(target: ModelEndpoint): OpenAI {
 /**
  * Execute chat completion with single failover target
  */
-async function callModel(
+export async function callModel(
   target: ModelEndpoint,
   messages: OpenAI.ChatCompletionMessageParam[],
   backupTarget: ModelEndpoint,
