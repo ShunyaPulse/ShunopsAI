@@ -95,7 +95,7 @@ jobs:
 
       - name: Report Incident on Scheduled Outage
         if: failure() && github.event_name == 'schedule'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const title = `🚨 [Sentinel Outage] Cloud Service Alert at ${new Date().toISOString()}`;
