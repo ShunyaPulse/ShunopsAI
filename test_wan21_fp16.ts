@@ -8,9 +8,9 @@ async function main() {
   const minutes = 1;
   const language = "English";
 
-  console.log(`[Wan2.1 FP16] Launching test job: "${topic}"...`);
+  console.log(`[Wan2.1 FP16] Launching test job: "[REDACTED]"...`);
   const result = await startVideoJob(topic, minutes, language);
-  console.log("[Wan2.1 FP16] Launch result:\n", result);
+  console.log("[Wan2.1 FP16] Launch result: [REDACTED]");
 }
 
 main().catch((err) => {

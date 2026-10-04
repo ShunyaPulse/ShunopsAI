@@ -149,7 +149,7 @@ export async function geminiGenerate(prompt: string, preferredModel?: string): P
           const data: any = await res.json();
           const text = data?.candidates?.[0]?.content?.parts?.map((p: any) => p.text).join("") ?? "";
           if (text) {
-            console.log(`[Video] Success with model: "${model}" on key ...${keySuffix}`);
+            console.log(`[Video] Success with model: "${model}" on key ...${keySuffix ? keySuffix.slice(0,4) + '***' : '[REDACTED]'}`);
             return { text, modelUsed: model ?? "unknown" };
           }
         }
