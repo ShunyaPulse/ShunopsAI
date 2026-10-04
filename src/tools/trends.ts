@@ -106,13 +106,13 @@ CRITICAL EDITORIAL RULES:
    - Historical mysteries, archaeological discoveries, and unexplored historical events.
    - Inspiring Sports Breakthroughs (e.g. World Records, Historic sporting milestones, incredible underdog victories).
 
-3. OUTPUT FORMAT:
+3. OUTPUT FORMAT (OPTION A - HYBRID RULES):
 Return ONLY valid JSON matching this exact structure:
 {
   "selected_trend": "<exact trend keyword from the list>",
-  "documentary_topic": "<Compelling, high-CTR documentary angle in Hindi/English suitable for a 3-minute video>",
+  "documentary_topic": "<High-CTR topic strictly in English (Roman) alphabet. Hybrid format: [English Topic Keyword] : [Hinglish Curiosity Hook], NEVER Devanagari script>",
   "category": "<Science | Space | Geopolitics | Technology | Nature | History | Sports Milestone>",
-  "value_hook": "<1-2 sentences explaining the educational/curiosity value the viewer gains from watching>",
+  "value_hook": "<1-2 sentences explaining educational/curiosity value in pure English>",
   "language": "Hindi",
   "target_duration_minutes": 3
 }`;

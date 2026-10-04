@@ -56,7 +56,7 @@ export interface VideoScript {
   voice: string;
   language?: string;
   chapters: { title: string; start_scene: number }[];
-  scenes: { narration: string; visual_prompt: string }[];
+  scenes: { narration: string; caption?: string; visual_prompt: string }[];
 }
 
 /**
@@ -232,10 +232,17 @@ Topic: ${topic}
 Language: ${language}
 Target Length: about ${targetWords} spoken words (${minutes} minutes) divided into about ${sceneCount} tightly-paced scenes (12-20 words each).
 
-CRITICAL DIRECTIVES FOR CINEMATIC REALISM:
-1. Narrative Structure:
-   - Scene 1 MUST be a dramatic cold open / high-stakes hook that grabs attention within 3 seconds.
-   - Pacing: Fast, informative, no filler, zero fluff, building tension and curiosity toward a satisfying climax and thought-provoking outro.
+CRITICAL DIRECTIVES:
+1. SCRIPT & SCRIPT-LANGUAGE RULES (MANDATORY - OPTION A HYBRID FORMULA):
+   - TITLE (THE HYBRID FORMULA): Must be strictly in English (Roman) alphabet. Format: "[English Topic Keyword] : [Hinglish Curiosity Question/Hook]".
+     Example: "Aadhaar Super-Engine : 140 Crore Logo Ka Data Kaise Safe Rehta Hai?"
+     Example: "James Webb Telescope : Space Mein Scientists Ko Kya Ajeeb Mila?"
+     Example: "Semiconductor Fab : India Mein Microchips Banana Itna Mushkil Kyu Hai?"
+     NEVER use Devanagari script. Maximum 70 characters.
+   - DESCRIPTION (PURE ENGLISH): Must be written in 100% PURE ENGLISH (English language & Roman letters). Include detailed SEO overview, key technical keywords, and timestamps/chapters. No Devanagari script.
+   - CHAPTER TITLES & TAGS: Must be strictly in English (Roman) alphabet.
+   - NARRATION (Spoken Audio): Natural, engaging Hindi dialogue spoken by voice hi-IN-MadhurNeural.
+   - CAPTIONS (On-Screen Subtitles): Must be in 100% PURE ENGLISH (both English letters AND English language words). For every single scene, provide the exact English translation in "caption" to be displayed on-screen.
 2. Visual Prompt Engineering for True Continuous Video:
    - For EVERY scene, write a "visual_prompt" that describes a real, continuous cinematic video shot — NOT a static photo or generic concept.
    - Specify:
@@ -245,13 +252,14 @@ CRITICAL DIRECTIVES FOR CINEMATIC REALISM:
      d) Realism enforcement: Clean, authentic physical textures (modern architectural glass, polished materials, real skin, crisp telemetry). Avoid retro filters, heavy grain, sepia tones, plastic CGI, or still-photo aesthetics.
 3. Return ONLY valid JSON in this exact structure:
 {
-  "title": "<High-CTR documentary title, <=70 chars>",
-  "description": "<Engaging SEO description, 150-250 words with timestamps & keywords>",
-  "tags": ["<8-15 high volume relevant tags>"],
-  "chapters": [{"title": "<Chapter Title>", "start_scene": 0}],
+  "title": "<Hybrid Title: [English Topic] : [Hinglish Curiosity Hook], Roman alphabet only, <=70 chars, NO Devanagari>",
+  "description": "<Comprehensive Pure English SEO description, 150-250 words with timestamps & keywords, NO Devanagari>",
+  "tags": ["<8-15 high volume relevant tags in English alphabet>"],
+  "chapters": [{"title": "<Chapter Title in English>", "start_scene": 0}],
   "scenes": [
     {
-      "narration": "<Exact words spoken in this scene in ${language}>",
+      "narration": "<Exact words spoken in Hindi by voice hi-IN-MadhurNeural>",
+      "caption": "<Exact English translation in pure English language and Roman alphabet for on-screen subtitles>",
       "visual_prompt": "<Ultra-detailed cinematic video prompt in English: camera move, lens, subject action matching narration, lighting, natural atmosphere>"
     }
   ]
