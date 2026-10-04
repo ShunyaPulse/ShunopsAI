@@ -18,6 +18,7 @@ import { startVideoJob, manageKaggle, publishJobToYouTube } from "./src/tools/vi
 import { requestHumanApproval, isActionSensitive } from "./src/tools/safety.js";
 import { runComprehensiveSentinelScan, formatSentinelReportMarkdown, autoHealService } from "./src/tools/sentinel.js";
 import { runCloudflareAiInference } from "./src/tools/cloudflare-ai.js";
+import { runDualModelConsensus } from "./src/ai/consensus.js";
 
 const execAsync = promisify(exec);
 
@@ -207,7 +208,8 @@ export type ToolName =
   | "ask_user_confirmation"
   | "sentinel_health_check"
   | "auto_heal_service"
-  | "run_cloudflare_ai";
+  | "run_cloudflare_ai"
+  | "dual_model_consensus";
 
 export const toolRegistry: Record<ToolName, ToolDefinition> = {
   run_shell_command: {
@@ -765,6 +767,47 @@ export const toolRegistry: Record<ToolName, ToolDefinition> = {
       });
     },
   },
+
+  dual_model_consensus: {
+    schema: {
+      type: "function",
+      function: {
+        name: "dual_model_consensus",
+        description:
+          "Runs a strict 2-round multi-agent peer review & debate between Model 1 (Proposer) and Model 2 (Auditor) to reach a verified, high-accuracy consensus on critical, complex, or high-risk architectural/code decisions.",
+        parameters: {
+          type: "object",
+          properties: {
+            taskGoal: {
+              type: "string",
+              description: "The core question, problem statement, or task requiring consensus deliberation",
+            },
+            context: {
+              type: "string",
+              description: "Optional relevant context (code snippet, error logs, requirements, or architecture)",
+            },
+            maxRounds: {
+              type: "number",
+              description: "Debate round limit (default: 2 rounds). Both models are strictly turn-aware.",
+            },
+          },
+          required: ["taskGoal"],
+        },
+      },
+    },
+    execute: async (args: { taskGoal: string; context?: string; maxRounds?: number }) => {
+      const result = await runDualModelConsensus(args.taskGoal, {
+        context: args.context,
+        maxRounds: args.maxRounds ?? 2,
+      });
+      return JSON.stringify({
+        consensusReached: result.consensusReached,
+        roundsCompleted: result.roundsCompleted,
+        finalDecision: result.finalDecision,
+        auditCritique: result.auditCritique.slice(0, 1000),
+      }, null, 2);
+    },
+  },
 };
 
 const registeredTools: OpenAI.ChatCompletionTool[] = Object.values(toolRegistry).map(
@@ -911,7 +954,8 @@ You operate as the master brain managing an ecosystem of specialized capabilitie
 4. Cloud Compute & GitOps: manage_cloud_run (Google Cloud Run), manage_compute_engine (GCE/Host), manage_github (issues, pull requests, branches)
 5. Content & Media Pipeline: produce_video (Gemini script + Kaggle GPU rendering of 4-10 min videos), manage_kaggle (kernel status, outputs), publish_to_youtube
 6. Host & Filesystem: run_shell_command, read_file, write_file, list_directory, inspect_website
-7. Safety Guardrail: ask_user_confirmation (ask human approval for sensitive/destructive operations)
+7. Multi-Agent Peer Review & Consensus: dual_model_consensus (collaborative 2-round debate between Proposer and Auditor models for high-risk decisions)
+8. Safety Guardrail: ask_user_confirmation (ask human approval for sensitive/destructive operations)
 
 # Operating Guidelines for Out-Of-The-Box Tasks:
 1. When asked to perform ANY task (no matter how novel, complex, or out of the box):
