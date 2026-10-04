@@ -19,6 +19,7 @@ import { requestHumanApproval, isActionSensitive } from "./src/tools/safety.js";
 import { runComprehensiveSentinelScan, formatSentinelReportMarkdown, autoHealService } from "./src/tools/sentinel.js";
 import { runCloudflareAiInference } from "./src/tools/cloudflare-ai.js";
 import { runDualModelConsensus } from "./src/ai/consensus.js";
+import { runAutoAlertResolver } from "./src/tools/code-scanner-resolver.js";
 
 const execAsync = promisify(exec);
 
@@ -209,7 +210,8 @@ export type ToolName =
   | "sentinel_health_check"
   | "auto_heal_service"
   | "run_cloudflare_ai"
-  | "dual_model_consensus";
+  | "dual_model_consensus"
+  | "resolve_code_scanning_alerts";
 
 export const toolRegistry: Record<ToolName, ToolDefinition> = {
   run_shell_command: {
@@ -806,6 +808,30 @@ export const toolRegistry: Record<ToolName, ToolDefinition> = {
         finalDecision: result.finalDecision,
         auditCritique: result.auditCritique.slice(0, 1000),
       }, null, 2);
+    },
+  },
+
+  resolve_code_scanning_alerts: {
+    schema: {
+      type: "function",
+      function: {
+        name: "resolve_code_scanning_alerts",
+        description:
+          "Fetches open GitHub Code Scanning alerts (CodeQL, Semgrep, Trivy), inspects the flagged source code, generates automated security patches, runs typecheck, and pushes fixes to GitHub.",
+        parameters: {
+          type: "object",
+          properties: {
+            limit: {
+              type: "number",
+              description: "Maximum number of alerts to fix in this run (default: 5)",
+            },
+          },
+        },
+      },
+    },
+    execute: async (args: { limit?: number }) => {
+      const result = await runAutoAlertResolver(args.limit ?? 5);
+      return JSON.stringify(result, null, 2);
     },
   },
 };

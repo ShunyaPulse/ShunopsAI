@@ -19,6 +19,7 @@ on:
           - "cloudflare_workers_ai"
           - "kaggle_gpu_pipeline"
           - "github_gitops_remediation"
+          - "code_scanning_alerts_remediation"
       task_goal:
         description: "Action or task to perform on the service"
         required: true
@@ -41,7 +42,7 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
         with:
-          token: ${{ secrets.GITHUB_PAT || secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -132,10 +133,15 @@ jobs:
           VIDEO_TOKEN: ${{ secrets.VIDEO_TOKEN }}
           GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
           GCP_DEFAULT_REGION: ${{ secrets.GCP_DEFAULT_REGION }}
-          GITHUB_PAT: ${{ secrets.GITHUB_PAT || secrets.GITHUB_TOKEN }}
+          GH_PAT: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
           TARGET_SERVICE: ${{ github.event.inputs.target_service || 'issue-trigger' }}
           TASK_GOAL: ${{ github.event.inputs.task_goal || github.event.issue.title }}
         run: |
           echo "🎯 [Cloud Ops] Target: $TARGET_SERVICE"
           echo "🎯 [Cloud Ops] Goal: $TASK_GOAL"
-          npx tsx agent.ts "Target Service: $TARGET_SERVICE. Action: $TASK_GOAL"
+          if [ "$TARGET_SERVICE" = "code_scanning_alerts_remediation" ]; then
+            npx tsx src/tools/code-scanner-resolver.ts 10
+          else
+            npx tsx agent.ts "Target Service: $TARGET_SERVICE. Action: $TASK_GOAL"
+          fi
