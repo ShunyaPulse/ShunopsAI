@@ -58,6 +58,7 @@ export interface ConsensusResult {
 export const PROPOSER_MODELS_CHAIN: ModelEndpoint[] = [
   // 1. Google AI Studio (Active Non-Lite Models with Verified 1/5 Quota)
   { provider: "gemini", model: "gemini-3.8-flash", name: "Gemini 3.8 Flash (Active 1/5)" },
+  { provider: "gemini", model: "gemini-3.7-flash", name: "Gemini 3.7 Flash" },
   { provider: "gemini", model: "gemini-3.6-flash", name: "Gemini 3.6 Flash (Active 1/5)" },
   { provider: "gemini", model: "gemini-3.5-flash", name: "Gemini 3.5 Flash (Active 1/5)" },
   { provider: "gemini", model: "gemini-3-flash-preview", name: "Gemini 3 Flash (Active 1/5)" },
@@ -84,6 +85,7 @@ export const AUDITOR_MODELS_CHAIN: ModelEndpoint[] = [
 
   // 2. Google AI Studio (Active Non-Lite Models with Verified 1/5 Quota)
   { provider: "gemini", model: "gemini-3.8-flash", name: "Gemini 3.8 Flash (Audit Backup)" },
+  { provider: "gemini", model: "gemini-3.7-flash", name: "Gemini 3.7 Flash" },
   { provider: "gemini", model: "gemini-3.6-flash", name: "Gemini 3.6 Flash" },
   { provider: "gemini", model: "gemini-3.5-flash", name: "Gemini 3.5 Flash" },
   { provider: "gemini", model: "gemini-3-flash-preview", name: "Gemini 3 Flash" },

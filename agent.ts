@@ -70,6 +70,7 @@ export const AGENT_MODELS_CHAIN: ModelTarget[] = [
 
   // 4. Google AI Studio Fallback (Gemini Key Pool with Active 1/5 Quota)
   { provider: "gemini", model: "gemini-3.8-flash", name: "Gemini 3.8 Flash (AI Studio 34-Key Pool)" },
+  { provider: "gemini", model: "gemini-3.7-flash", name: "Gemini 3.7 Flash" },
   { provider: "gemini", model: "gemini-3.6-flash", name: "Gemini 3.6 Flash (Active 1/5)" },
   { provider: "gemini", model: "gemini-3.5-flash", name: "Gemini 3.5 Flash (Active 1/5)" },
   { provider: "gemini", model: "gemini-3-flash-preview", name: "Gemini 3 Flash Preview (Active 1/5)" },
