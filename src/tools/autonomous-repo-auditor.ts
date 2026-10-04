@@ -4,6 +4,7 @@ import * as path from "node:path";
 import * as os from "node:os";
 import OpenAI from "openai";
 import * as dotenv from "dotenv";
+import { Redis } from "ioredis";
 import {
   DEFAULT_PROPOSER,
   DEFAULT_AUDITOR,
@@ -45,6 +46,95 @@ export interface AuditResult {
   flawsRemediated: number;
   prCreated?: string;
   prMerged?: boolean;
+  skipped?: boolean;
+  reason?: string;
+}
+
+export interface RepoAuditState {
+  lastAuditedCommitSha: string;
+  consecutiveRunsOnSameCommit: number;
+  lastAuditedAt: string;
+  lastStatus: "clean" | "remediated" | "skipped";
+}
+
+const AUDIT_STATE_FILE = path.resolve(process.cwd(), ".auditor-state.json");
+
+function getAuditorRedis(): Redis | null {
+  const redisUrl = process.env.REDIS_URL;
+  const redisHost = process.env.REDIS_HOST;
+  if (!redisUrl && !redisHost) return null;
+  try {
+    return redisUrl
+      ? new Redis(redisUrl, { connectTimeout: 3000, lazyConnect: true, maxRetriesPerRequest: 1 })
+      : new Redis({
+          host: redisHost || "127.0.0.1",
+          port: Number(process.env.REDIS_PORT) || 6379,
+          password: process.env.REDIS_PASSWORD || undefined,
+          connectTimeout: 3000,
+          lazyConnect: true,
+          maxRetriesPerRequest: 1,
+        });
+  } catch {
+    return null;
+  }
+}
+
+export async function getAuditorState(repoSlug: string): Promise<RepoAuditState | null> {
+  // 1. Try Redis first (for distributed/cloud runner state)
+  const redis = getAuditorRedis();
+  if (redis) {
+    try {
+      await redis.connect();
+      const raw = await redis.get(`shunops:auditor:state:${repoSlug}`);
+      await redis.quit();
+      if (raw) return JSON.parse(raw);
+    } catch {
+      try {
+        redis.disconnect();
+      } catch {}
+    }
+  }
+
+  // 2. Fallback to local .auditor-state.json
+  try {
+    const raw = await fs.readFile(AUDIT_STATE_FILE, "utf-8");
+    const data = JSON.parse(raw);
+    return data[repoSlug] || null;
+  } catch {
+    return null;
+  }
+}
+
+export async function saveAuditorState(repoSlug: string, state: RepoAuditState): Promise<void> {
+  // 1. Save to Redis
+  const redis = getAuditorRedis();
+  if (redis) {
+    try {
+      await redis.connect();
+      await redis.set(
+        `shunops:auditor:state:${repoSlug}`,
+        JSON.stringify(state),
+        "EX",
+        60 * 60 * 24 * 30
+      );
+      await redis.quit();
+    } catch {
+      try {
+        redis.disconnect();
+      } catch {}
+    }
+  }
+
+  // 2. Persist to local state file
+  try {
+    let data: Record<string, RepoAuditState> = {};
+    try {
+      const raw = await fs.readFile(AUDIT_STATE_FILE, "utf-8");
+      data = JSON.parse(raw);
+    } catch {}
+    data[repoSlug] = state;
+    await fs.writeFile(AUDIT_STATE_FILE, JSON.stringify(data, null, 2), "utf-8");
+  } catch {}
 }
 
 function getAuthEnv(): NodeJS.ProcessEnv {
@@ -294,18 +384,75 @@ async function getSourceFiles(dir: string, baseDir = dir): Promise<string[]> {
 }
 
 /**
- * Autonomously audit and heal a repository
+ * Autonomously audit and heal a repository with Smart Quota Guardrails
  */
 export async function auditAndHealRepository(
   repoSlug = "ShunyaPulse/ShunopsAI",
   rootDir = process.cwd(),
-  options: { createPR?: boolean } = { createPR: true }
+  options: { createPR?: boolean; force?: boolean } = { createPR: true }
 ): Promise<AuditResult> {
   console.log(`\n${colors.cyan}${colors.bold}====================================================${colors.reset}`);
   console.log(`${colors.cyan}${colors.bold}🛡️ ShunopsAI Autonomous Repository Auditor & Healer${colors.reset}`);
   console.log(`${colors.cyan}Target Repo:${colors.reset} ${repoSlug}`);
   console.log(`${colors.cyan}Directory:${colors.reset}   ${rootDir}`);
   console.log(`${colors.cyan}${colors.bold}====================================================${colors.reset}\n`);
+
+  // 1. Fetch current commit SHA for change tracking
+  let currentCommitSha = "";
+  try {
+    currentCommitSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: rootDir, encoding: "utf-8" }).trim();
+  } catch {
+    try {
+      currentCommitSha = execFileSync("gh", ["api", `repos/${repoSlug}/commits/HEAD`, "--jq", ".sha"], {
+        env: getAuthEnv(),
+        encoding: "utf-8",
+      }).trim();
+    } catch {}
+  }
+
+  // 2. Smart Quota Guardrail: Max 2 consecutive runs on the same commit SHA
+  let consecutiveRuns = 1;
+  if (!options.force && currentCommitSha) {
+    const prevState = await getAuditorState(repoSlug);
+    if (prevState && prevState.lastAuditedCommitSha === currentCommitSha) {
+      consecutiveRuns = (prevState.consecutiveRunsOnSameCommit || 0) + 1;
+      if (consecutiveRuns > 2) {
+        console.log(
+          `${colors.yellow}⏭️ [Smart Quota Guardrail] No new commits detected in ${repoSlug} since commit ${currentCommitSha.slice(0, 7)}.`
+        );
+        console.log(
+          `Repository was already verified ${prevState.consecutiveRunsOnSameCommit} consecutive times without changes.`
+        );
+        console.log(
+          `Skipping LLM audit to conserve Gemini & Groq model quotas.${colors.reset}\n`
+        );
+
+        await saveAuditorState(repoSlug, {
+          lastAuditedCommitSha: currentCommitSha,
+          consecutiveRunsOnSameCommit: consecutiveRuns,
+          lastAuditedAt: new Date().toISOString(),
+          lastStatus: "skipped",
+        });
+
+        return {
+          repo: repoSlug,
+          scannedFiles: 0,
+          flawsDetected: 0,
+          flawsRemediated: 0,
+          skipped: true,
+          reason: `No commit changes since ${currentCommitSha.slice(0, 7)} (verified ${prevState.consecutiveRunsOnSameCommit} times previously)`,
+        };
+      }
+      console.log(
+        `${colors.cyan}ℹ️ [Smart Guardrail] Audit ${consecutiveRuns}/2 on commit ${currentCommitSha.slice(0, 7)} (verification run)${colors.reset}`
+      );
+    } else {
+      console.log(
+        `${colors.green}🆕 [Smart Guardrail] New commit detected: ${currentCommitSha.slice(0, 7) || "initial"} - Starting fresh 2-run cycle.${colors.reset}`
+      );
+      consecutiveRuns = 1;
+    }
+  }
 
   const files = await getSourceFiles(rootDir);
   console.log(`Auditing ${files.length} source code files for vulnerabilities and flaws...`);
@@ -324,6 +471,14 @@ export async function auditAndHealRepository(
 
   if (allFlaws.length === 0) {
     console.log(`${colors.green}Repository is clean! No security or logic flaws detected. 🎉${colors.reset}`);
+    if (currentCommitSha) {
+      await saveAuditorState(repoSlug, {
+        lastAuditedCommitSha: currentCommitSha,
+        consecutiveRunsOnSameCommit: consecutiveRuns,
+        lastAuditedAt: new Date().toISOString(),
+        lastStatus: "clean",
+      });
+    }
     return {
       repo: repoSlug,
       scannedFiles: files.length,
@@ -332,10 +487,19 @@ export async function auditAndHealRepository(
     };
   }
 
+  // Quota Guardrail: Cap remediation to top 5 flaws per run to prevent token bursts
+  const MAX_FLAWS_PER_AUDIT = 5;
+  const flawsToRemediate = allFlaws.slice(0, MAX_FLAWS_PER_AUDIT);
+  if (allFlaws.length > MAX_FLAWS_PER_AUDIT) {
+    console.log(
+      `${colors.yellow}⚠️ Limiting remediation to top ${MAX_FLAWS_PER_AUDIT} flaws (out of ${allFlaws.length}) to guard model quota.${colors.reset}`
+    );
+  }
+
   let remediatedCount = 0;
   const patchSummaries: string[] = [];
 
-  for (const flaw of allFlaws) {
+  for (const flaw of flawsToRemediate) {
     const result = await remediateFlawWithConsensus(flaw, rootDir);
     if (result.success) {
       remediatedCount++;
@@ -410,6 +574,16 @@ export async function auditAndHealRepository(
     }
   }
 
+  // Update audit state
+  if (currentCommitSha) {
+    await saveAuditorState(repoSlug, {
+      lastAuditedCommitSha: currentCommitSha,
+      consecutiveRunsOnSameCommit: consecutiveRuns,
+      lastAuditedAt: new Date().toISOString(),
+      lastStatus: remediatedCount > 0 ? "remediated" : "clean",
+    });
+  }
+
   return auditResult;
 }
 
@@ -431,6 +605,38 @@ export async function runMultiRepoAutonomousAuditor(): Promise<AuditResult[]> {
       const res = await auditAndHealRepository(repo, process.cwd(), { createPR: true });
       results.push(res);
     } else {
+      // Remote repository: Check remote commit SHA first before cloning!
+      let remoteSha = "";
+      try {
+        remoteSha = execFileSync(
+          "gh",
+          ["api", `repos/${repo}/commits/HEAD`, "--jq", ".sha"],
+          { env: getAuthEnv(), encoding: "utf-8" }
+        ).trim();
+      } catch {}
+
+      if (remoteSha) {
+        const prevState = await getAuditorState(repo);
+        if (
+          prevState &&
+          prevState.lastAuditedCommitSha === remoteSha &&
+          (prevState.consecutiveRunsOnSameCommit || 0) >= 2
+        ) {
+          console.log(
+            `\n${colors.yellow}⏭️ [Remote Repo Skipped] ${repo} has no new commits since ${remoteSha.slice(0, 7)} (verified ${prevState.consecutiveRunsOnSameCommit} times). Skipping clone & LLM calls.${colors.reset}`
+          );
+          results.push({
+            repo,
+            scannedFiles: 0,
+            flawsDetected: 0,
+            flawsRemediated: 0,
+            skipped: true,
+            reason: `No new commits since ${remoteSha.slice(0, 7)} (verified ${prevState.consecutiveRunsOnSameCommit} times)`,
+          });
+          continue;
+        }
+      }
+
       // Remote repository: clone into isolated temp directory
       const tmpDir = path.join(os.tmpdir(), `shunopsai-audit-${repo.replace("/", "-")}-${Date.now()}`);
       try {
@@ -453,7 +659,8 @@ export async function runMultiRepoAutonomousAuditor(): Promise<AuditResult[]> {
 }
 
 // CLI direct execution
-if (import.meta.url === `file://${process.argv[1]?.replace(/\\/g, "/")}`) {
+const isCLI = process.argv[1]?.endsWith("autonomous-repo-auditor.ts") || process.argv[1]?.endsWith("autonomous-repo-auditor.js");
+if (isCLI) {
   runMultiRepoAutonomousAuditor()
     .then((results) => {
       console.log("\n📊 Final Multi-Repo Autonomous Audit Report:");

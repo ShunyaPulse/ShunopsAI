@@ -93,6 +93,7 @@ export async function runAutonomousCycle(): Promise<AutopilotRunResult> {
     const curated = await curateBestTrendTopic(trends);
     console.log(`[Autopilot] 🎯 Curated Topic: "${curated.documentary_topic}"`);
     console.log(`[Autopilot] 🏷️ Category: ${curated.category}`);
+    console.log(`[Autopilot] ⚡ Trend Catalyst Event: "${curated.trend_reason}"`);
     console.log(`[Autopilot] 💡 Value Hook: ${curated.value_hook}`);
 
     // 3. Launch Video Job on Kaggle GPU
@@ -103,6 +104,7 @@ export async function runAutonomousCycle(): Promise<AutopilotRunResult> {
       curated.documentary_topic,
       curated.target_duration_minutes || 3,
       "Hindi",
+      curated.trend_reason,
     );
 
     let parsedLaunch: any;
