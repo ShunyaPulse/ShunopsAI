@@ -60,7 +60,7 @@ jobs:
 
       # 3. Initialize CodeQL
       - name: Initialize CodeQL Analysis
-        uses: github/codeql-action/init@v3
+        uses: github/codeql-action/init@v4
         with:
           languages: "javascript-typescript"
 
@@ -71,7 +71,7 @@ jobs:
 
       # 5. Upload Semgrep SARIF
       - name: Upload Semgrep SARIF
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: semgrep.sarif
         continue-on-error: true
@@ -85,14 +85,14 @@ jobs:
 
       # 7. Upload Trivy SARIF
       - name: Upload Trivy SARIF
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: "trivy-results.sarif"
         continue-on-error: true
 
       # 8. Perform CodeQL Analysis
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v3
+        uses: github/codeql-action/analyze@v4
         continue-on-error: true
 
       # 9. Promptfoo Prompt Safety Evaluation
