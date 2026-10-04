@@ -18,6 +18,13 @@ export interface CloudflareAiResponse {
   latencyMs?: number;
 }
 
+export const CLOUDFLARE_MODELS_CHAIN: string[] = [
+  process.env.CLOUDFLARE_AI_MODEL || "@cf/meta/llama-3.1-8b-instruct",
+  "@cf/meta/llama-3-8b-instruct",
+  "@cf/mistral/mistral-7b-instruct-v0.1",
+  "@cf/qwen/qwen1.5-7b-chat-awq",
+];
+
 /**
  * Run inference on Cloudflare Workers AI
  */
@@ -31,19 +38,18 @@ export async function runCloudflareAiInference(
     return "Error: CLOUDFLARE_ACCOUNT_ID or CLOUDFLARE_API_TOKEN is not configured in .env.";
   }
 
-  const defaultModel =
-    process.env.CLOUDFLARE_AI_MODEL || "@cf/meta/llama-3.1-8b-instruct";
+  const requestedModel = typeof promptOrOptions === "object" ? promptOrOptions.model : undefined;
+  const modelsToTry = requestedModel
+    ? [requestedModel, ...CLOUDFLARE_MODELS_CHAIN.filter((m) => m !== requestedModel)]
+    : CLOUDFLARE_MODELS_CHAIN;
 
-  let model = defaultModel;
   let bodyPayload: any = {};
-
   if (typeof promptOrOptions === "string") {
     bodyPayload = {
       prompt: promptOrOptions,
       max_tokens: 1024,
     };
   } else {
-    model = promptOrOptions.model || defaultModel;
     if (promptOrOptions.messages && promptOrOptions.messages.length > 0) {
       bodyPayload = {
         messages: promptOrOptions.messages,
@@ -64,37 +70,46 @@ export async function runCloudflareAiInference(
     bodyPayload.lora = process.env.CLOUDFLARE_LORA_NAME;
   }
 
-  const endpoint = `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${model}`;
-  const start = Date.now();
+  let lastErrorMsg = "";
 
-  try {
-    const res = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiToken}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(bodyPayload),
-      signal: AbortSignal.timeout(30000),
-    });
+  for (let mIdx = 0; mIdx < modelsToTry.length; mIdx++) {
+    const model = modelsToTry[mIdx]!;
+    const endpoint = `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${model}`;
+    const start = Date.now();
 
-    const latencyMs = Date.now() - start;
-    const data = (await res.json()) as any;
+    try {
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(bodyPayload),
+        signal: AbortSignal.timeout(30000),
+      });
 
-    if (!res.ok || !data.success) {
-      const errMsg = JSON.stringify(data.errors || data);
-      return `Cloudflare AI Error (${res.status}, ${latencyMs}ms): ${errMsg}`;
+      const latencyMs = Date.now() - start;
+      const data = (await res.json()) as any;
+
+      if (!res.ok || !data.success) {
+        lastErrorMsg = JSON.stringify(data.errors || data);
+        console.warn(`[Cloudflare AI Fallback] Model ${model} failed (${res.status}): ${lastErrorMsg}. Trying next model...`);
+        continue;
+      }
+
+      const outputText =
+        data.result?.response ||
+        data.result?.generated_text ||
+        JSON.stringify(data.result, null, 2);
+
+      return `Cloudflare AI Response [Model: ${model}, Latency: ${latencyMs}ms]:\n${outputText}`;
+    } catch (err: any) {
+      lastErrorMsg = err.message;
+      console.warn(`[Cloudflare AI Fallback] Network error on ${model}: ${err.message}. Trying next model...`);
     }
-
-    const outputText =
-      data.result?.response ||
-      data.result?.generated_text ||
-      JSON.stringify(data.result, null, 2);
-
-    return `Cloudflare AI Response [Model: ${model}, Latency: ${latencyMs}ms]:\n${outputText}`;
-  } catch (err: any) {
-    return `Cloudflare AI Request Failed: ${err.message}`;
   }
+
+  return `Cloudflare AI All Fallbacks Failed: ${lastErrorMsg}`;
 }
 
 /**

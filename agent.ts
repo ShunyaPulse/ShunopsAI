@@ -71,6 +71,8 @@ export const AGENT_MODELS_CHAIN: ModelTarget[] = [
   // 4. Google AI Studio Fallback (Gemini Key Pool with 34 Keys)
   { provider: "gemini", model: "gemini-3.8-flash", name: "Gemini 3.8 Flash (AI Studio 34-Key Pool)" },
   { provider: "gemini", model: "gemini-3.5-flash-lite", name: "Gemini 3.5 Flash Lite (High Throughput 1500 RPD)" },
+  { provider: "gemini", model: "gemini-2.5-flash", name: "Gemini 2.5 Flash (Production Stable)" },
+  { provider: "gemini", model: "gemini-2.0-flash", name: "Gemini 2.0 Flash (Fast Backup)" },
 ];
 
 export const PRIMARY_MODEL = AGENT_MODELS_CHAIN[0]?.model ?? "nvidia/nemotron-3-ultra-550b-a55b:free";
