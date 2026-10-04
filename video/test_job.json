@@ -1,0 +1,4 @@
+{
+  "goal": "Call the produce_video tool exactly once with topic 'How black holes form, explained simply' and minutes 2 in English. Then report the returned jobId and kernel ref. Do not call any other tool.",
+  "maxSteps": 4
+}

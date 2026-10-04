@@ -1,0 +1,36 @@
+{
+  "name": "shunopsai",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "ShunopsAI: Autonomous Multi-Cloud & DevOps Sentinel Agent powered by OpenRouter, GitHub Actions, and n8n",
+  "main": "agent.ts",
+  "scripts": {
+    "start": "tsx agent.ts",
+    "server": "tsx server.ts",
+    "test": "tsx test-tools.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "agent",
+    "react",
+    "nemotron",
+    "openrouter",
+    "autonomous"
+  ],
+  "dependencies": {
+    "@neondatabase/serverless": "^1.2.0",
+    "@types/express": "^5.0.6",
+    "@types/ioredis": "^4.28.10",
+    "dotenv": "^18.0.5",
+    "express": "^5.2.1",
+    "ioredis": "^6.0.0",
+    "nodemailer": "^10.0.14",
+    "openai": "^7.27.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.4",
+    "@types/nodemailer": "^8.0.2",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  }
+}
