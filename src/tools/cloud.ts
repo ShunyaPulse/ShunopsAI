@@ -57,8 +57,27 @@ export async function executeNeonSql(query: string): Promise<string> {
 
 /**
  * 2. OCI Redis Tool
+ *
+ * Only data-access commands are permitted. Administrative / destructive
+ * commands (CONFIG, EVAL, SCRIPT, FLUSHALL, SHUTDOWN, ...) are rejected so
+ * model- or user-supplied input cannot reconfigure or wipe the instance.
  */
+const ALLOWED_REDIS_COMMANDS = new Set<string>([
+  "PING", "ECHO", "GET", "SET", "SETEX", "SETNX", "GETSET", "APPEND", "STRLEN",
+  "MGET", "MSET", "DEL", "UNLINK", "EXISTS", "TYPE", "TTL", "PTTL", "EXPIRE",
+  "PEXPIRE", "PERSIST", "KEYS", "SCAN", "INCR", "DECR", "INCRBY", "DECRBY",
+  "HSET", "HGET", "HGETALL", "HDEL", "HEXISTS", "HKEYS", "HVALS", "HLEN", "HINCRBY",
+  "LPUSH", "RPUSH", "LPOP", "RPOP", "LRANGE", "LLEN", "LINDEX", "SADD", "SREM",
+  "SMEMBERS", "SISMEMBER", "SCARD", "ZADD", "ZREM", "ZRANGE", "ZRANGEBYSCORE",
+  "ZCARD", "ZSCORE", "DBSIZE", "INFO", "MEMORY", "COMMAND",
+]);
+
 export async function executeRedisCommand(command: string, args: string[] = []): Promise<string> {
+  const normalizedCommand = command.trim().toUpperCase();
+  if (!ALLOWED_REDIS_COMMANDS.has(normalizedCommand)) {
+    return `Error: Redis command '${command}' is not permitted. Allowed commands: ${[...ALLOWED_REDIS_COMMANDS].join(", ")}.`;
+  }
+
   const redis = getRedisInstance();
   if (!redis) {
     return "Error: REDIS_URL or REDIS_HOST is not set in .env. Please configure your OCI Redis connection.";
@@ -70,7 +89,7 @@ export async function executeRedisCommand(command: string, args: string[] = []):
     if (redis.status === "wait" || redis.status === "close") {
       await redis.connect();
     }
-    const result = await redis.call(command, ...args);
+    const result = await redis.call(normalizedCommand, ...args);
     return `Redis Result for '${fullCmd}':\n${JSON.stringify(result, null, 2)}`;
   } catch (error: any) {
     return `Redis Error: ${error.message}`;

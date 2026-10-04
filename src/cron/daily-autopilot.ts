@@ -215,21 +215,21 @@ export async function runAutonomousCycle(): Promise<AutopilotRunResult> {
  * Calculates ms until the next 03:30 PM IST (15:30 IST / 10:00 UTC).
  */
 function msUntilNextRun(targetHourIST = 15, targetMinuteIST = 30): number {
-  const now = new Date();
-  // IST offset is UTC + 5h30m = +330 minutes
-  const nowUTC = now.getTime() + now.getTimezoneOffset() * 60000;
-  const nowIST = new Date(nowUTC + 330 * 60000);
+  const IST_OFFSET_MS = 330 * 60 * 1000; // UTC + 5h30m
+  const DAY_MS = 24 * 60 * 60 * 1000;
 
-  const target = new Date(nowIST);
-  target.setHours(targetHourIST, targetMinuteIST, 0, 0);
+  // Work purely in UTC arithmetic so the result is independent of the host
+  // timezone: shift "now" into IST wall-clock epoch milliseconds first.
+  const nowIstMs = Date.now() + IST_OFFSET_MS;
+  const startOfIstDay = Math.floor(nowIstMs / DAY_MS) * DAY_MS;
 
-  if (target.getTime() <= nowIST.getTime()) {
-    // Already passed today, schedule for tomorrow
-    target.setDate(target.getDate() + 1);
+  let targetIstMs = startOfIstDay + (targetHourIST * 60 + targetMinuteIST) * 60 * 1000;
+  if (targetIstMs <= nowIstMs) {
+    // Already passed today in IST, schedule for tomorrow
+    targetIstMs += DAY_MS;
   }
 
-  const diffMs = target.getTime() - nowIST.getTime();
-  return diffMs;
+  return targetIstMs - nowIstMs;
 }
 
 /**

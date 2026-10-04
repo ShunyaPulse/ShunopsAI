@@ -1,5 +1,6 @@
 import * as readline from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
+import { randomInt } from "node:crypto";
 
 export interface ApprovalRequest {
   id: string;
@@ -103,7 +104,9 @@ export async function requestHumanApproval(
   commandOrPayload: string,
   riskReason: string
 ): Promise<{ approved: boolean; message: string }> {
-  const id = `req_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+  // Use a cryptographically strong random suffix: approval IDs must be
+  // unguessable so a third party cannot approve/reject a pending action.
+  const id = `req_${Date.now()}_${randomInt(0, 0xffffffff).toString(36)}`;
   const request: ApprovalRequest = {
     id,
     action,

@@ -431,15 +431,15 @@ export function getShunopsDashboardHtml(initialData: {
         <div class="service-card">
           <div>
             <div class="sc-header">
-              <div class="sc-title">\${s.service}</div>
+              <div class="sc-title">\${escapeHtml(String(s.service))}</div>
               \${badgeMap[s.status] || badgeMap.healthy}
             </div>
             <div class="sc-metric">\${s.latencyMs !== undefined ? s.latencyMs + 'ms' : 'Active'}</div>
           </div>
           <div class="sc-body">
-            <div>Category: \${s.category.toUpperCase()}</div>
+            <div>Category: \${escapeHtml(String(s.category || '').toUpperCase())}</div>
             <div style="font-size: 11px; margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-              \${s.error ? '<span style="color:#ef4444">' + s.error + '</span>' : JSON.stringify(s.details || {})}
+              \${s.error ? '<span style="color:#ef4444">' + escapeHtml(String(s.error)) + '</span>' : escapeHtml(JSON.stringify(s.details || {}))}
             </div>
           </div>
         </div>

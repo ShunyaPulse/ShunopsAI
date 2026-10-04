@@ -63,17 +63,20 @@ async function main() {
       await fs.writeFile(envPath, envContent, "utf-8");
       console.log("💾 Saved YOUTUBE_REFRESH_TOKEN to .env");
 
-      try {
-        const sharedEnvPath = "C:\\Users\\LENOVO\\.shared-env";
-        let shared = await fs.readFile(sharedEnvPath, "utf-8");
-        if (/^YOUTUBE_REFRESH_TOKEN=/m.test(shared)) {
-          shared = shared.replace(/^YOUTUBE_REFRESH_TOKEN=.*$/m, `YOUTUBE_REFRESH_TOKEN=${refreshToken}`);
-        } else {
-          shared += `\n# YouTube Auto-Publishing\nYOUTUBE_REFRESH_TOKEN=${refreshToken}\n`;
-        }
-        await fs.writeFile(sharedEnvPath, shared, "utf-8");
-        console.log("💾 Saved YOUTUBE_REFRESH_TOKEN to .shared-env");
-      } catch {}
+      // Optional: mirror the token into a user-configured shared env file.
+      const sharedEnvPath = process.env.SHARED_ENV_PATH;
+      if (sharedEnvPath) {
+        try {
+          let shared = await fs.readFile(sharedEnvPath, "utf-8");
+          if (/^YOUTUBE_REFRESH_TOKEN=/m.test(shared)) {
+            shared = shared.replace(/^YOUTUBE_REFRESH_TOKEN=.*$/m, `YOUTUBE_REFRESH_TOKEN=${refreshToken}`);
+          } else {
+            shared += `\n# YouTube Auto-Publishing\nYOUTUBE_REFRESH_TOKEN=${refreshToken}\n`;
+          }
+          await fs.writeFile(sharedEnvPath, shared, "utf-8");
+          console.log(`💾 Saved YOUTUBE_REFRESH_TOKEN to ${sharedEnvPath}`);
+        } catch {}
+      }
 
       server.close();
       rl.close();
