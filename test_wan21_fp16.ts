@@ -14,7 +14,7 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error("[Wan2.1 FP16] Launch error:", '[REDACTED]');
+  console.error("[Wan2.1 FP16] Launch error:", err instanceof Error ? err.message : String(err));
   process.exit(1);
 });
 

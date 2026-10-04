@@ -37,6 +37,7 @@ export async function sendVideoReadyEmail(details: VideoNotificationDetails): Pr
     auth: { user, pass },
   });
 
+  const hasThumbnail = Boolean(details.thumbnailPath && fs.existsSync(details.thumbnailPath));
   const durationMin = details.durationSec ? `${(details.durationSec / 60).toFixed(1)} mins` : "3.0 mins";
   const chaptersHtml = (details.chapters || [])
     .map((c, i) => `<li style="margin-bottom: 4px;"><strong>Scene ${c.start_scene + 1}:</strong> ${c.title}</li>`)
@@ -60,7 +61,13 @@ export async function sendVideoReadyEmail(details: VideoNotificationDetails): Pr
 
     <!-- Content -->
     <div style="padding: 28px 30px;">
-      
+
+      ${
+        hasThumbnail
+          ? `<img src="cid:thumbnailImage" alt="Video thumbnail" style="width: 100%; border-radius: 8px; margin-bottom: 20px; display: block;" />`
+          : ""
+      }
+
       <div style="background-color: #0f172a; border-left: 4px solid #38bdf8; padding: 14px 16px; border-radius: 6px; margin-bottom: 20px;">
         <span style="font-size: 11px; font-weight: 700; color: #38bdf8; text-transform: uppercase; letter-spacing: 1px;">Trend Category: ${details.category || "General Curiosity"}</span>
         <h2 style="margin: 6px 0 0 0; font-size: 18px; color: #f8fafc; line-height: 1.4;">${details.title}</h2>
@@ -122,7 +129,7 @@ export async function sendVideoReadyEmail(details: VideoNotificationDetails): Pr
 
   try {
     const attachments: any[] = [];
-    if (details.thumbnailPath && fs.existsSync(details.thumbnailPath)) {
+    if (hasThumbnail && details.thumbnailPath) {
       attachments.push({
         filename: path.basename(details.thumbnailPath),
         path: details.thumbnailPath,

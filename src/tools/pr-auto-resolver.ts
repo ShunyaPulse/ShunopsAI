@@ -1,4 +1,4 @@
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import OpenAI from "openai";
 import * as dotenv from "dotenv";
 
@@ -54,10 +54,12 @@ function getLLMClient(): { client: OpenAI; model: string; provider: string } {
  */
 export async function fetchOpenPRs(repo = "ShunyaPulse/ShunopsAI"): Promise<PullRequestItem[]> {
   try {
-    const raw = execSync(`gh pr list --repo ${repo} --state open --json number,title,author,headRefName,url`, {
-      encoding: "utf-8",
-      env: getAuthEnv(),
-    });
+    // execFileSync (argv form) avoids shell interpolation of the repo name.
+    const raw = execFileSync(
+      "gh",
+      ["pr", "list", "--repo", repo, "--state", "open", "--json", "number,title,author,headRefName,url"],
+      { encoding: "utf-8", env: getAuthEnv() }
+    );
     return JSON.parse(raw || "[]");
   } catch (err: any) {
     console.error(`[Error fetching PRs] ${String(err?.message || err)}`);
@@ -73,7 +75,7 @@ export async function reviewAndResolvePR(pr: PullRequestItem, repo = "ShunyaPuls
 
   let diff = "";
   try {
-    diff = execSync(`gh pr diff ${pr.number} --repo ${repo}`, {
+    diff = execFileSync("gh", ["pr", "diff", String(pr.number), "--repo", repo], {
       encoding: "utf-8",
       env: getAuthEnv(),
     });
@@ -137,10 +139,14 @@ Do NOT include any conversational filler, markdown formatting outside JSON, or r
     if (approved) {
       // 1. Submit approval review
       try {
-        execSync(`gh pr review ${pr.number} --repo ${repo} --approve --body "🤖 **ShunopsAI Autonomous Review (${provider}:${model})**: Approved. ${rationale}"`, {
-          stdio: "pipe",
-          env: authEnv,
-        });
+        execFileSync(
+          "gh",
+          [
+            "pr", "review", String(pr.number), "--repo", repo, "--approve",
+            "--body", `🤖 **ShunopsAI Autonomous Review (${provider}:${model})**: Approved. ${rationale}`,
+          ],
+          { stdio: "pipe", env: authEnv }
+        );
         console.log(`${colors.green}✓ Approved PR #${pr.number}${colors.reset}`);
       } catch (reviewErr: any) {
         console.warn(`[Review notice] ${reviewErr.message}`);
@@ -148,19 +154,21 @@ Do NOT include any conversational filler, markdown formatting outside JSON, or r
 
       // 2. Merge PR
       try {
-        execSync(`gh pr merge ${pr.number} --repo ${repo} --squash --delete-branch --admin`, {
-          stdio: "pipe",
-          env: authEnv,
-        });
+        execFileSync(
+          "gh",
+          ["pr", "merge", String(pr.number), "--repo", repo, "--squash", "--delete-branch", "--admin"],
+          { stdio: "pipe", env: authEnv }
+        );
         console.log(`${colors.green}${colors.bold}🚀 Successfully Merged PR #${pr.number} & deleted branch ${pr.headRefName}!${colors.reset}`);
         return { approved: true, merged: true, message: rationale };
       } catch (mergeErr: any) {
         console.warn(`Could not direct-merge #${pr.number} (trying auto-merge): ${mergeErr.message}`);
         try {
-          execSync(`gh pr merge ${pr.number} --repo ${repo} --squash --auto`, {
-            stdio: "pipe",
-            env: authEnv,
-          });
+          execFileSync(
+            "gh",
+            ["pr", "merge", String(pr.number), "--repo", repo, "--squash", "--auto"],
+            { stdio: "pipe", env: authEnv }
+          );
           return { approved: true, merged: true, message: `Auto-merge enabled: ${rationale}` };
         } catch (autoErr: any) {
           return { approved: true, merged: false, message: `Approved, but merge requires status check: ${autoErr.message}` };
@@ -169,10 +177,14 @@ Do NOT include any conversational filler, markdown formatting outside JSON, or r
     } else {
       // Leave comment on PR with rejection reasons
       try {
-        execSync(`gh pr comment ${pr.number} --repo ${repo} --body "⚠️ **ShunopsAI Security Audit**: Changes not approved. ${rationale}"`, {
-          stdio: "pipe",
-          env: authEnv,
-        });
+        execFileSync(
+          "gh",
+          [
+            "pr", "comment", String(pr.number), "--repo", repo,
+            "--body", `⚠️ **ShunopsAI Security Audit**: Changes not approved. ${rationale}`,
+          ],
+          { stdio: "pipe", env: authEnv }
+        );
       } catch (commentErr: any) {
         console.error(`Comment error on #${pr.number}: ${commentErr.message}`);
       }

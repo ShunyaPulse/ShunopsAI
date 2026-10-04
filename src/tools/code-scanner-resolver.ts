@@ -1,4 +1,4 @@
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import OpenAI from "openai";
@@ -73,7 +73,8 @@ function getLLMClient(): { client: OpenAI; model: string; provider: string } {
  */
 export async function fetchOpenCodeScanningAlerts(repo = "ShunyaPulse/ShunopsAI"): Promise<CodeAlert[]> {
   try {
-    const raw = execSync(`gh api repos/${repo}/code-scanning/alerts --paginate`, {
+    // execFileSync (argv form) avoids shell interpolation of the repo name.
+    const raw = execFileSync("gh", ["api", `repos/${repo}/code-scanning/alerts`, "--paginate"], {
       encoding: "utf-8",
       env: getAuthEnv(),
     });
@@ -179,7 +180,7 @@ Do NOT include any markdown code blocks, conversational text, or explanation. ON
 
     // Verify typecheck
     try {
-      execSync("npm run typecheck", { stdio: "pipe" });
+      execFileSync("npm", ["run", "typecheck"], { stdio: "pipe" });
       console.log(`${colors.green}✓ Alert #${alert.number} successfully patched & verified with typecheck!${colors.reset}`);
       return { success: true, message: `Patched ${filePath} for ${ruleId}` };
     } catch (typeErr: any) {
@@ -223,17 +224,22 @@ export async function runAutoAlertResolver(limit = 10): Promise<{ resolved: numb
   if (resolvedCount > 0) {
     console.log(`\n${colors.green}Pushing ${resolvedCount} auto-resolved security patches to main...${colors.reset}`);
     try {
-      execSync("git add -A");
-      execSync(`git commit -m "fix(security): auto-resolved ${resolvedCount} code scanning alerts by ShunopsAI [skip ci]"`);
+      execFileSync("git", ["add", "-A"]);
+      execFileSync("git", [
+        "commit",
+        "-m",
+        `fix(security): auto-resolved ${resolvedCount} code scanning alerts by ShunopsAI [skip ci]`,
+      ]);
       const pat = process.env.GH_PAT || process.env.GITHUB_PAT;
       const authEnv = getAuthEnv();
       if (pat) {
-        execSync(`git push https://${pat}@github.com/ShunyaPulse/ShunopsAI.git main:main`, {
-          stdio: "inherit",
-          env: authEnv,
-        });
+        execFileSync(
+          "git",
+          ["push", `https://${pat}@github.com/ShunyaPulse/ShunopsAI.git`, "main:main"],
+          { stdio: "inherit", env: authEnv }
+        );
       } else {
-        execSync("git push origin main", { stdio: "inherit", env: authEnv });
+        execFileSync("git", ["push", "origin", "main"], { stdio: "inherit", env: authEnv });
       }
       console.log(`${colors.green}✓ All patches pushed to GitHub main successfully!${colors.reset}`);
     } catch (pushErr: any) {
