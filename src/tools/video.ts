@@ -118,7 +118,8 @@ export async function geminiGenerate(prompt: string, preferredModel?: string): P
   for (let mIdx = 0; mIdx < modelsToTry.length; mIdx++) {
     const model = modelsToTry[mIdx];
     const candidateKeys = pickKeySubset(pool, Math.min(KEYS_PER_MODEL_ATTEMPT, pool.length));
-    console.log(`[Video] Trying model [${mIdx + 1}/${modelsToTry.length}]: "${model}" with ${candidateKeys.length} keys...`);
+    const candidateCount = candidateKeys.length;
+    console.log(`[Video] Trying model [${mIdx + 1}/${modelsToTry.length}]: "${model}" with ${candidateCount} attempts...`);
 
     for (let kIdx = 0; kIdx < candidateKeys.length; kIdx++) {
       const key = candidateKeys[kIdx];
@@ -260,41 +261,53 @@ export async function geminiGenerate(prompt: string, preferredModel?: string): P
 /**
  * Stage 1-2: Brainstorm-to-script using the Gemini key pool and quality degradation.
  */
-export async function generateScript(topic: string, minutes = 5, language = "English"): Promise<VideoScript> {
+export async function generateScript(
+  topic: string,
+  minutes = 5,
+  language = "English",
+  trendReason?: string
+): Promise<VideoScript> {
   const preferredModel = process.env.GEMINI_MODEL;
   const targetWords = Math.round(minutes * 150);
   const sceneCount = Math.round(targetWords / 16);
   const voice = /hindi/i.test(language) ? "hi-IN-MadhurNeural" : "en-US-AndrewNeural";
 
-  const prompt = `You are an elite documentary filmmaker and YouTube director (Vox, National Geographic, BBC Earth style).
+  const prompt = `You are an elite investigative documentary filmmaker and YouTube director (Vox, Johnny Harris, Think School style).
 Write a gripping, 100% factual, highly engaging video script with hard synchronization between spoken narration and cinematic footage.
 
 Topic: ${topic}
+${trendReason ? `BREAKING EVENT / EXACT REASON WHY IT IS TRENDING TODAY: "${trendReason}"` : ""}
 Language: ${language}
 Target Length: about ${targetWords} spoken words (${minutes} minutes) divided into about ${sceneCount} tightly-paced scenes (12-20 words each).
 
 CRITICAL DIRECTIVES:
-1. SCRIPT & SCRIPT-LANGUAGE RULES (MANDATORY - OPTION A HYBRID FORMULA):
-   - TITLE (THE HYBRID FORMULA): Must be strictly in English (Roman) alphabet. Format: "[English Topic Keyword] : [Hinglish Curiosity Question/Hook]".
+1. MANDATORY - COVER THE ACTUAL BREAKING EVENT (WHY IT IS TRENDING):
+   - The video MUST directly explain the EXACT EVENT, match, breakthrough, policy, or incident that made this topic trend today: ${trendReason || topic}.
+   - DO NOT make a detached abstract lecture or generic essay.
+   - Act 1 (Scene 1-4): Hook the viewer immediately with the breaking event that happened today and why everyone is talking about it.
+   - Act 2 (Middle Scenes): Deep dive into the mechanics, science, history, or engineering behind this specific event.
+   - Act 3 (Ending): The real-world impact, consequences, and future outlook for the viewer.
+2. SCRIPT & SCRIPT-LANGUAGE RULES (MANDATORY - OPTION A HYBRID FORMULA):
+   - TITLE (THE HYBRID FORMULA): Must be strictly in English (Roman) alphabet. Format: "[English Topic Keyword] : [Hinglish Curiosity Question/Hook about this specific event]".
      Example: "Aadhaar Super-Engine : 140 Crore Logo Ka Data Kaise Safe Rehta Hai?"
-     Example: "James Webb Telescope : Space Mein Scientists Ko Kya Ajeeb Mila?"
+     Example: "Cristiano Ronaldo 900 Goals : 40 Ki Umar Mein Aisa Record Kaise Banaya?"
      Example: "Semiconductor Fab : India Mein Microchips Banana Itna Mushkil Kyu Hai?"
      NEVER use Devanagari script. Maximum 70 characters.
-   - DESCRIPTION (PURE ENGLISH): Must be written in 100% PURE ENGLISH (English language & Roman letters). Include detailed SEO overview, key technical keywords, and timestamps/chapters. No Devanagari script.
+   - DESCRIPTION (PURE ENGLISH): Must be written in 100% PURE ENGLISH (English language & Roman letters). Include detailed SEO overview of the event, key technical keywords, and timestamps/chapters. No Devanagari script.
    - CHAPTER TITLES & TAGS: Must be strictly in English (Roman) alphabet.
    - NARRATION (Spoken Audio): Natural, engaging Hindi dialogue spoken by voice hi-IN-MadhurNeural.
    - CAPTIONS (On-Screen Subtitles): Must be in 100% PURE ENGLISH (both English letters AND English language words). For every single scene, provide the exact English translation in "caption" to be displayed on-screen.
-2. Visual Prompt Engineering for True Continuous Video:
+3. Visual Prompt Engineering for True Continuous Video:
    - For EVERY scene, write a "visual_prompt" that describes a real, continuous cinematic video shot — NOT a static photo or generic concept.
    - Specify:
      a) Camera movement & lens: e.g. "Slow cinematic dolly-in shot on ARRI Alexa Mini LF, 35mm anamorphic lens, shallow depth of field, 24fps" or "Steadicam low-angle tracking shot", "Macro telephoto rack-focus".
      b) Physical dynamic action matching the narration: e.g. if the narration discusses a cyber heist, show "A dimly lit cybersecurity operations center with glowing curved telemetry monitors, analysts in focus typing rapidly, camera slowly pushing through server racks".
      c) Modern Digital Lighting & Clarity: "Crisp natural 4K digital cinematography, modern high-end documentary lighting, vivid realistic colors, sharp clean focus, absolutely NO vintage/retro/sepia/8mm/grainy aesthetics."
      d) Realism enforcement: Clean, authentic physical textures (modern architectural glass, polished materials, real skin, crisp telemetry). Avoid retro filters, heavy grain, sepia tones, plastic CGI, or still-photo aesthetics.
-3. Return ONLY valid JSON in this exact structure:
+4. Return ONLY valid JSON in this exact structure:
 {
   "title": "<Hybrid Title: [English Topic] : [Hinglish Curiosity Hook], Roman alphabet only, <=70 chars, NO Devanagari>",
-  "description": "<Comprehensive Pure English SEO description, 150-250 words with timestamps & keywords, NO Devanagari>",
+  "description": "<Comprehensive Pure English SEO description of the event, 150-250 words with timestamps & keywords, NO Devanagari>",
   "tags": ["<8-15 high volume relevant tags in English alphabet>"],
   "chapters": [{"title": "<Chapter Title in English>", "start_scene": 0}],
   "scenes": [
@@ -333,11 +346,16 @@ CRITICAL DIRECTIVES:
 /**
  * Stage 3: package script + renderer and launch it on a Kaggle GPU kernel.
  */
-export async function startVideoJob(topic: string, minutes = 5, language = "English"): Promise<string> {
+export async function startVideoJob(
+  topic: string,
+  minutes = 5,
+  language = "English",
+  trendReason?: string
+): Promise<string> {
   const user = process.env.VIDEO_KAGGLE_USERNAME || process.env.KAGGLE_USERNAME || "shunyapulse";
   if (!user) return "Error: KAGGLE_USERNAME not set.";
 
-  const script = await generateScript(topic, minutes, language);
+  const script = await generateScript(topic, minutes, language, trendReason);
   const id = Date.now().toString(36);
   const jobDir = path.join(JOBS_DIR, id);
   const dsDir = path.join(jobDir, "dataset");

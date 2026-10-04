@@ -411,7 +411,8 @@ app.get("/widget.js", (req: Request, res: Response) => {
 app.listen(PORT, HOST, () => {
   console.log(`\n\x1b[32m\x1b[1m========================================================\x1b[0m`);
   console.log(`\x1b[32m\x1b[1m🚀 Multi-Agent Autonomous API Server Live on port ${PORT}\x1b[0m`);
-  console.log(`\x1b[36m👉 Bind:\x1b[0m     ${HOST}:${PORT}  (auth: ${API_TOKEN ? "enabled" : "disabled"})`);
+  const authConfigured = Boolean(API_TOKEN);
+  console.log(`\x1b[36m👉 Bind:\x1b[0m     ${HOST}:${PORT}  (auth: ${authConfigured ? "enabled" : "disabled"})`);
   console.log(`\x1b[36m👉 Base URL:\x1b[0m http://localhost:${PORT}`);
   console.log(`\x1b[36m👉 Health:\x1b[0m   http://localhost:${PORT}/health`);
   console.log(`\x1b[36m👉 Run Task:\x1b[0m POST http://localhost:${PORT}/api/task`);

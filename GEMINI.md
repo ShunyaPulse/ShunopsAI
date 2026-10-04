@@ -38,3 +38,10 @@
   3. Sensitive clear-text logging (unredacted tokens, keys, passwords, or raw `err.message`)
   4. Hardcoded filesystem paths
 - Support multi-repository healing via `AUTONOMOUS_TARGET_REPOS`.
+
+## 5. Smart Quota Guardrails & Duplicate Run Throttling
+- When a target repository has no new commits, `autonomous-repo-auditor.ts` runs at most 2 consecutive 6-hour cycles on the exact same commit SHA for double verification.
+- On run 3 and beyond, if the commit SHA is unchanged, it skips all LLM inference calls to conserve model quotas.
+- As soon as a new commit is detected (pushed by user, bot, or PR merge), the audit cycle automatically resets to run 1.
+- Capped flaw remediation: maximum 5 flaws per audit run to prevent token bursts.
+- State persistence: distributed OCI Redis (`REDIS_URL` / `REDIS_HOST`) across cloud runners with local `.auditor-state.json` fallback.
