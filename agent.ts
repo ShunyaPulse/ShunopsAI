@@ -2,6 +2,7 @@ import OpenAI from "openai";
 import * as dotenv from "dotenv";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
+import { randomInt } from "node:crypto";
 import { pathToFileURL } from "node:url";
 import { exec } from "node:child_process";
 import { promisify } from "node:util";
@@ -858,7 +859,7 @@ function getGeminiKey(): string {
   const raw = process.env.GEMINI_API_KEY || "";
   const keys = raw.split(",").map((k) => k.trim()).filter(Boolean);
   if (!keys.length) return "dummy-gemini-key";
-  return keys[Math.floor(Math.random() * keys.length)] || "dummy-gemini-key";
+  return keys[randomInt(0, keys.length)] || "dummy-gemini-key";
 }
 
 function createClientForTarget(target: ModelTarget): OpenAI {
