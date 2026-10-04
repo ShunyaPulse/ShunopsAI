@@ -161,13 +161,16 @@ export async function uploadToYouTube(options: YouTubeUploadOptions): Promise<Yo
       status: {
         privacyStatus,
         selfDeclaredMadeForKids: false,
-        publicStatsViewable: false, // Turn OFF "Show how many viewers like this video"
+        publicStatsViewable: false, // Turn OFF extended stats
         containsSyntheticMedia: true, // Always "YES" for AI use disclosure
+      },
+      paidProductPlacementDetails: {
+        hasPaidProductPlacement: false, // Paid promotion: ALWAYS NO
       },
     };
 
     const initRes = await fetch(
-      "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status",
+      "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status,paidProductPlacementDetails",
       {
         method: "POST",
         headers: {
