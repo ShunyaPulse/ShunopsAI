@@ -26,7 +26,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_PAT || secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -116,12 +116,14 @@ jobs:
           REDIS_URL: ${{ secrets.REDIS_URL }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          GITHUB_PAT: ${{ secrets.GITHUB_PAT || secrets.GITHUB_TOKEN }}
+          GH_PAT: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
           EVENT_NAME: ${{ github.event_name }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
           ISSUE_TITLE: ${{ github.event.issue.title }}
           ISSUE_BODY: ${{ github.event.issue.body }}
           REF_NAME: ${{ github.ref_name }}
+          HEAD_REF: ${{ github.head_ref }}
         run: |
           git config --global user.name "ShunopsAI-AutoResolver[bot]"
           git config --global user.email "shunopsai-agent@users.noreply.github.com"
@@ -138,6 +140,10 @@ jobs:
             npm run typecheck
             git add -A
             git commit -m "fix(autonomous): auto-resolved by ShunopsAI [skip ci]"
-            TARGET_BRANCH="${REF_NAME:-main}"
-            git push origin "HEAD:$TARGET_BRANCH"
+            TARGET_BRANCH="${HEAD_REF:-$REF_NAME}"
+            if [ -n "$TARGET_BRANCH" ] && [ "$TARGET_BRANCH" != "main" ] && [ "$TARGET_BRANCH" != *"merge"* ]; then
+              git push origin "HEAD:$TARGET_BRANCH"
+            elif [ "$TARGET_BRANCH" = "main" ]; then
+              git push origin "HEAD:main"
+            fi
           fi

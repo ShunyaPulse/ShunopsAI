@@ -8,7 +8,8 @@
     "start": "tsx agent.ts",
     "server": "tsx server.ts",
     "test": "tsx test-tools.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "resolve-alerts": "tsx src/tools/code-scanner-resolver.ts"
   },
   "keywords": [
     "agent",
