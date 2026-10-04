@@ -123,7 +123,7 @@ export async function runAutonomousCycle(): Promise<AutopilotRunResult> {
       );
     }
     console.log(
-      `[Autopilot] Dispatched kernel: ${kernelRef} (Job ID: ${jobId})`,
+      `[Autopilot] Dispatched kernel: [REDACTED] (Job ID: [REDACTED])`,
     );
 
     // 4. Wait for Kaggle GPU execution to complete
@@ -144,9 +144,7 @@ export async function runAutonomousCycle(): Promise<AutopilotRunResult> {
     // 5. Download output files from Kaggle
     console.log("[Autopilot] Step 5: Downloading final video and metadata...");
     const outputLog = await manageKaggle("output", kernelRef);
-    console.log(
-      `[Autopilot] Kaggle output status:\n${outputLog.slice(0, 400)}`,
-    );
+    console.log("[Autopilot] Kaggle output status:", "[REDACTED]");
 
     // 6. Upload to YouTube as Private
     console.log(
@@ -210,7 +208,7 @@ export async function runAutonomousCycle(): Promise<AutopilotRunResult> {
       emailSent,
     };
   } catch (err: any) {
-    console.error('[Autopilot] ❌ Autonomous cycle encountered an error:', err.message);
+    console.error('[Autopilot] ❌ Autonomous cycle encountered an error');
     return { ok: false, error: err.message };
   }
 }
