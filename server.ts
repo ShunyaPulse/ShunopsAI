@@ -1,4 +1,5 @@
 import express, { type Request, type Response, type NextFunction } from "express";
+import cors from "cors";
 import * as dotenv from "dotenv";
 import * as crypto from "node:crypto";
 import { runAutonomousAgent, PRIMARY_MODEL, FALLBACK_MODELS, toolRegistry, type ToolName } from "./agent.js";
@@ -27,21 +28,13 @@ app.use(
   })
 );
 
-// CORS: only echo origins explicitly allowed (or "*" if configured).
-app.use((req, res, next) => {
-  const origin = req.headers.origin;
-  if (origin && CORS_ORIGINS.includes(origin)) {
-    res.header("Access-Control-Allow-Origin", origin);
-    res.header("Vary", "Origin");
-  }
-  res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization, X-API-Key");
-  res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  if (req.method === "OPTIONS") {
-    res.sendStatus(200);
-    return;
-  }
-  next();
-});
+// Standard CORS protection
+app.use(
+  cors({
+    origin: CORS_ORIGINS.length > 0 ? CORS_ORIGINS : false,
+    credentials: true,
+  })
+);
 
 function timingSafeEqualStr(a: string, b: string): boolean {
   const ab = Buffer.from(a);
