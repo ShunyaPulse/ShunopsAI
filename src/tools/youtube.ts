@@ -148,16 +148,16 @@ export async function uploadToYouTube(options: YouTubeUploadOptions): Promise<Yo
     console.log(`[YouTube] Initiating resumable upload for "${title}" (${(fileSize / 1024 / 1024).toFixed(1)} MB)...`);
     console.log(`[YouTube] Privacy status: ${privacyStatus.toUpperCase()} | Language: ${langCode} | AI Use: YES | Likes Public: NO`);
 
-    // Step 1: Initiate resumable session
+    // Step 1: Initiate resumable session (inherits user's YouTube Studio Upload Defaults)
+    const snippet = {
+      title,
+      description,
+      tags: tags.slice(0, 20),
+      categoryId,
+    };
+
     const metadata = {
-      snippet: {
-        title,
-        description,
-        tags: tags.slice(0, 20),
-        categoryId,
-        defaultLanguage: "en", // English / Hinglish Roman script for Title & Description
-        defaultAudioLanguage: "hi", // Spoken Hindi voiceover
-      },
+      snippet,
       status: {
         privacyStatus,
         selfDeclaredMadeForKids: false,
