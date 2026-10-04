@@ -56,17 +56,17 @@ export interface ConsensusResult {
 // ==========================================
 
 export const PROPOSER_MODELS_CHAIN: ModelEndpoint[] = [
-  // 1. Google AI Studio (with 34-key pool rotation & auto-retry)
-  { provider: "gemini", model: "gemini-2.5-flash", name: "Gemini 2.5 Flash" },
-  { provider: "gemini", model: "gemini-2.0-flash", name: "Gemini 2.0 Flash" },
-  { provider: "gemini", model: "gemini-1.5-flash", name: "Gemini 1.5 Flash" },
+  // 1. Google AI Studio (Active Non-Lite Models with Verified 1/5 Quota)
+  { provider: "gemini", model: "gemini-3.8-flash", name: "Gemini 3.8 Flash (Active 1/5)" },
+  { provider: "gemini", model: "gemini-3.6-flash", name: "Gemini 3.6 Flash (Active 1/5)" },
+  { provider: "gemini", model: "gemini-3.5-flash", name: "Gemini 3.5 Flash (Active 1/5)" },
+  { provider: "gemini", model: "gemini-3-flash-preview", name: "Gemini 3 Flash (Active 1/5)" },
 
-  // 2. Groq High-Speed LPU Execution (Zero Rate Limit on Free Tier)
-  { provider: "groq", model: "qwen/qwen3.8-27b", name: "Groq Qwen 3.8 27B (LPU Ultra-Fast)" },
-  { provider: "groq", model: "openai/gpt-oss-120b", name: "Groq GPT-OSS 120B (High Reasoning)" },
-  { provider: "groq", model: "openai/gpt-oss-20b", name: "Groq GPT-OSS 20B" },
+  // 2. Groq High-Speed LPU Execution (Ultra-Fast Zero-Lag Reasoning)
+  { provider: "groq", model: "openai/gpt-oss-120b", name: "Groq GPT-OSS 120B (High Reasoning 120B)" },
+  { provider: "groq", model: "qwen/qwen3.8-27b", name: "Groq Qwen 3.8 27B (LPU Fast Tool Calling)" },
 
-  // 3. OpenRouter High-Capability Free Models
+  // 3. OpenRouter High-Capability Free Models (550B, 120B, 70B Heavyweights)
   { provider: "openrouter", model: "nvidia/nemotron-3-ultra-550b-a55b:free", name: "Nemotron 3 Ultra 550B (Primary #1)" },
   { provider: "openrouter", model: "nvidia/nemotron-3.5-lightning:free", name: "Nemotron 3.5 Lightning (1M Context)" },
   { provider: "openrouter", model: "meta-llama/llama-3.3-70b-instruct:free", name: "Llama 3.3 70B Instruct" },
@@ -78,26 +78,27 @@ export const PROPOSER_MODELS_CHAIN: ModelEndpoint[] = [
 ];
 
 export const AUDITOR_MODELS_CHAIN: ModelEndpoint[] = [
-  // 1. Groq Ultra-Fast LPUs (Specialized 120B AST Reasoning & Audit)
-  { provider: "groq", model: "openai/gpt-oss-120b", name: "Groq GPT-OSS 120B (Lead Auditor)" },
+  // 1. Groq Ultra-Fast LPUs (Specialized 120B AST Reasoning & Deep Debugging)
+  { provider: "groq", model: "openai/gpt-oss-120b", name: "Groq GPT-OSS 120B (Lead 120B Auditor)" },
   { provider: "groq", model: "qwen/qwen3.8-27b", name: "Groq Qwen 3.8 27B (Fast Audit)" },
-  { provider: "groq", model: "openai/gpt-oss-20b", name: "Groq GPT-OSS 20B" },
 
-  // 2. Google AI Studio Key Pool Fallback
-  { provider: "gemini", model: "gemini-2.5-flash", name: "Gemini 2.5 Flash (Audit Backup)" },
-  { provider: "gemini", model: "gemini-2.0-flash", name: "Gemini 2.0 Flash" },
-  { provider: "gemini", model: "gemini-1.5-flash", name: "Gemini 1.5 Flash" },
+  // 2. Google AI Studio (Active Non-Lite Models with Verified 1/5 Quota)
+  { provider: "gemini", model: "gemini-3.8-flash", name: "Gemini 3.8 Flash (Audit Backup)" },
+  { provider: "gemini", model: "gemini-3.6-flash", name: "Gemini 3.6 Flash" },
+  { provider: "gemini", model: "gemini-3.5-flash", name: "Gemini 3.5 Flash" },
+  { provider: "gemini", model: "gemini-3-flash-preview", name: "Gemini 3 Flash" },
 
-  // 3. OpenRouter High-Capability Free Models
+  // 3. OpenRouter High-Capability Free Models (Specialized Code & Reasoning)
   { provider: "openrouter", model: "cohere/north-mini-code:free", name: "Cohere North Mini Code (Audit)" },
   { provider: "openrouter", model: "nvidia/nemotron-3-super-120b-a12b:free", name: "Nemotron 3 Super 120B" },
   { provider: "openrouter", model: "meta-llama/llama-3.3-70b-instruct:free", name: "Llama 3.3 70B Instruct" },
+  { provider: "openrouter", model: "nvidia/nemotron-3-ultra-550b-a55b:free", name: "Nemotron 3 Ultra 550B" },
   { provider: "openrouter", model: "openrouter/free", name: "OpenRouter Free Router Fallback" },
 ];
 
 export const DEFAULT_PROPOSER = PROPOSER_MODELS_CHAIN[0]!;
 export const DEFAULT_AUDITOR = AUDITOR_MODELS_CHAIN[0]!;
-export const BACKUP_PROPOSER = PROPOSER_MODELS_CHAIN[3]!;
+export const BACKUP_PROPOSER = PROPOSER_MODELS_CHAIN[4]!;
 export const BACKUP_OPENROUTER_PROPOSER = BACKUP_PROPOSER;
 export const BACKUP_GROQ_AUDITOR = AUDITOR_MODELS_CHAIN[1]!;
 
