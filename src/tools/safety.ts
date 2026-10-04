@@ -177,7 +177,7 @@ export async function requestHumanApproval(
 export function resolveApproval(id: string, approved: boolean): boolean {
   const resolver = approvalResolvers.get(id);
   if (resolver) {
-    resolver(approved);
+    if (typeof resolver === 'function') { resolver(approved); }
     approvalResolvers.delete(id);
     return true;
   }

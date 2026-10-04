@@ -33,13 +33,13 @@ async function waitForKaggleKernel(
   maxWaitMs = 180 * 60 * 1000,
 ): Promise<boolean> {
   const startTime = Date.now();
-  console.log(`[Autopilot] Polling Kaggle kernel: ${kernelRef}...`);
+  console.log(`[Autopilot] Polling Kaggle kernel: ${kernelRef ? kernelRef.slice(0,4) + '***' : '[REDACTED]'}...`);
 
   while (Date.now() - startTime < maxWaitMs) {
     try {
       const statusOutput = await manageKaggle("status", kernelRef);
       console.log(
-        `[Autopilot] ${new Date().toLocaleTimeString()} - Status: ${statusOutput.trim()}`,
+        `[Autopilot] ${new Date().toLocaleTimeString()} - Status: [REDACTED]`,
       );
 
       if (statusOutput.includes("COMPLETE")) {
@@ -47,9 +47,7 @@ async function waitForKaggleKernel(
         return true;
       }
       if (statusOutput.includes("ERROR") || statusOutput.includes("FAILED")) {
-        console.error(
-          `[Autopilot] ❌ Kaggle kernel failed with status: ${statusOutput}`,
-        );
+        console.error(`[Autopilot] ❌ Kaggle kernel failed with status: [REDACTED]`);
         return false;
       }
     } catch (e: any) {
@@ -165,7 +163,7 @@ export async function runAutonomousCycle(): Promise<AutopilotRunResult> {
 
     // 7. Send Email Review Alert
     console.log(
-      "[Autopilot] Step 7: Sending review alert to techanics6174@gmail.com...",
+      "[Autopilot] Step 7: Sending review alert to [REDACTED]...",
     );
     let meta: any = {};
     const metaPath = path.join(destDir, "meta.json");
@@ -195,8 +193,8 @@ export async function runAutonomousCycle(): Promise<AutopilotRunResult> {
 
     console.log("\n=======================================================");
     console.log(`🎉 [Autopilot] Autonomous Cycle Complete!`);
-    console.log(`📺 Watch: ${ytResult.videoUrl}`);
-    console.log(`⚙️ Studio: ${ytResult.studioUrl}`);
+    console.log(`📺 Watch: [REDACTED]`);
+    console.log(`⚙️ Studio: [REDACTED]`);
     console.log("=======================================================\n");
 
     return {
