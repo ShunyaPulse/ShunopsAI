@@ -50,6 +50,37 @@
 
 ---
 
+## 🧩 Project Structure
+
+ShunopsAI is split into small, single-responsibility modules:
+
+```
+agent.ts                     # CLI entrypoint + stable public re-exports
+server.ts                    # HTTP entrypoint (binds the app)
+src/
+  agent/                     # Autonomous agent core
+    models.ts                #   provider/model failover chain + client factory
+    prompts.ts               #   system-prompt engineering
+    sandbox.ts               #   workspace path safety & secret protection
+    tools.ts                 #   tool registry + JSON schemas
+    loop.ts                  #   ReAct execution loop
+    index.ts                 #   public barrel
+  server/                    # Express application
+    app.ts                   #   app factory + configuration
+    middleware/              #   auth + rate limiting
+    routes/                  #   dashboard, sentinel, task, chat, approvals, webhook, widget
+  core/                      # Cross-cutting helpers (colors, github, llm)
+  tools/                     # Cloud, media, GitHub & self-healing tools
+  ai/                        # Dual-model consensus engine
+  cron/                      # Scheduled autopilot & sentinel jobs
+  dashboard/                 # Dashboard HTML, stylesheet and client script
+```
+
+All internal imports use NodeNext `.js` specifiers, and `agent.ts` re-exports
+the public agent API so existing callers and CI workflows keep working.
+
+---
+
 ## 🛠️ Quick Start
 
 ### 1. Clone & Install
