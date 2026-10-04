@@ -210,9 +210,7 @@ export async function runAutonomousCycle(): Promise<AutopilotRunResult> {
       emailSent,
     };
   } catch (err: any) {
-    console.error(
-      `[Autopilot] ❌ Autonomous cycle encountered an error: ${err.message}`,
-    );
+    console.error('[Autopilot] ❌ Autonomous cycle encountered an error:', err.message);
     return { ok: false, error: err.message };
   }
 }

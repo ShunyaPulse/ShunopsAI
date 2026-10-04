@@ -221,7 +221,7 @@ export async function runAutoAlertResolver(limit = 10): Promise<{ resolved: numb
   }
 
   if (resolvedCount > 0) {
-    console.log(`\n${colors.green}Pushing ${resolvedCount} auto-resolved security patches to main...${colors.reset}`);
+    console.log("\n" + colors.green + "Pushing " + resolvedCount + " auto-resolved security patches to main..." + colors.reset);
     try {
       execSync("git add -A");
       execSync(`git commit -m "fix(security): auto-resolved ${resolvedCount} code scanning alerts by ShunopsAI [skip ci]"`);

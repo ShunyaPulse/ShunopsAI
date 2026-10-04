@@ -145,7 +145,7 @@ export async function uploadToYouTube(options: YouTubeUploadOptions): Promise<Yo
     const stats = await fs.stat(videoPath);
     const fileSize = stats.size;
 
-    console.log(`[YouTube] Initiating resumable upload for "${title}" (${(fileSize / 1024 / 1024).toFixed(1)} MB)...`);
+    console.log(`[YouTube] Initiating resumable upload for "${title ? title.slice(0, 10) + '...' : '[REDACTED]'}" (${(fileSize / 1024 / 1024).toFixed(1)} MB)...`);
     console.log(`[YouTube] Privacy status: ${privacyStatus.toUpperCase()} | Language: ${langCode} | AI Use: YES | Likes Public: NO`);
 
     // Step 1: Initiate resumable session (inherits user's YouTube Studio Upload Defaults)
@@ -251,7 +251,7 @@ export async function uploadToYouTube(options: YouTubeUploadOptions): Promise<Yo
     }
 
     if (targetThumbnail && fsSync.existsSync(targetThumbnail)) {
-      console.log(`[YouTube] Uploading custom thumbnail: ${path.basename(targetThumbnail)}...`);
+      console.log('[YouTube] Uploading custom thumbnail: [REDACTED]...');
       thumbnailSet = await setYouTubeThumbnail(videoId, targetThumbnail, accessToken);
     }
 
