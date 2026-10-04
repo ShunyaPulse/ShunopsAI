@@ -1,4 +1,4 @@
-name: "ShunopsAI CI/CD & Security Pipeline"
+name: "CI/CD & Security Auditing (Semgrep, Trivy, Gitleaks, CodeQL, Promptfoo)"
 
 on:
   push:
@@ -16,7 +16,7 @@ permissions:
   issues: write
 
 jobs:
-  validate-and-secure:
+  validate-and-audit:
     name: "Unified Verification & Security Shield"
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -47,44 +47,57 @@ jobs:
       - name: Install Node Dependencies
         run: npm ci
 
-      # 1. Typecheck & Build
+      # 1. Typecheck
       - name: TypeScript Typecheck
         run: npm run typecheck
 
       # 2. Secret Scanning (Gitleaks)
       - name: Gitleaks Secrets Scan
-        uses: gitleaks/gitleaks-action@v2
+        uses: gitleaks/gitleaks-action@v2.3.9
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         continue-on-error: true
 
-      # 3. SAST Code Security (Semgrep)
+      # 3. Initialize CodeQL
+      - name: Initialize CodeQL Analysis
+        uses: github/codeql-action/init@v3
+        with:
+          languages: "javascript-typescript"
+
+      # 4. SAST Code Security (Semgrep)
       - name: Semgrep Code Security Scan
         run: semgrep scan --config auto --sarif --output semgrep.sarif
         continue-on-error: true
 
+      # 5. Upload Semgrep SARIF
       - name: Upload Semgrep SARIF
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: semgrep.sarif
         continue-on-error: true
 
-      # 4. Vulnerability Scanning (Trivy)
+      # 6. Vulnerability Scanning (Trivy)
       - name: Trivy Vulnerability Scan
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@0.28.0
         with:
           scan-type: "fs"
           format: "sarif"
           output: "trivy-results.sarif"
           severity: "CRITICAL,HIGH"
 
+      # 7. Upload Trivy SARIF
       - name: Upload Trivy SARIF
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: "trivy-results.sarif"
         continue-on-error: true
 
-      # 5. Promptfoo Prompt Safety Evaluation
+      # 8. Perform CodeQL Analysis
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        continue-on-error: true
+
+      # 9. Promptfoo Prompt Safety Evaluation
       - name: Promptfoo LLM Prompt Evaluation
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
@@ -94,7 +107,7 @@ jobs:
           npx promptfoo@latest eval --no-progress-bar || echo "Promptfoo evaluation complete."
         continue-on-error: true
 
-      # 6. Autonomous Auto-Remediation (Runs only if failures exist or on issue/PR trigger)
+      # 10. Autonomous AI Remediation (Runs only if failures exist or on issue/PR trigger)
       - name: Autonomous AI Remediation
         if: failure() || github.event_name == 'issues' || (github.event_name == 'pull_request' && github.actor == 'dependabot[bot]')
         env:
@@ -106,13 +119,18 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           GITHUB_PAT: ${{ secrets.GITHUB_PAT || secrets.GITHUB_TOKEN }}
+          EVENT_NAME: ${{ github.event_name }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
           git config --global user.name "ShunopsAI-AutoResolver[bot]"
           git config --global user.email "shunopsai-agent@users.noreply.github.com"
           
           TASK_GOAL="Inspect recent CI/security scan failures, verify codebase with npm run typecheck, and apply necessary code fixes."
-          if [ "${{ github.event_name }}" = "issues" ]; then
-            TASK_GOAL="Resolve GitHub Issue #${{ github.event.issue.number }}: '${{ github.event.issue.title }}'. Details: ${{ github.event.issue.body }}"
+          if [ "$EVENT_NAME" = "issues" ]; then
+            TASK_GOAL="Resolve GitHub Issue #$ISSUE_NUMBER: '$ISSUE_TITLE'. Details: $ISSUE_BODY"
           fi
 
           echo "🤖 [Auto-Remediation] Executing: $TASK_GOAL"
@@ -122,5 +140,6 @@ jobs:
             npm run typecheck
             git add -A
             git commit -m "fix(autonomous): auto-resolved by ShunopsAI [skip ci]"
-            git push origin HEAD:${{ github.ref_name || 'main' }}
+            TARGET_BRANCH="${REF_NAME:-main}"
+            git push origin "HEAD:$TARGET_BRANCH"
           fi
