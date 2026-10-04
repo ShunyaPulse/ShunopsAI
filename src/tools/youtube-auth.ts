@@ -93,8 +93,9 @@ async function main() {
         const error = parsedUrl.searchParams.get("error");
 
         if (error) {
+          const safeError = String(error).replace(/[&<>"']/g, "");
           res.writeHead(400, { "Content-Type": "text/html; charset=utf-8" });
-          res.end(`<h1>❌ Authorization Failed</h1><p>${error}</p>`);
+          res.end(`<h1>❌ Authorization Failed</h1><p>${safeError}</p>`);
           server.close();
           rl.close();
           process.exit(1);
