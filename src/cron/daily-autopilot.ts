@@ -33,7 +33,7 @@ async function waitForKaggleKernel(
   maxWaitMs = 180 * 60 * 1000,
 ): Promise<boolean> {
   const startTime = Date.now();
-  console.log(`[Autopilot] Polling Kaggle kernel: ${kernelRef ? kernelRef.slice(0,4) + '***' : '[REDACTED]'}...`);
+  console.log("[Autopilot] Polling Kaggle kernel [REDACTED]...");
 
   while (Date.now() - startTime < maxWaitMs) {
     try {
@@ -158,7 +158,7 @@ export async function runAutonomousCycle(): Promise<AutopilotRunResult> {
       );
     }
     console.log(
-      `[Autopilot] ✅ Video uploaded to YouTube: ${ytResult.videoUrl}`,
+      "[Autopilot] ✅ Video uploaded to YouTube successfully.",
     );
 
     // 7. Send Email Review Alert
