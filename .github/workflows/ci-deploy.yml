@@ -77,13 +77,11 @@ jobs:
         continue-on-error: true
 
       # 6. Vulnerability Scanning (Trivy)
-      - name: Trivy Vulnerability Scan
-        uses: aquasecurity/trivy-action@v0.28.0
-        with:
-          scan-type: "fs"
-          format: "sarif"
-          output: "trivy-results.sarif"
-          severity: "CRITICAL,HIGH"
+      - name: Install & Run Trivy Vulnerability Scan
+        run: |
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sudo sh -s -- -b /usr/local/bin
+          trivy fs --format sarif --output trivy-results.sarif --severity CRITICAL,HIGH .
+        continue-on-error: true
 
       # 7. Upload Trivy SARIF
       - name: Upload Trivy SARIF
