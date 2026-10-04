@@ -93,7 +93,7 @@ export async function fetchOpenCodeScanningAlerts(repo = "ShunyaPulse/ShunopsAI"
     const parsed: CodeAlert[] = JSON.parse(raw || "[]");
     return parsed.filter((a) => a.state === "open");
   } catch (err: any) {
-    console.error(`${colors.red}[Error fetching alerts]${colors.reset}`, err.message);
+    console.error("%s[Error fetching alerts]%s", colors.red, colors.reset, err.message);
     return [];
   }
 }
@@ -119,8 +119,8 @@ export async function resolveAlertWithAI(alert: CodeAlert): Promise<{ success: b
     return { success: false, message: `Could not read file ${filePath}: ${e.message}` };
   }
 
-  console.log(`\n${colors.cyan}${colors.bold}🔧 Resolving Alert #${alert.number} [${toolName}] ${ruleId}${colors.reset}`);
-  console.log(`${colors.gray}File: ${filePath} (around line ${lineNo})${colors.reset}`);
+  console.log("%s%s🔧 Resolving Alert #%s [%s] %s%s", colors.cyan, colors.bold, alert.number, toolName, ruleId, colors.reset);
+  console.log("%sFile: %s (around line %s)%s", colors.gray, filePath, lineNo, colors.reset);
 
   const { client, model, provider } = getLLMClient();
 
@@ -170,10 +170,10 @@ Do not include any chat commentary or conversational filler.`;
     // Verify typecheck
     try {
       execSync("npm run typecheck", { stdio: "pipe" });
-      console.log(`${colors.green}✓ Alert #${alert.number} successfully patched and typechecked!${colors.reset}`);
+      console.log("%s✓ Alert #%s successfully patched and typechecked!%s", colors.green, alert.number, colors.reset);
       return { success: true, message: `Patched ${filePath} for ${ruleId}` };
     } catch (typeErr: any) {
-      console.warn(`${colors.yellow}⚠️ Typecheck failed after patch. Rolling back file ${filePath}...${colors.reset}`);
+      console.warn("%s⚠️ Typecheck failed after patch. Rolling back file %s...%s", colors.yellow, filePath, colors.reset);
       await fs.writeFile(fullPath, fileContent, "utf-8");
       return { success: false, message: `Typecheck failed: ${typeErr.message}` };
     }
@@ -186,15 +186,15 @@ Do not include any chat commentary or conversational filler.`;
  * Main automated loop to resolve all open code scanning alerts
  */
 export async function runAutoAlertResolver(limit = 10): Promise<{ resolved: number; total: number }> {
-  console.log(`\n${colors.cyan}${colors.bold}====================================================${colors.reset}`);
-  console.log(`${colors.cyan}${colors.bold}🤖 ShunopsAI Autonomous Code Scanning Alert Resolver${colors.reset}`);
-  console.log(`${colors.cyan}${colors.bold}====================================================${colors.reset}\n`);
+  console.log("%s%s====================================================%s", colors.cyan, colors.bold, colors.reset);
+  console.log("%s%s🤖 ShunopsAI Autonomous Code Scanning Alert Resolver%s", colors.cyan, colors.bold, colors.reset);
+  console.log("%s%s====================================================%s\n", colors.cyan, colors.bold, colors.reset);
 
   const alerts = await fetchOpenCodeScanningAlerts();
-  console.log(`Found ${alerts.length} open security & quality alerts.`);
+  console.log("Found %s open security & quality alerts.", alerts.length);
 
   if (alerts.length === 0) {
-    console.log(`${colors.green}All code scanning alerts are already clean! 🎉${colors.reset}`);
+    console.log("%sAll code scanning alerts are already clean! 🎉%s", colors.green, colors.reset);
     return { resolved: 0, total: 0 };
   }
 
@@ -209,7 +209,7 @@ export async function runAutoAlertResolver(limit = 10): Promise<{ resolved: numb
   }
 
   if (resolvedCount > 0) {
-    console.log(`\n${colors.green}Pushing ${resolvedCount} auto-resolved security patches to main...${colors.reset}`);
+    console.log("\n%sPushing %s auto-resolved security patches to main...%s", colors.green, resolvedCount, colors.reset);
     try {
       execSync("git add -A");
       execSync(`git commit -m "fix(security): auto-resolved ${resolvedCount} code scanning alerts by ShunopsAI [skip ci]"`);
@@ -219,9 +219,9 @@ export async function runAutoAlertResolver(limit = 10): Promise<{ resolved: numb
       } else {
         execSync("git push origin main", { stdio: "inherit" });
       }
-      console.log(`${colors.green}✓ All patches pushed to GitHub main successfully!${colors.reset}`);
+      console.log("%s✓ All patches pushed to GitHub main successfully!%s", colors.green, colors.reset);
     } catch (pushErr: any) {
-      console.error(`${colors.red}Push failed:${colors.reset}`, pushErr.message);
+      console.error("%sPush failed:%s", colors.red, colors.reset, pushErr.message);
     }
   }
 
@@ -233,7 +233,7 @@ const isCLI = process.argv[1]?.endsWith("code-scanner-resolver.ts") || process.a
 if (isCLI) {
   const limit = parseInt(process.argv[2] || "5", 10);
   runAutoAlertResolver(limit).then((res) => {
-    console.log(`\nBatch complete: ${res.resolved}/${res.total} alerts resolved.`);
+    console.log("\nBatch complete: %s/%s alerts resolved.", res.resolved, res.total);
     process.exit(0);
   });
 }
