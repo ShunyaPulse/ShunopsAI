@@ -33,27 +33,31 @@ async function waitForKaggleKernel(
   maxWaitMs = 180 * 60 * 1000,
 ): Promise<boolean> {
   const startTime = Date.now();
-  console.log(`[Autopilot] Polling Kaggle kernel: ${kernelRef}...`);
+  console.log("[Autopilot] Polling Kaggle kernel:", kernelRef, "...");
 
   while (Date.now() - startTime < maxWaitMs) {
     try {
       const statusOutput = await manageKaggle("status", kernelRef);
       console.log(
-        `[Autopilot] ${new Date().toLocaleTimeString()} - Status: ${statusOutput.trim()}`,
+        "[Autopilot]",
+        new Date().toLocaleTimeString(),
+        "- Status:",
+        statusOutput.trim(),
       );
 
       if (statusOutput.includes("COMPLETE")) {
-        console.log(`[Autopilot] ✅ Kaggle kernel finished successfully!`);
+        console.log("[Autopilot] ✅ Kaggle kernel finished successfully!");
         return true;
       }
       if (statusOutput.includes("ERROR") || statusOutput.includes("FAILED")) {
         console.error(
-          `[Autopilot] ❌ Kaggle kernel failed with status: ${statusOutput}`,
+          "[Autopilot] ❌ Kaggle kernel failed with status:",
+          statusOutput,
         );
         return false;
       }
     } catch (e: any) {
-      console.warn(`[Autopilot] Status check warning: ${e.message}`);
+      console.warn("[Autopilot] Status check warning:", e.message);
     }
 
     // Wait 60 seconds between polling checks
@@ -61,7 +65,9 @@ async function waitForKaggleKernel(
   }
 
   console.error(
-    `[Autopilot] ❌ Timed out waiting for Kaggle kernel after ${maxWaitMs / 60000} mins`,
+    "[Autopilot] ❌ Timed out waiting for Kaggle kernel after",
+    maxWaitMs / 60000,
+    "mins",
   );
   return false;
 }
@@ -72,9 +78,11 @@ async function waitForKaggleKernel(
  */
 export async function runAutonomousCycle(): Promise<AutopilotRunResult> {
   console.log("\n=======================================================");
-  console.log(`🚀 [Autopilot] Starting Autonomous Daily Video Cycle`);
+  console.log("🚀 [Autopilot] Starting Autonomous Daily Video Cycle");
   console.log(
-    `⏰ Time: ${new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })} IST`,
+    "⏰ Time:",
+    new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" }),
+    "IST",
   );
   console.log("=======================================================\n");
 
@@ -85,7 +93,9 @@ export async function runAutonomousCycle(): Promise<AutopilotRunResult> {
     );
     const trends = await fetchGoogleTrendsIndia();
     console.log(
-      `[Autopilot] Discovered ${trends.length} active Indian trends.`,
+      "[Autopilot] Discovered",
+      trends.length,
+      "active Indian trends.",
     );
 
     // 2. Curate high-value-addition topic
@@ -93,13 +103,15 @@ export async function runAutonomousCycle(): Promise<AutopilotRunResult> {
       "[Autopilot] Step 2: Curating highest value-addition topic with Gemini...",
     );
     const curated = await curateBestTrendTopic(trends);
-    console.log(`[Autopilot] 🎯 Curated Topic: "${curated.documentary_topic}"`);
-    console.log(`[Autopilot] 🏷️ Category: ${curated.category}`);
-    console.log(`[Autopilot] 💡 Value Hook: ${curated.value_hook}`);
+    console.log("[Autopilot] 🎯 Curated Topic:", `"${curated.documentary_topic}"`);
+    console.log("[Autopilot] 🏷️ Category:", curated.category);
+    console.log("[Autopilot] 💡 Value Hook:", curated.value_hook);
 
     // 3. Launch Video Job on Kaggle GPU
     console.log(
-      `[Autopilot] Step 3: Launching Wan2.1 + RIFE render on Kaggle T4 (${curated.target_duration_minutes} mins, Hindi)...`,
+      "[Autopilot] Step 3: Launching Wan2.1 + RIFE render on Kaggle T4 (",
+      curated.target_duration_minutes || 3,
+      "mins, Hindi)...",
     );
     const jobLaunchOutput = await startVideoJob(
       curated.documentary_topic,
@@ -123,7 +135,11 @@ export async function runAutonomousCycle(): Promise<AutopilotRunResult> {
       );
     }
     console.log(
-      `[Autopilot] Dispatched kernel: ${kernelRef} (Job ID: ${jobId})`,
+      "[Autopilot] Dispatched kernel:",
+      kernelRef,
+      "(Job ID:",
+      jobId,
+      ")",
     );
 
     // 4. Wait for Kaggle GPU execution to complete
@@ -144,8 +160,14 @@ export async function runAutonomousCycle(): Promise<AutopilotRunResult> {
     // 5. Download output files from Kaggle
     console.log("[Autopilot] Step 5: Downloading final video and metadata...");
     const outputLog = await manageKaggle("output", kernelRef);
+    // Redact potential sensitive data from output log before logging
+    const safeLog = outputLog
+      .replace(/[A-Za-z0-9_-]{20,}/g, "[REDACTED]")
+      .replace(/key=[^&\s]+/g, "key=[REDACTED]")
+      .replace(/token=[^&\s]+/g, "token=[REDACTED]");
     console.log(
-      `[Autopilot] Kaggle output status:\n${outputLog.slice(0, 400)}`,
+      "[Autopilot] Kaggle output status:",
+      safeLog.slice(0, 400),
     );
 
     // 6. Upload to YouTube as Private
@@ -162,7 +184,8 @@ export async function runAutonomousCycle(): Promise<AutopilotRunResult> {
       );
     }
     console.log(
-      `[Autopilot] ✅ Video uploaded to YouTube: ${ytResult.videoUrl}`,
+      "[Autopilot] ✅ Video uploaded to YouTube:",
+      ytResult.videoUrl,
     );
 
     // 7. Send Email Review Alert
@@ -196,9 +219,9 @@ export async function runAutonomousCycle(): Promise<AutopilotRunResult> {
     });
 
     console.log("\n=======================================================");
-    console.log(`🎉 [Autopilot] Autonomous Cycle Complete!`);
-    console.log(`📺 Watch: ${ytResult.videoUrl}`);
-    console.log(`⚙️ Studio: ${ytResult.studioUrl}`);
+    console.log("🎉 [Autopilot] Autonomous Cycle Complete!");
+    console.log("📺 Watch:", ytResult.videoUrl);
+    console.log("⚙️ Studio:", ytResult.studioUrl);
     console.log("=======================================================\n");
 
     return {
@@ -211,7 +234,8 @@ export async function runAutonomousCycle(): Promise<AutopilotRunResult> {
     };
   } catch (err: any) {
     console.error(
-      `[Autopilot] ❌ Autonomous cycle encountered an error: ${err.message}`,
+      "[Autopilot] ❌ Autonomous cycle encountered an error:",
+      err.message,
     );
     return { ok: false, error: err.message };
   }
@@ -246,7 +270,9 @@ export function startDailyScheduler() {
     const delay = msUntilNextRun(15, 30);
     const hours = (delay / 3600000).toFixed(2);
     console.log(
-      `[Scheduler] Next autonomous run scheduled in ${hours} hours (at 03:30 PM IST).`,
+      "[Scheduler] Next autonomous run scheduled in",
+      hours,
+      "hours (at 03:30 PM IST).",
     );
 
     setTimeout(async () => {

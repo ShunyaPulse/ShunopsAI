@@ -8,13 +8,12 @@ async function main() {
   const minutes = 1;
   const language = "English";
 
-  console.log(`[Wan2.1 Test] Launching test job: "${topic}"...`);
+  console.log("[Wan2.1 Test] Launching test job:", `"${topic}"...`);
   const result = await startVideoJob(topic, minutes, language);
-  console.log("[Wan2.1 Test] Launch result:\n", result);
+  console.log("[Wan2.1 Test] Launch result:", result);
 }
 
 main().catch((err) => {
   console.error("[Wan2.1 Test] Launch error:", err);
   process.exit(1);
 });
-

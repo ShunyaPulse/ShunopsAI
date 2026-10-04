@@ -120,7 +120,7 @@ export async function geminiGenerate(prompt: string, preferredModel?: string): P
   for (let mIdx = 0; mIdx < modelsToTry.length; mIdx++) {
     const model = modelsToTry[mIdx];
     const candidateKeys = pickKeySubset(pool, Math.min(KEYS_PER_MODEL_ATTEMPT, pool.length));
-    console.log(`[Video] Trying model [${mIdx + 1}/${modelsToTry.length}]: "${model}" with ${candidateKeys.length} keys...`);
+    console.log("[Video] Trying model [", mIdx + 1, "/", modelsToTry.length, ']: "', model, '" with', candidateKeys.length, "keys...");
 
     for (let kIdx = 0; kIdx < candidateKeys.length; kIdx++) {
       const key = candidateKeys[kIdx];
@@ -149,40 +149,40 @@ export async function geminiGenerate(prompt: string, preferredModel?: string): P
           const data: any = await res.json();
           const text = data?.candidates?.[0]?.content?.parts?.map((p: any) => p.text).join("") ?? "";
           if (text) {
-            console.log(`[Video] Success with model: "${model}" on key ...${keySuffix}`);
+            console.log("[Video] Success with model:", `"${model}"`, "on key [REDACTED]");
             return { text, modelUsed: model ?? "unknown" };
           }
         }
 
         const body = await res.text();
         const errMsg = `Status ${res.status}: ${body.slice(0, 180)}`;
-        globalLastErr = `Model ${model} (key ...${keySuffix}) -> ${errMsg}`;
-        console.warn(`[Video] Key [${kIdx + 1}/${candidateKeys.length}] failed for ${model}: ${errMsg}`);
+        globalLastErr = `Model ${model} (key [REDACTED]) -> ${errMsg}`;
+        console.warn("[Video] Key [", kIdx + 1, "/", candidateKeys.length, "] failed for", model, ":", errMsg);
 
         // If model is 404 (does not exist / deprecated), do not waste other keys on this model
         if (res.status === 404) {
-          console.warn(`[Video] Model "${model}" returned 404. Skipping remaining keys for this model.`);
+          console.warn("[Video] Model", `"${model}"`, "returned 404. Skipping remaining keys for this model.");
           break;
         }
 
         // Small pause between key retries
         await new Promise((r) => setTimeout(r, 400));
       } catch (err: any) {
-        globalLastErr = `Model ${model} (key ...${keySuffix}) error: ${err.message}`;
-        console.warn(`[Video] Key [${kIdx + 1}/${candidateKeys.length}] network error: ${err.message}`);
+        globalLastErr = `Model ${model} (key [REDACTED]) error: ${err.message}`;
+        console.warn("[Video] Key [", kIdx + 1, "/", candidateKeys.length, "] network error:", err.message);
         await new Promise((r) => setTimeout(r, 400));
       }
     }
 
     if (mIdx < modelsToTry.length - 1) {
-      console.warn(`[Video] ⚠️ Model "${model}" failed across keys. Degrading quality to next model: "${modelsToTry[mIdx + 1]}"...`);
+      console.warn("[Video] ⚠️ Model", `"${model}"`, "failed across keys. Degrading quality to next model:", `"${modelsToTry[mIdx + 1]}"` + "...");
     }
   }
 
   // Cross-provider backup: if all Gemini models failed, fallback to Groq
   const groqKey = process.env.GROQ_API_KEY;
   if (groqKey) {
-    console.warn(`[Video] ⚠️ Attempting cross-provider fallback to Groq (openai/gpt-oss-120b, qwen/qwen3.8-27b)...`);
+    console.warn("[Video] ⚠️ Attempting cross-provider fallback to Groq (openai/gpt-oss-120b, qwen/qwen3.8-27b)...");
     const groqModels = ["openai/gpt-oss-120b", "qwen/qwen3.8-27b"];
     for (const gModel of groqModels) {
       try {
@@ -203,12 +203,12 @@ export async function geminiGenerate(prompt: string, preferredModel?: string): P
           const data: any = await res.json();
           const text = data?.choices?.[0]?.message?.content ?? "";
           if (text) {
-            console.log(`[Video] Success with Groq fallback model: "${gModel}"`);
+            console.log("[Video] Success with Groq fallback model:", `"${gModel}"`);
             return { text, modelUsed: `groq:${gModel}` };
           }
         }
       } catch (err: any) {
-        console.warn(`[Video] Groq fallback ${gModel} failed: ${err.message}`);
+        console.warn("[Video] Groq fallback", gModel, "failed:", err.message);
       }
     }
   }
@@ -285,7 +285,7 @@ CRITICAL DIRECTIVES:
   if (!script.scenes?.length) throw new Error("Gemini returned a script with no scenes");
   script.voice = voice;
   script.language = language;
-  console.log(`[Video] Script generated with model "${modelUsed}" via Gemini key pool (${pool.length} keys). Title: ${script.title}`);
+  console.log("[Video] Script generated with model", `"${modelUsed}"`, "via Gemini key pool (", pool.length, "keys). Title:", script.title);
   return script;
 }
 

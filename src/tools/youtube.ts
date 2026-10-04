@@ -90,13 +90,13 @@ export async function setYouTubeThumbnail(videoId: string, thumbnailPath: string
 
     if (!res.ok) {
       const err = await res.text();
-      console.warn(`[YouTube] Warning: failed to set custom thumbnail: ${err}`);
+      console.warn("[YouTube] Warning: failed to set custom thumbnail:", err);
       return false;
     }
-    console.log(`[YouTube] Successfully set custom thumbnail for video ${videoId}`);
+    console.log("[YouTube] Successfully set custom thumbnail for video", videoId);
     return true;
   } catch (e: any) {
-    console.warn(`[YouTube] Thumbnail error: ${e.message}`);
+    console.warn("[YouTube] Thumbnail error:", e.message);
     return false;
   }
 }
@@ -132,7 +132,7 @@ export async function uploadToYouTube(options: YouTubeUploadOptions): Promise<Yo
           tags = meta.tags;
         }
       } catch (err: any) {
-        console.warn(`[YouTube] Could not parse meta.json: ${err.message}`);
+        console.warn("[YouTube] Could not parse meta.json:", err.message);
       }
     }
 
@@ -145,8 +145,8 @@ export async function uploadToYouTube(options: YouTubeUploadOptions): Promise<Yo
     const stats = await fs.stat(videoPath);
     const fileSize = stats.size;
 
-    console.log(`[YouTube] Initiating resumable upload for "${title}" (${(fileSize / 1024 / 1024).toFixed(1)} MB)...`);
-    console.log(`[YouTube] Privacy status: ${privacyStatus.toUpperCase()} | Language: ${langCode} | AI Use: YES | Likes Public: NO`);
+    console.log("[YouTube] Initiating resumable upload for", `"${title}"`, `(${ (fileSize / 1024 / 1024).toFixed(1) } MB)...`);
+    console.log("[YouTube] Privacy status:", privacyStatus.toUpperCase(), "| Language:", langCode, "| AI Use: YES | Likes Public: NO");
 
     // Step 1: Initiate resumable session (inherits user's YouTube Studio Upload Defaults)
     const snippet = {
@@ -194,7 +194,7 @@ export async function uploadToYouTube(options: YouTubeUploadOptions): Promise<Yo
     }
 
     // Step 2: Upload the video file binary
-    console.log(`[YouTube] Uploading video content (${(fileSize / 1024 / 1024).toFixed(1)} MB)...`);
+    console.log("[YouTube] Uploading video content (", (fileSize / 1024 / 1024).toFixed(1), "MB)...");
     const { execFile } = await import("node:child_process");
     const { promisify } = await import("node:util");
     const execFileAsync = promisify(execFile);
@@ -229,10 +229,10 @@ export async function uploadToYouTube(options: YouTubeUploadOptions): Promise<Yo
 
     const videoUrl = `https://youtu.be/${videoId}`;
     const studioUrl = `https://studio.youtube.com/video/${videoId}/edit`;
-    console.log(`[YouTube] ✅ Video upload SUCCESSFUL!`);
-    console.log(`[YouTube] Video ID: ${videoId}`);
-    console.log(`[YouTube] Private URL: ${videoUrl}`);
-    console.log(`[YouTube] Studio Editor: ${studioUrl}`);
+    console.log("[YouTube] ✅ Video upload SUCCESSFUL!");
+    console.log("[YouTube] Video ID:", videoId);
+    console.log("[YouTube] Private URL:", videoUrl);
+    console.log("[YouTube] Studio Editor:", studioUrl);
 
     // Step 3: Set custom thumbnail if provided
     let thumbnailSet = false;
@@ -251,7 +251,7 @@ export async function uploadToYouTube(options: YouTubeUploadOptions): Promise<Yo
     }
 
     if (targetThumbnail && fsSync.existsSync(targetThumbnail)) {
-      console.log(`[YouTube] Uploading custom thumbnail: ${path.basename(targetThumbnail)}...`);
+      console.log("[YouTube] Uploading custom thumbnail:", path.basename(targetThumbnail), "...");
       thumbnailSet = await setYouTubeThumbnail(videoId, targetThumbnail, accessToken);
     }
 
