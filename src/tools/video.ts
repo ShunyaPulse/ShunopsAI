@@ -213,7 +213,50 @@ export async function geminiGenerate(prompt: string, preferredModel?: string): P
     }
   }
 
-  throw new Error(`All models in GEMINI_MODELS_QUALITY_ORDER and Groq fallback failed. Last error: ${globalLastErr}`);
+  // Cross-provider backup Tier 3: OpenRouter High-Capability Models
+  const openrouterKey = process.env.OPENROUTER_API_KEY;
+  if (openrouterKey) {
+    console.warn(`[Video] ⚠️ Attempting cross-provider fallback to OpenRouter...`);
+    const openrouterModels = [
+      "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "nvidia/nemotron-3.5-lightning:free",
+      "meta-llama/llama-3.3-70b-instruct:free",
+      "google/gemma-4-31b-it:free",
+      "cohere/north-mini-code:free",
+      "openrouter/free",
+    ];
+    for (const oModel of openrouterModels) {
+      try {
+        const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${openrouterKey}`,
+            "HTTP-Referer": "https://github.com/ShunyaPulse/ShunopsAI",
+            "X-Title": "ShunopsAI Video Script Generation",
+          },
+          body: JSON.stringify({
+            model: oModel,
+            messages: [{ role: "user", content: prompt }],
+            temperature: 0.7,
+            response_format: { type: "json_object" },
+          }),
+        });
+        if (res.ok) {
+          const data: any = await res.json();
+          const text = data?.choices?.[0]?.message?.content ?? "";
+          if (text) {
+            console.log(`[Video] Success with OpenRouter fallback model: "${oModel}"`);
+            return { text, modelUsed: `openrouter:${oModel}` };
+          }
+        }
+      } catch (err: any) {
+        console.warn(`[Video] OpenRouter fallback ${oModel} failed: ${err.message}`);
+      }
+    }
+  }
+
+  throw new Error(`All models in GEMINI_MODELS_QUALITY_ORDER, Groq fallback, and OpenRouter fallback failed. Last error: ${globalLastErr}`);
 }
 
 /**
