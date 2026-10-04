@@ -5,6 +5,10 @@ import * as dotenv from "dotenv";
 dotenv.config();
 
 async function runSentinelCron() {
+  // When FAIL_ON_DOWN is set (e.g. by the scheduled ops workflow), a run that
+  // still has down services exits non-zero so the workflow can open an incident.
+  const failOnDown = /^(1|true|yes)$/i.test(process.env.FAIL_ON_DOWN || "");
+
   console.log("🛡️ [Sentinel Cron] Starting scheduled autonomous health check & self-healing...");
 
   // 1. Health check across cloud services
@@ -26,6 +30,21 @@ async function runSentinelCron() {
     console.log(`[Sentinel Cron] Code scanning alerts handled: ${alertResult.resolved}/${alertResult.total}`);
   } catch (err: any) {
     console.error(`[Sentinel Cron] Alert resolver notice: ${err.message}`);
+  }
+
+  // 4. Optional fail-fast signal for scheduled runs.
+  if (failOnDown) {
+    const recheck = await runComprehensiveSentinelScan();
+    if (recheck.downCount > 0) {
+      const downers = recheck.services
+        .filter((s) => s.status === "down")
+        .map((s) => s.service)
+        .join(", ");
+      console.error(
+        `❌ [Sentinel Cron] ${recheck.downCount} service(s) still DOWN after self-healing: ${downers}`
+      );
+      process.exit(1);
+    }
   }
 
   console.log("✅ [Sentinel Cron] Scheduled run completed successfully.");
