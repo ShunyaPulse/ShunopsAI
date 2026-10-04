@@ -30,9 +30,7 @@ app.use(
 // CORS: only echo origins explicitly allowed (or "*" if configured).
 app.use((req, res, next) => {
   const origin = req.headers.origin;
-  if (CORS_ORIGINS.includes("*")) {
-    res.header("Access-Control-Allow-Origin", "*");
-  } else if (origin && CORS_ORIGINS.includes(origin)) {
+  if (origin && CORS_ORIGINS.includes(origin)) {
     res.header("Access-Control-Allow-Origin", origin);
     res.header("Vary", "Origin");
   }
