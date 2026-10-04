@@ -77,13 +77,10 @@ function geminiKeyPool(): string[] {
  * quality is degraded to the next model in this order.
  */
 export const GEMINI_MODELS_QUALITY_ORDER = [
-  "gemini-3.8-flash",        // Latest stable, Best Quality (5 RPM / 20 RPD free)
-  "gemini-3.7-flash",        // High capability fallback   (5 RPM / 20 RPD free)
-  "gemini-3.6-flash",        // Solid stable fallback      (5 RPM / 20 RPD free)
-  "gemini-3.5-flash",        // Widely available           (10 RPM / 20 RPD free)
-  "gemini-3-flash-preview",  // AI Studio Flash Preview    (5 RPM / 20 RPD free)
-  "gemini-3.5-flash-lite",   // High-throughput Lite       (30 RPM / 1500 RPD free)
-  "gemini-3.1-flash-lite",   // Last-resort Ultra-Lite     (30 RPM / 1500 RPD free)
+  "gemini-3.8-flash",        // Active verified quota (1 / 5)
+  "gemini-3.6-flash",        // Active verified quota (1 / 5)
+  "gemini-3.5-flash",        // Active verified quota (1 / 5)
+  "gemini-3-flash-preview",  // Active verified quota (1 / 5)
 ];
 
 const KEYS_PER_MODEL_ATTEMPT = 6;

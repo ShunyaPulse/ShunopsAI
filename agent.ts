@@ -68,11 +68,11 @@ export const AGENT_MODELS_CHAIN: ModelTarget[] = [
   { provider: "groq", model: "openai/gpt-oss-120b", name: "Groq GPT-OSS 120B (High Reasoning Fallback)" },
   { provider: "groq", model: "qwen/qwen3.8-27b", name: "Groq Qwen 3.8 27B (Fast Tool Calling)" },
 
-  // 4. Google AI Studio Fallback (Gemini Key Pool with 34 Keys)
+  // 4. Google AI Studio Fallback (Gemini Key Pool with Active 1/5 Quota)
   { provider: "gemini", model: "gemini-3.8-flash", name: "Gemini 3.8 Flash (AI Studio 34-Key Pool)" },
-  { provider: "gemini", model: "gemini-3.5-flash-lite", name: "Gemini 3.5 Flash Lite (High Throughput 1500 RPD)" },
-  { provider: "gemini", model: "gemini-2.5-flash", name: "Gemini 2.5 Flash (Production Stable)" },
-  { provider: "gemini", model: "gemini-2.0-flash", name: "Gemini 2.0 Flash (Fast Backup)" },
+  { provider: "gemini", model: "gemini-3.6-flash", name: "Gemini 3.6 Flash (Active 1/5)" },
+  { provider: "gemini", model: "gemini-3.5-flash", name: "Gemini 3.5 Flash (Active 1/5)" },
+  { provider: "gemini", model: "gemini-3-flash-preview", name: "Gemini 3 Flash Preview (Active 1/5)" },
 ];
 
 export const PRIMARY_MODEL = AGENT_MODELS_CHAIN[0]?.model ?? "nvidia/nemotron-3-ultra-550b-a55b:free";
