@@ -45,3 +45,16 @@
 - As soon as a new commit is detected (pushed by user, bot, or PR merge), the audit cycle automatically resets to run 1.
 - Capped flaw remediation: maximum 5 flaws per audit run to prevent token bursts.
 - State persistence: distributed OCI Redis (`REDIS_URL` / `REDIS_HOST`) across cloud runners with local `.auditor-state.json` fallback.
+
+## 6. Multi-Service API Key Pool Anti-Contention Invariant
+- **Shared Key Permutation Rule:** Multiple services (`SaralGati`, `AI Predictor`, `AI Damage Inspector Pro`, `Flow State`, `ShunopsAI`) sharing the master `GEMINI_KEYS` / `GEMINI_API_KEY` pool must NEVER use identical key ordering.
+- **Enforcement:** Each service environment must maintain a cryptographically shuffled permutation (`crypto.randomInt` Fisher-Yates) so that different services start at different pool indices. This prevents concurrency spikes and 429 rate-limiting on initial keys while later keys remain unutilized.
+
+## 7. Operational Cadence & Autonomous Sentinel Schedule
+- Standard operational frequency across GitHub Actions (`ops.yml`), n8n orchestrator triggers, and sentinel health audits is strictly **12 hours** (`0 */12 * * *`).
+- The duplicate commit SHA verification ceiling in `autonomous-repo-auditor.ts` is calibrated to 2 consecutive 12-hour cycles before skipping LLM inference.
+
+## 8. Clear-Text Logging & CodeQL Sanitization
+- Never pass raw API responses, error objects with stack traces, or external payloads (`rawAlert`, `data.result`, `healReport`) directly into `console.log` or logging formatters.
+- Always redact sensitive variables with `[REDACTED]` or extract safe primitive strings to avoid GitHub CodeQL `js/clear-text-logging` alerts.
+
