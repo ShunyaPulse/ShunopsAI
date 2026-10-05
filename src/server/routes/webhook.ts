@@ -47,7 +47,7 @@ export async function webhookRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // 2. Unified Multi-Cloud Alert Envelope Listener (GCP, UptimeRobot, BetterStack, Cloudflare, n8n)
-  app.post<{ Body: CloudAlertEnvelope }>(
+  app.post<{ Body: CloudAlertEnvelope; Querystring: { token?: string; secret?: string } }>(
     "/api/webhook/cloud-alert",
     {
       schema: {
@@ -55,6 +55,24 @@ export async function webhookRoutes(app: FastifyInstance): Promise<void> {
       },
     },
     async (req, reply) => {
+      // Optional Secret Verification (Bearer Header, X-Webhook-Secret, or query param ?token=... / ?secret=...)
+      const configuredSecret = process.env.API_SECRET || process.env.AUTH_SECRET;
+      const inboundSecret =
+        req.query.secret ||
+        req.query.token ||
+        (req.headers["x-webhook-secret"] as string) ||
+        (req.headers["authorization"] ? req.headers["authorization"].replace(/^Bearer\s+/i, "") : undefined);
+
+      if (configuredSecret && inboundSecret) {
+        if (!timingSafeEqualStr(inboundSecret, configuredSecret)) {
+          reply.status(401);
+          return { error: "Invalid webhook secret or token." };
+        }
+      } else if (process.env.REQUIRE_WEBHOOK_AUTH === "true" && configuredSecret && !inboundSecret) {
+        reply.status(401);
+        return { error: "Authorization required for webhook." };
+      }
+
       const raw = (req.body as any) || {};
 
       // 1. Auto-detect GCP Cloud Monitoring payload
@@ -62,33 +80,41 @@ export async function webhookRoutes(app: FastifyInstance): Promise<void> {
       let service: CloudAlertEnvelope["service"] = raw.service || "all";
       let message = raw.message || "";
       let targetUrl = raw.targetUrl || "";
+      let isRecovery = false;
 
       if (raw.incident) {
         source = "gcp";
         const resName = (raw.incident.resource_name || raw.incident.resource_id || "").toLowerCase();
         service = resName.includes("run") || resName.includes("saralgati") || resName.includes("kanban") ? "cloud_run" : "all";
-        message = `GCP Incident: ${raw.incident.summary || raw.incident.condition_name || "Cloud Run alert"}`;
+        const state = (raw.incident.state || "").toLowerCase();
+        isRecovery = state === "closed";
+        message = `GCP Incident [${state.toUpperCase() || "ALERT"}]: ${raw.incident.summary || raw.incident.condition_name || "Cloud Run alert"}`;
         targetUrl = raw.incident.url || "";
       }
       // 2. Auto-detect UptimeRobot payload
-      else if (raw.monitorURL || raw.alertTypeFriendlyName) {
+      else if (raw.monitorURL || raw.alertTypeFriendlyName || raw.alertType) {
         source = "uptimerobot";
-        service = "website";
         targetUrl = raw.monitorURL || "";
-        message = `UptimeRobot Alert: ${raw.monitorFriendlyName || "Site"} status is ${raw.alertTypeFriendlyName || "Down"}`;
+        const alertType = String(raw.alertType || raw.alertTypeFriendlyName || "").toLowerCase();
+        isRecovery = alertType.includes("up") || alertType === "2";
+        service = targetUrl.includes("run.app") || targetUrl.includes("saralgati") || targetUrl.includes("kanban") ? "cloud_run" : "website";
+        message = `UptimeRobot [${isRecovery ? "UP" : "DOWN"}]: ${raw.monitorFriendlyName || targetUrl || "Site"}`;
       }
       // 3. Auto-detect BetterStack payload
-      else if (raw.data?.attributes?.url) {
+      else if (raw.data?.attributes?.url || (raw.data && raw.data.type === "incident")) {
         source = "betterstack";
-        service = "website";
-        targetUrl = raw.data.attributes.url;
-        message = `BetterStack Alert: ${raw.data.attributes.name || "Endpoint"} status is ${raw.data.attributes.status || "Degraded"}`;
+        const attrs = raw.data.attributes || {};
+        targetUrl = attrs.url || "";
+        const status = (attrs.status || "").toLowerCase();
+        isRecovery = status === "resolved" || status === "up";
+        service = targetUrl.includes("run.app") || targetUrl.includes("saralgati") || targetUrl.includes("kanban") ? "cloud_run" : "website";
+        message = `BetterStack Alert [${status.toUpperCase()}]: ${attrs.name || targetUrl || "Endpoint"} - ${attrs.cause || "Check triggered"}`;
       }
       // 4. Auto-detect Cloudflare alert
-      else if (raw.data?.pool_name || raw.alert_name) {
+      else if (raw.data?.pool_name || raw.alert_name || raw.text) {
         source = "cloudflare";
         service = "cloudflare_ai";
-        message = `Cloudflare Alert: ${raw.alert_name || raw.data?.pool_name || "Health Check alert"}`;
+        message = `Cloudflare Alert: ${raw.alert_name || raw.data?.pool_name || raw.text || "Health Check alert"}`;
       }
 
       if (!message) {
@@ -96,7 +122,7 @@ export async function webhookRoutes(app: FastifyInstance): Promise<void> {
       }
 
       console.log(
-        `\n\x1b[33m⚡ [Cloud Alert Webhook]\x1b[0m Source: ${source?.toUpperCase()} | Target Service: ${service} | Message: ${message}`
+        `\n\x1b[33m⚡ [Cloud Alert Direct Webhook]\x1b[0m Source: ${source?.toUpperCase()} | Service: ${service} | Recovery: ${isRecovery} | Message: ${message}`
       );
 
       reply.status(202);
@@ -105,13 +131,12 @@ export async function webhookRoutes(app: FastifyInstance): Promise<void> {
       setTimeout(async () => {
         try {
           if (service === "cloud_run" || service === "redis" || service === "neon" || service === "website" || service === "all") {
-            const healReport = await autoHealService(service, `Triggered by ${source} alert: ${message}`);
+            const healReport = await autoHealService(service, `${isRecovery ? "Post-incident verification" : "Immediate auto-heal"} for ${source}: ${message}`);
             console.log(`\x1b[32m[Cloud Alert Healer]\x1b[0m Result:`, healReport);
           } else {
-            // General agent task
             await runAutonomousAgent(
               `Resolve cloud infrastructure alert from ${source} for service ${service}: ${message}. Target URL: ${targetUrl}. Raw payload: [REDACTED]`,
-              { maxSteps: 8 }
+              { maxSteps: 6 }
             );
           }
         } catch (err: any) {
@@ -123,7 +148,8 @@ export async function webhookRoutes(app: FastifyInstance): Promise<void> {
         received: true,
         source,
         service,
-        status: "HEALING_DISPATCHED",
+        isRecovery,
+        status: isRecovery ? "VERIFICATION_DISPATCHED" : "HEALING_DISPATCHED",
         timestamp: new Date().toISOString(),
       };
     }
