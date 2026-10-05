@@ -1,8 +1,9 @@
 import { execFileSync, execSync } from "node:child_process";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import OpenAI from "openai";
 import * as dotenv from "dotenv";
+import { colors } from "../core/colors.js";
+import { getGitHubAuthEnv } from "../core/github.js";
 import {
   DEFAULT_PROPOSER,
   DEFAULT_AUDITOR,
@@ -13,19 +14,6 @@ import {
 
 dotenv.config();
 
-// ANSI color helpers
-const colors = {
-  reset: "\x1b[0m",
-  bold: "\x1b[1m",
-  dim: "\x1b[2m",
-  cyan: "\x1b[36m",
-  green: "\x1b[32m",
-  yellow: "\x1b[33m",
-  blue: "\x1b[34m",
-  magenta: "\x1b[35m",
-  red: "\x1b[31m",
-  gray: "\x1b[90m",
-};
 
 export interface CodeAlert {
   number: number;
@@ -54,26 +42,6 @@ export interface CodeAlert {
   state: "open" | "fixed" | "dismissed";
 }
 
-function getAuthEnv(): NodeJS.ProcessEnv {
-  const token = process.env.GH_TOKEN || process.env.GH_PAT || process.env.GITHUB_PAT || process.env.GITHUB_TOKEN || "";
-  return {
-    ...process.env,
-    GH_TOKEN: token,
-    GITHUB_TOKEN: token,
-  };
-}
-
-function getLLMClient(): { client: OpenAI; model: string; provider: string } {
-  const apiKey = process.env.GROQ_API_KEY || "dummy";
-  return {
-    client: new OpenAI({
-      baseURL: "https://api.groq.com/openai/v1",
-      apiKey,
-    }),
-    model: "openai/gpt-oss-120b",
-    provider: "GROQ",
-  };
-}
 
 /**
  * Fetch all open code scanning alerts from GitHub
@@ -83,7 +51,7 @@ export async function fetchOpenCodeScanningAlerts(repo = "ShunyaPulse/ShunopsAI"
     // execFileSync (argv form) avoids shell interpolation of the repo name.
     const raw = execFileSync("gh", ["api", `repos/${repo}/code-scanning/alerts`, "--paginate"], {
       encoding: "utf-8",
-      env: getAuthEnv(),
+      env: getGitHubAuthEnv(),
     });
     const parsed: CodeAlert[] = JSON.parse(raw || "[]");
     return parsed.filter((a) => a.state === "open");
@@ -293,7 +261,7 @@ export async function runAutoAlertResolver(limit = 10): Promise<{ resolved: numb
         `fix(security): auto-resolved ${resolvedCount} code scanning alerts by ShunopsAI [skip ci]`,
       ]);
       const pat = process.env.GH_PAT || process.env.GITHUB_PAT;
-      const authEnv = getAuthEnv();
+      const authEnv = getGitHubAuthEnv();
       if (pat) {
         execFileSync(
           "git",
