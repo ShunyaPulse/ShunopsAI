@@ -41,6 +41,7 @@ export interface PRReviewComment {
 export interface FailedWorkflowRunItem {
   databaseId: number;
   workflowName: string;
+  workflowDatabaseId?: number;
   headBranch: string;
   headSha: string;
   event: string;
@@ -70,7 +71,7 @@ export async function fetchRecentFailedWorkflowRuns(
         "--limit",
         String(limit),
         "--json",
-        "databaseId,workflowName,headBranch,headSha,event,displayTitle,url,conclusion,createdAt",
+        "databaseId,workflowName,workflowDatabaseId,headBranch,headSha,event,displayTitle,url,conclusion,createdAt",
       ],
       { encoding: "utf-8", env: getGitHubAuthEnv() }
     );
@@ -99,7 +100,7 @@ export async function fetchFailedRunLog(runId: number, repo: string): Promise<st
 }
 
 /**
- * Check if a failed workflow run is superseded by a newer successful run or if its PR branch is closed
+ * Check if a failed workflow run is superseded by a newer successful run of the exact same workflow or if its PR branch is closed
  */
 export async function isRunSupersededOrResolved(
   run: FailedWorkflowRunItem,
@@ -123,7 +124,8 @@ export async function isRunSupersededOrResolved(
       }
     }
 
-    // Check if a newer run for the same workflow has succeeded
+    // Check if a newer run for the EXACT SAME workflow has succeeded
+    const workflowTarget = run.workflowDatabaseId ? String(run.workflowDatabaseId) : run.workflowName;
     const raw = execFileSync(
       "gh",
       [
@@ -132,31 +134,40 @@ export async function isRunSupersededOrResolved(
         "--repo",
         repo,
         "--workflow",
-        run.workflowName,
+        workflowTarget,
         "--branch",
         run.headBranch,
         "--status",
         "success",
         "--limit",
-        "3",
+        "5",
         "--json",
-        "databaseId,createdAt",
+        "databaseId,workflowName,workflowDatabaseId,createdAt",
       ],
       { encoding: "utf-8", env: getGitHubAuthEnv() }
     );
     const successRuns = JSON.parse(raw || "[]");
-    const newerSuccess = successRuns.find(
-      (s: any) => new Date(s.createdAt).getTime() > new Date(run.createdAt).getTime()
-    );
+    const newerSuccess = successRuns.find((s: any) => {
+      // Strict identity check: MUST be the exact same workflow by ID or exact Name
+      const isSameWorkflow =
+        (run.workflowDatabaseId && s.workflowDatabaseId && s.workflowDatabaseId === run.workflowDatabaseId) ||
+        (s.workflowName && run.workflowName && s.workflowName.trim().toLowerCase() === run.workflowName.trim().toLowerCase());
+
+      if (!isSameWorkflow) {
+        return false;
+      }
+
+      return new Date(s.createdAt).getTime() > new Date(run.createdAt).getTime();
+    });
 
     if (newerSuccess) {
       return {
         resolved: true,
-        reason: `Superseded by newer successful run #${newerSuccess.databaseId} at ${newerSuccess.createdAt}.`,
+        reason: `Superseded by newer successful run #${newerSuccess.databaseId} of exact same workflow "${run.workflowName}" (ID: ${run.workflowDatabaseId ?? "N/A"}) at ${newerSuccess.createdAt}.`,
       };
     }
 
-    return { resolved: false, reason: "No newer successful run found." };
+    return { resolved: false, reason: `No newer successful run found for workflow "${run.workflowName}".` };
   } catch (err: any) {
     return { resolved: false, reason: `Check failed: ${err.message}` };
   }
