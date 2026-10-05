@@ -226,17 +226,28 @@ Do NOT include any text outside the JSON.`;
 /**
  * Main automated loop to resolve all open code scanning alerts
  */
-export async function runAutoAlertResolver(limit = 10): Promise<{ resolved: number; total: number }> {
+export async function runAutoAlertResolver(
+  limit = 10,
+  repo = "ShunyaPulse/ShunopsAI"
+): Promise<{ resolved: number; total: number }> {
   console.log(`\n${colors.cyan}${colors.bold}====================================================${colors.reset}`);
-  console.log(`${colors.cyan}${colors.bold}🤖 ShunopsAI Autonomous Code Scanning Alert Resolver${colors.reset}`);
+  console.log(`${colors.cyan}${colors.bold}🤖 ShunopsAI Autonomous Code Scanning Alert Resolver (${repo})${colors.reset}`);
   console.log(`${colors.cyan}${colors.bold}====================================================${colors.reset}\n`);
 
-  const alerts = await fetchOpenCodeScanningAlerts();
-  console.log(`Found ${alerts.length} open security & quality alerts.`);
+  const alerts = await fetchOpenCodeScanningAlerts(repo);
+  console.log(`Found ${alerts.length} open security & quality alerts in ${repo}.`);
 
   if (alerts.length === 0) {
-    console.log(`${colors.green}All code scanning alerts are already clean! 🎉${colors.reset}`);
+    console.log(`${colors.green}All code scanning alerts in ${repo} are clean! 🎉${colors.reset}`);
     return { resolved: 0, total: 0 };
+  }
+
+  const isLocalRepo = repo === "ShunyaPulse/ShunopsAI" || repo === path.basename(process.cwd());
+  if (!isLocalRepo) {
+    console.log(
+      `${colors.yellow}ℹ️ Found ${alerts.length} alert(s) in remote repo ${repo}. Dependabot PR resolver will reconcile package-level dependencies.${colors.reset}`
+    );
+    return { resolved: 0, total: alerts.length };
   }
 
   let resolvedCount = 0;

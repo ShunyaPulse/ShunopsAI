@@ -1,6 +1,11 @@
 import { runComprehensiveSentinelScan, autoHealService } from "../tools/sentinel.js";
 import { runAutoAlertResolver } from "../tools/code-scanner-resolver.js";
-import { fetchOpenPRs, reviewAndResolvePR } from "../tools/pr-auto-resolver.js";
+import {
+  fetchOpenPRs,
+  reviewAndResolvePR,
+  runAutoPRResolver,
+  getTargetReposList,
+} from "../tools/pr-auto-resolver.js";
 import { runMultiRepoAutonomousAuditor } from "../tools/autonomous-repo-auditor.js";
 import * as dotenv from "dotenv";
 
@@ -26,21 +31,24 @@ async function runSentinelCron() {
   }
 
   // 3. Autonomous Code Scanning Alert Auto-Healing (Dual-Model Consensus)
-  console.log("🔍 [Sentinel Cron] Checking and resolving open GitHub Code Scanning alerts...");
-  try {
-    const alertResult = await runAutoAlertResolver(10);
-    console.log(`[Sentinel Cron] Code scanning alerts handled: ${alertResult.resolved}/${alertResult.total}`);
-  } catch (err: any) {
-    console.error(`[Sentinel Cron] Alert resolver notice: ${err.message}`);
+  console.log("🔍 [Sentinel Cron] Checking and resolving open GitHub Code Scanning alerts across repos...");
+  const targetRepos = getTargetReposList();
+  for (const repo of targetRepos) {
+    try {
+      const alertResult = await runAutoAlertResolver(10, repo);
+      if (alertResult.total > 0) {
+        console.log(`[Sentinel Cron] ${repo} alerts handled: ${alertResult.resolved}/${alertResult.total}`);
+      }
+    } catch (err: any) {
+      console.warn(`[Sentinel Cron] Alert resolver notice on ${repo}: ${err.message}`);
+    }
   }
 
-  // 4. Autonomous Open Pull Requests Review & Auto-Merge (Dual-Model Consensus)
-  console.log("🤝 [Sentinel Cron] Reviewing and resolving open PRs via Dual-Model Consensus...");
+  // 4. Autonomous Open Pull Requests Review & Auto-Merge (Dual-Model Consensus & Dependabot)
+  console.log("🤝 [Sentinel Cron] Reviewing and resolving open PRs across repos via Dual-Model Consensus...");
   try {
-    const openPRs = await fetchOpenPRs();
-    for (const pr of openPRs) {
-      await reviewAndResolvePR(pr);
-    }
+    const prResult = await runAutoPRResolver();
+    console.log(`[Sentinel Cron] PRs resolved across repos: ${prResult.resolved}/${prResult.total}`);
   } catch (err: any) {
     console.error(`[Sentinel Cron] PR resolver notice: ${err.message}`);
   }
