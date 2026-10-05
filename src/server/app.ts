@@ -2,6 +2,8 @@ import Fastify, { type FastifyInstance } from "fastify";
 import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
 import fastifyRawBody from "fastify-raw-body";
+import fastifySwagger from "@fastify/swagger";
+import fastifySwaggerUi from "@fastify/swagger-ui";
 import { createRequireAuth } from "./middleware/auth.js";
 import { registerRoutes } from "./routes/index.js";
 
@@ -58,6 +60,35 @@ export async function createApp(config: AppConfig = loadAppConfig()): Promise<Fa
   await app.register(rateLimit, {
     max: config.rateLimitMax,
     timeWindow: config.rateLimitWindowMs,
+  });
+
+  // Interactive Swagger / OpenAPI Documentation
+  await app.register(fastifySwagger, {
+    openapi: {
+      info: {
+        title: "ShunopsAI Autonomous Multi-Cloud & DevOps API",
+        description: "Autonomous ReAct Agent & Multi-Cloud Sentinel Engine (Cloud Run, OCI Redis, Neon, Cloudflare, Kaggle).",
+        version: "1.0.0",
+      },
+      servers: [{ url: `http://${config.host}:8080`, description: "ShunopsAI Host" }],
+      components: {
+        securitySchemes: {
+          bearerAuth: {
+            type: "http",
+            scheme: "bearer",
+            bearerFormat: "JWT/Token",
+          },
+        },
+      },
+    },
+  });
+
+  await app.register(fastifySwaggerUi, {
+    routePrefix: "/docs",
+    uiConfig: {
+      docExpansion: "list",
+      deepLinking: true,
+    },
   });
 
   const requireAuth = createRequireAuth({ apiToken: config.apiToken, host: config.host });

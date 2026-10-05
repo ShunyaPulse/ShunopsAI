@@ -1,18 +1,19 @@
 {
-  "name": "ShunopsAI Multi-Cloud Autonomous Hub",
+  "name": "ShunopsAI Multi-Cloud Autonomous Hub (Fastify Edition)",
   "nodes": [
     {
       "parameters": {
         "httpMethod": "POST",
-        "path": "shunops-task",
+        "path": "autonomous-agent",
+        "responseMode": "responseNode",
         "options": {}
       },
       "id": "1",
-      "name": "Webhook: Inbound Cloud Alert",
+      "name": "Incoming Webhook Trigger",
       "type": "n8n-nodes-base.webhook",
-      "typeVersion": 1,
-      "position": [250, 300],
-      "webhookId": "shunops-inbound-alert"
+      "typeVersion": 2,
+      "position": [-832, 208],
+      "webhookId": "9d41fa02-2457-471b-a656-ecc82164458e"
     },
     {
       "parameters": {
@@ -26,32 +27,62 @@
         }
       },
       "id": "2",
-      "name": "Cron: Scheduled Sentinel Check",
+      "name": "Periodic 6H Auto Audit",
       "type": "n8n-nodes-base.scheduleTrigger",
-      "typeVersion": 1.1,
-      "position": [250, 500]
+      "typeVersion": 1.2,
+      "position": [-832, 400]
     },
     {
       "parameters": {
-        "jsCode": "return [{\n  json: {\n    goal: $input.item.json.body?.goal || 'Run full autonomous infrastructure sentinel scan on Neon, Redis, Cloudflare, and Cloud Run',\n    maxSteps: $input.item.json.body?.maxSteps || 8\n  }\n}];"
+        "jsCode": "const item = $input.first()?.json || {};\nconst body = item.body || item;\n\n// Normalize multi-cloud incoming alerts (GCP, Uptime, Cloudflare, GitHub)\nlet task = body.task || body.goal || body.message;\nlet mode = body.mode || (body.message && !body.goal ? 'support' : 'agent');\n\nif (!task && body.incident) {\n  task = `Auto-heal GCP incident: ${body.incident.summary || body.incident.condition_name || 'Cloud Run service failure'}`;\n  mode = 'agent';\n} else if (!task && body.monitorURL) {\n  task = `Auto-heal Uptime alert for ${body.monitorURL}: Status ${body.alertTypeFriendlyName || 'Down'}`;\n  mode = 'agent';\n} else if (!task) {\n  task = 'Audit repo health, verify Redis PING and test database connectivity';\n}\n\nconst maxSteps = body.maxSteps || (mode === 'support' ? 3 : 15);\n\nreturn [{\n  json: {\n    task: task,\n    mode: mode,\n    maxSteps: maxSteps,\n    sender: body.sender || (item.headers ? 'webhook' : 'scheduled-cron'),\n    timestamp: new Date().toISOString()\n  }\n}];"
       },
       "id": "3",
-      "name": "Prepare Payload",
+      "name": "Normalize & Classify Input",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [470, 400]
+      "position": [-608, 304]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.mode }}",
+              "value2": "support"
+            }
+          ]
+        }
+      },
+      "id": "4",
+      "name": "Route: Support vs Autonomous Task",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [-384, 304]
     },
     {
       "parameters": {
         "method": "POST",
-        "url": "http://localhost:4000/api/task",
+        "url": "http://172.17.0.1:8080/api/chat",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"message\": \"{{ $json.task }}\"\n}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "5",
+      "name": "Fast Support Agent (/api/chat)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [-160, 208]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://172.17.0.1:8080/api/task",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            {
-              "name": "Content-Type",
-              "value": "application/json"
-            },
             {
               "name": "Authorization",
               "value": "Bearer {{ $env.AGENT_API_TOKEN || '' }}"
@@ -60,97 +91,201 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify($json) }}",
+        "jsonBody": "={\n  \"goal\": \"{{ $json.task }}\",\n  \"maxSteps\": {{ $json.maxSteps }}\n}",
         "options": {
           "timeout": 120000
         }
       },
-      "id": "4",
-      "name": "ShunopsAI Agent Execution",
+      "id": "6",
+      "name": "Autonomous ReAct Agent (/api/task)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.1,
-      "position": [690, 400]
+      "position": [-160, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first()?.json || {};\n\nconst success = item.success !== false;\nconst outputText = item.finalAnswer || item.reply || item.error || 'Task completed without text output';\nconst toolCalls = item.steps ? item.steps.map(s => s.tool).filter(Boolean) : [];\n\nreturn [{\n  json: {\n    status: success ? 'SUCCESS' : 'FAILED',\n    result: outputText,\n    toolsUsed: toolCalls,\n    stepsCompleted: item.steps ? item.steps.length : 1,\n    processedAt: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "7",
+      "name": "Format Agent Response & Telemetry",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [64, 304]
     },
     {
       "parameters": {
         "conditions": {
-          "boolean": [
+          "string": [
             {
-              "value1": "={{ $json.success }}",
-              "value2": true
+              "value1": "={{ $json.status }}",
+              "value2": "SUCCESS"
             }
           ]
         }
       },
-      "id": "5",
-      "name": "Check Success",
+      "id": "8",
+      "name": "Check Execution Status",
       "type": "n8n-nodes-base.if",
       "typeVersion": 1,
-      "position": [910, 400]
+      "position": [288, 304]
     },
     {
       "parameters": {
         "respondWith": "json",
-        "responseBody": "={{ JSON.stringify($json) }}",
-        "options": {}
+        "responseBody": "={\n  \"status\": \"{{ $json.status }}\",\n  \"result\": {{ JSON.stringify($json.result) }},\n  \"toolsUsed\": {{ JSON.stringify($json.toolsUsed) }},\n  \"steps\": {{ $json.stepsCompleted }},\n  \"timestamp\": \"{{ $json.processedAt }}\"\n}",
+        "options": {
+          "responseCode": 200
+        }
       },
-      "id": "6",
-      "name": "Return Success Response",
+      "id": "9",
+      "name": "Respond to Webhook (Success)",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
-      "position": [1130, 300]
+      "position": [512, 208]
+    },
+    {
+      "parameters": {
+        "url": "http://172.17.0.1:8080/api/pending-approvals",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.AGENT_API_TOKEN || '' }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "10",
+      "name": "Inspect Pending Approvals",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [512, 400]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"status\": \"REQUIRES_ATTENTION\",\n  \"error\": \"Action flagged or task failed\",\n  \"pendingApprovals\": {{ JSON.stringify($json.pending || []) }}\n}",
+        "options": {
+          "responseCode": 202
+        }
+      },
+      "id": "11",
+      "name": "Respond (HITL Alert)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [736, 400]
     }
   ],
   "connections": {
-    "Webhook: Inbound Cloud Alert": {
+    "Incoming Webhook Trigger": {
       "main": [
         [
           {
-            "node": "Prepare Payload",
+            "node": "Normalize & Classify Input",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Cron: Scheduled Sentinel Check": {
+    "Periodic 6H Auto Audit": {
       "main": [
         [
           {
-            "node": "Prepare Payload",
+            "node": "Normalize & Classify Input",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Prepare Payload": {
+    "Normalize & Classify Input": {
       "main": [
         [
           {
-            "node": "ShunopsAI Agent Execution",
+            "node": "Route: Support vs Autonomous Task",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "ShunopsAI Agent Execution": {
+    "Route: Support vs Autonomous Task": {
       "main": [
         [
           {
-            "node": "Check Success",
+            "node": "Fast Support Agent (/api/chat)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Autonomous ReAct Agent (/api/task)",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Check Success": {
+    "Fast Support Agent (/api/chat)": {
       "main": [
         [
           {
-            "node": "Return Success Response",
+            "node": "Format Agent Response & Telemetry",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Autonomous ReAct Agent (/api/task)": {
+      "main": [
+        [
+          {
+            "node": "Format Agent Response & Telemetry",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Agent Response & Telemetry": {
+      "main": [
+        [
+          {
+            "node": "Check Execution Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Execution Status": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook (Success)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Inspect Pending Approvals",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Inspect Pending Approvals": {
+      "main": [
+        [
+          {
+            "node": "Respond (HITL Alert)",
             "type": "main",
             "index": 0
           }

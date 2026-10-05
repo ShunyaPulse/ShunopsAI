@@ -3,6 +3,7 @@ import { Redis } from "ioredis";
 import { pingCloudflareAi } from "./cloudflare-ai.js";
 import { inspectWebsite, manageComputeEngine } from "./cloud.js";
 import { manageKaggle } from "./video.js";
+import { sendIncidentAlert } from "./notifier.js";
 import * as os from "node:os";
 
 export interface ServiceHealthReport {
@@ -417,6 +418,7 @@ export async function autoHealService(serviceName: string, reason?: string): Pro
   result: string;
 }> {
   const norm = serviceName.toLowerCase();
+  let healReport: { success: boolean; actionTaken: string; result: string };
 
   // 1. Redis Self-Healing
   if (norm.includes("redis")) {
@@ -431,13 +433,13 @@ export async function autoHealService(serviceName: string, reason?: string): Pro
           });
       await client.ping();
       await client.quit();
-      return {
+      healReport = {
         success: true,
         actionTaken: "Tested OCI Redis reconnect and ping",
         result: "Connection re-established successfully.",
       };
     } catch (e: any) {
-      return {
+      healReport = {
         success: false,
         actionTaken: "Attempted Redis reconnect",
         result: `Failed to reconnect: ${e.message}. Suggest checking OCI security list port 6379 or VM iptables.`,
@@ -446,9 +448,9 @@ export async function autoHealService(serviceName: string, reason?: string): Pro
   }
 
   // 2. Cloudflare AI Self-Healing
-  if (norm.includes("cloudflare")) {
+  else if (norm.includes("cloudflare")) {
     const probe = await pingCloudflareAi();
-    return {
+    healReport = {
       success: probe.ok,
       actionTaken: "Probed Cloudflare Workers AI endpoint",
       result: probe.ok
@@ -458,9 +460,9 @@ export async function autoHealService(serviceName: string, reason?: string): Pro
   }
 
   // 3. Neon Postgres Self-Healing
-  if (norm.includes("neon") || norm.includes("postgres") || norm.includes("database")) {
+  else if (norm.includes("neon") || norm.includes("postgres") || norm.includes("database")) {
     const rep = await checkNeonHealth();
-    return {
+    healReport = {
       success: rep.status === "healthy",
       actionTaken: "Probed Neon connection pool and query executor",
       result: rep.status === "healthy"
@@ -469,10 +471,84 @@ export async function autoHealService(serviceName: string, reason?: string): Pro
     };
   }
 
+  // 4. Cloud Run & Web Application Self-Healing
+  else if (norm.includes("cloud_run") || norm.includes("cloud run") || norm.includes("saralgati") || norm.includes("kanban")) {
+    const targetUrl = norm.includes("kanban")
+      ? process.env.KANBAN_APP_URL || ""
+      : process.env.SARALGATI_APP_URL || "";
+
+    if (targetUrl) {
+      const probe = await checkAppHealth(targetUrl, norm.includes("kanban") ? "Kanban Cloud Run" : "Saralgati Cloud Run");
+      healReport = {
+        success: probe.status === "healthy",
+        actionTaken: `Probed Cloud Run HTTPS container at ${targetUrl}`,
+        result: probe.status === "healthy"
+          ? `Container responded with HTTP OK in ${probe.latencyMs ?? 0}ms.`
+          : `Container degraded: ${probe.error || "Non-200 response"}. Revision diagnostics active.`,
+      };
+    } else {
+      healReport = {
+        success: false,
+        actionTaken: `Inspected Cloud Run configuration for ${serviceName}`,
+        result: "Target Cloud Run URL not configured in environment.",
+      };
+    }
+  }
+
+  // 5. Website Diagnostics & Self-Healing
+  else if (norm.includes("web") || norm.includes("site") || norm.includes("uptime")) {
+    const urls = [process.env.SARALGATI_APP_URL, process.env.KANBAN_APP_URL].filter(Boolean) as string[];
+    const probeResults: string[] = [];
+    let allOk = true;
+
+    for (const u of urls) {
+      const p = await checkAppHealth(u, "Website Monitor");
+      if (p.status !== "healthy") allOk = false;
+      probeResults.push(`${u}: ${p.status} (${p.latencyMs ?? 0}ms)`);
+    }
+
+    healReport = {
+      success: allOk,
+      actionTaken: `Tested live web endpoints: ${urls.join(", ")}`,
+      result: probeResults.join(" | "),
+    };
+  }
+
+  // 6. Kaggle GPU Pipeline Self-Healing
+  else if (norm.includes("kaggle") || norm.includes("gpu") || norm.includes("pipeline")) {
+    try {
+      const kaggleCheck = await manageKaggle("list");
+      healReport = {
+        success: true,
+        actionTaken: "Swept active Kaggle kernels and checked GPU quotas",
+        result: kaggleCheck.slice(0, 300),
+      };
+    } catch (kErr: any) {
+      healReport = {
+        success: false,
+        actionTaken: "Attempted Kaggle kernel sweeper",
+        result: `Kaggle CLI check failed: ${kErr.message}`,
+      };
+    }
+  }
+
   // Default fallback
-  return {
-    success: false,
-    actionTaken: `Analyzed service '${serviceName}'`,
-    result: `No automated self-healing script mapped for '${serviceName}'. Reason: ${reason || "None"}. Manual intervention or diagnostic script recommended.`,
-  };
+  else {
+    healReport = {
+      success: false,
+      actionTaken: `Analyzed service '${serviceName}'`,
+      result: `No automated self-healing script mapped for '${serviceName}'. Reason: ${reason || "None"}. Manual intervention or diagnostic script recommended.`,
+    };
+  }
+
+  // Broadcast incident & self-healing status to Discord / Telegram / Slack / Email
+  sendIncidentAlert({
+    title: healReport.success ? `Service Self-Healed: ${serviceName}` : `Service Degraded/Failed: ${serviceName}`,
+    service: serviceName,
+    status: healReport.success ? "HEALED" : "DEGRADED",
+    actionTaken: healReport.actionTaken,
+    details: `${healReport.result} (Trigger Reason: ${reason || "Autonomous Sentinel"})`,
+  }).catch(() => {});
+
+  return healReport;
 }

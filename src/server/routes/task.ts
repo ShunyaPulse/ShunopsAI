@@ -74,7 +74,7 @@ export async function taskRoutes(app: FastifyInstance, options: TaskRouteOptions
 
   // Status check endpoint for async / queued tasks
   app.get<{ Params: { taskId: string } }>("/api/task/:taskId", async (req, reply) => {
-    const task = getTaskState(req.params.taskId);
+    const task = await getTaskState(req.params.taskId);
     if (!task) {
       reply.status(404);
       return { success: false, error: `Task '${req.params.taskId}' not found.` };

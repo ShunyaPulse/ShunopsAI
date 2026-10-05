@@ -152,3 +152,139 @@ export async function sendVideoReadyEmail(details: VideoNotificationDetails): Pr
     return false;
   }
 }
+
+export interface IncidentAlertDetails {
+  title: string;
+  service: string;
+  status: "HEALED" | "DEGRADED" | "DOWN" | "WARNING" | "INFO";
+  actionTaken?: string;
+  details?: string;
+  url?: string;
+  timestamp?: string;
+}
+
+/**
+ * Broadcast incident & self-healing alerts to Discord, Telegram, Slack, and Email
+ */
+export async function sendIncidentAlert(alert: IncidentAlertDetails): Promise<{
+  discord: boolean;
+  telegram: boolean;
+  slack: boolean;
+  email: boolean;
+}> {
+  const time = alert.timestamp || new Date().toISOString();
+  const isOk = alert.status === "HEALED" || alert.status === "INFO";
+  const icon = isOk ? "✅" : alert.status === "DOWN" ? "🚨" : "⚠️";
+  const color = isOk ? 0x22c55e : alert.status === "DOWN" ? 0xef4444 : 0xf59e0b;
+
+  const results = { discord: false, telegram: false, slack: false, email: false };
+
+  // 1. Discord Webhook Broadcast
+  const discordUrl = process.env.DISCORD_WEBHOOK_URL;
+  if (discordUrl) {
+    try {
+      const res = await fetch(discordUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          username: "ShunopsAI DevOps Sentinel",
+          avatar_url: "https://raw.githubusercontent.com/ShunyaPulse/ShunopsAI/main/public/favicon.ico",
+          embeds: [
+            {
+              title: `${icon} [${alert.status}] ${alert.title}`,
+              color,
+              fields: [
+                { name: "Service", value: alert.service, inline: true },
+                { name: "Status", value: alert.status, inline: true },
+                { name: "Action Taken", value: alert.actionTaken || "Autonomous Diagnosis", inline: false },
+                ...(alert.details ? [{ name: "Details", value: alert.details.slice(0, 1000), inline: false }] : []),
+                ...(alert.url ? [{ name: "Endpoint", value: alert.url, inline: false }] : []),
+              ],
+              footer: { text: "ShunopsAI Autonomous Sentinel" },
+              timestamp: time,
+            },
+          ],
+        }),
+      });
+      results.discord = res.ok;
+    } catch (e: any) {
+      console.warn(`[Notifier] Discord alert notice: ${e.message}`);
+    }
+  }
+
+  // 2. Telegram Bot Broadcast
+  const tgToken = process.env.TELEGRAM_BOT_TOKEN;
+  const tgChatId = process.env.TELEGRAM_CHAT_ID;
+  if (tgToken && tgChatId) {
+    try {
+      const text = `${icon} *[ShunopsAI Sentinel Alert]*\n\n*Status:* \`${alert.status}\`\n*Service:* \`${alert.service}\`\n*Event:* ${alert.title}\n*Action:* ${alert.actionTaken || "Self-healing triggered"}\n${alert.details ? `*Details:* ${alert.details.slice(0, 300)}\n` : ""}${alert.url ? `*URL:* ${alert.url}\n` : ""}*Time:* \`${time}\``;
+      const res = await fetch(`https://api.telegram.org/bot${tgToken}/sendMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chat_id: tgChatId,
+          text,
+          parse_mode: "Markdown",
+        }),
+      });
+      results.telegram = res.ok;
+    } catch (e: any) {
+      console.warn(`[Notifier] Telegram alert notice: ${e.message}`);
+    }
+  }
+
+  // 3. Slack Webhook Broadcast
+  const slackUrl = process.env.SLACK_WEBHOOK_URL;
+  if (slackUrl) {
+    try {
+      const res = await fetch(slackUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text: `${icon} [${alert.status}] ${alert.service}: ${alert.title}`,
+          attachments: [
+            {
+              color: isOk ? "good" : "danger",
+              text: `${alert.actionTaken || "Autonomous Sentinel Response"}\n${alert.details || ""}`,
+              ts: Math.floor(Date.now() / 1000),
+            },
+          ],
+        }),
+      });
+      results.slack = res.ok;
+    } catch (e: any) {
+      console.warn(`[Notifier] Slack alert notice: ${e.message}`);
+    }
+  }
+
+  // 4. Email Broadcast on Critical/Down
+  const pass = process.env.SMTP_PASS;
+  if (pass && (alert.status === "DOWN" || alert.status === "DEGRADED")) {
+    try {
+      const host = process.env.SMTP_HOST || "smtp.gmail.com";
+      const port = parseInt(process.env.SMTP_PORT || "465", 10);
+      const user = process.env.SMTP_USER || "techanics6174@gmail.com";
+      const to = process.env.EMAIL_TO || process.env.SMTP_USER || "techanics6174@gmail.com";
+
+      const transporter = nodemailer.createTransport({
+        host,
+        port,
+        secure: port === 465,
+        auth: { user, pass },
+      });
+
+      await transporter.sendMail({
+        from: `"ShunopsAI Sentinel" <${user}>`,
+        to,
+        subject: `🚨 [SENTINEL ALERT] ${alert.service} is ${alert.status}`,
+        html: `<h3>${icon} Incident Alert: ${alert.service}</h3><p><strong>Title:</strong> ${alert.title}</p><p><strong>Status:</strong> ${alert.status}</p><p><strong>Action Taken:</strong> ${alert.actionTaken || "Automated check"}</p><p><strong>Details:</strong> ${alert.details || "N/A"}</p><p><strong>Timestamp:</strong> ${time}</p>`,
+      });
+      results.email = true;
+    } catch (e: any) {
+      console.warn(`[Notifier] Email alert notice: ${e.message}`);
+    }
+  }
+
+  return results;
+}
+
