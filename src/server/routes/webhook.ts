@@ -110,7 +110,7 @@ export async function webhookRoutes(app: FastifyInstance): Promise<void> {
           } else {
             // General agent task
             await runAutonomousAgent(
-              `Resolve cloud infrastructure alert from ${source} for service ${service}: ${message}. Target URL: ${targetUrl}. Raw payload: ${JSON.stringify(raw.rawAlert || raw)}`,
+              `Resolve cloud infrastructure alert from ${source} for service ${service}: ${message}. Target URL: ${targetUrl}. Raw payload: [REDACTED]`,
               { maxSteps: 8 }
             );
           }

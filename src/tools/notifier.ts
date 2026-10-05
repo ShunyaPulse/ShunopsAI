@@ -277,7 +277,7 @@ export async function sendIncidentAlert(alert: IncidentAlertDetails): Promise<{
         from: `"ShunopsAI Sentinel" <${user}>`,
         to,
         subject: `🚨 [SENTINEL ALERT] ${alert.service} is ${alert.status}`,
-        html: `<h3>${icon} Incident Alert: ${alert.service}</h3><p><strong>Title:</strong> ${alert.title}</p><p><strong>Status:</strong> ${alert.status}</p><p><strong>Action Taken:</strong> ${alert.actionTaken || "Automated check"}</p><p><strong>Details:</strong> ${alert.details || "N/A"}</p><p><strong>Timestamp:</strong> ${time}</p>`,
+        text: `${icon} Incident Alert: ${alert.service}\nTitle: ${alert.title}\nStatus: ${alert.status}\nAction Taken: ${alert.actionTaken || "Automated check"}\nDetails: ${alert.details || "N/A"}\nTimestamp: ${time}`,
       });
       results.email = true;
     } catch (e: any) {
