@@ -38,6 +38,230 @@ export interface PRReviewComment {
   body: string;
 }
 
+export interface FailedWorkflowRunItem {
+  databaseId: number;
+  workflowName: string;
+  headBranch: string;
+  headSha: string;
+  event: string;
+  displayTitle: string;
+  url: string;
+  conclusion: string;
+  createdAt: string;
+}
+
+/**
+ * Fetch recent failed workflow runs in repository
+ */
+export async function fetchRecentFailedWorkflowRuns(
+  repo = "ShunyaPulse/ShunopsAI",
+  limit = 5
+): Promise<FailedWorkflowRunItem[]> {
+  try {
+    const raw = execFileSync(
+      "gh",
+      [
+        "run",
+        "list",
+        "--repo",
+        repo,
+        "--status",
+        "failure",
+        "--limit",
+        String(limit),
+        "--json",
+        "databaseId,workflowName,headBranch,headSha,event,displayTitle,url,conclusion,createdAt",
+      ],
+      { encoding: "utf-8", env: getGitHubAuthEnv() }
+    );
+    return JSON.parse(raw || "[]");
+  } catch (err: any) {
+    console.error(`[Error fetching failed workflow runs in ${repo}] ${String(err?.message || err)}`);
+    return [];
+  }
+}
+
+/**
+ * Fetch failed step log for a workflow run
+ */
+export async function fetchFailedRunLog(runId: number, repo: string): Promise<string> {
+  try {
+    const log = execFileSync(
+      "gh",
+      ["run", "view", String(runId), "--repo", repo, "--log-failed"],
+      { encoding: "utf-8", env: getGitHubAuthEnv() }
+    );
+    return log || "";
+  } catch (err: any) {
+    console.warn(`[fetchFailedRunLog error on #${runId}] ${err.message}`);
+    return "";
+  }
+}
+
+/**
+ * Check if a failed workflow run is superseded by a newer successful run or if its PR branch is closed
+ */
+export async function isRunSupersededOrResolved(
+  run: FailedWorkflowRunItem,
+  repo: string
+): Promise<{ resolved: boolean; reason: string }> {
+  try {
+    // If it's on a non-main branch (e.g. PR branch)
+    if (run.headBranch && run.headBranch !== "main" && run.headBranch !== "master") {
+      try {
+        const prListRaw = execFileSync(
+          "gh",
+          ["pr", "list", "--repo", repo, "--head", run.headBranch, "--state", "open", "--json", "number"],
+          { encoding: "utf-8", env: getGitHubAuthEnv() }
+        );
+        const openPrs = JSON.parse(prListRaw || "[]");
+        if (openPrs.length === 0) {
+          return { resolved: true, reason: `Branch ${run.headBranch} is no longer open or was already merged/closed.` };
+        }
+      } catch {
+        // Fallback to checking workflow history
+      }
+    }
+
+    // Check if a newer run for the same workflow has succeeded
+    const raw = execFileSync(
+      "gh",
+      [
+        "run",
+        "list",
+        "--repo",
+        repo,
+        "--workflow",
+        run.workflowName,
+        "--branch",
+        run.headBranch,
+        "--status",
+        "success",
+        "--limit",
+        "3",
+        "--json",
+        "databaseId,createdAt",
+      ],
+      { encoding: "utf-8", env: getGitHubAuthEnv() }
+    );
+    const successRuns = JSON.parse(raw || "[]");
+    const newerSuccess = successRuns.find(
+      (s: any) => new Date(s.createdAt).getTime() > new Date(run.createdAt).getTime()
+    );
+
+    if (newerSuccess) {
+      return {
+        resolved: true,
+        reason: `Superseded by newer successful run #${newerSuccess.databaseId} at ${newerSuccess.createdAt}.`,
+      };
+    }
+
+    return { resolved: false, reason: "No newer successful run found." };
+  } catch (err: any) {
+    return { resolved: false, reason: `Check failed: ${err.message}` };
+  }
+}
+
+/**
+ * Diagnose and resolve or rerun a failed workflow run
+ */
+export async function diagnoseAndResolveFailedRun(
+  run: FailedWorkflowRunItem,
+  repo: string
+): Promise<{ resolved: boolean; actionTaken: string }> {
+  console.log(
+    `\n${colors.yellow}🔍 Inspecting failed workflow run #${run.databaseId} (${run.workflowName}) on ${repo}:${run.headBranch}...${colors.reset}`
+  );
+
+  // 1. Check if already superseded or resolved
+  const check = await isRunSupersededOrResolved(run, repo);
+  if (check.resolved) {
+    console.log(`${colors.green}✓ Run #${run.databaseId} resolved: ${check.reason}${colors.reset}`);
+    return { resolved: true, actionTaken: check.reason };
+  }
+
+  // 2. Fetch the failure logs
+  const failedLog = await fetchFailedRunLog(run.databaseId, repo);
+  if (!failedLog) {
+    return { resolved: false, actionTaken: "No failure logs available to diagnose." };
+  }
+
+  // 3. Check for transient errors (rate limit, runner network timeout, connection abort)
+  const isTransient =
+    /runner connection lost|network request timed out|ETIMEDOUT|503 Service Unavailable|502 Bad Gateway/i.test(
+      failedLog
+    );
+
+  if (isTransient) {
+    console.log(
+      `${colors.cyan}⚡ Transient infrastructure failure detected in run #${run.databaseId}. Attempting auto-rerun...${colors.reset}`
+    );
+    try {
+      execFileSync("gh", ["run", "rerun", String(run.databaseId), "--repo", repo, "--failed"], {
+        encoding: "utf-8",
+        env: getGitHubAuthEnv(),
+      });
+      console.log(`${colors.green}✓ Triggered rerun for failed jobs in run #${run.databaseId}!${colors.reset}`);
+      return { resolved: true, actionTaken: "Triggered GitHub Actions rerun for transient failure." };
+    } catch (rerunErr: any) {
+      console.warn(`[Rerun error on #${run.databaseId}] ${rerunErr.message}`);
+    }
+  }
+
+  // 4. Check for known npm audit failure pattern
+  const isNpmAuditFailure =
+    /npm audit --audit-level|vulnerabilities\s*\(\d+\s*high|\d+\s*critical\)/i.test(failedLog);
+
+  if (isNpmAuditFailure) {
+    console.log(
+      `${colors.yellow}⚠️ Detected npm audit failure in run #${run.databaseId}. Analyzing dependency scope...${colors.reset}`
+    );
+    if (/braces/i.test(failedLog) || /eslint-config-next/i.test(failedLog)) {
+      console.log(
+        `${colors.magenta}Fix identified: CI workflow running npm audit on unpatched transitive devDependencies. Use --omit=dev or update audit level.${colors.reset}`
+      );
+    }
+  }
+
+  // 5. Dual-Model Consensus Diagnosis for complex failures
+  try {
+    const logSnippet = failedLog.slice(-2500);
+    const m1Prompt: OpenAI.ChatCompletionMessageParam[] = [
+      {
+        role: "system",
+        content: `You are an Autonomous Site Reliability & CI/CD Engineer. Diagnose the following failed GitHub Actions log and provide a concise JSON object:
+{
+  "failureCategory": "dependency_audit" | "test_failure" | "build_error" | "secret_leak" | "transient_infra",
+  "rootCause": "<1-2 sentence technical explanation>",
+  "remediation": "<exact fix required in code or workflow yaml>",
+  "autoFixable": boolean
+}`,
+      },
+      {
+        role: "user",
+        content: `Repository: ${repo}\nWorkflow: ${run.workflowName}\nBranch: ${run.headBranch}\nRun ID: ${run.databaseId}\nTitle: ${run.displayTitle}\n\nFailed Log Output:\n\`\`\`\n${logSnippet}\n\`\`\``,
+      },
+    ];
+
+    const m1Res = await callModel(DEFAULT_PROPOSER, m1Prompt, BACKUP_OPENROUTER_PROPOSER, 0.1);
+    const m1Match = m1Res.text.match(/\{[\s\S]*\}/);
+    if (m1Match) {
+      const diagnosis = JSON.parse(m1Match[0]);
+      console.log(
+        `${colors.cyan}🤖 [Dual-Model Action Diagnosis] ${diagnosis.failureCategory}: ${diagnosis.rootCause}${colors.reset}`
+      );
+      console.log(`${colors.gray}Proposed Remediation: ${diagnosis.remediation}${colors.reset}`);
+      return {
+        resolved: false,
+        actionTaken: `Diagnosed (${diagnosis.failureCategory}): ${diagnosis.rootCause}. Remediation: ${diagnosis.remediation}`,
+      };
+    }
+  } catch (diagErr: any) {
+    console.warn(`[Diagnosis error on #${run.databaseId}] ${diagErr.message}`);
+  }
+
+  return { resolved: false, actionTaken: `Workflow #${run.databaseId} requires manual remediation.` };
+}
 
 /**
  * Fetch all open PRs in repository
@@ -495,9 +719,45 @@ export function getTargetReposList(): string[] {
 }
 
 /**
- * Main autonomous runner to review and resolve open PRs across all target repositories
+ * Autonomous runner to diagnose, rerun, or report recent failed GitHub Actions workflow runs
  */
-export async function runAutoPRResolver(targetRepo?: string): Promise<{ total: number; resolved: number }> {
+export async function runAutoActionResolver(
+  targetRepo?: string
+): Promise<{ total: number; resolved: number }> {
+  console.log(`\n${colors.yellow}${colors.bold}====================================================${colors.reset}`);
+  console.log(`${colors.yellow}${colors.bold}⚙️ ShunopsAI Autonomous CI/CD Actions Monitor & Resolver${colors.reset}`);
+  console.log(`${colors.yellow}${colors.bold}====================================================${colors.reset}\n`);
+
+  const repos = targetRepo ? [targetRepo] : getTargetReposList();
+  let totalActions = 0;
+  let resolvedActions = 0;
+
+  for (const repo of repos) {
+    console.log(`\n${colors.cyan}📂 Checking recent failed workflow runs in ${repo}...${colors.reset}`);
+    const failedRuns = await fetchRecentFailedWorkflowRuns(repo, 3);
+    console.log(`Found ${failedRuns.length} recent failed workflow run(s) in ${repo}.`);
+    totalActions += failedRuns.length;
+
+    for (const run of failedRuns) {
+      const res = await diagnoseAndResolveFailedRun(run, repo);
+      if (res.resolved) {
+        resolvedActions++;
+      }
+    }
+  }
+
+  console.log(
+    `\n${colors.green}${colors.bold}CI/CD Actions Audit Complete: ${resolvedActions}/${totalActions} failed runs diagnosed & resolved across ${repos.length} repos!${colors.reset}`
+  );
+  return { total: totalActions, resolved: resolvedActions };
+}
+
+/**
+ * Main autonomous runner to review and resolve open PRs and recent failed actions across all target repositories
+ */
+export async function runAutoPRResolver(
+  targetRepo?: string
+): Promise<{ total: number; resolved: number; failedActionsTotal: number; failedActionsResolved: number }> {
   console.log(`\n${colors.cyan}${colors.bold}====================================================${colors.reset}`);
   console.log(`${colors.cyan}${colors.bold}🤖 ShunopsAI Autonomous Pull Request Reviewer & Resolver${colors.reset}`);
   console.log(`${colors.cyan}${colors.bold}====================================================${colors.reset}\n`);
@@ -520,14 +780,26 @@ export async function runAutoPRResolver(targetRepo?: string): Promise<{ total: n
     }
   }
 
-  console.log(`\n${colors.green}${colors.bold}PR Resolution Complete: ${resolvedCount}/${totalPRs} PRs successfully reviewed and resolved across ${repos.length} repos!${colors.reset}`);
-  return { total: totalPRs, resolved: resolvedCount };
+  console.log(
+    `\n${colors.green}${colors.bold}PR Resolution Complete: ${resolvedCount}/${totalPRs} PRs successfully reviewed and resolved across ${repos.length} repos!${colors.reset}`
+  );
+
+  // Scan and auto-resolve recent failed workflow runs across fleet
+  const actionRes = await runAutoActionResolver(targetRepo);
+
+  return {
+    total: totalPRs,
+    resolved: resolvedCount,
+    failedActionsTotal: actionRes.total,
+    failedActionsResolved: actionRes.resolved,
+  };
 }
 
 // CLI handler
 const isCLI = process.argv[1]?.endsWith("pr-auto-resolver.ts") || process.argv[1]?.endsWith("pr-auto-resolver.js");
 if (isCLI) {
-  runAutoPRResolver().then((res) => {
+  runAutoPRResolver().then(() => {
     process.exit(0);
   });
 }
+
