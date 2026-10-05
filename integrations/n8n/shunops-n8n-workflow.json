@@ -21,13 +21,13 @@
           "interval": [
             {
               "field": "hours",
-              "hoursInterval": 6
+              "hoursInterval": 12
             }
           ]
         }
       },
       "id": "2",
-      "name": "Periodic 6H Auto Audit",
+      "name": "Periodic 12H Auto Audit",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
       "position": [-832, 400]
@@ -190,7 +190,7 @@
         ]
       ]
     },
-    "Periodic 6H Auto Audit": {
+    "Periodic 12H Auto Audit": {
       "main": [
         [
           {

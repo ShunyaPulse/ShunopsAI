@@ -40,7 +40,7 @@
 - Support multi-repository healing via `AUTONOMOUS_TARGET_REPOS`.
 
 ## 5. Smart Quota Guardrails & Duplicate Run Throttling
-- When a target repository has no new commits, `autonomous-repo-auditor.ts` runs at most 2 consecutive 6-hour cycles on the exact same commit SHA for double verification.
+- When a target repository has no new commits, `autonomous-repo-auditor.ts` runs at most 2 consecutive 12-hour cycles on the exact same commit SHA for double verification.
 - On run 3 and beyond, if the commit SHA is unchanged, it skips all LLM inference calls to conserve model quotas.
 - As soon as a new commit is detected (pushed by user, bot, or PR merge), the audit cycle automatically resets to run 1.
 - Capped flaw remediation: maximum 5 flaws per audit run to prevent token bursts.

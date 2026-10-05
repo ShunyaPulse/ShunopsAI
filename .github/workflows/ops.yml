@@ -2,8 +2,8 @@ name: "ShunopsAI Cloud Operations & Sentinel"
 
 on:
   schedule:
-    # Automated scheduled monitoring every 6 hours
-    - cron: "0 */6 * * *"
+    # Automated scheduled monitoring every 12 hours
+    - cron: "0 */12 * * *"
   workflow_dispatch:
     inputs:
       target_service:
