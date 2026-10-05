@@ -1,8 +1,10 @@
 import { execFileSync, execSync } from "node:child_process";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import OpenAI from "openai";
 import * as dotenv from "dotenv";
+import type OpenAI from "openai";
+import { colors } from "../core/colors.js";
+import { getGitHubAuthEnv } from "../core/github.js";
 import {
   DEFAULT_PROPOSER,
   DEFAULT_AUDITOR,
@@ -13,19 +15,6 @@ import {
 
 dotenv.config();
 
-// ANSI color helpers
-const colors = {
-  reset: "\x1b[0m",
-  bold: "\x1b[1m",
-  dim: "\x1b[2m",
-  cyan: "\x1b[36m",
-  green: "\x1b[32m",
-  yellow: "\x1b[33m",
-  blue: "\x1b[34m",
-  magenta: "\x1b[35m",
-  red: "\x1b[31m",
-  gray: "\x1b[90m",
-};
 
 export interface PullRequestItem {
   number: number;
@@ -49,26 +38,6 @@ export interface PRReviewComment {
   body: string;
 }
 
-function getAuthEnv(): NodeJS.ProcessEnv {
-  const token = process.env.GH_TOKEN || process.env.GH_PAT || process.env.GITHUB_PAT || process.env.GITHUB_TOKEN || "";
-  return {
-    ...process.env,
-    GH_TOKEN: token,
-    GITHUB_TOKEN: token,
-  };
-}
-
-function getLLMClient(): { client: OpenAI; model: string; provider: string } {
-  const apiKey = process.env.GROQ_API_KEY || "dummy";
-  return {
-    client: new OpenAI({
-      baseURL: "https://api.groq.com/openai/v1",
-      apiKey,
-    }),
-    model: "openai/gpt-oss-120b",
-    provider: "GROQ",
-  };
-}
 
 /**
  * Fetch all open PRs in repository
@@ -79,7 +48,7 @@ export async function fetchOpenPRs(repo = "ShunyaPulse/ShunopsAI"): Promise<Pull
     const raw = execFileSync(
       "gh",
       ["pr", "list", "--repo", repo, "--state", "open", "--json", "number,title,author,headRefName,url"],
-      { encoding: "utf-8", env: getAuthEnv() }
+      { encoding: "utf-8", env: getGitHubAuthEnv() }
     );
     return JSON.parse(raw || "[]");
   } catch (err: any) {
@@ -99,7 +68,7 @@ export async function fetchPRReviewComments(
     const raw = execFileSync(
       "gh",
       ["api", `repos/${repo}/pulls/${prNumber}/comments`],
-      { encoding: "utf-8", env: getAuthEnv() }
+      { encoding: "utf-8", env: getGitHubAuthEnv() }
     );
     return JSON.parse(raw || "[]");
   } catch (err: any) {
@@ -243,7 +212,7 @@ Return ONLY valid JSON with this schema:
         );
         execFileSync("git", ["push", "origin", pr.headRefName], {
           stdio: "pipe",
-          env: getAuthEnv(),
+          env: getGitHubAuthEnv(),
         });
         console.log(
           `${colors.green}${colors.bold}🚀 Pushed ${fixedCount} automated fix(es) to PR #${pr.number} (${pr.headRefName})!${colors.reset}`
@@ -295,7 +264,7 @@ export async function reviewAndResolvePR(
   try {
     diff = execFileSync("gh", ["pr", "diff", String(pr.number), "--repo", repo], {
       encoding: "utf-8",
-      env: getAuthEnv(),
+      env: getGitHubAuthEnv(),
     });
   } catch (e: any) {
     return { approved: false, merged: false, message: `Could not fetch diff: ${e.message}` };
@@ -378,7 +347,7 @@ Do NOT return conversational filler or codeblocks outside the JSON.`,
     const approved = Boolean(m1Decision.approved && m2Decision.finalApproved);
     const consensusRationale = `Model 1 (${m1Response.modelName}): ${m1Decision.rationale} | Model 2 (${m2Response.modelName}): ${m2Decision.auditorCritique}`;
 
-    const authEnv = getAuthEnv();
+    const authEnv = getGitHubAuthEnv();
 
     if (approved) {
       // 1. Submit approval review with dual signatures

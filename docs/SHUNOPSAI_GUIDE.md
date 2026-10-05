@@ -22,6 +22,24 @@
 
 ---
 
+### 1.1 Module Layout
+
+The codebase is organized into focused, single-responsibility modules:
+
+```
+agent.ts                     # CLI entrypoint + public re-exports
+server.ts                    # HTTP entrypoint
+src/agent/                   # agent core: models, prompts, sandbox, tools, loop
+src/server/                  # Express app: app.ts, middleware/, routes/
+src/core/                    # cross-cutting helpers (colors, github, llm)
+src/tools/                   # cloud, media, GitHub, sentinel, notifier, safety
+src/ai/                      # dual-model consensus engine
+src/cron/                    # scheduled autopilot & sentinel jobs
+src/dashboard/               # dashboard HTML, stylesheet, client script
+```
+
+---
+
 ## 2. Core Pillars & Capabilities
 
 ### 🛡️ Pillar 1: DevOps Sentinel & Auto-Healing
