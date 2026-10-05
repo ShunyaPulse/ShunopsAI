@@ -122,7 +122,7 @@ export async function webhookRoutes(app: FastifyInstance): Promise<void> {
       }
 
       console.log(
-        `\n\x1b[33m⚡ [Cloud Alert Direct Webhook]\x1b[0m Source: ${source?.toUpperCase()} | Service: ${service} | Recovery: ${isRecovery} | Message: ${message}`
+        `\n\x1b[33m⚡ [Cloud Alert Direct Webhook]\x1b[0m Source: ${source?.toUpperCase()} | Service: ${service} | Recovery: ${isRecovery} | Message: [REDACTED]`
       );
 
       reply.status(202);
