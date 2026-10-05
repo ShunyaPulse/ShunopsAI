@@ -132,7 +132,7 @@ export async function webhookRoutes(app: FastifyInstance): Promise<void> {
         try {
           if (service === "cloud_run" || service === "redis" || service === "neon" || service === "website" || service === "all") {
             const healReport = await autoHealService(service, `${isRecovery ? "Post-incident verification" : "Immediate auto-heal"} for ${source}: ${message}`);
-            console.log(`\x1b[32m[Cloud Alert Healer]\x1b[0m Result:`, healReport);
+            console.log(`\x1b[32m[Cloud Alert Healer]\x1b[0m Result:`, "[REDACTED]");
           } else {
             await runAutonomousAgent(
               `Resolve cloud infrastructure alert from ${source} for service ${service}: ${message}. Target URL: ${targetUrl}. Raw payload: [REDACTED]`,
