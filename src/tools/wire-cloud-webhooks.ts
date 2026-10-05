@@ -181,7 +181,7 @@ export async function wireCloudflareNotifications(): Promise<any> {
     return null;
   }
 
-  console.log(`\x1b[36m[Cloudflare Wire]\x1b[0m Inspecting Cloudflare alert webhooks for account: ${accountId}...`);
+  console.log(`\x1b[36m[Cloudflare Wire]\x1b[0m Inspecting Cloudflare alert webhooks for account: ${accountId ? accountId.slice(0, 4) + '***' : 'none'}...`);
 
   try {
     const res = await fetch(
