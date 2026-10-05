@@ -1,11 +1,19 @@
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, preHandlerHookHandler } from "fastify";
 import { runComprehensiveSentinelScan, autoHealService } from "../../tools/sentinel.js";
+
+export interface SentinelRouteOptions {
+  requireDashboardAuth?: preHandlerHookHandler;
+  requireAuth?: preHandlerHookHandler;
+}
 
 /**
  * Infrastructure Sentinel telemetry and auto-healing endpoints.
  */
-export async function sentinelRoutes(app: FastifyInstance): Promise<void> {
-  app.get("/api/sentinel/status", async (_req, reply) => {
+export async function sentinelRoutes(app: FastifyInstance, opts: SentinelRouteOptions = {}): Promise<void> {
+  const statusPreHandler = opts.requireDashboardAuth ? [opts.requireDashboardAuth] : [];
+  const healPreHandler = opts.requireAuth ? [opts.requireAuth] : [];
+
+  app.get("/api/sentinel/status", { preHandler: statusPreHandler }, async (_req, reply) => {
     try {
       const summary = await runComprehensiveSentinelScan();
       return summary;
@@ -15,7 +23,7 @@ export async function sentinelRoutes(app: FastifyInstance): Promise<void> {
     }
   });
 
-  app.post("/api/sentinel/heal", async (req, reply) => {
+  app.post("/api/sentinel/heal", { preHandler: healPreHandler }, async (req, reply) => {
     const body = (req.body as any) || {};
     const serviceName = body?.serviceName || "all";
     const reason = body?.reason;

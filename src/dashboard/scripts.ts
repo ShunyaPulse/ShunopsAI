@@ -5,12 +5,19 @@
  * zero-build, single-response HTML page.
  */
 export const DASHBOARD_SCRIPTS = `
+    function getAuthHeaders() {
+      const headers = { "Content-Type": "application/json" };
+      const savedKey = localStorage.getItem("shunops_api_key");
+      if (savedKey) headers["Authorization"] = "Bearer " + savedKey;
+      return headers;
+    }
+
     async function refreshSentinel() {
       const grid = document.getElementById("services-grid");
       grid.innerHTML = '<div style="padding: 20px; color: #67e8f9; font-family: var(--code-font); grid-column: 1 / -1;">Running live Sentinel scan across all cloud providers...</div>';
 
       try {
-        const res = await fetch("/api/sentinel/status");
+        const res = await fetch("/api/sentinel/status", { credentials: "same-origin", headers: getAuthHeaders() });
         const data = await res.json();
         renderServices(data);
       } catch (e) {
@@ -60,7 +67,12 @@ export const DASHBOARD_SCRIPTS = `
     async function runHeal() {
       appendMsg("Auto-Healing triggered across degraded cloud services...", "user");
       try {
-        const res = await fetch("/api/sentinel/heal", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ serviceName: "all" }) });
+        const res = await fetch("/api/sentinel/heal", {
+          method: "POST",
+          headers: getAuthHeaders(),
+          credentials: "same-origin",
+          body: JSON.stringify({ serviceName: "all" })
+        });
         const data = await res.json();
         appendMsg("ShunopsAI Auto-Healing Result: " + JSON.stringify(data, null, 2), "agent");
         refreshSentinel();
@@ -107,7 +119,8 @@ export const DASHBOARD_SCRIPTS = `
       try {
         const res = await fetch("/api/task", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: getAuthHeaders(),
+          credentials: "same-origin",
           body: JSON.stringify({ goal: task, maxSteps: 8 })
         });
         const data = await res.json();
