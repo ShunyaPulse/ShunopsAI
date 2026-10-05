@@ -1,49 +1,84 @@
-import { Router, type Request, type Response, type RequestHandler } from "express";
+import type { FastifyInstance, preHandlerHookHandler } from "fastify";
 import { runAutonomousAgent } from "../../agent/index.js";
+import { TaskRequestSchema, type TaskRequest } from "../schemas/alert.js";
+import { createQueuedTask, getTaskState } from "../taskQueue.js";
 
-export interface TaskRouterDeps {
-  requireAuth: RequestHandler;
-  heavyLimiter: RequestHandler;
+export interface TaskRouteOptions {
+  requireAuth: preHandlerHookHandler;
 }
 
 /**
- * Privileged autonomous task execution endpoint.
- * Body: { goal: string, maxSteps?: number, context?: string }
- * Used by Flowise, n8n, Dify, or the dashboard terminal.
+ * Privileged autonomous task execution endpoint (Fastify Engine with Hybrid Lifecycle).
+ * Body: { goal?: string, task?: string, maxSteps?: number, context?: string, async?: boolean }
  */
-export function taskRouter({ requireAuth, heavyLimiter }: TaskRouterDeps): Router {
-  const router = Router();
+export async function taskRoutes(app: FastifyInstance, options: TaskRouteOptions): Promise<void> {
+  const { requireAuth } = options;
 
-  router.post("/api/task", requireAuth, heavyLimiter, async (req: Request, res: Response) => {
-    const body = req.body || {};
-    const taskGoal =
-      body.goal ||
-      body.task ||
-      body.prompt ||
-      body.message ||
-      body.body?.task ||
-      body.body?.goal ||
-      (typeof body === "string" && body.length > 0 ? body : "Perform autonomous repository and database health check");
+  app.post<{ Body: TaskRequest }>(
+    "/api/task",
+    {
+      preHandler: [requireAuth],
+      schema: {
+        body: TaskRequestSchema,
+      },
+    },
+    async (req, reply) => {
+      const body = req.body || {};
+      const taskGoal =
+        body.goal ||
+        body.task ||
+        body.prompt ||
+        body.message ||
+        "Perform autonomous repository and database health check";
 
-    const { maxSteps, context } = body;
+      const maxSteps = typeof body.maxSteps === "number" ? body.maxSteps : 6;
+      const context = body.context;
 
-    try {
-      const result = await runAutonomousAgent(taskGoal, {
-        maxSteps: typeof maxSteps === "number" ? maxSteps : 6,
-        initialContext: context,
-      });
+      // Check if caller requests async execution via body or HTTP header
+      const isAsync =
+        Boolean(body.async) ||
+        req.headers.prefer === "respond-async" ||
+        (req.headers["x-execution-mode"] as string)?.toLowerCase() === "async";
 
-      // Do not return the full history: it can contain file contents and secrets.
-      res.json({
-        success: result.success,
-        finalAnswer: result.finalAnswer,
-        stepsTaken: result.stepsTaken,
-      });
-    } catch (error: any) {
-      console.error("[api/task] error:", error?.message);
-      res.status(500).json({ success: false, error: "Failed to execute autonomous agent task." });
+      if (isAsync) {
+        const queued = createQueuedTask(taskGoal, maxSteps, context);
+        reply.status(202);
+        return {
+          success: true,
+          status: queued.status,
+          taskId: queued.id,
+          message: "Task accepted for background processing.",
+          pollUrl: `/api/task/${queued.id}`,
+        };
+      }
+
+      // Synchronous execution (default for zero-config n8n compatibility)
+      try {
+        const result = await runAutonomousAgent(taskGoal, {
+          maxSteps,
+          ...(context ? { initialContext: context } : {}),
+        });
+
+        return {
+          success: result.success,
+          finalAnswer: result.finalAnswer,
+          stepsTaken: result.stepsTaken,
+        };
+      } catch (error: any) {
+        req.log.error(error);
+        reply.status(500);
+        return { success: false, error: "Failed to execute autonomous agent task: " + error?.message };
+      }
     }
-  });
+  );
 
-  return router;
+  // Status check endpoint for async / queued tasks
+  app.get<{ Params: { taskId: string } }>("/api/task/:taskId", async (req, reply) => {
+    const task = getTaskState(req.params.taskId);
+    if (!task) {
+      reply.status(404);
+      return { success: false, error: `Task '${req.params.taskId}' not found.` };
+    }
+    return { success: true, task };
+  });
 }

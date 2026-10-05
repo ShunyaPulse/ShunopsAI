@@ -1,5 +1,5 @@
 import * as crypto from "node:crypto";
-import type { Request, Response, NextFunction } from "express";
+import type { FastifyRequest, FastifyReply } from "fastify";
 
 /** Constant-time string comparison that never throws on length mismatch. */
 export function timingSafeEqualStr(a: string, b: string): boolean {
@@ -17,7 +17,7 @@ export interface AuthConfig {
 }
 
 /**
- * Build the bearer/X-API-Key auth middleware for privileged endpoints.
+ * Build the bearer/X-API-Key auth hook for privileged endpoints in Fastify.
  *
  * If no token is configured the server only permits privileged work when bound
  * to localhost; otherwise it fails closed with a 503.
@@ -25,23 +25,23 @@ export interface AuthConfig {
 export function createRequireAuth(config: AuthConfig) {
   const { apiToken, host } = config;
 
-  return function requireAuth(req: Request, res: Response, next: NextFunction): void {
+  return async function requireAuth(req: FastifyRequest, reply: FastifyReply): Promise<void> {
     if (!apiToken) {
-      // No token configured: refuse to run privileged work unless bound to localhost.
       if (host === "127.0.0.1" || host === "localhost") {
-        next();
         return;
       }
-      res.status(503).json({ error: "Server misconfigured: set AGENT_API_TOKEN before binding to a public interface." });
+      reply.status(503).send({ error: "Server misconfigured: set AGENT_API_TOKEN before binding to a public interface." });
       return;
     }
-    const header = req.headers.authorization || "";
+
+    const header = (req.headers.authorization as string) || "";
     const bearer = header.startsWith("Bearer ") ? header.slice(7) : "";
     const provided = bearer || (req.headers["x-api-key"] as string) || "";
+
     if (provided && timingSafeEqualStr(provided, apiToken)) {
-      next();
       return;
     }
-    res.status(401).json({ error: "Unauthorized." });
+
+    reply.status(401).send({ error: "Unauthorized." });
   };
 }

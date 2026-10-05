@@ -1,27 +1,25 @@
-import type { Express, RequestHandler } from "express";
-import { dashboardRouter } from "./dashboard.js";
-import { sentinelRouter } from "./sentinel.js";
-import { taskRouter } from "./task.js";
-import { chatRouter } from "./chat.js";
-import { approvalsRouter } from "./approvals.js";
-import { webhookRouter } from "./webhook.js";
-import { widgetRouter } from "./widget.js";
+import type { FastifyInstance, preHandlerHookHandler } from "fastify";
+import { dashboardRoutes } from "./dashboard.js";
+import { sentinelRoutes } from "./sentinel.js";
+import { taskRoutes } from "./task.js";
+import { chatRoutes } from "./chat.js";
+import { approvalsRoutes } from "./approvals.js";
+import { webhookRoutes } from "./webhook.js";
+import { widgetRoutes } from "./widget.js";
 
 export interface MountRoutesDeps {
-  requireAuth: RequestHandler;
-  heavyLimiter: RequestHandler;
-  chatLimiter: RequestHandler;
+  requireAuth: preHandlerHookHandler;
 }
 
 /**
- * Mount every HTTP route on the given Express application.
+ * Register all Fastify route plugins onto the application.
  */
-export function mountRoutes(app: Express, deps: MountRoutesDeps): void {
-  app.use(dashboardRouter());
-  app.use(sentinelRouter());
-  app.use(taskRouter({ requireAuth: deps.requireAuth, heavyLimiter: deps.heavyLimiter }));
-  app.use(chatRouter({ chatLimiter: deps.chatLimiter }));
-  app.use(approvalsRouter({ requireAuth: deps.requireAuth }));
-  app.use(webhookRouter());
-  app.use(widgetRouter());
+export async function registerRoutes(app: FastifyInstance, deps: MountRoutesDeps): Promise<void> {
+  await app.register(dashboardRoutes);
+  await app.register(sentinelRoutes);
+  await app.register(taskRoutes, { requireAuth: deps.requireAuth });
+  await app.register(chatRoutes);
+  await app.register(approvalsRoutes, { requireAuth: deps.requireAuth });
+  await app.register(webhookRoutes);
+  await app.register(widgetRoutes);
 }

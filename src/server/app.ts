@@ -1,8 +1,9 @@
-import express, { type Express, type Request } from "express";
-import cors from "cors";
+import Fastify, { type FastifyInstance } from "fastify";
+import cors from "@fastify/cors";
+import rateLimit from "@fastify/rate-limit";
+import fastifyRawBody from "fastify-raw-body";
 import { createRequireAuth } from "./middleware/auth.js";
-import { rateLimit } from "./middleware/rateLimit.js";
-import { mountRoutes } from "./routes/index.js";
+import { registerRoutes } from "./routes/index.js";
 
 export interface AppConfig {
   /** Bearer token guarding privileged endpoints. */
@@ -25,40 +26,43 @@ export function loadAppConfig(): AppConfig {
     apiToken: process.env.AGENT_API_TOKEN || process.env.API_SECRET || "",
     host: process.env.HOST || "127.0.0.1",
     corsOrigins: (process.env.CORS_ORIGINS || "").split(",").map((s) => s.trim()).filter(Boolean),
-    rateLimitMax: Number(process.env.RATE_LIMIT_MAX) || 20,
+    rateLimitMax: Number(process.env.RATE_LIMIT_MAX) || 30,
     rateLimitWindowMs: Number(process.env.RATE_LIMIT_WINDOW) || 60_000,
   };
 }
 
 /**
- * Build the fully-wired Express application.
+ * Build the fully-wired Fastify application with TypeBox validation & raw body support.
  */
-export function createApp(config: AppConfig = loadAppConfig()): Express {
-  const app = express();
+export async function createApp(config: AppConfig = loadAppConfig()): Promise<FastifyInstance> {
+  const app = Fastify({
+    logger: false,
+    bodyLimit: 2 * 1024 * 1024, // 2MB
+  });
 
-  // Middleware — capture raw body so webhook signatures can be verified.
-  app.use(
-    express.json({
-      limit: "1mb",
-      verify: (req, _res, buf) => {
-        (req as Request & { rawBody?: Buffer }).rawBody = buf;
-      },
-    })
-  );
+  // Preserve raw request body buffers for cryptographic HMAC signature verification
+  await app.register(fastifyRawBody, {
+    field: "rawBody",
+    global: true,
+    encoding: false, // returns Buffer
+    runFirst: true,
+  });
 
-  // Standard CORS protection
-  app.use(
-    cors({
-      origin: config.corsOrigins.length > 0 ? config.corsOrigins : false,
-      credentials: true,
-    })
-  );
+  // CORS protection
+  await app.register(cors, {
+    origin: config.corsOrigins.length > 0 ? config.corsOrigins : true,
+    credentials: true,
+  });
+
+  // Rate Limiting protection
+  await app.register(rateLimit, {
+    max: config.rateLimitMax,
+    timeWindow: config.rateLimitWindowMs,
+  });
 
   const requireAuth = createRequireAuth({ apiToken: config.apiToken, host: config.host });
-  const heavyLimiter = rateLimit(config.rateLimitMax, config.rateLimitWindowMs);
-  const chatLimiter = rateLimit(60, 60_000);
 
-  mountRoutes(app, { requireAuth, heavyLimiter, chatLimiter });
+  await registerRoutes(app, { requireAuth });
 
   return app;
 }

@@ -1,35 +1,43 @@
-import { Router, type Request, type Response, type RequestHandler } from "express";
+import type { FastifyInstance, preHandlerHookHandler } from "fastify";
 import { listPendingApprovals, resolveApproval } from "../../tools/safety.js";
+import { ApproveRequestSchema, type ApproveRequest } from "../schemas/alert.js";
 
-export interface ApprovalsRouterDeps {
-  requireAuth: RequestHandler;
+export interface ApprovalsRouteOptions {
+  requireAuth: preHandlerHookHandler;
 }
 
 /**
- * Human-in-the-loop approval queue.
+ * Human-in-the-loop approval queue (Fastify Engine).
  */
-export function approvalsRouter({ requireAuth }: ApprovalsRouterDeps): Router {
-  const router = Router();
+export async function approvalsRoutes(app: FastifyInstance, options: ApprovalsRouteOptions): Promise<void> {
+  const { requireAuth } = options;
 
-  router.get("/api/pending-approvals", requireAuth, (_req: Request, res: Response) => {
-    res.json({ pending: listPendingApprovals() });
-  });
-
-  router.post("/api/approve", requireAuth, (req: Request, res: Response) => {
-    const { id, approved } = req.body;
-
-    if (!id || typeof approved !== "boolean") {
-      res.status(400).json({ error: "Provide 'id' (string) and 'approved' (boolean)." });
-      return;
+  app.get(
+    "/api/pending-approvals",
+    {
+      preHandler: [requireAuth],
+    },
+    async () => {
+      return { pending: listPendingApprovals() };
     }
+  );
 
-    const success = resolveApproval(id, approved);
-    if (success) {
-      res.json({ success: true, message: `Request ${id} marked as ${approved ? "APPROVED" : "REJECTED"}.` });
-    } else {
-      res.status(404).json({ success: false, message: `Request ${id} not found or already resolved.` });
+  app.post<{ Body: ApproveRequest }>(
+    "/api/approve",
+    {
+      preHandler: [requireAuth],
+      schema: {
+        body: ApproveRequestSchema,
+      },
+    },
+    async (req, reply) => {
+      const { id, approved } = req.body;
+      const success = resolveApproval(id, approved);
+      if (success) {
+        return { success: true, message: `Request ${id} marked as ${approved ? "APPROVED" : "REJECTED"}.` };
+      }
+      reply.status(404);
+      return { success: false, message: `Request ${id} not found or already resolved.` };
     }
-  });
-
-  return router;
+  );
 }
