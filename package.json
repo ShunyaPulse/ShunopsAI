@@ -9,7 +9,9 @@
     "server": "tsx server.ts",
     "test": "tsx test-tools.ts",
     "typecheck": "tsc --noEmit",
-    "resolve-alerts": "tsx src/tools/code-scanner-resolver.ts"
+    "resolve-alerts": "tsx src/tools/code-scanner-resolver.ts",
+    "worker:dev": "wrangler dev",
+    "worker:deploy": "wrangler deploy"
   },
   "keywords": [
     "agent",
@@ -29,11 +31,13 @@
     "dotenv": "^18.0.5",
     "fastify": "^5.12.5",
     "fastify-raw-body": "^6.0.1",
+    "hono": "^4.13.13",
     "ioredis": "^6.0.0",
     "nodemailer": "^10.0.14",
     "openai": "^7.27.0"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261005.1",
     "@types/node": "^26.6.4",
     "@types/nodemailer": "^8.0.2",
     "tsx": "^4.23.15",
