@@ -1,31 +1,30 @@
-import { Router, type Request, type Response } from "express";
+import type { FastifyInstance } from "fastify";
 import { runComprehensiveSentinelScan, autoHealService } from "../../tools/sentinel.js";
 
 /**
  * Infrastructure Sentinel telemetry and auto-healing endpoints.
  */
-export function sentinelRouter(): Router {
-  const router = Router();
-
-  router.get("/api/sentinel/status", async (_req: Request, res: Response) => {
+export async function sentinelRoutes(app: FastifyInstance): Promise<void> {
+  app.get("/api/sentinel/status", async (_req, reply) => {
     try {
       const summary = await runComprehensiveSentinelScan();
-      res.json(summary);
+      return summary;
     } catch (err: any) {
-      res.status(500).json({ error: "Failed to scan infrastructure: " + err.message });
+      reply.status(500);
+      return { error: "Failed to scan infrastructure: " + err.message };
     }
   });
 
-  router.post("/api/sentinel/heal", async (req: Request, res: Response) => {
-    const serviceName = req.body?.serviceName || "all";
-    const reason = req.body?.reason;
+  app.post("/api/sentinel/heal", async (req, reply) => {
+    const body = (req.body as any) || {};
+    const serviceName = body?.serviceName || "all";
+    const reason = body?.reason;
     try {
       const healResult = await autoHealService(serviceName, reason);
-      res.json(healResult);
+      return healResult;
     } catch (err: any) {
-      res.status(500).json({ error: "Self-healing failed: " + err.message });
+      reply.status(500);
+      return { error: "Self-healing failed: " + err.message };
     }
   });
-
-  return router;
 }

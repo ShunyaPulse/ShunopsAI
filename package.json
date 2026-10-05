@@ -19,18 +19,19 @@
     "autonomous"
   ],
   "dependencies": {
+    "@fastify/cors": "^11.3.0",
+    "@fastify/rate-limit": "^11.2.0",
     "@neondatabase/serverless": "^1.2.0",
-    "@types/express": "^5.0.6",
+    "@sinclair/typebox": "^0.34.52",
     "@types/ioredis": "^5.0.0",
-    "cors": "^2.8.6",
     "dotenv": "^18.0.5",
-    "express": "^5.2.1",
+    "fastify": "^5.12.5",
+    "fastify-raw-body": "^6.0.1",
     "ioredis": "^6.0.0",
     "nodemailer": "^10.0.14",
     "openai": "^7.27.0"
   },
   "devDependencies": {
-    "@types/cors": "^2.8.19",
     "@types/node": "^26.6.4",
     "@types/nodemailer": "^8.0.2",
     "tsx": "^4.23.15",

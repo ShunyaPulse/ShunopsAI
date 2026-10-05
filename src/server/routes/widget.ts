@@ -1,14 +1,12 @@
-import { Router, type Request, type Response } from "express";
+import type { FastifyInstance } from "fastify";
 
 /**
- * 1-Line Embeddable Website Chat Widget (~5KB Vanilla JS).
+ * 1-Line Embeddable Website Chat Widget (~5KB Vanilla JS) - Fastify Plugin.
  */
-export function widgetRouter(): Router {
-  const router = Router();
-
-  router.get("/widget.js", (req: Request, res: Response) => {
-    const host = `${req.protocol}://${req.get("host")}`;
-    res.type("application/javascript").send(`
+export async function widgetRoutes(app: FastifyInstance): Promise<void> {
+  app.get("/widget.js", async (req, reply) => {
+    const host = `${req.protocol}://${req.headers.host}`;
+    const script = `
 (function() {
   const apiEndpoint = "${host}/api/chat";
   const btn = document.createElement("button");
@@ -95,8 +93,7 @@ export function widgetRouter(): Router {
   sendBtn.onclick = sendMsg;
   inputEl.onkeypress = (e) => { if (e.key === "Enter") sendMsg(); };
 })();
-  `);
+    `;
+    return reply.type("application/javascript").send(script);
   });
-
-  return router;
 }

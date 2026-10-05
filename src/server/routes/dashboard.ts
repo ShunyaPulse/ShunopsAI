@@ -1,13 +1,11 @@
-import { Router, type Request, type Response } from "express";
+import type { FastifyInstance } from "fastify";
 import { PRIMARY_MODEL, FALLBACK_MODELS, toolRegistry } from "../../agent/index.js";
 import { getShunopsDashboardHtml } from "../../dashboard/html.js";
 
 /**
  * Public landing routes: browser dashboard, JSON service index, and /dashboard.
  */
-export function dashboardRouter(): Router {
-  const router = Router();
-
+export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
   const renderDashboard = () =>
     getShunopsDashboardHtml({
       models: [PRIMARY_MODEL, ...FALLBACK_MODELS],
@@ -15,16 +13,15 @@ export function dashboardRouter(): Router {
       uptimeSeconds: Math.floor(process.uptime()),
     });
 
-  router.get("/", (req: Request, res: Response) => {
+  app.get("/", async (req, reply) => {
     // If visited from a web browser, render the ShunopsAI Command Center UI
     if (req.headers.accept?.includes("text/html")) {
-      res.type("text/html").send(renderDashboard());
-      return;
+      return reply.type("text/html").send(renderDashboard());
     }
 
-    res.json({
+    return {
       status: "online",
-      name: "ShunopsAI Autonomous Multi-Cloud & DevOps API",
+      name: "ShunopsAI Autonomous Multi-Cloud & DevOps API (Fastify Engine)",
       primaryModel: PRIMARY_MODEL,
       fallbackModels: FALLBACK_MODELS,
       availableTools: Object.keys(toolRegistry),
@@ -38,27 +35,25 @@ export function dashboardRouter(): Router {
         pendingApprovals: "GET /api/pending-approvals",
         approveAction: "POST /api/approve",
         githubWebhook: "POST /api/github-webhook",
+        cloudAlertWebhook: "POST /api/webhook/cloud-alert",
         embeddableWidget: "GET /widget.js",
       },
       integrations: {
         n8n: "Use 'HTTP Request' node pointing to POST /api/task or import integrations/n8n/shunops-n8n-workflow.json",
         dify: "Use 'API Extension' pointing to POST /api/chat with integrations/dify/dify-tool-openapi.yaml",
       },
-    });
+    };
   });
 
-  router.get("/dashboard", (_req: Request, res: Response) => {
-    res.type("text/html").send(renderDashboard());
+  app.get("/dashboard", async (_req, reply) => {
+    return reply.type("text/html").send(renderDashboard());
   });
 
-  router.get("/health", (_req: Request, res: Response) => {
-    // Public endpoint: report liveness only, not which secrets are configured.
-    res.json({
+  app.get("/health", async () => {
+    return {
       status: "healthy",
       timestamp: new Date().toISOString(),
       uptimeSeconds: Math.floor(process.uptime()),
-    });
+    };
   });
-
-  return router;
 }
