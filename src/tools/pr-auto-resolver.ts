@@ -96,6 +96,11 @@ export async function autoRemediatePRBotSuggestions(
     return 0;
   }
 
+  const isLocalRepo = repo === "ShunyaPulse/ShunopsAI" || repo === path.basename(process.cwd());
+  if (!isLocalRepo) {
+    return 0;
+  }
+
   console.log(
     `${colors.yellow}🤖 [Bot Suggestion Resolver] Detected ${botComments.length} security review comment(s) on PR #${pr.number}${colors.reset}`
   );
@@ -475,32 +480,48 @@ Do NOT return conversational filler or codeblocks outside the JSON.`,
   }
 }
 
+export const DEFAULT_TARGET_REPOS = [
+  "ShunyaPulse/ShunopsAI",
+  "ShunyaPulse/SaralGati",
+  "ShunyaPulse/kanban-cloud",
+];
+
+export function getTargetReposList(): string[] {
+  const envRepos = process.env.AUTONOMOUS_TARGET_REPOS;
+  if (!envRepos) {
+    return DEFAULT_TARGET_REPOS;
+  }
+  return envRepos.split(",").map((r) => r.trim()).filter(Boolean);
+}
+
 /**
- * Main autonomous runner to review and resolve all open PRs
+ * Main autonomous runner to review and resolve open PRs across all target repositories
  */
-export async function runAutoPRResolver(): Promise<{ total: number; resolved: number }> {
+export async function runAutoPRResolver(targetRepo?: string): Promise<{ total: number; resolved: number }> {
   console.log(`\n${colors.cyan}${colors.bold}====================================================${colors.reset}`);
   console.log(`${colors.cyan}${colors.bold}🤖 ShunopsAI Autonomous Pull Request Reviewer & Resolver${colors.reset}`);
   console.log(`${colors.cyan}${colors.bold}====================================================${colors.reset}\n`);
 
-  const prs = await fetchOpenPRs();
-  console.log(`Found ${prs.length} open Pull Requests awaiting review.`);
+  const repos = targetRepo ? [targetRepo] : getTargetReposList();
+  let totalPRs = 0;
+  let resolvedCount = 0;
 
-  if (prs.length === 0) {
-    console.log(`${colors.green}All Pull Requests are already reviewed and resolved! 🎉${colors.reset}`);
-    return { total: 0, resolved: 0 };
-  }
+  for (const repo of repos) {
+    console.log(`\n${colors.cyan}📂 Scanning open PRs in ${repo}...${colors.reset}`);
+    const prs = await fetchOpenPRs(repo);
+    console.log(`Found ${prs.length} open Pull Request(s) in ${repo}.`);
+    totalPRs += prs.length;
 
-  let resolved = 0;
-  for (const pr of prs) {
-    const res = await reviewAndResolvePR(pr);
-    if (res.merged || res.approved) {
-      resolved++;
+    for (const pr of prs) {
+      const res = await reviewAndResolvePR(pr, repo);
+      if (res.merged || res.approved) {
+        resolvedCount++;
+      }
     }
   }
 
-  console.log(`\n${colors.green}${colors.bold}PR Resolution Complete: ${resolved}/${prs.length} PRs successfully reviewed and resolved!${colors.reset}`);
-  return { total: prs.length, resolved };
+  console.log(`\n${colors.green}${colors.bold}PR Resolution Complete: ${resolvedCount}/${totalPRs} PRs successfully reviewed and resolved across ${repos.length} repos!${colors.reset}`);
+  return { total: totalPRs, resolved: resolvedCount };
 }
 
 // CLI handler

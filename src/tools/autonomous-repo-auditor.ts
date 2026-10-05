@@ -677,7 +677,9 @@ export async function auditAndHealRepository(
  * Multi-Repository runner: iterates through all target repositories configured in AUTONOMOUS_TARGET_REPOS
  */
 export async function runMultiRepoAutonomousAuditor(): Promise<AuditResult[]> {
-  const targetReposStr = process.env.AUTONOMOUS_TARGET_REPOS || "ShunyaPulse/ShunopsAI";
+  const targetReposStr =
+    process.env.AUTONOMOUS_TARGET_REPOS ||
+    "ShunyaPulse/ShunopsAI,ShunyaPulse/SaralGati,ShunyaPulse/kanban-cloud";
   const targetRepos = targetReposStr
     .split(",")
     .map((r) => r.trim())
