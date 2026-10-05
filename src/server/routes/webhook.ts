@@ -46,7 +46,7 @@ export async function webhookRoutes(app: FastifyInstance): Promise<void> {
     return { received: true, event };
   });
 
-  // 2. Unified Multi-Cloud Alert Envelope Listener (GCP, UptimeRobot, Cloudflare, n8n)
+  // 2. Unified Multi-Cloud Alert Envelope Listener (GCP, UptimeRobot, BetterStack, Cloudflare, n8n)
   app.post<{ Body: CloudAlertEnvelope }>(
     "/api/webhook/cloud-alert",
     {
@@ -55,13 +55,48 @@ export async function webhookRoutes(app: FastifyInstance): Promise<void> {
       },
     },
     async (req, reply) => {
-      const alert = req.body;
-      const source = alert.source || "custom";
-      const service = alert.service || "all";
-      const message = alert.message || "Cloud infrastructure alert received";
+      const raw = (req.body as any) || {};
+
+      // 1. Auto-detect GCP Cloud Monitoring payload
+      let source: CloudAlertEnvelope["source"] = raw.source || "custom";
+      let service: CloudAlertEnvelope["service"] = raw.service || "all";
+      let message = raw.message || "";
+      let targetUrl = raw.targetUrl || "";
+
+      if (raw.incident) {
+        source = "gcp";
+        const resName = (raw.incident.resource_name || raw.incident.resource_id || "").toLowerCase();
+        service = resName.includes("run") || resName.includes("saralgati") || resName.includes("kanban") ? "cloud_run" : "all";
+        message = `GCP Incident: ${raw.incident.summary || raw.incident.condition_name || "Cloud Run alert"}`;
+        targetUrl = raw.incident.url || "";
+      }
+      // 2. Auto-detect UptimeRobot payload
+      else if (raw.monitorURL || raw.alertTypeFriendlyName) {
+        source = "uptimerobot";
+        service = "website";
+        targetUrl = raw.monitorURL || "";
+        message = `UptimeRobot Alert: ${raw.monitorFriendlyName || "Site"} status is ${raw.alertTypeFriendlyName || "Down"}`;
+      }
+      // 3. Auto-detect BetterStack payload
+      else if (raw.data?.attributes?.url) {
+        source = "betterstack";
+        service = "website";
+        targetUrl = raw.data.attributes.url;
+        message = `BetterStack Alert: ${raw.data.attributes.name || "Endpoint"} status is ${raw.data.attributes.status || "Degraded"}`;
+      }
+      // 4. Auto-detect Cloudflare alert
+      else if (raw.data?.pool_name || raw.alert_name) {
+        source = "cloudflare";
+        service = "cloudflare_ai";
+        message = `Cloudflare Alert: ${raw.alert_name || raw.data?.pool_name || "Health Check alert"}`;
+      }
+
+      if (!message) {
+        message = "Cloud infrastructure alert received";
+      }
 
       console.log(
-        `\n\x1b[33m⚡ [Cloud Alert Webhook]\x1b[0m Source: ${source.toUpperCase()} | Target Service: ${service} | Message: ${message}`
+        `\n\x1b[33m⚡ [Cloud Alert Webhook]\x1b[0m Source: ${source?.toUpperCase()} | Target Service: ${service} | Message: ${message}`
       );
 
       reply.status(202);
@@ -69,13 +104,13 @@ export async function webhookRoutes(app: FastifyInstance): Promise<void> {
       // Trigger auto-healing asynchronously based on alert envelope
       setTimeout(async () => {
         try {
-          if (service === "cloud_run" || service === "redis" || service === "neon" || service === "all") {
+          if (service === "cloud_run" || service === "redis" || service === "neon" || service === "website" || service === "all") {
             const healReport = await autoHealService(service, `Triggered by ${source} alert: ${message}`);
             console.log(`\x1b[32m[Cloud Alert Healer]\x1b[0m Result:`, healReport);
           } else {
             // General agent task
             await runAutonomousAgent(
-              `Resolve cloud infrastructure alert from ${source} for service ${service}: ${message}. Raw payload: ${JSON.stringify(alert.rawAlert || {})}`,
+              `Resolve cloud infrastructure alert from ${source} for service ${service}: ${message}. Target URL: ${targetUrl}. Raw payload: ${JSON.stringify(raw.rawAlert || raw)}`,
               { maxSteps: 8 }
             );
           }
@@ -94,3 +129,4 @@ export async function webhookRoutes(app: FastifyInstance): Promise<void> {
     }
   );
 }
+
