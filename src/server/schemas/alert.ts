@@ -37,7 +37,7 @@ export const CloudAlertEnvelopeSchema = Type.Object({
   targetUrl: Type.Optional(Type.String()),
   message: Type.Optional(Type.String()),
   rawAlert: Type.Optional(Type.Any()),
-});
+}, { additionalProperties: true });
 
 export type CloudAlertEnvelope = Static<typeof CloudAlertEnvelopeSchema>;
 
