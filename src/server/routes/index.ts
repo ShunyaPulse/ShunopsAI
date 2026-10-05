@@ -9,14 +9,18 @@ import { widgetRoutes } from "./widget.js";
 
 export interface MountRoutesDeps {
   requireAuth: preHandlerHookHandler;
+  requireDashboardAuth: preHandlerHookHandler;
 }
 
 /**
  * Register all Fastify route plugins onto the application.
  */
 export async function registerRoutes(app: FastifyInstance, deps: MountRoutesDeps): Promise<void> {
-  await app.register(dashboardRoutes);
-  await app.register(sentinelRoutes);
+  await app.register(dashboardRoutes, { requireDashboardAuth: deps.requireDashboardAuth });
+  await app.register(sentinelRoutes, {
+    requireDashboardAuth: deps.requireDashboardAuth,
+    requireAuth: deps.requireAuth,
+  });
   await app.register(taskRoutes, { requireAuth: deps.requireAuth });
   await app.register(chatRoutes);
   await app.register(approvalsRoutes, { requireAuth: deps.requireAuth });

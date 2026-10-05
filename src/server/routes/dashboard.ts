@@ -1,11 +1,17 @@
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, preHandlerHookHandler } from "fastify";
 import { PRIMARY_MODEL, FALLBACK_MODELS, toolRegistry } from "../../agent/index.js";
 import { getShunopsDashboardHtml } from "../../dashboard/html.js";
+
+export interface DashboardRouteOptions {
+  requireDashboardAuth?: preHandlerHookHandler;
+}
 
 /**
  * Public landing routes: browser dashboard, JSON service index, and /dashboard.
  */
-export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
+export async function dashboardRoutes(app: FastifyInstance, opts: DashboardRouteOptions = {}): Promise<void> {
+  const preHandler = opts.requireDashboardAuth ? [opts.requireDashboardAuth] : [];
+
   const renderDashboard = () =>
     getShunopsDashboardHtml({
       models: [PRIMARY_MODEL, ...FALLBACK_MODELS],
@@ -13,7 +19,7 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
       uptimeSeconds: Math.floor(process.uptime()),
     });
 
-  app.get("/", async (req, reply) => {
+  app.get("/", { preHandler }, async (req, reply) => {
     // If visited from a web browser, render the ShunopsAI Command Center UI
     if (req.headers.accept?.includes("text/html")) {
       return reply.type("text/html").send(renderDashboard());
@@ -45,7 +51,7 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
     };
   });
 
-  app.get("/dashboard", async (_req, reply) => {
+  app.get("/dashboard", { preHandler }, async (_req, reply) => {
     return reply.type("text/html").send(renderDashboard());
   });
 

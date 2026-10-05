@@ -4,7 +4,7 @@ import rateLimit from "@fastify/rate-limit";
 import fastifyRawBody from "fastify-raw-body";
 import fastifySwagger from "@fastify/swagger";
 import fastifySwaggerUi from "@fastify/swagger-ui";
-import { createRequireAuth } from "./middleware/auth.js";
+import { createRequireAuth, createRequireDashboardAuth } from "./middleware/auth.js";
 import { registerRoutes } from "./routes/index.js";
 
 export interface AppConfig {
@@ -18,6 +18,10 @@ export interface AppConfig {
   rateLimitMax: number;
   /** Rate-limit window in milliseconds. */
   rateLimitWindowMs: number;
+  /** Dashboard web UI Basic Auth username. */
+  dashboardUsername: string;
+  /** Dashboard web UI Basic Auth password. */
+  dashboardPassword: string;
 }
 
 /**
@@ -30,6 +34,8 @@ export function loadAppConfig(): AppConfig {
     corsOrigins: (process.env.CORS_ORIGINS || "").split(",").map((s) => s.trim()).filter(Boolean),
     rateLimitMax: Number(process.env.RATE_LIMIT_MAX) || 30,
     rateLimitWindowMs: Number(process.env.RATE_LIMIT_WINDOW) || 60_000,
+    dashboardUsername: process.env.DASHBOARD_USERNAME || "admin",
+    dashboardPassword: process.env.DASHBOARD_PASSWORD || process.env.API_SECRET || "",
   };
 }
 
@@ -91,9 +97,17 @@ export async function createApp(config: AppConfig = loadAppConfig()): Promise<Fa
     },
   });
 
-  const requireAuth = createRequireAuth({ apiToken: config.apiToken, host: config.host });
+  const authOpts = {
+    apiToken: config.apiToken,
+    host: config.host,
+    dashboardUsername: config.dashboardUsername,
+    dashboardPassword: config.dashboardPassword,
+  };
 
-  await registerRoutes(app, { requireAuth });
+  const requireAuth = createRequireAuth(authOpts);
+  const requireDashboardAuth = createRequireDashboardAuth(authOpts);
+
+  await registerRoutes(app, { requireAuth, requireDashboardAuth });
 
   return app;
 }
