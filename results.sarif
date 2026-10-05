@@ -1260,42 +1260,7 @@
      ]
     }
    },
-   "results": [
-    {
-     "message": {
-      "text": "generic-api-key has detected secret for file src/tools/wire-cloud-webhooks.ts at commit b7d472b2adb2cc330086139d18875aef72bfea0a."
-     },
-     "ruleId": "generic-api-key",
-     "locations": [
-      {
-       "physicalLocation": {
-        "artifactLocation": {
-         "uri": "src/tools/wire-cloud-webhooks.ts"
-        },
-        "region": {
-         "startLine": 5,
-         "startColumn": 79,
-         "endLine": 5,
-         "endColumn": 100,
-         "snippet": {
-          "text": "REDACTED"
-         }
-        }
-       }
-      }
-     ],
-     "partialFingerprints": {
-      "commitSha": "b7d472b2adb2cc330086139d18875aef72bfea0a",
-      "email": "techanics6174@gmail.com",
-      "author": "ShunyaPulse",
-      "date": "2026-10-05T08:21:05Z",
-      "commitMessage": "feat(webhook): implement provider-specific parsers, cloud webhook wiring tool, and secured direct alert endpoint"
-     },
-     "properties": {
-      "tags": []
-     }
-    }
-   ]
+   "results": []
   }
  ]
 }
