@@ -71,6 +71,7 @@ jobs:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_KEYS: ${{ secrets.GEMINI_KEYS || secrets.GEMINI_API_KEY }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           SARALGATI_DATABASE_URL: ${{ secrets.SARALGATI_DATABASE_URL }}
           KANBAN_DATABASE_URL: ${{ secrets.KANBAN_DATABASE_URL }}
@@ -93,7 +94,7 @@ jobs:
           SMTP_PASS: ${{ secrets.SMTP_PASS }}
           GH_PAT: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
-          AUTONOMOUS_TARGET_REPOS: ${{ secrets.AUTONOMOUS_TARGET_REPOS || 'ShunyaPulse/ShunopsAI' }}
+          AUTONOMOUS_TARGET_REPOS: ${{ secrets.AUTONOMOUS_TARGET_REPOS || 'ShunyaPulse/ShunopsAI,ShunyaPulse/SaralGati,ShunyaPulse/kanban-cloud' }}
           FAIL_ON_DOWN: "true"
         run: |
           npx tsx src/cron/sentinel-cron.ts
@@ -119,6 +120,7 @@ jobs:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_KEYS: ${{ secrets.GEMINI_KEYS || secrets.GEMINI_API_KEY }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           SARALGATI_DATABASE_URL: ${{ secrets.SARALGATI_DATABASE_URL }}
           KANBAN_DATABASE_URL: ${{ secrets.KANBAN_DATABASE_URL }}
@@ -140,6 +142,7 @@ jobs:
           GCP_DEFAULT_REGION: ${{ secrets.GCP_DEFAULT_REGION }}
           GH_PAT: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+          AUTONOMOUS_TARGET_REPOS: ${{ secrets.AUTONOMOUS_TARGET_REPOS || 'ShunyaPulse/ShunopsAI,ShunyaPulse/SaralGati,ShunyaPulse/kanban-cloud' }}
           TARGET_SERVICE: ${{ github.event.inputs.target_service || 'issue-trigger' }}
           TASK_GOAL: ${{ github.event.inputs.task_goal || github.event.issue.title }}
         run: |
