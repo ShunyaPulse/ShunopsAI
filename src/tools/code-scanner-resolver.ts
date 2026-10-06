@@ -4,6 +4,7 @@ import * as path from "node:path";
 import * as dotenv from "dotenv";
 import { colors } from "../core/colors.js";
 import { getGitHubAuthEnv } from "../core/github.js";
+import { isAutonomyPaused } from "./autonomy-state.js";
 import {
   DEFAULT_PROPOSER,
   DEFAULT_AUDITOR,
@@ -230,6 +231,11 @@ export async function runAutoAlertResolver(
   limit = 10,
   repo = "ShunyaPulse/ShunopsAI"
 ): Promise<{ resolved: number; total: number }> {
+  if (await isAutonomyPaused()) {
+    console.log(`${colors.yellow}⏸️ [Code Scanner] Skipped: Autonomy & AI operations are currently PAUSED by user killswitch.${colors.reset}`);
+    return { resolved: 0, total: 0 };
+  }
+
   console.log(`\n${colors.cyan}${colors.bold}====================================================${colors.reset}`);
   console.log(`${colors.cyan}${colors.bold}🤖 ShunopsAI Autonomous Code Scanning Alert Resolver (${repo})${colors.reset}`);
   console.log(`${colors.cyan}${colors.bold}====================================================${colors.reset}\n`);

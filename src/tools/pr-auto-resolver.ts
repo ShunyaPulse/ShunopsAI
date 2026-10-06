@@ -5,6 +5,7 @@ import * as dotenv from "dotenv";
 import type OpenAI from "openai";
 import { colors } from "../core/colors.js";
 import { getGitHubAuthEnv } from "../core/github.js";
+import { isAutonomyPaused } from "./autonomy-state.js";
 import {
   DEFAULT_PROPOSER,
   DEFAULT_AUDITOR,
@@ -769,6 +770,11 @@ export async function runAutoActionResolver(
 export async function runAutoPRResolver(
   targetRepo?: string
 ): Promise<{ total: number; resolved: number; failedActionsTotal: number; failedActionsResolved: number }> {
+  if (await isAutonomyPaused()) {
+    console.log(`${colors.yellow}⏸️ [PR Resolver] Skipped: Autonomy & AI operations are currently PAUSED by user killswitch.${colors.reset}`);
+    return { total: 0, resolved: 0, failedActionsTotal: 0, failedActionsResolved: 0 };
+  }
+
   console.log(`\n${colors.cyan}${colors.bold}====================================================${colors.reset}`);
   console.log(`${colors.cyan}${colors.bold}🤖 ShunopsAI Autonomous Pull Request Reviewer & Resolver${colors.reset}`);
   console.log(`${colors.cyan}${colors.bold}====================================================${colors.reset}\n`);

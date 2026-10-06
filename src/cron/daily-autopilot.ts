@@ -15,6 +15,8 @@ import {
 } from "../tools/video.js";
 import { sendVideoReadyEmail } from "../tools/notifier.js";
 
+import { isAutonomyPaused, getAutonomyStatus } from "../tools/autonomy-state.js";
+
 interface AutopilotRunResult {
   ok: boolean;
   topic?: CuratedTopicResult;
@@ -69,6 +71,15 @@ async function waitForKaggleKernel(
  * Trend -> Curation -> Kaggle Render -> YouTube Upload (Private) -> Email Review Alert.
  */
 export async function runAutonomousCycle(): Promise<AutopilotRunResult> {
+  const autonomy = await getAutonomyStatus();
+  if (autonomy.paused) {
+    console.log("\n=======================================================");
+    console.log("⏸️ [Autopilot] Daily video cycle skipped: Autonomy & AI generation is currently PAUSED by user killswitch.");
+    console.log(`Paused At: ${autonomy.pausedAt || "Unknown"} | Reason: ${autonomy.reason || "Killswitch activated"}`);
+    console.log("=======================================================\n");
+    return { ok: false, error: "Autonomy is paused by user killswitch." };
+  }
+
   console.log("\n=======================================================");
   console.log(`🚀 [Autopilot] Starting Autonomous Daily Video Cycle`);
   console.log(

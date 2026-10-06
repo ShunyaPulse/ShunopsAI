@@ -43,8 +43,17 @@ export function getShunopsDashboardHtml(initialData: {
       <div class="pill">
         <span>Uptime: <strong id="uptime">${Math.floor(initialData.uptimeSeconds / 60)}m</strong></span>
       </div>
+      <button id="btn-toggle-autonomy" class="btn btn-danger" style="border-radius:20px;font-size:11px;padding:6px 14px;" onclick="toggleAutonomyPause()">
+        <span id="autonomy-btn-icon">⏸️</span>
+        <span id="autonomy-btn-text">Pause Autonomy</span>
+      </button>
     </div>
   </header>
+
+  <div id="autonomy-paused-banner" class="banner-paused" style="display: none;">
+    <span>⚠️ <strong>EMERGENCY KILLSWITCH ACTIVE:</strong> All background automations, scheduled crons, and autonomous AI inference are currently PAUSED.</span>
+    <button class="btn btn-success" style="padding: 4px 12px; font-size: 11px; border-radius: 12px; margin-left: 12px;" onclick="toggleAutonomyPause()">▶️ Resume Now</button>
+  </div>
 
   <div class="container">
     <!-- Left Column: Infrastructure Sentinel & Cloud Fleet -->

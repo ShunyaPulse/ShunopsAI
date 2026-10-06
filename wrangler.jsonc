@@ -9,8 +9,7 @@
   "kv_namespaces": [
     {
       "binding": "CHAT_SESSIONS",
-      "id": "chat_sessions_kv_prod_id",
-      "preview_id": "chat_sessions_kv_preview_id"
+      "id": "56d224dff4ec40d1934e8f926087b933"
     }
   ],
   "vars": {
