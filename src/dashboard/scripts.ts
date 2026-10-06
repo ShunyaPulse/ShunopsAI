@@ -55,11 +55,14 @@ export const DASHBOARD_SCRIPTS = `
       \`).join("");
 
       const statusEl = document.getElementById("overall-status");
+      // Always render the live counts so the header cannot claim a fleet size
+      // that does not match the services actually being monitored.
+      const tallied = summary.healthyCount + "/" + summary.totalServices;
       if (summary.overallStatus === "all_systems_operational") {
-        statusEl.innerText = "ALL SYSTEMS NOMINAL (9/9)";
+        statusEl.innerText = "ALL SYSTEMS NOMINAL (" + tallied + ")";
         statusEl.style.color = "var(--green)";
       } else {
-        statusEl.innerText = summary.overallStatus.toUpperCase();
+        statusEl.innerText = summary.overallStatus.toUpperCase() + " (" + tallied + ")";
         statusEl.style.color = "var(--yellow)";
       }
     }

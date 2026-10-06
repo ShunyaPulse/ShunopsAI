@@ -15,6 +15,17 @@ const pendingApprovals = new Map<string, ApprovalRequest>();
 const approvalResolvers = new Map<string, (approved: boolean) => void>();
 
 /**
+ * Terminal state for an approval request: record the verdict and remove the
+ * entry from the pending queue so the maps cannot grow without bound over the
+ * lifetime of a long-running server.
+ */
+function settleApproval(request: ApprovalRequest, approved: boolean): void {
+  request.status = approved ? "approved" : "rejected";
+  pendingApprovals.delete(request.id);
+  approvalResolvers.delete(request.id);
+}
+
+/**
  * Heuristics to check if an action is potentially destructive/sensitive
  */
 export function isActionSensitive(command: string): { isSensitive: boolean; reason: string } {
@@ -117,7 +128,13 @@ export async function requestHumanApproval(
   };
 
   pendingApprovals.set(id, request);
-  await notifyTelegram(request);
+
+  // Fire the alert without awaiting it: the non-interactive resolver below must
+  // be registered in this same tick. Awaiting first left a window where the
+  // request was already listed as pending but had no resolver, so a prompt
+  // /api/approve would be rejected as "not found" and the action would hang
+  // until it timed out.
+  const telegramAlert = notifyTelegram(request).catch(() => {});
 
   console.log(`\n\x1b[31m\x1b[1m========================================================\x1b[0m`);
   console.log(`\x1b[31m\x1b[1m⚠️  [HUMAN-IN-THE-LOOP APPROVAL REQUIRED]\x1b[0m`);
@@ -128,6 +145,7 @@ export async function requestHumanApproval(
 
   // Interactive CLI prompt
   if (process.stdin.isTTY) {
+    await telegramAlert;
     const rl = readline.createInterface({ input, output });
     try {
       const answer = await rl.question(
@@ -136,7 +154,7 @@ export async function requestHumanApproval(
       rl.close();
 
       const approved = answer.trim().toLowerCase() === "y" || answer.trim().toLowerCase() === "yes";
-      request.status = approved ? "approved" : "rejected";
+      settleApproval(request, approved);
 
       if (approved) {
         return { approved: true, message: `Action approved by user (${id}). Proceeding.` };
@@ -148,29 +166,29 @@ export async function requestHumanApproval(
       }
     } catch {
       rl.close();
+      settleApproval(request, false);
       return { approved: false, message: "Approval prompt aborted." };
     }
   }
 
   // Non-interactive / API server mode: Wait for external resolution via /api/approve
   return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      if (pendingApprovals.get(id)?.status === "pending") {
+        settleApproval(request, false);
+        resolve({ approved: false, message: `Approval timed out after 5 minutes (${id}).` });
+      }
+    }, 5 * 60 * 1000);
+
     approvalResolvers.set(id, (approved: boolean) => {
-      request.status = approved ? "approved" : "rejected";
+      clearTimeout(timer);
+      settleApproval(request, approved);
       if (approved) {
         resolve({ approved: true, message: `Action remotely approved (${id}).` });
       } else {
         resolve({ approved: false, message: `Action remotely rejected (${id}).` });
       }
     });
-
-    // Timeout safety: auto-reject after 5 minutes if no response
-    setTimeout(() => {
-      if (pendingApprovals.get(id)?.status === "pending") {
-        request.status = "rejected";
-        approvalResolvers.delete(id);
-        resolve({ approved: false, message: `Approval timed out after 5 minutes (${id}).` });
-      }
-    }, 5 * 60 * 1000);
   });
 }
 
@@ -179,12 +197,14 @@ export async function requestHumanApproval(
  */
 export function resolveApproval(id: string, approved: boolean): boolean {
   const resolver = approvalResolvers.get(id);
-  if (resolver) {
-    if (typeof resolver === 'function') { resolver(approved); }
-    approvalResolvers.delete(id);
-    return true;
-  }
-  return false;
+  const request = pendingApprovals.get(id);
+  // Both must exist: a resolver without a pending entry (or vice versa) means
+  // the request already settled (approved, rejected, or timed out).
+  if (!resolver || !request) return false;
+
+  resolver(approved);
+  settleApproval(request, approved);
+  return true;
 }
 
 export function listPendingApprovals(): ApprovalRequest[] {

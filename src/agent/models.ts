@@ -104,13 +104,20 @@ export async function callChatCompletionWithFailover(
           `${colors.gray}[Requesting Model]${colors.reset} [${target.provider.toUpperCase()}] ${target.model}`
         );
 
-        const response = await client.chat.completions.create({
+        // Providers reject an empty `tools` array (`tools: Array must have at
+        // least 1 item`), so tool-less runs (e.g. the public /api/chat bot)
+        // must omit the parameters entirely instead of sending an empty list.
+        const params: OpenAI.ChatCompletionCreateParamsNonStreaming = {
           model: target.model,
           messages,
-          tools,
-          tool_choice: "auto",
           temperature,
-        });
+        };
+        if (tools.length > 0) {
+          params.tools = tools;
+          params.tool_choice = "auto";
+        }
+
+        const response = await client.chat.completions.create(params);
 
         if (response.choices && response.choices.length > 0 && response.choices[0]) {
           return { response, usedModel: `${target.provider.toUpperCase()}:${target.model}` };
