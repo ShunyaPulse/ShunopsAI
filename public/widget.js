@@ -19,11 +19,24 @@
     'Hello! I am your Edge AI Assistant powered by Cloudflare Workers. I can answer inquiries or execute commands (booking, tracking, lead capture, and system actions). How can I assist you?';
   const siteKey = currentScript?.getAttribute('data-turnstile-sitekey') || '';
 
+  // Safe session ID generator
+  function generateSessionId() {
+    if (window.crypto && window.crypto.randomUUID) {
+      return 'sess_' + window.crypto.randomUUID().replace(/-/g, '').slice(0, 12) + Date.now().toString(36);
+    }
+    const arr = new Uint8Array(8);
+    if (window.crypto && window.crypto.getRandomValues) {
+      window.crypto.getRandomValues(arr);
+      return 'sess_' + Array.from(arr, (b) => b.toString(16).padStart(2, '0')).join('') + Date.now().toString(36);
+    }
+    return 'sess_' + Date.now().toString(36);
+  }
+
   // Local storage session key
   const STORAGE_KEY = 'cf_edge_agent_session_id';
   let sessionId = localStorage.getItem(STORAGE_KEY);
   if (!sessionId) {
-    sessionId = 'sess_' + Math.random().toString(36).substring(2, 9) + Date.now().toString(36);
+    sessionId = generateSessionId();
     localStorage.setItem(STORAGE_KEY, sessionId);
   }
 
@@ -479,6 +492,16 @@
     return html;
   }
 
+  function escapeHtml(str) {
+    if (!str || typeof str !== 'string') return '';
+    return str
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
   // Create UI Elements
   const container = document.createElement('div');
   container.id = 'cf-widget-container';
@@ -489,7 +512,7 @@
         <div class="cf-header-title">
           <div class="cf-status-dot"></div>
           <div>
-            <h3>${widgetTitle}</h3>
+            <h3>${escapeHtml(widgetTitle)}</h3>
             <small style="color:#94a3b8;font-size:11px;">Cloudflare Edge AI • <span id="cf-active-model">Online</span></small>
           </div>
         </div>
@@ -506,7 +529,7 @@
       <div class="cf-body" id="cf-messages">
         <div class="cf-msg cf-msg-assistant">
           <div class="cf-bubble">
-            <p>${welcomeMessage}</p>
+            <p>${escapeHtml(welcomeMessage)}</p>
           </div>
         </div>
       </div>
@@ -567,7 +590,7 @@
   closeBtn.addEventListener('click', () => toggleChat(false));
 
   clearBtn.addEventListener('click', () => {
-    sessionId = 'sess_' + Math.random().toString(36).substring(2, 9) + Date.now().toString(36);
+    sessionId = generateSessionId();
     localStorage.setItem(STORAGE_KEY, sessionId);
     messagesBox.innerHTML = `
       <div class="cf-msg cf-msg-assistant">

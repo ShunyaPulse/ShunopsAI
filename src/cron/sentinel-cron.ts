@@ -7,11 +7,23 @@ import {
   getTargetReposList,
 } from "../tools/pr-auto-resolver.js";
 import { runMultiRepoAutonomousAuditor } from "../tools/autonomous-repo-auditor.js";
+import { isAutonomyPaused, getAutonomyStatus } from "../tools/autonomy-state.js";
 import * as dotenv from "dotenv";
 
 dotenv.config();
 
 async function runSentinelCron() {
+  // Check Master Autonomy Killswitch
+  const autonomy = await getAutonomyStatus();
+  if (autonomy.paused) {
+    console.log(`\n=======================================================`);
+    console.log(`⏸️ [Sentinel Cron] Skipped: Autonomy and background operations are currently PAUSED by user.`);
+    console.log(`Paused At: ${autonomy.pausedAt || "Unknown"} | Reason: ${autonomy.reason || "Killswitch activated"}`);
+    console.log(`To resume, toggle the button in the Command Center or run: POST /api/autonomy/resume`);
+    console.log(`=======================================================\n`);
+    return;
+  }
+
   // When FAIL_ON_DOWN is set (e.g. by the scheduled ops workflow), a run that
   // still has down services exits non-zero so the workflow can open an incident.
   const failOnDown = /^(1|true|yes)$/i.test(process.env.FAIL_ON_DOWN || "");

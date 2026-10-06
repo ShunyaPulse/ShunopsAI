@@ -77,7 +77,7 @@ app.post('/api/chat', async (c) => {
 
   // Ensure sessionId exists
   if (!body.sessionId || typeof body.sessionId !== 'string') {
-    body.sessionId = `sess_${Math.random().toString(36).substring(2, 9)}_${Date.now().toString(36)}`;
+    body.sessionId = `sess_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}_${Date.now().toString(36)}`;
   }
 
   // Turnstile Bot Verification Guardrail

@@ -157,6 +157,44 @@ export const DASHBOARD_STYLES = `
       background: #334155;
       color: #fff;
     }
+    .btn-danger {
+      background: linear-gradient(135deg, #ef4444, #dc2626);
+      color: #fff;
+      border: 1px solid #f87171;
+    }
+    .btn-danger:hover {
+      box-shadow: 0 0 15px rgba(239, 68, 68, 0.5);
+      background: linear-gradient(135deg, #dc2626, #b91c1c);
+    }
+    .btn-success {
+      background: linear-gradient(135deg, #10b981, #059669);
+      color: #fff;
+      border: 1px solid #34d399;
+    }
+    .btn-success:hover {
+      box-shadow: 0 0 15px rgba(16, 185, 129, 0.5);
+      background: linear-gradient(135deg, #059669, #047857);
+    }
+    .banner-paused {
+      background: linear-gradient(90deg, #7f1d1d, #991b1b, #7f1d1d);
+      color: #fecaca;
+      padding: 10px 24px;
+      font-size: 13px;
+      font-weight: 700;
+      text-align: center;
+      letter-spacing: 0.5px;
+      border-bottom: 1px solid #ef4444;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      box-shadow: 0 4px 20px rgba(220, 38, 38, 0.35);
+      animation: pulseAlert 2s infinite ease-in-out;
+    }
+    @keyframes pulseAlert {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.88; }
+    }
     .grid-cards {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));

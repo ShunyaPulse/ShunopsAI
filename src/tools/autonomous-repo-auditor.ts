@@ -13,6 +13,7 @@ import {
   callModel,
 } from "../ai/consensus.js";
 import { fetchOpenPRs, reviewAndResolvePR } from "./pr-auto-resolver.js";
+import { isAutonomyPaused } from "./autonomy-state.js";
 
 dotenv.config();
 
@@ -185,6 +186,10 @@ function getAuthEnv(): NodeJS.ProcessEnv {
     ...process.env,
     GH_TOKEN: token,
     GITHUB_TOKEN: token,
+    GIT_AUTHOR_NAME: process.env.GIT_AUTHOR_NAME || "ShunopsAI Sentinel Bot",
+    GIT_AUTHOR_EMAIL: process.env.GIT_AUTHOR_EMAIL || "sentinel@shunopsai.local",
+    GIT_COMMITTER_NAME: process.env.GIT_COMMITTER_NAME || "ShunopsAI Sentinel Bot",
+    GIT_COMMITTER_EMAIL: process.env.GIT_COMMITTER_EMAIL || "sentinel@shunopsai.local",
   };
 }
 
@@ -433,6 +438,18 @@ export async function auditAndHealRepository(
   rootDir = process.cwd(),
   options: { createPR?: boolean; force?: boolean } = { createPR: true }
 ): Promise<AuditResult> {
+  if (await isAutonomyPaused()) {
+    console.log(`${colors.yellow}⏸️ [Auditor] Skipped ${repoSlug}: Autonomy & AI operations are currently PAUSED by user killswitch.${colors.reset}`);
+    return {
+      repo: repoSlug,
+      scannedFiles: 0,
+      flawsDetected: 0,
+      flawsRemediated: 0,
+      skipped: true,
+      reason: "Autonomy is paused by user killswitch",
+    };
+  }
+
   console.log(`\n${colors.cyan}${colors.bold}====================================================${colors.reset}`);
   console.log(`${colors.cyan}${colors.bold}🛡️ ShunopsAI Autonomous Repository Auditor & Healer${colors.reset}`);
   console.log(`${colors.cyan}Target Repo:${colors.reset} ${repoSlug}`);
@@ -677,6 +694,11 @@ export async function auditAndHealRepository(
  * Multi-Repository runner: iterates through all target repositories configured in AUTONOMOUS_TARGET_REPOS
  */
 export async function runMultiRepoAutonomousAuditor(): Promise<AuditResult[]> {
+  if (await isAutonomyPaused()) {
+    console.log(`${colors.yellow}⏸️ [Multi-Repo Auditor] Skipped: Autonomy & AI operations are currently PAUSED by user killswitch.${colors.reset}`);
+    return [];
+  }
+
   const targetReposStr =
     process.env.AUTONOMOUS_TARGET_REPOS ||
     "ShunyaPulse/ShunopsAI,ShunyaPulse/SaralGati,ShunyaPulse/kanban-cloud";

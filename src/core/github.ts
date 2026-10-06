@@ -19,6 +19,10 @@ export function getGitHubAuthEnv(): NodeJS.ProcessEnv {
     ...process.env,
     GH_TOKEN: token,
     GITHUB_TOKEN: token,
+    GIT_AUTHOR_NAME: process.env.GIT_AUTHOR_NAME || "ShunopsAI Sentinel Bot",
+    GIT_AUTHOR_EMAIL: process.env.GIT_AUTHOR_EMAIL || "sentinel@shunopsai.local",
+    GIT_COMMITTER_NAME: process.env.GIT_COMMITTER_NAME || "ShunopsAI Sentinel Bot",
+    GIT_COMMITTER_EMAIL: process.env.GIT_COMMITTER_EMAIL || "sentinel@shunopsai.local",
   };
 }
 

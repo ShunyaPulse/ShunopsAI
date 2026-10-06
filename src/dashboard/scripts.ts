@@ -137,8 +137,91 @@ export const DASHBOARD_SCRIPTS = `
       }
     }
 
+    // --- Autonomy Master Killswitch ---
+    async function checkAutonomyStatus() {
+      try {
+        const res = await fetch("/api/autonomy/status", {
+          headers: getAuthHeaders(),
+          credentials: "same-origin"
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        updateAutonomyUI(data.paused);
+      } catch (e) {}
+    }
+
+    function updateAutonomyUI(isPaused) {
+      const btn = document.getElementById("btn-toggle-autonomy");
+      const icon = document.getElementById("autonomy-btn-icon");
+      const text = document.getElementById("autonomy-btn-text");
+      const banner = document.getElementById("autonomy-paused-banner");
+      const statusPill = document.getElementById("overall-status");
+
+      if (isPaused) {
+        if (banner) banner.style.display = "flex";
+        if (btn) {
+          btn.className = "btn btn-success";
+          btn.title = "Click to resume all background tasks and AI operations";
+        }
+        if (icon) icon.innerText = "▶️";
+        if (text) text.innerText = "Resume Autonomy";
+        if (statusPill) {
+          statusPill.innerText = "AUTONOMY PAUSED";
+          statusPill.style.color = "#f87171";
+        }
+      } else {
+        if (banner) banner.style.display = "none";
+        if (btn) {
+          btn.className = "btn btn-danger";
+          btn.title = "Click to pause all scheduled crons, repo healing, and background AI";
+        }
+        if (icon) icon.innerText = "⏸️";
+        if (text) text.innerText = "Pause Autonomy";
+        if (statusPill && statusPill.innerText === "AUTONOMY PAUSED") {
+          statusPill.innerText = "SENTINEL ACTIVE";
+          statusPill.style.color = "";
+        }
+      }
+    }
+
+    async function toggleAutonomyPause() {
+      const isCurrentlyPaused = document.getElementById("autonomy-paused-banner")?.style.display === "flex";
+      const actionWord = isCurrentlyPaused ? "RESUME" : "PAUSE";
+      const confirmed = confirm(
+        isCurrentlyPaused
+          ? "Resume all automatic background tasks, scheduled crons, and AI operations?"
+          : "⚠️ Are you sure you want to PAUSE all automatic background tasks, scheduled crons, and AI operations?"
+      );
+      if (!confirmed) return;
+
+      const btn = document.getElementById("btn-toggle-autonomy");
+      if (btn) btn.disabled = true;
+
+      try {
+        const res = await fetch("/api/autonomy/toggle", {
+          method: "POST",
+          headers: getAuthHeaders(),
+          credentials: "same-origin",
+          body: JSON.stringify({ reason: "User toggled via Command Center" })
+        });
+        const data = await res.json();
+        if (data.success) {
+          updateAutonomyUI(data.paused);
+          appendMsg(data.message, "agent");
+        } else {
+          alert("Error: " + (data.error || "Could not toggle autonomy state."));
+        }
+      } catch (err) {
+        alert("Failed to communicate with autonomy endpoint: " + err.message);
+      } finally {
+        if (btn) btn.disabled = false;
+      }
+    }
+
     // Auto-load on startup
     window.addEventListener("DOMContentLoaded", () => {
       refreshSentinel();
+      checkAutonomyStatus();
+      setInterval(checkAutonomyStatus, 10000);
     });
   `;
