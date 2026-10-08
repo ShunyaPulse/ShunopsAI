@@ -63,7 +63,11 @@ export interface VideoScript {
  * Parse the comma-separated GEMINI_API_KEY pool and return an array of trimmed keys.
  */
 function geminiKeyPool(): string[] {
-  const raw = process.env.GEMINI_API_KEY ?? "";
+  const raw =
+    process.env.GEMINI_KEYS ??
+    process.env.GEMINI_API_KEYS ??
+    process.env.GEMINI_API_KEY ??
+    "";
   return raw
     .split(",")
     .map((k) => k.trim())
@@ -297,13 +301,21 @@ CRITICAL DIRECTIVES:
    - CHAPTER TITLES & TAGS: Must be strictly in English (Roman) alphabet.
    - NARRATION (Spoken Audio): Natural, engaging Hindi dialogue spoken by voice hi-IN-MadhurNeural.
    - CAPTIONS (On-Screen Subtitles): Must be in 100% PURE ENGLISH (both English letters AND English language words). For every single scene, provide the exact English translation in "caption" to be displayed on-screen.
-3. Visual Prompt Engineering for True Continuous Video:
+3. Visual Prompt Engineering for True Continuous Video & Flaw-Free Execution:
    - For EVERY scene, write a "visual_prompt" that describes a real, continuous cinematic video shot — NOT a static photo or generic concept.
-   - Specify:
-     a) Camera movement & lens: e.g. "Slow cinematic dolly-in shot on ARRI Alexa Mini LF, 35mm anamorphic lens, shallow depth of field, 24fps" or "Steadicam low-angle tracking shot", "Macro telephoto rack-focus".
-     b) Physical dynamic action matching the narration: e.g. if the narration discusses a cyber heist, show "A dimly lit cybersecurity operations center with glowing curved telemetry monitors, analysts in focus typing rapidly, camera slowly pushing through server racks".
-     c) Modern Digital Lighting & Clarity: "Crisp natural 4K digital cinematography, modern high-end documentary lighting, vivid realistic colors, sharp clean focus, absolutely NO vintage/retro/sepia/8mm/grainy aesthetics."
-     d) Realism enforcement: Clean, authentic physical textures (modern architectural glass, polished materials, real skin, crisp telemetry). Avoid retro filters, heavy grain, sepia tones, plastic CGI, or still-photo aesthetics.
+   - ZERO AI UI / TEXT HALLUCINATIONS (CRITICAL):
+     * NEVER instruct the AI model to render legible text, words, labels, graphs, line charts, or alphanumeric dashboards inside the shot.
+     * When screens, monitors, or control rooms are depicted, explicitly specify: "unlabeled glowing telemetry monitors, abstract clean data visualization, ambient blue HUD glow with zero text, zero letters, zero numbers, zero pseudocode".
+     * Any data charts or maps will be composited as clean motion graphics templates in post-production.
+   - RIGID BACKGROUND GEOMETRY & LOW-MOTION STABILITY (PREVENT BREATHING/SURFACE WARPING):
+     * For indoor, laboratory, server room, and character shots: Specify steady camera control: "Subtle character breathing and gentle eye movement, locked solid background geometry, rigid non-morphing walls, stable monitor frames in 3D space".
+     * Ban rapid boiling, shifting surfaces, and inconsistent morphing.
+   - CONTROLLED DOLLY SPEEDS (ELIMINATE MOTION BLUR & FRAME SMEAR):
+     * Ban whip-pans, fast zooms, or aggressive camera tracks.
+     * Specify slow, controlled, steady camera work: "Slow cinematic dolly forward on track", "Smooth steadicam glidecam push-in", "Gentle cinematic tripod pan".
+   - Modern Digital Lighting & Clarity:
+     * "Crisp natural 4K digital cinematography, modern high-end documentary lighting, balanced realistic color grade, sharp clean focus, absolutely NO vintage/retro/sepia/8mm/grainy aesthetics."
+   - Realism enforcement: Clean, authentic physical textures (modern architectural glass, polished materials, real skin, crisp telemetry). Avoid retro filters, heavy grain, sepia tones, plastic CGI, or still-photo aesthetics.
 4. Return ONLY valid JSON in this exact structure:
 {
   "title": "<Hybrid Title: [English Topic] : [Hinglish Curiosity Hook], Roman alphabet only, <=70 chars, NO Devanagari>",
@@ -314,7 +326,7 @@ CRITICAL DIRECTIVES:
     {
       "narration": "<Exact words spoken in Hindi by voice hi-IN-MadhurNeural>",
       "caption": "<Exact English translation in pure English language and Roman alphabet for on-screen subtitles>",
-      "visual_prompt": "<Ultra-detailed cinematic video prompt in English: camera move, lens, subject action matching narration, lighting, natural atmosphere>"
+      "visual_prompt": "<Ultra-detailed cinematic video prompt in English: camera move (slow dolly/steadicam), lens, subject action matching narration, lighting, locked rigid background geometry, clean text-free screens>"
     }
   ]
 }`;
