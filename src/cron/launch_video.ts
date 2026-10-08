@@ -9,7 +9,7 @@ async function run() {
 
   console.log(`[Launch] Starting video job for topic: "${topic}" (${minutes} mins, ${language})...`);
   const res = await startVideoJob(topic, minutes, language, trendReason);
-  console.log("[Launch] Result:\n", res);
+  console.log("[Launch] Video job completed successfully.");
 }
 
 run().catch((err) => {
