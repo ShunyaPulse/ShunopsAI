@@ -14,28 +14,35 @@ const RENDER_SRC = path.resolve(process.cwd(), "video", "kernel", "render.py");
 function kaggleEnv(): NodeJS.ProcessEnv {
   const user = process.env.VIDEO_KAGGLE_USERNAME || process.env.KAGGLE_USERNAME || "shunyapulse";
   const key = process.env.VIDEO_TOKEN || process.env.KAGGLE_KEY || process.env.KAGGLE_API_TOKEN;
+  const pathSep = os.platform() === "win32" ? ";" : ":";
   return {
     ...process.env,
+    PYTHONIOENCODING: "utf-8",
+    PYTHONUTF8: "1",
     KAGGLE_USERNAME: user,
     KAGGLE_KEY: key,
     KAGGLE_API_TOKEN: key,
-    PATH: `${process.env.PATH}:${path.join(os.homedir(), ".local", "bin")}`,
+    PATH: `${process.env.PATH}${pathSep}${path.join(os.homedir(), ".local", "bin")}`,
   };
 }
 
 async function kaggle(args: string[], timeout = 120000): Promise<string> {
   const env = kaggleEnv();
+  const isWin = os.platform() === "win32";
+  const cmd = isWin ? "python" : "kaggle";
+  const finalArgs = isWin ? ["-X", "utf8", "-m", "kaggle", ...args] : args;
+
   try {
-    const { stdout, stderr } = await execFileAsync("kaggle", args, {
+    const { stdout, stderr } = await execFileAsync(cmd, finalArgs, {
       env,
       timeout,
       maxBuffer: 1024 * 1024 * 5,
     });
     return (stdout + (stderr ? `\n${stderr}` : "")).trim();
   } catch (e: any) {
-    if (e.code === "ENOENT") {
+    if (!isWin) {
       try {
-        const { stdout, stderr } = await execFileAsync("python", ["-m", "kaggle", ...args], {
+        const { stdout, stderr } = await execFileAsync("python", ["-X", "utf8", "-m", "kaggle", ...args], {
           env,
           timeout,
           maxBuffer: 1024 * 1024 * 5,

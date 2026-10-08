@@ -24,7 +24,18 @@ import time
 # Prevent PyTorch memory fragmentation on 16GB GPUs
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
-# Ensure all dependencies are present
+# Reconcile torchao version compatibility with latest diffusers
+# (Outdated torchao in Kaggle images lacks FqnToConfig, causing diffusers.loaders.single_file to throw ImportError)
+try:
+    from torchao.quantization import FqnToConfig
+except Exception:
+    subprocess.run([sys.executable, "-m", "pip", "install", "-q", "-U", "torchao"], check=False)
+    try:
+        from torchao.quantization import FqnToConfig
+    except Exception:
+        subprocess.run([sys.executable, "-m", "pip", "uninstall", "-y", "-q", "torchao"], check=False)
+
+# Ensure all dependencies are present and upgraded
 subprocess.run([
     sys.executable, "-m", "pip", "install", "-q", "-U",
     "diffusers", "transformers", "accelerate", "safetensors", "huggingface_hub", "edge-tts"
