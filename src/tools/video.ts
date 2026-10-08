@@ -297,7 +297,10 @@ CRITICAL DIRECTIVES:
    - DO NOT make a detached abstract lecture or generic essay.
    - Act 1 (Scene 1-4): Hook the viewer immediately with the breaking event that happened today and why everyone is talking about it.
    - Act 2 (Middle Scenes): Deep dive into the mechanics, science, history, or engineering behind this specific event.
-   - Act 3 (Ending): The real-world impact, consequences, and future outlook for the viewer.
+   - Act 3 (Final Scenes - Conclusive Ending & Outro):
+     * Do NOT end abruptly on technical facts or body content.
+     * The final scenes must synthesize what this discovery or event means for humanity and the future.
+     * The very last scene MUST feature a memorable, conclusive closing statement and sign-off so the viewer experiences complete, satisfying narrative closure.
 2. SCRIPT & SCRIPT-LANGUAGE RULES (MANDATORY - OPTION A HYBRID FORMULA):
    - TITLE (THE HYBRID FORMULA): Must be strictly in English (Roman) alphabet. Format: "[English Topic Keyword] : [Hinglish Curiosity Question/Hook about this specific event]".
      Example: "Aadhaar Super-Engine : 140 Crore Logo Ka Data Kaise Safe Rehta Hai?"
