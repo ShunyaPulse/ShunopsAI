@@ -48,7 +48,11 @@
 
 ## 6. Multi-Service API Key Pool Anti-Contention Invariant
 - **Shared Key Permutation Rule:** Multiple services (`SaralGati`, `AI Predictor`, `AI Damage Inspector Pro`, `Flow State`, `ShunopsAI`) sharing the master `GEMINI_KEYS` / `GEMINI_API_KEY` pool must NEVER use identical key ordering.
-- **Enforcement:** Each service environment must maintain a cryptographically shuffled permutation (`crypto.randomInt` Fisher-Yates) so that different services start at different pool indices. This prevents concurrency spikes and 429 rate-limiting on initial keys while later keys remain unutilized.
+- **Startup Offset Initialization:** Each service environment must initialize a randomized startup offset (or cryptographic permutation) ONCE at process/module launch so that separate services and runner instances start at different initial pool indices.
+- **Zero-Latency Hot-Path Invariant:** On live user/elder query paths, NEVER execute per-request array shuffling, sorting, or cloning. Selection must strictly be $O(1)$ round-robin pointer advancement (`roundRobinIndex = (roundRobinIndex + 1) % keys.length`) to preserve sub-second response times.
+- **Bounded Retries on 429:** When a key encounters a 429 rate-limit, advance the pointer to the next key in the pool immediately. Limit in-request key retries to at most 1–2 attempts before model fallback to prevent latency spikes.
+- **Universal Key-Alias Resolution:** All services must uniformly support `process.env.GEMINI_KEYS || process.env.GEMINI_API_KEYS || process.env.GEMINI_API_KEY` to guarantee 34-key pool interoperability across GitHub Actions, Cloud Run, and local environments.
+
 
 ## 7. Operational Cadence & Autonomous Sentinel Schedule
 - Standard operational frequency across GitHub Actions (`ops.yml`), n8n orchestrator triggers, and sentinel health audits is strictly **12 hours** (`0 */12 * * *`).

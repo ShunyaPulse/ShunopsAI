@@ -26,7 +26,7 @@ function kaggleEnv(): NodeJS.ProcessEnv {
   };
 }
 
-async function kaggle(args: string[], timeout = 120000): Promise<string> {
+export async function kaggle(args: string[], timeout = 120000): Promise<string> {
   const env = kaggleEnv();
   const isWin = os.platform() === "win32";
   const cmd = isWin ? "python" : "kaggle";
@@ -436,14 +436,68 @@ export async function startVideoJob(
 }
 
 /**
+ * Reruns an existing video job on Kaggle with the latest patched renderer.
+ */
+export async function rerunVideoJob(jobId: string): Promise<string> {
+  const user = process.env.VIDEO_KAGGLE_USERNAME || process.env.KAGGLE_USERNAME || "shunyapulse";
+  if (!user) return "Error: KAGGLE_USERNAME not set.";
+
+  const cleanId = jobId.replace(/^video-render-/, "").replace(/^shunyapulse\//, "");
+  const jobDir = path.join(JOBS_DIR, cleanId);
+  const kDir = path.join(jobDir, "kernel");
+  await fs.mkdir(kDir, { recursive: true });
+
+  // Copy latest patched render.py into the job kernel directory
+  await fs.copyFile(RENDER_SRC, path.join(kDir, "render.py"));
+
+  // Ensure kernel-metadata.json is present and correctly mounts the dataset
+  await fs.writeFile(
+    path.join(kDir, "kernel-metadata.json"),
+    JSON.stringify(
+      {
+        id: `${user}/video-render-${cleanId}`,
+        title: `video render ${cleanId}`,
+        code_file: "render.py",
+        language: "python",
+        kernel_type: "script",
+        is_private: true,
+        enable_gpu: true,
+        enable_internet: true,
+        dataset_sources: [`${user}/video-job-${cleanId}`],
+      },
+      null,
+      2
+    )
+  );
+
+  console.log(`[Video] Pushing updated kernel for job "${cleanId}" to Kaggle...`);
+  const pushRes = await kaggle(["kernels", "push", "-p", kDir]);
+  console.log(`[Video] Kernel push result: ${pushRes}`);
+
+  const statusRes = await kaggle(["kernels", "status", `${user}/video-render-${cleanId}`]);
+
+  return JSON.stringify(
+    {
+      jobId: cleanId,
+      kernel: `${user}/video-render-${cleanId}`,
+      push: pushRes,
+      status: statusRes,
+    },
+    null,
+    2
+  );
+}
+
+/**
  * Observe Kaggle training / rendering kernels.
  */
-export async function manageKaggle(action: "list" | "status" | "output", ref?: string): Promise<string> {
+export async function manageKaggle(action: "list" | "status" | "output" | "rerun", ref?: string): Promise<string> {
   const user = process.env.VIDEO_KAGGLE_USERNAME || process.env.KAGGLE_USERNAME || "shunyapulse";
   if (action === "list") return await kaggle(["kernels", "list", "--mine", "--page-size", "15"]);
-  if (!ref) return "Error: 'ref' (owner/kernel-slug) is required for status/output.";
+  if (!ref) return "Error: 'ref' (owner/kernel-slug) is required for status/output/rerun.";
   const full = ref.includes("/") ? ref : `${user}/${ref}`;
   if (action === "status") return await kaggle(["kernels", "status", full]);
+  if (action === "rerun") return await rerunVideoJob(ref);
 
   // output: download files + execution log
   const slug = full.split("/")[1] ?? full;
