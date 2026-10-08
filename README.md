@@ -73,31 +73,73 @@
 ## 🧩 Project Structure
 
 ```
-agent.ts                     # CLI entrypoint + stable public re-exports
-server.ts                    # HTTP server entrypoint
-video/
-  kernel/                    # Kaggle rendering pipeline
-    render.py                #   GPU diffuser script with color curves & film grain
-src/
-  agent/                     # Autonomous agent core
-    models.ts                #   Failover cascade (Gemini Pool -> Groq LPUs -> OpenRouter)
-    prompts.ts               #   System prompts & ReAct tool specifications
-    sandbox.ts               #   Workspace path containment & secret redaction
-    tools.ts                 #   Tool registry & JSON schema definitions
-    loop.ts                  #   ReAct autonomous execution loop
-    index.ts                 #   Public exports barrel
-  server/                    # Express application
-    app.ts                   #   Server factory & security middleware
-    middleware/              #   HMAC authentication & rate limiting
-    routes/                  #   Dashboard, sentinel, chat, approvals, widget
-  core/                      # Utilities (GitHub CLI, LLM dispatch, chalk colors)
-  tools/                     # Operational tools
-    autonomous-repo-auditor.ts # Autonomous proactive code-healing engine
-    video.ts                 # Kaggle script generator, runner & rerun manager
-    consensus.ts             # Dual-model approval protocol
-  ai/                        # Consensus logic & AST evaluation
-  cron/                      # Scheduled autopilot & 12-hour sentinel jobs
-  dashboard/                 # Embedded web UI & metrics dashboard
+├── agent.ts                     # CLI entrypoint & ReAct autonomous agent interface
+├── server.ts                    # Fastify HTTP command server & REST API
+├── wrangler.jsonc               # Cloudflare Workers edge deployment configuration
+├── public/
+│   └── widget.js                # Zero-dependency embeddable website AI chat widget (~5KB)
+├── video/
+│   └── kernel/
+│       └── render.py            # Kaggle GPU rendering engine (diffusers, curves, film grain)
+├── integrations/
+│   ├── n8n/                     # n8n autonomous webhook & incident orchestrator workflows
+│   └── dify/                    # Dify OpenAPI tool specifications
+├── .github/
+│   └── workflows/
+│       ├── ci-deploy.yml        # CI/CD security pipeline (Semgrep, Trivy, Gitleaks, CodeQL)
+│       └── ops.yml              # 12-hour scheduled autonomous sentinel cron
+└── src/
+    ├── index.ts                 # Cloudflare Workers Edge AI entrypoint (SSE streaming & action cards)
+    ├── types.ts                 # Universal TypeScript definitions & contract interfaces
+    ├── widget-script.ts         # Edge widget JavaScript generator & security escape filters
+    ├── agent/                   # Autonomous ReAct agent core
+    │   ├── loop.ts              #   Autonomous reasoning & tool execution loop
+    │   ├── models.ts            #   Failover cascade (Gemini 34-key pool -> Groq -> OpenRouter)
+    │   ├── engine.ts            #   Streaming agent execution engine
+    │   ├── prompts.ts           #   System prompt engineering & tool directives
+    │   ├── sandbox.ts           #   Path traversal, symlink defense & secret redaction
+    │   └── tools.ts             #   Tool registry & JSON schema definitions
+    ├── server/                  # Fastify backend application
+    │   ├── app.ts               #   Fastify factory, rate limiting, CORS, & security headers
+    │   ├── taskQueue.ts         #   Asynchronous task lifecycle manager with Redis persistence
+    │   ├── middleware/
+    │   │   └── auth.ts          #   Basic Auth, Bearer verification, & loopback dev bypass
+    │   ├── routes/              #   Modular REST endpoints
+    │   │   ├── dashboard.ts     #     Web Command Center & JSON service index
+    │   │   ├── sentinel.ts      #     Multi-cloud status & on-demand auto-healing
+    │   │   ├── autonomy.ts      #     Autonomous repo audit triggers & state queries
+    │   │   ├── task.ts          #     Synchronous & async autonomous task executions
+    │   │   ├── chat.ts          #     Public visitor AI assistant endpoint
+    │   │   ├── approvals.ts     #     Human-in-the-loop pending approval queue
+    │   │   ├── webhook.ts       #     GitHub HMAC & multi-cloud alert listener
+    │   │   └── widget.ts        #     Host-safe embeddable widget script provider
+    │   └── schemas/
+    │       └── alert.ts         #   TypeBox request validation schemas
+    ├── tools/                   # Operational and autonomous tools
+    │   ├── autonomous-repo-auditor.ts # Proactive code-healing engine (AST fixes & auto-PRs)
+    │   ├── code-scanner-resolver.ts   # CodeQL, Semgrep & Trivy alert auto-remediator
+    │   ├── pr-auto-resolver.ts        # Dependabot & automated PR verifier
+    │   ├── sentinel.ts          # Multi-cloud health checks & service auto-healing
+    │   ├── cloud.ts             # Cloud Run, OCI Redis, Neon Postgres, & SSRF-safe inspector
+    │   ├── cloudflare-ai.ts     # Cloudflare Workers AI & LoRA inference runner
+    │   ├── wire-cloud-webhooks.ts # GCP Cloud Monitoring & alert notification auto-wirer
+    │   ├── video.ts             # Kaggle script generator, GPU runner, & rerun manager
+    │   ├── trends.ts            # Google Trends & topic discovery engine
+    │   ├── youtube.ts           # YouTube Data API upload & metadata manager
+    │   ├── safety.ts            # Destructive command heuristics & HITL approval queue
+    │   └── registry.ts          # HMAC token signing, verification, & edge action executor
+    ├── ai/
+    │   └── consensus.ts         # Dual-model consensus protocol (Gemini Flash + Groq 120B)
+    ├── cron/                    # Scheduled automations
+    │   ├── sentinel-cron.ts     #   12-hour multi-cloud health audit job
+    │   └── daily-autopilot.ts   #   Automated daily YouTube documentary pipeline
+    ├── dashboard/               # Embedded Command Center UI
+    │   ├── html.ts              #   Dashboard HTML template
+    │   ├── styles.ts            #   Cyberpunk dark-theme CSS styles
+    │   └── scripts.ts           #   Interactive client-side JavaScript
+    └── core/
+        ├── github.ts            # GitHub CLI & API integration wrapper
+        └── colors.ts            # Terminal formatting & chalk color utilities
 ```
 
 ---
