@@ -472,7 +472,7 @@ export async function rerunVideoJob(jobId: string): Promise<string> {
 
   console.log(`[Video] Pushing updated kernel for job "${cleanId}" to Kaggle...`);
   const pushRes = await kaggle(["kernels", "push", "-p", kDir]);
-  console.log(`[Video] Kernel push result: ${pushRes}`);
+  console.log("[Video] Kernel push completed.");
 
   const statusRes = await kaggle(["kernels", "status", `${user}/video-render-${cleanId}`]);
 
