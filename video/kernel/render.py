@@ -383,6 +383,85 @@ class WanT4OptimizedEngine:
             raise RuntimeError(f"Failed to produce video clip for {out_mp4}")
         return True
 
+    def generate_hero_thumbnail_diffusion(self, visual_prompt, out_jpg):
+        """
+        OPTION A: Dedicated Concept Diffusion Pass on Kaggle T4 GPU.
+        Generates a pristine, high-resolution, high-dynamic-range hero visual
+        symbolizing the core topic with authentic subject fidelity (no text in image).
+        """
+        print(f"[{self.engine_name}] Generating Option A dedicated thumbnail concept diffusion...")
+        clean_prompt = (
+            f"{visual_prompt[:320]}, hyper-cinematic documentary poster art, award-winning photography, "
+            f"masterpiece composition, dramatic volumetric rim lighting, deep contrast, vibrant authentic colors, "
+            f"hyper-detailed textures, sharp focus, 8k resolution, completely clean composition with lower negative space, "
+            f"zero text, zero words, zero letters, zero watermarks"
+        )
+        neg_prompt = (
+            "text, letters, words, writing, numbers, labels, typography, logos, watermark, title, signature, "
+            "blurry, low resolution, bad anatomy, deformed, distorted, cartoon, anime, plastic, 3d render"
+        )
+
+        generator = torch.Generator("cuda").manual_seed(42)
+        hero_img = None
+
+        if self.engine_name == "Wan2.1-T2V-1.3B" and self.pipe is not None:
+            try:
+                # Generate 1 single keyframe latent (or short sequence and take sharpest center frame)
+                output = self.pipe(
+                    prompt=clean_prompt,
+                    negative_prompt=neg_prompt,
+                    height=384,
+                    width=640,
+                    num_frames=9,
+                    num_inference_steps=20,
+                    guidance_scale=6.0,
+                    generator=generator
+                )
+                frames = output.frames[0]
+                # Pick middle frame (highest coherence)
+                mid_idx = len(frames) // 2
+                frame = frames[mid_idx]
+                from PIL import Image
+                import numpy as np
+                if isinstance(frame, np.ndarray):
+                    if frame.dtype in (np.float32, np.float16) or frame.max() <= 1.0:
+                        hero_img = Image.fromarray((frame * 255).astype(np.uint8))
+                    else:
+                        hero_img = Image.fromarray(frame.astype(np.uint8))
+                elif hasattr(frame, "save"):
+                    hero_img = frame
+            except Exception as dit_err:
+                print(f"[Wan2.1 Notice] Thumbnail concept pass notice: {dit_err}")
+
+        # Fallback to AnimateDiff/epiCRealism if Wan pass was unavailable
+        if hero_img is None:
+            if self.fallback_pipe is None:
+                self._init_fallback_engine()
+            try:
+                output = self.fallback_pipe(
+                    prompt=clean_prompt,
+                    negative_prompt=neg_prompt,
+                    guidance_scale=1.5,
+                    num_inference_steps=4,
+                    num_frames=16,
+                    width=640,
+                    height=384,
+                    generator=generator
+                )
+                frames = output.frames[0]
+                hero_img = frames[len(frames) // 2]
+            except Exception as fb_err:
+                print(f"[Fallback Notice] Thumbnail fallback notice: {fb_err}")
+
+        if hero_img is not None:
+            from PIL import Image
+            hero_img = hero_img.resize((1280, 720), Image.Resampling.LANCZOS)
+            hero_img.save(out_jpg, quality=95)
+            print(f"[{self.engine_name}] Option A concept diffusion image generated successfully -> {out_jpg}")
+            return True
+        return False
+
+
 
 # ==========================================
 # Main Orchestration Loop
@@ -534,31 +613,55 @@ async def main():
 
     final_dur = duration(f"{OUT}/video.mp4") if ok else 0
 
-    # 6. Automated YouTube Thumbnail Generation:
-    # Extracts the highest contrast hero cinematic frame at ~15s (without burn-in text),
-    # adds subtle upper/lower vignette overlays, and draws high-impact punchy typography.
-    print("Generating custom YouTube high-clickthrough thumbnail...")
+    # 6. Automated YouTube Thumbnail Generation (OPTION A: High-CTR Concept Diffusion):
+    # Generates a dedicated high-impact poster concept image using diffusion,
+    # with authentic fallback to the highest-contrast hero video frame,
+    # followed by bold high-visibility yellow/cyan typography overlays.
+    print("\nGenerating Option A high-CTR YouTube thumbnail (Ask Studio quality)...")
     try:
-        raw_v = f"{TMP}/video_raw.mp4" if os.path.exists(f"{TMP}/video_raw.mp4") else f"{OUT}/video.mp4"
-        thumb_cap = cv2.VideoCapture(raw_v)
-        v_fps = thumb_cap.get(cv2.CAP_PROP_FPS) or 24.0
-        v_total_frames = int(thumb_cap.get(cv2.CAP_PROP_FRAME_COUNT) or 100)
-        # Select hero frame at 12s or 25% into video
-        target_f = min(int(v_fps * 12), max(0, v_total_frames - 50))
-        thumb_cap.set(cv2.CAP_PROP_POS_FRAMES, target_f)
-        ret, h_frame = thumb_cap.read()
-        thumb_cap.release()
+        from PIL import Image, ImageDraw, ImageFont
 
-        if ret and h_frame is not None:
-            from PIL import Image, ImageDraw, ImageFont
-            img = Image.fromarray(cv2.cvtColor(h_frame, cv2.COLOR_BGR2RGB))
+        thumb_data = script.get("thumbnail") or {}
+        custom_prompt = thumb_data.get("visual_prompt", "").strip()
+        if not custom_prompt:
+            # Fallback to topic + key scenes
+            custom_prompt = f"{script.get('title')}. {scenes[0].get('visual_prompt', '')}"
+
+        concept_img_path = f"{TMP}/thumb_concept.jpg"
+        generated_diffusion = False
+
+        # Attempt Option A: Dedicated GPU diffusion pass
+        try:
+            generated_diffusion = diffusion.generate_hero_thumbnail_diffusion(custom_prompt, concept_img_path)
+        except Exception as diff_e:
+            print(f"Diffusion thumbnail attempt note: {diff_e}")
+
+        img = None
+        if generated_diffusion and os.path.exists(concept_img_path):
+            img = Image.open(concept_img_path).convert("RGB")
+            print("Using Option A dedicated diffusion image for thumbnail.")
+        else:
+            # Fallback: Extract hero frame from video_raw
+            raw_v = f"{TMP}/video_raw.mp4" if os.path.exists(f"{TMP}/video_raw.mp4") else f"{OUT}/video.mp4"
+            thumb_cap = cv2.VideoCapture(raw_v)
+            v_fps = thumb_cap.get(cv2.CAP_PROP_FPS) or 24.0
+            v_total_frames = int(thumb_cap.get(cv2.CAP_PROP_FRAME_COUNT) or 100)
+            target_f = min(int(v_fps * 12), max(0, v_total_frames - 50))
+            thumb_cap.set(cv2.CAP_PROP_POS_FRAMES, target_f)
+            ret, h_frame = thumb_cap.read()
+            thumb_cap.release()
+            if ret and h_frame is not None:
+                img = Image.fromarray(cv2.cvtColor(h_frame, cv2.COLOR_BGR2RGB))
+                print("Using high-contrast hero video frame for thumbnail.")
+
+        if img is not None:
             img = img.resize((1280, 720), Image.Resampling.LANCZOS)
 
             # Gradient overlay for maximum text contrast
             overlay = Image.new("RGBA", (1280, 720), (0, 0, 0, 0))
             odraw = ImageDraw.Draw(overlay)
-            for y in range(480, 720):
-                alpha = int((y - 480) / 240 * 185)
+            for y in range(460, 720):
+                alpha = int((y - 460) / 260 * 195)
                 odraw.line([(0, y), (1280, y)], fill=(0, 0, 0, alpha))
             for y in range(0, 160):
                 alpha = int((160 - y) / 160 * 140)
@@ -567,37 +670,40 @@ async def main():
             img = Image.alpha_composite(img.convert("RGBA"), overlay).convert("RGB")
             draw = ImageDraw.Draw(img)
 
-            # Thumbnail Headline
+            # Determine Headline and Subheadline (Truthful, high-curiosity hook)
             raw_title = script.get("title", "DOCUMENTARY EXCLUSIVE").upper()
             title_parts = raw_title.split(":")
-            main_h = title_parts[0].strip()[:35]
-            sub_h = (title_parts[1].strip() if len(title_parts) > 1 else script.get("description", "")).strip()[:40].upper()
+
+            main_h = thumb_data.get("headline") or title_parts[0].strip()
+            main_h = main_h.upper()[:32]
+
+            sub_h = thumb_data.get("subheadline") or (title_parts[1].strip() if len(title_parts) > 1 else script.get("description", ""))
+            sub_h = sub_h.upper()[:44]
 
             try:
-                font_main = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 52)
+                font_main = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 54)
                 font_sub = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 34)
             except Exception:
                 try:
-                    font_main = ImageFont.truetype("arialbd.ttf", 52)
+                    font_main = ImageFont.truetype("arialbd.ttf", 54)
                     font_sub = ImageFont.truetype("arialbd.ttf", 34)
                 except Exception:
                     font_main = ImageFont.load_default()
                     font_sub = ImageFont.load_default()
 
-            # Render drop shadow and high-visibility yellow/cyan text
-            draw.text((62, 532), main_h, font=font_main, fill=(0, 0, 0))
-            draw.text((60, 530), main_h, font=font_main, fill=(255, 225, 0)) # Punchy Yellow
+            # Render bold drop shadow and high-visibility yellow/cyan text
+            draw.text((64, 524), main_h, font=font_main, fill=(0, 0, 0))
+            draw.text((60, 520), main_h, font=font_main, fill=(255, 225, 0))  # High-impact Yellow
 
             if sub_h:
-                draw.text((62, 608), sub_h, font=font_sub, fill=(0, 0, 0))
-                draw.text((60, 606), sub_h, font=font_sub, fill=(0, 240, 255)) # Vibrant Cyan
+                draw.text((64, 604), sub_h, font=font_sub, fill=(0, 0, 0))
+                draw.text((60, 600), sub_h, font=font_sub, fill=(0, 240, 255))  # Electric Cyan
 
             img.save(f"{OUT}/thumbnail.jpg", quality=95)
-            # Also write frame_30s for legacy compatibility
             img.save(f"{OUT}/frame_30s.jpg", quality=95)
-            print("Successfully saved thumbnail.jpg and frame_30s.jpg!")
+            print("Successfully saved Option A thumbnail.jpg and frame_30s.jpg!")
         else:
-            print("Warning: Could not extract hero frame for thumbnail.")
+            print("Warning: Could not produce image for thumbnail.")
     except Exception as th_err:
         print(f"Warning: Failed to generate custom thumbnail: {th_err}")
 

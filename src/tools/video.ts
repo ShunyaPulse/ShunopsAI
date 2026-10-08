@@ -64,6 +64,11 @@ export interface VideoScript {
   language?: string;
   chapters: { title: string; start_scene: number }[];
   scenes: { narration: string; caption?: string; visual_prompt: string }[];
+  thumbnail?: {
+    headline: string;
+    subheadline?: string;
+    visual_prompt: string;
+  };
 }
 
 /**
@@ -326,12 +331,21 @@ CRITICAL DIRECTIVES:
    - Modern Digital Lighting & Clarity:
      * "Crisp natural 4K digital cinematography, modern high-end documentary lighting, balanced realistic color grade, sharp clean focus, absolutely NO vintage/retro/sepia/8mm/grainy aesthetics."
    - Realism enforcement: Clean, authentic physical textures (modern architectural glass, polished materials, real skin, crisp telemetry). Avoid retro filters, heavy grain, sepia tones, plastic CGI, or still-photo aesthetics.
-4. Return ONLY valid JSON in this exact structure:
+4. HIGH-CLICKTHROUGH (CTR) TRUTHFUL THUMBNAIL CONCEPT (OPTION A):
+   - Design a dedicated hero concept thumbnail that creates irresistible psychological curiosity ("Ask Studio" style) without deception or clickbait lies.
+   - It must authentically depict the central subject, revelation, or event of the video with cinematic drama, rim lighting, atmospheric depth, and deep contrast.
+   - Include a short, bold 2-4 word headline (e.g. "GHOST PARTICLES", "SECRET DEEP ICE", "THE IMPOSSIBLE ENGINE") and a complementary subheadline.
+5. Return ONLY valid JSON in this exact structure:
 {
   "title": "<Hybrid Title: [English Topic] : [Hinglish Curiosity Hook], Roman alphabet only, <=70 chars, NO Devanagari>",
   "description": "<Comprehensive Pure English SEO description of the event, 150-250 words with timestamps & keywords, NO Devanagari>",
   "tags": ["<8-15 high volume relevant tags in English alphabet>"],
   "chapters": [{"title": "<Chapter Title in English>", "start_scene": 0}],
+  "thumbnail": {
+    "headline": "<Punchy 2-4 word high-impact text hook, e.g. 'GHOST PARTICLES'>",
+    "subheadline": "<Sub-hook or curiosity teaser, e.g. 'ANTARCTICA DEEP ICE SECRET'>",
+    "visual_prompt": "<Extremely vivid, cinematic hero poster prompt in pure English: dramatic subject, intense rim lighting, atmospheric glow, high dynamic range, clean composition leaving lower space for text, 8k cinematic masterpiece, zero text in image>"
+  },
   "scenes": [
     {
       "narration": "<Exact words spoken in Hindi by voice hi-IN-MadhurNeural>",
