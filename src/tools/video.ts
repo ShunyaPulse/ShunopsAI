@@ -528,12 +528,41 @@ export async function publishJobToYouTube(jobDirOrId: string, privacy: "private"
 
   const videoPath = path.join(targetDir, "video.mp4");
   const metaPath = path.join(targetDir, "meta.json");
-  const thumbnailPath = ["frame_30s.jpg", "frame_15s.jpg", "frame_03s.jpg", "frame_45s.jpg"]
+  let thumbnailPath = ["thumbnail.jpg", "thumbnail.png", "frame_30s.jpg", "frame_15s.jpg", "frame_03s.jpg", "frame_45s.jpg"]
     .map((f) => path.join(targetDir, f))
     .find((f) => fsSync.existsSync(f));
 
-  if (!fsSync.existsSync(videoPath)) {
-    return `Error: video.mp4 not found in ${targetDir}`;
+  // Fail-safe: If no thumbnail exists locally, generate one from video.mp4 via Python cv2/PIL
+  if (!thumbnailPath && fsSync.existsSync(videoPath)) {
+    try {
+      const genScript = `
+import cv2, os
+from PIL import Image, ImageDraw, ImageFont
+cap = cv2.VideoCapture(r'${videoPath.replace(/\\/g, "/")}')
+fps = cap.get(cv2.CAP_PROP_FPS) or 24.0
+cap.set(cv2.CAP_PROP_POS_FRAMES, int(fps * 15))
+ret, frame = cap.read()
+cap.release()
+if ret:
+    img = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)).resize((1280, 720), Image.Resampling.LANCZOS)
+    overlay = Image.new('RGBA', (1280, 720), (0, 0, 0, 0))
+    odraw = ImageDraw.Draw(overlay)
+    for y in range(480, 720):
+        odraw.line([(0, y), (1280, y)], fill=(0, 0, 0, int((y - 480) / 240 * 185)))
+    img = Image.alpha_composite(img.convert('RGBA'), overlay).convert('RGB')
+    out_p = r'${path.join(targetDir, "thumbnail.jpg").replace(/\\/g, "/")}'
+    img.save(out_p, quality=95)
+    print('Generated fallback thumbnail:', out_p)
+`;
+      const { execFileSync } = await import("node:child_process");
+      execFileSync("python", ["-c", genScript]);
+      const genPath = path.join(targetDir, "thumbnail.jpg");
+      if (fsSync.existsSync(genPath)) {
+        thumbnailPath = genPath;
+      }
+    } catch (e: any) {
+      console.warn(`[Video] Fallback thumbnail generation warning: ${e.message}`);
+    }
   }
 
   const result = await uploadToYouTube({

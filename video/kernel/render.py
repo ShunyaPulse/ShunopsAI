@@ -533,6 +533,74 @@ async def main():
     ])
 
     final_dur = duration(f"{OUT}/video.mp4") if ok else 0
+
+    # 6. Automated YouTube Thumbnail Generation:
+    # Extracts the highest contrast hero cinematic frame at ~15s (without burn-in text),
+    # adds subtle upper/lower vignette overlays, and draws high-impact punchy typography.
+    print("Generating custom YouTube high-clickthrough thumbnail...")
+    try:
+        raw_v = f"{TMP}/video_raw.mp4" if os.path.exists(f"{TMP}/video_raw.mp4") else f"{OUT}/video.mp4"
+        thumb_cap = cv2.VideoCapture(raw_v)
+        v_fps = thumb_cap.get(cv2.CAP_PROP_FPS) or 24.0
+        v_total_frames = int(thumb_cap.get(cv2.CAP_PROP_FRAME_COUNT) or 100)
+        # Select hero frame at 12s or 25% into video
+        target_f = min(int(v_fps * 12), max(0, v_total_frames - 50))
+        thumb_cap.set(cv2.CAP_PROP_POS_FRAMES, target_f)
+        ret, h_frame = thumb_cap.read()
+        thumb_cap.release()
+
+        if ret and h_frame is not None:
+            from PIL import Image, ImageDraw, ImageFont
+            img = Image.fromarray(cv2.cvtColor(h_frame, cv2.COLOR_BGR2RGB))
+            img = img.resize((1280, 720), Image.Resampling.LANCZOS)
+
+            # Gradient overlay for maximum text contrast
+            overlay = Image.new("RGBA", (1280, 720), (0, 0, 0, 0))
+            odraw = ImageDraw.Draw(overlay)
+            for y in range(480, 720):
+                alpha = int((y - 480) / 240 * 185)
+                odraw.line([(0, y), (1280, y)], fill=(0, 0, 0, alpha))
+            for y in range(0, 160):
+                alpha = int((160 - y) / 160 * 140)
+                odraw.line([(0, y), (1280, y)], fill=(0, 0, 0, alpha))
+
+            img = Image.alpha_composite(img.convert("RGBA"), overlay).convert("RGB")
+            draw = ImageDraw.Draw(img)
+
+            # Thumbnail Headline
+            raw_title = script.get("title", "DOCUMENTARY EXCLUSIVE").upper()
+            title_parts = raw_title.split(":")
+            main_h = title_parts[0].strip()[:35]
+            sub_h = (title_parts[1].strip() if len(title_parts) > 1 else script.get("description", "")).strip()[:40].upper()
+
+            try:
+                font_main = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 52)
+                font_sub = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 34)
+            except Exception:
+                try:
+                    font_main = ImageFont.truetype("arialbd.ttf", 52)
+                    font_sub = ImageFont.truetype("arialbd.ttf", 34)
+                except Exception:
+                    font_main = ImageFont.load_default()
+                    font_sub = ImageFont.load_default()
+
+            # Render drop shadow and high-visibility yellow/cyan text
+            draw.text((62, 532), main_h, font=font_main, fill=(0, 0, 0))
+            draw.text((60, 530), main_h, font=font_main, fill=(255, 225, 0)) # Punchy Yellow
+
+            if sub_h:
+                draw.text((62, 608), sub_h, font=font_sub, fill=(0, 0, 0))
+                draw.text((60, 606), sub_h, font=font_sub, fill=(0, 240, 255)) # Vibrant Cyan
+
+            img.save(f"{OUT}/thumbnail.jpg", quality=95)
+            # Also write frame_30s for legacy compatibility
+            img.save(f"{OUT}/frame_30s.jpg", quality=95)
+            print("Successfully saved thumbnail.jpg and frame_30s.jpg!")
+        else:
+            print("Warning: Could not extract hero frame for thumbnail.")
+    except Exception as th_err:
+        print(f"Warning: Failed to generate custom thumbnail: {th_err}")
+
     meta = {
         "ok": ok,
         "scenes": len(clips),

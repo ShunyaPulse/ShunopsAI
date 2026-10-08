@@ -240,7 +240,7 @@ export async function uploadToYouTube(options: YouTubeUploadOptions): Promise<Yo
     if (!targetThumbnail && metaPath) {
       // Auto-detect sibling frame thumbnails
       const dir = path.dirname(metaPath);
-      const candidates = ["frame_30s.jpg", "frame_15s.jpg", "frame_03s.jpg", "thumbnail.jpg", "thumbnail.png"];
+      const candidates = ["thumbnail.jpg", "thumbnail.png", "frame_30s.jpg", "frame_15s.jpg", "frame_03s.jpg"];
       for (const c of candidates) {
         const p = path.join(dir, c);
         if (fsSync.existsSync(p)) {
