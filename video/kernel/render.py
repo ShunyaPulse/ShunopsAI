@@ -242,8 +242,8 @@ class WanT4OptimizedEngine:
         shot_files = []
 
         shot_variations = [
-            ("wide establishing shot, dynamic fluid camera tracking, modern documentary", scene_idx * 19 + 3),
-            ("close-up detailed perspective, smooth optical dolly forward, modern cinema", scene_idx * 19 + 7),
+            ("wide establishing shot, slow steady cinematic dolly forward on track, locked solid background geometry, modern documentary", scene_idx * 19 + 3),
+            ("close-up detailed perspective, gentle optical push-in, rigid stable architecture, modern cinema", scene_idx * 19 + 7),
         ]
 
         for s_idx in range(num_shots):
@@ -252,11 +252,18 @@ class WanT4OptimizedEngine:
 
             clean_prompt = (
                 f"{prompt[:240]}, {var_text}, modern digital cinema, 4k ultra-high definition, "
-                f"sharp crystal clear focus, vivid natural colors, documentary broadcast quality"
+                f"sharp crystal clear focus, vivid natural colors, documentary broadcast quality, "
+                f"subtle natural character breathing, stable non-morphing walls, rigid background structures, "
+                f"unlabeled telemetry displays, zero text, zero letters, zero numbers"
             )
             neg_prompt = (
+                "text, letters, words, writing, numbers, labels, charts, line graphs, pseudo-code, glyphs, "
+                "garbled ui, blurry text, watermarks, symbols, subtitles, hud text, "
+                "temporal morphing, surface rippling, breathing walls, gelatinous motion, boiling edges, "
+                "whip pan, fast zoom, motion smear, extreme motion blur, "
+                "blown-out highlights, clipped cyan, hyper-neon blue glare, "
                 "vintage, old, grainy, sepia, retro, 8mm, 16mm, vhs, noisy, dusty, antique, "
-                "cartoon, anime, 3d render, cgi, plastic skin, distorted, blurry, bad anatomy, deformed, morphing"
+                "cartoon, anime, 3d render, cgi, plastic skin, distorted, blurry, bad anatomy, deformed"
             )
 
             print(f"[{self.engine_name}] Scene {scene_idx+1} [Shot {s_idx+1}/{num_shots}]: Generating motion...")
@@ -462,17 +469,25 @@ async def main():
     open(f"{OUT}/captions.srt", "w", encoding="utf-8").write("\n".join(srt))
     open(f"{OUT}/transcript.txt", "w", encoding="utf-8").write(" ".join(txt))
 
-    # 5. Master Grade Burn-In: Clean modern typography
+    # 5. Master Grade Burn-In & Film Cohesion:
+    # - ACES-style Highlight Roll-Off Curve: pulls down blown cyan/blue channel highlights by ~12%
+    # - Subtle 1.5% 35mm film grain overlay via noise filter to fuse heterogeneous drone & synthetic AI footage
+    # - Clean modern typography with semi-transparent drop shadow
     style = (
         "FontName=DejaVu Sans,FontSize=20,Bold=1,"
         "PrimaryColour=&H00FFFFFF,SecondaryColour=&H0000FFFF,"
         "OutlineColour=&H00000000,BackColour=&H80000000,"
         "BorderStyle=1,Outline=2,Shadow=1,Alignment=2,MarginV=42"
     )
-    print("Mastering final modern video with burn-in captions and audio mix...")
+    print("Mastering final modern video with burn-in captions, highlight roll-off curves, and film grain...")
+    master_vf = (
+        f"curves=all='0/0 0.85/0.83 1/0.92':blue='0/0 0.75/0.72 1/0.88':green='0/0 0.80/0.78 1/0.92',"
+        f"noise=alls=1.5:allf=t+u,"
+        f"subtitles={OUT}/captions.srt:force_style='{style}'"
+    )
     ok = run([
         "ffmpeg", "-y", "-i", f"{TMP}/video_raw.mp4", "-i", f"{TMP}/narration.mp3",
-        "-vf", f"subtitles={OUT}/captions.srt:force_style='{style}'",
+        "-vf", master_vf,
         "-map", "0:v", "-map", "1:a",
         "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
         "-c:a", "aac", "-b:a", "192k", "-shortest", f"{OUT}/video.mp4"

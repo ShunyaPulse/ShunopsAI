@@ -49,7 +49,11 @@ const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
  * distributed across the 34 provisioned AI Studio keys.
  */
 function getGeminiKey(): string {
-  const raw = process.env.GEMINI_API_KEY || "";
+  const raw =
+    process.env.GEMINI_KEYS ||
+    process.env.GEMINI_API_KEYS ||
+    process.env.GEMINI_API_KEY ||
+    "";
   const keys = raw.split(",").map((k) => k.trim()).filter(Boolean);
   if (!keys.length) return "dummy-gemini-key";
   return keys[randomInt(0, keys.length)] || "dummy-gemini-key";
