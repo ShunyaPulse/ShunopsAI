@@ -219,7 +219,7 @@ export async function runAutonomousCycle(): Promise<AutopilotRunResult> {
       emailSent,
     };
   } catch (err: any) {
-    console.error(`[Autopilot] ❌ Autonomous cycle encountered an error: ${err.message}`);
+    console.error("[Autopilot] ❌ Autonomous cycle encountered an error");
     // If error is fixable (e.g. YouTube OAuth expired, Kaggle credentials/quota, or SMTP), send alert email
     const errMsg = String(err?.message || err).toLowerCase();
     const isFixable =
@@ -237,11 +237,11 @@ export async function runAutonomousCycle(): Promise<AutopilotRunResult> {
           service: "Daily Video Autopilot",
           status: "DEGRADED",
           actionTaken: "Cycle skipped for today. Please update credentials when convenient.",
-          details: `Error encountered during daily run: ${err.message}`,
+          details: "Authentication or quota limitation encountered during daily cycle.",
         });
       } catch {}
     }
-    return { ok: false, error: err.message };
+    return { ok: false, error: "Autonomous cycle encountered an error" };
   } finally {
     // Retain only the most recent 2 video jobs to preserve VM disk space
     await cleanupOldVideoJobs(2);
