@@ -13,7 +13,7 @@ import {
   manageKaggle,
   publishJobToYouTube,
 } from "../tools/video.js";
-import { sendVideoReadyEmail } from "../tools/notifier.js";
+import { sendVideoReadyEmail, sendIncidentAlert } from "../tools/notifier.js";
 
 import { isAutonomyPaused, getAutonomyStatus } from "../tools/autonomy-state.js";
 
@@ -219,8 +219,67 @@ export async function runAutonomousCycle(): Promise<AutopilotRunResult> {
       emailSent,
     };
   } catch (err: any) {
-    console.error('[Autopilot] ❌ Autonomous cycle encountered an error');
+    console.error(`[Autopilot] ❌ Autonomous cycle encountered an error: ${err.message}`);
+    // If error is fixable (e.g. YouTube OAuth expired, Kaggle credentials/quota, or SMTP), send alert email
+    const errMsg = String(err?.message || err).toLowerCase();
+    const isFixable =
+      errMsg.includes("token") ||
+      errMsg.includes("auth") ||
+      errMsg.includes("quota") ||
+      errMsg.includes("credential") ||
+      errMsg.includes("unauthorized") ||
+      errMsg.includes("401");
+
+    if (isFixable) {
+      try {
+        await sendIncidentAlert({
+          title: "Video Autopilot Action Required (Credentials / Quota)",
+          service: "Daily Video Autopilot",
+          status: "DEGRADED",
+          actionTaken: "Cycle skipped for today. Please update credentials when convenient.",
+          details: `Error encountered during daily run: ${err.message}`,
+        });
+      } catch {}
+    }
     return { ok: false, error: err.message };
+  } finally {
+    // Retain only the most recent 2 video jobs to preserve VM disk space
+    await cleanupOldVideoJobs(2);
+  }
+}
+
+/**
+ * Prunes historical job output directories to keep VM disk usage strictly bounded.
+ */
+async function cleanupOldVideoJobs(maxKeep = 2): Promise<void> {
+  const jobsDir = path.resolve(process.cwd(), "jobs");
+  try {
+    if (!fsSync.existsSync(jobsDir)) return;
+    const entries = await fs.readdir(jobsDir, { withFileTypes: true });
+    const jobDirs = entries.filter((e) => e.isDirectory());
+    if (jobDirs.length <= maxKeep) return;
+
+    const dirsWithTime = await Promise.all(
+      jobDirs.map(async (d) => {
+        const full = path.join(jobsDir, d.name);
+        const stat = await fs.stat(full);
+        return { name: d.name, full, mtimeMs: stat.mtimeMs };
+      })
+    );
+
+    dirsWithTime.sort((a, b) => b.mtimeMs - a.mtimeMs);
+    const toRemove = dirsWithTime.slice(maxKeep);
+
+    for (const dir of toRemove) {
+      try {
+        await fs.rm(dir.full, { recursive: true, force: true });
+        console.log(`[Autopilot] Cleaned up historical video job directory: ${dir.name}`);
+      } catch (e: any) {
+        console.warn(`[Autopilot] Could not remove old job ${dir.name}: ${e.message}`);
+      }
+    }
+  } catch (err: any) {
+    console.warn(`[Autopilot] Job cleanup notice: ${err.message}`);
   }
 }
 

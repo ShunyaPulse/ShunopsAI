@@ -9,10 +9,27 @@ export const WIDGET_JS_CONTENT = `(function () {
   const widgetTitle = currentScript?.getAttribute('data-title') || 'Edge AI Command Engine';
   const welcomeMessage = currentScript?.getAttribute('data-welcome') || 'Hello! I am your Edge AI Assistant powered by Cloudflare Workers. I can answer inquiries or execute commands (booking, tracking, lead capture, and system actions). How can I assist you?';
 
+  function generateSessionId() {
+    if (typeof window !== 'undefined' && window.crypto && typeof window.crypto.randomUUID === 'function') {
+      return 'sess_' + window.crypto.randomUUID().replace(/-/g, '').slice(0, 14);
+    }
+    return 'sess_' + Date.now().toString(36);
+  }
+
+  function escapeHtml(str) {
+    if (typeof str !== 'string') return '';
+    return str
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
+
   const STORAGE_KEY = 'cf_edge_agent_session_id';
   let sessionId = localStorage.getItem(STORAGE_KEY);
   if (!sessionId) {
-    sessionId = 'sess_' + Math.random().toString(36).substring(2, 9) + Date.now().toString(36);
+    sessionId = generateSessionId();
     localStorage.setItem(STORAGE_KEY, sessionId);
   }
 
@@ -236,7 +253,7 @@ export const WIDGET_JS_CONTENT = `(function () {
         <div class="cf-header-title">
           <div class="cf-status-dot"></div>
           <div>
-            <h3>\${widgetTitle}</h3>
+            <h3>\${escapeHtml(widgetTitle)}</h3>
             <small style="color:#94a3b8;font-size:11px;">Cloudflare Edge AI • <span id="cf-active-model">Online</span></small>
           </div>
         </div>
@@ -251,7 +268,7 @@ export const WIDGET_JS_CONTENT = `(function () {
       </div>
       <div class="cf-body" id="cf-messages">
         <div class="cf-msg cf-msg-assistant">
-          <div class="cf-bubble"><p>\${welcomeMessage}</p></div>
+          <div class="cf-bubble"><p>\${escapeHtml(welcomeMessage)}</p></div>
         </div>
       </div>
       <div class="cf-chips">
@@ -302,7 +319,7 @@ export const WIDGET_JS_CONTENT = `(function () {
   closeBtn.addEventListener('click', () => toggleChat(false));
 
   clearBtn.addEventListener('click', () => {
-    sessionId = 'sess_' + Math.random().toString(36).substring(2, 9) + Date.now().toString(36);
+    sessionId = generateSessionId();
     localStorage.setItem(STORAGE_KEY, sessionId);
     messagesBox.innerHTML = \`<div class="cf-msg cf-msg-assistant"><div class="cf-bubble"><p>Conversation reset. How can I help you today?</p></div></div>\`;
   });
@@ -438,7 +455,7 @@ export const WIDGET_JS_CONTENT = `(function () {
                 if (!currentToolPill) {
                   currentToolPill = document.createElement('div');
                   currentToolPill.className = 'cf-tool-pill';
-                  currentToolPill.innerHTML = \`<div class="cf-tool-spinner"></div><span>Executing <strong>\${data.name}</strong>...</span>\`;
+                  currentToolPill.innerHTML = \`<div class="cf-tool-spinner"></div><span>Executing <strong>\${escapeHtml(data.name)}</strong>...</span>\`;
                   cursor.remove();
                   assistantBubble.appendChild(currentToolPill);
                   assistantBubble.appendChild(cursor);
@@ -446,7 +463,7 @@ export const WIDGET_JS_CONTENT = `(function () {
                 }
               } else if (currentEvent === 'tool_result') {
                 if (currentToolPill) {
-                  currentToolPill.innerHTML = \`<span>✓ Tool <strong>\${data.name}</strong> executed</span>\`;
+                  currentToolPill.innerHTML = \`<span>✓ Tool <strong>\${escapeHtml(data.name)}</strong> executed</span>\`;
                   currentToolPill.style.color = '#34d399';
                   currentToolPill.style.borderColor = 'rgba(52, 211, 153, 0.4)';
                   currentToolPill = null;
