@@ -1,4 +1,5 @@
 import * as fs from "node:fs/promises";
+import * as fsSync from "node:fs";
 import * as path from "node:path";
 
 // ==========================================
@@ -24,8 +25,30 @@ export function isSecretPath(filepath: string): boolean {
   if (base === ".env.example") return false;
   if (/^\.env(\.|$)/.test(base)) return true;
   if (/\.(pem|key|p12|pfx)$/.test(base)) return true;
-  if (/(^|\/)id_(rsa|ed25519|ecdsa|dsa)$/.test(filepath.toLowerCase())) return true;
+  if (/^id_(rsa|ed25519|ecdsa|dsa)$/.test(base)) return true;
+  if (base === "credentials.json" || base === "service-account.json") return true;
+  if (base === ".npmrc" || base === ".netrc" || base === ".git-credentials") return true;
   return false;
+}
+
+/** Resolve the real path of the nearest existing ancestor (handles not-yet-created files). */
+function realNearestExisting(target: string): string | null {
+  let current = target;
+  for (;;) {
+    try {
+      return fsSync.realpathSync.native(current);
+    } catch {
+      const parent = path.dirname(current);
+      if (parent === current) return null;
+      current = parent;
+    }
+  }
+}
+
+/** True when `target` is the root itself or lives underneath it. */
+function isInside(root: string, target: string): boolean {
+  const rel = path.relative(root, target);
+  return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
 }
 
 /** Resolve a path and refuse anything outside the project root. */
@@ -35,6 +58,20 @@ export function resolveInsideProject(p: string): string {
   if (rel.startsWith("..") || path.isAbsolute(rel)) {
     throw new Error(`Path "${p}" escapes the project root and is blocked.`);
   }
+  // Block direct access to Git internals (may contain credentials in .git/config).
+  if (rel.split(/[\\/]/).includes(".git")) {
+    throw new Error(`Access to Git internals ("${p}") is blocked.`);
+  }
+
+  // Symlink defense: the *real* location of the nearest existing ancestor must
+  // remain inside the real project root. Without this, a symlink created inside
+  // the workspace (e.g. by run_shell_command) could point outside it.
+  const realRoot = realNearestExisting(PROJECT_ROOT);
+  const realTarget = realNearestExisting(resolved);
+  if (realRoot && realTarget && !isInside(realRoot, realTarget)) {
+    throw new Error(`Path "${p}" resolves outside the project root (symlink) and is blocked.`);
+  }
+
   return resolved;
 }
 

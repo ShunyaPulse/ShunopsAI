@@ -514,6 +514,9 @@
   // Markdown parser helper
   function renderMarkdown(md) {
     if (!md) return '';
+    // Neutralize dangerous URL schemes before any markdown link is rendered,
+    // otherwise model output like [x](javascript:...) becomes an XSS vector.
+    md = String(md).replace(/\]\(\s*(javascript|data|vbscript|file):[^)]*\)/gi, '](#)');
     let html = md
       // Escape basic HTML
       .replace(/&/g, '&amp;')
@@ -702,6 +705,7 @@
           actionType: actionData.actionType,
           payload: actionData.payload,
           token: actionData.token,
+          expiresAt: actionData.expiresAt,
         }),
       });
       const data = await res.json();
@@ -716,7 +720,12 @@
   }
 
   // Render Action Card
-  function renderActionCard(actionData, targetBubble) {
+  function renderActionCard(rawActionData, targetBubble) {
+    // Escape all attacker/model-influenced fields before they hit innerHTML.
+    const actionData = Object.assign({}, rawActionData, {
+      description: escapeHtml(String(rawActionData.description || '')),
+      riskLevel: escapeHtml(String(rawActionData.riskLevel || 'medium')),
+    });
     const card = document.createElement('div');
     card.className = 'cf-action-card';
     card.innerHTML = `

@@ -382,7 +382,7 @@ export const toolRegistry: Record<ToolName, ToolDefinition> = {
           properties: {
             url: {
               type: "string",
-              description: "Full URL of the website or endpoint (e.g. 'https://mywebsite.com' or 'http://127.0.0.1:8080/health')",
+              description: "Full URL of the website or endpoint (e.g. 'https://mywebsite.com' or 'http://localhost:8080/health')",
             },
           },
           required: ["url"],

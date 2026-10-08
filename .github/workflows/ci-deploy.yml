@@ -106,8 +106,14 @@ jobs:
         continue-on-error: true
 
       # 10. Autonomous AI Remediation (Runs only if failures exist or on issue/PR trigger)
+      # SECURITY: an issue-triggered run feeds untrusted issue text into an agent
+      # that can run shell commands and push commits, so it is restricted to
+      # trusted authors (owners, members, collaborators) only.
       - name: Autonomous AI Remediation
-        if: failure() || github.event_name == 'issues' || (github.event_name == 'pull_request' && github.actor == 'dependabot[bot]')
+        if: >-
+          failure() ||
+          (github.event_name == 'issues' && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.issue.author_association)) ||
+          (github.event_name == 'pull_request' && github.actor == 'dependabot[bot]')
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}

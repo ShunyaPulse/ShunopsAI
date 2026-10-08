@@ -57,9 +57,16 @@ export function createRequireAuth(config: AuthConfig) {
       return;
     }
 
-    // Allow unauthenticated only on localhost if no apiToken configured
+    // Allow unauthenticated only for genuinely local, direct connections when
+    // no apiToken is configured. A request bearing X-Forwarded-For is treated
+    // as proxied (i.e. potentially public) and must authenticate, so a
+    // reverse proxy in front of a localhost bind cannot silently expose this.
     if (!apiToken && (host === "127.0.0.1" || host === "localhost")) {
-      return;
+      const remote = req.socket?.remoteAddress || "";
+      const isLoopback =
+        remote === "127.0.0.1" || remote === "::1" || remote === "::ffff:127.0.0.1";
+      const isProxied = Boolean(req.headers["x-forwarded-for"]);
+      if (isLoopback && !isProxied) return;
     }
 
     reply.status(401).send({ error: "Unauthorized." });
@@ -70,7 +77,7 @@ export function createRequireAuth(config: AuthConfig) {
  * Build HTTP Basic Auth challenge hook for browser dashboard & sentinel pages.
  */
 export function createRequireDashboardAuth(config: AuthConfig) {
-  const { apiToken, dashboardUsername, dashboardPassword } = config;
+  const { apiToken, host, dashboardUsername, dashboardPassword } = config;
 
   return async function requireDashboardAuth(req: FastifyRequest, reply: FastifyReply): Promise<void> {
     const header = (req.headers.authorization as string) || "";
@@ -85,6 +92,16 @@ export function createRequireDashboardAuth(config: AuthConfig) {
     const token = bearer || (req.headers["x-api-key"] as string) || "";
     if (token && apiToken && timingSafeEqualStr(token, apiToken)) {
       return;
+    }
+
+    // 3. Allow unauthenticated only for direct loopback connections when
+    // no dashboard password AND no apiToken are configured (local dev convenience).
+    if (!dashboardPassword && !apiToken && (host === "127.0.0.1" || host === "localhost")) {
+      const remote = req.socket?.remoteAddress || "";
+      const isLoopback =
+        remote === "127.0.0.1" || remote === "::1" || remote === "::ffff:127.0.0.1";
+      const isProxied = Boolean(req.headers["x-forwarded-for"]);
+      if (isLoopback && !isProxied) return;
     }
 
     // Challenge with WWW-Authenticate header for native browser login popup

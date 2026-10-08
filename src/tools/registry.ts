@@ -7,23 +7,53 @@ import type {
 } from '../types.js';
 
 /**
- * Generate cryptographic HMAC-SHA256 signature for action confirmation tokens
+ * Deterministic (canonical) JSON serialization. Object key order must not
+ * affect the signed payload, otherwise a client that round-trips the payload
+ * would produce a different signature than the server computed.
+ */
+function canonicalize(value: unknown): string {
+  if (value === null || value === undefined) return 'null';
+  if (typeof value !== 'object') return JSON.stringify(value) ?? 'null';
+  if (Array.isArray(value)) return `[${value.map(canonicalize).join(',')}]`;
+  const obj = value as Record<string, unknown>;
+  const keys = Object.keys(obj).sort();
+  return `{${keys.map((k) => `${JSON.stringify(k)}:${canonicalize(obj[k])}`).join(',')}}`;
+}
+
+/** Constant-time comparison for hex signatures. */
+function timingSafeEqualHex(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
+/**
+ * Generate cryptographic HMAC-SHA256 signature for action confirmation tokens.
+ *
+ * The signature binds the action id, type, expiry, and a canonical hash of the
+ * payload so that a token cannot be replayed with a different payload or after
+ * it has expired. `secret` is mandatory — there is no insecure default.
  */
 export async function signActionToken(
   actionId: string,
   actionType: string,
-  secret: string = 'default-action-secret-key-edge'
+  payload: Record<string, unknown>,
+  expiresAt: number,
+  secret: string
 ): Promise<string> {
+  if (!secret) throw new Error('ACTION_SECRET is not configured.');
   const encoder = new TextEncoder();
-  const keyData = encoder.encode(secret);
   const key = await crypto.subtle.importKey(
     'raw',
-    keyData,
+    encoder.encode(secret),
     { name: 'HMAC', hash: 'SHA-256' },
     false,
     ['sign']
   );
-  const data = encoder.encode(`${actionId}:${actionType}`);
+  const data = encoder.encode(
+    `${actionId}:${actionType}:${expiresAt}:${canonicalize(payload)}`
+  );
   const signature = await crypto.subtle.sign('HMAC', key, data);
   return Array.from(new Uint8Array(signature))
     .map((b) => b.toString(16).padStart(2, '0'))
@@ -31,17 +61,25 @@ export async function signActionToken(
 }
 
 /**
- * Verify cryptographic HMAC-SHA256 signature for action confirmation
+ * Verify a cryptographic HMAC-SHA256 action-confirmation token, enforcing expiry.
  */
 export async function verifyActionToken(
   actionId: string,
   actionType: string,
+  payload: Record<string, unknown>,
+  expiresAt: number,
   token: string,
-  secret: string = 'default-action-secret-key-edge'
+  secret: string
 ): Promise<boolean> {
   try {
-    const expected = await signActionToken(actionId, actionType, secret);
-    return expected === token;
+    if (!secret || typeof token !== 'string' || !token) return false;
+    // HMAC-SHA256 always produces a 64-char hex digest; reject malformed tokens
+    // before the timing-safe comparison to avoid length-based timing leaks.
+    if (!/^[0-9a-f]{64}$/.test(token)) return false;
+    if (typeof expiresAt !== 'number' || !Number.isFinite(expiresAt)) return false;
+    if (Date.now() > expiresAt) return false; // Expired
+    const expected = await signActionToken(actionId, actionType, payload, expiresAt, secret);
+    return timingSafeEqualHex(expected, token);
   } catch {
     return false;
   }
@@ -328,9 +366,34 @@ export const tools: Record<string, ToolDefinition> = {
       const actionType = String(args['actionType'] || '').trim();
       const payload = (args['payload'] as Record<string, unknown>) || {};
 
-      const actionId = `ACT-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6)}`;
-      const secret = env.ACTION_SECRET || 'edge-action-secret-key-2025';
-      const token = await signActionToken(actionId, actionType, secret);
+      const allowedActions = [
+        'restart_service',
+        'flush_cache',
+        'deploy_preview',
+        'upgrade_tier',
+        'cancel_subscription',
+        'trigger_sync',
+      ];
+      if (!allowedActions.includes(actionType)) {
+        return {
+          success: false,
+          error: `Unsupported action type "${actionType}".`,
+        };
+      }
+
+      const secret = env.ACTION_SECRET;
+      if (!secret) {
+        return {
+          success: false,
+          error: 'ACTION_SECRET is not configured; refusing to issue action tokens.',
+        };
+      }
+
+      const random = crypto.getRandomValues(new Uint8Array(6));
+      const suffix = Array.from(random).map((b) => b.toString(16).padStart(2, '0')).join('');
+      const actionId = `ACT-${Date.now().toString(36).toUpperCase()}-${suffix}`;
+      const expiresAt = Date.now() + 10 * 60 * 1000; // 10 minutes expiry
+      const token = await signActionToken(actionId, actionType, payload, expiresAt, secret);
 
       const descriptions: Record<string, string> = {
         restart_service: `Restart edge microservices & warm cold containers for: ${JSON.stringify(payload)}`,
@@ -350,7 +413,7 @@ export const tools: Record<string, ToolDefinition> = {
           ? 'high'
           : 'medium',
         token,
-        expiresAt: Date.now() + 10 * 60 * 1000, // 10 minutes expiry
+        expiresAt,
       };
 
       // Return requiresConfirmation flag to trigger interactive card in SSE & widget
@@ -380,6 +443,23 @@ export async function executeConfirmedAction(
   sessionId: string
 ): Promise<ActionConfirmResponse> {
   const actionId = `EXEC-${Date.now().toString(36).toUpperCase()}`;
+
+  const allowedActions = [
+    'restart_service',
+    'flush_cache',
+    'deploy_preview',
+    'upgrade_tier',
+    'cancel_subscription',
+    'trigger_sync',
+  ];
+  if (!allowedActions.includes(actionType)) {
+    return {
+      success: false,
+      actionId,
+      status: 'failed',
+      message: `Refusing to execute unsupported action "${actionType}".`,
+    };
+  }
 
   // Log sanitized action execution
   const safeSession = sessionId ? sessionId.slice(0, 8) + '...' : 'unknown';

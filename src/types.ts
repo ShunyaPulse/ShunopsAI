@@ -129,6 +129,8 @@ export interface ActionConfirmRequest {
   actionType: string;
   payload: Record<string, unknown>;
   token: string;
+  /** Epoch ms at which the token expires (bound into the HMAC signature). */
+  expiresAt: number;
 }
 
 export interface ActionConfirmResponse {

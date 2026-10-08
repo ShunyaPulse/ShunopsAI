@@ -33,3 +33,8 @@ npm-debug.log*
 
 # Autonomous Auditor local state
 .auditor-state.json
+
+# Python and temp caches
+__pycache__/
+*.pyc
+.freebuff/

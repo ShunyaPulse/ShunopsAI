@@ -210,8 +210,43 @@ export async function manageCloudflare(command: string): Promise<string> {
 /**
  * 6. Website Inspection & Error Diagnostic Tool
  */
+const BLOCKED_SSRF_HOSTS = new Set([
+  "169.254.169.254", // AWS / Azure / GCP instance metadata
+  "metadata.google.internal",
+  "100.100.100.200", // Alibaba Cloud metadata
+  "::ffff:169.254.169.254",
+  "localhost",
+  "127.0.0.1",
+  "0.0.0.0",
+  "::1",
+  "::ffff:127.0.0.1",
+]);
+
+/** Returns true when the hostname resolves to a private / loopback / link-local IP. */
+function isPrivateHost(hostname: string): boolean {
+  if (BLOCKED_SSRF_HOSTS.has(hostname.toLowerCase())) return true;
+  // IPv4 private ranges (RFC 1918) + loopback + link-local
+  if (/^(10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|127\.\d{1,3}\.\d{1,3}\.\d{1,3}|0\.0\.0\.0|169\.254\.\d{1,3}\.\d{1,3})$/.test(hostname)) return true;
+  return false;
+}
+
 export async function inspectWebsite(url: string): Promise<string> {
   const targetUrl = url.startsWith("http") ? url : `https://${url}`;
+
+  // SSRF guard: the agent must never be steered to cloud metadata services
+  // or internal network hosts.
+  try {
+    const parsed = new URL(targetUrl);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return `Website Inspection blocked: only http(s) URLs are permitted.`;
+    }
+    if (isPrivateHost(parsed.hostname)) {
+      return `Website Inspection blocked: requests to internal or cloud metadata endpoints are not permitted.`;
+    }
+  } catch {
+    return `Website Inspection Failed: the provided URL is not valid.`;
+  }
+
   const start = Date.now();
   try {
     const res = await fetch(targetUrl, {
@@ -232,7 +267,8 @@ export async function inspectWebsite(url: string): Promise<string> {
       htmlPreview: snippet,
     }, null, 2);
   } catch (err: any) {
-    return `Website Inspection Failed for ${targetUrl}: ${err.message}`;
+    const safeMsg = (err.message || "Unknown error").replace(/[\n\r]/g, " ").slice(0, 200);
+    return `Website Inspection Failed: ${safeMsg}`;
   }
 }
 

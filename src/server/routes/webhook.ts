@@ -14,17 +14,21 @@ export async function webhookRoutes(app: FastifyInstance): Promise<void> {
     const event = req.headers["x-github-event"] as string;
     const payload = (req.body as any) || {};
 
+    // Fail closed: without a configured secret we cannot verify the sender, so
+    // unsigned GitHub webhooks (which can trigger shell-capable agent runs) are
+    // refused outright instead of processed unauthenticated.
     const webhookSecret = process.env.GITHUB_WEBHOOK_SECRET;
-    if (webhookSecret) {
-      const signature = (req.headers["x-hub-signature-256"] as string) || "";
-      const rawBody = (req as any).rawBody ?? Buffer.from(JSON.stringify(payload));
-      const expected = "sha256=" + crypto.createHmac("sha256", webhookSecret).update(rawBody).digest("hex");
-      if (!signature || !timingSafeEqualStr(signature, expected)) {
-        reply.status(401);
-        return { error: "Invalid webhook signature." };
-      }
-    } else {
-      req.log.warn("[GitHub Webhook] GITHUB_WEBHOOK_SECRET not set — signature verification is disabled.");
+    if (!webhookSecret) {
+      req.log.error("[GitHub Webhook] GITHUB_WEBHOOK_SECRET is not set; refusing webhook.");
+      reply.status(503);
+      return { error: "GitHub webhook secret is not configured." };
+    }
+    const signature = (req.headers["x-hub-signature-256"] as string) || "";
+    const rawBody = (req as any).rawBody ?? Buffer.from(JSON.stringify(payload));
+    const expected = "sha256=" + crypto.createHmac("sha256", webhookSecret).update(rawBody).digest("hex");
+    if (!signature || !timingSafeEqualStr(signature, expected)) {
+      reply.status(401);
+      return { error: "Invalid webhook signature." };
     }
 
     reply.status(202);
@@ -55,22 +59,22 @@ export async function webhookRoutes(app: FastifyInstance): Promise<void> {
       },
     },
     async (req, reply) => {
-      // Optional Secret Verification (Bearer Header, X-Webhook-Secret, or query param ?token=... / ?secret=...)
+      // Fail closed. Secrets are only read from headers (never the URL query
+      // string, which leaks into access logs and browser history).
       const configuredSecret = process.env.API_SECRET || process.env.AUTH_SECRET;
+      if (!configuredSecret) {
+        req.log.error("[Cloud Alert Webhook] API_SECRET/AUTH_SECRET is not set; refusing alert.");
+        reply.status(503);
+        return { error: "Webhook secret is not configured." };
+      }
       const inboundSecret =
-        req.query.secret ||
-        req.query.token ||
         (req.headers["x-webhook-secret"] as string) ||
-        (req.headers["authorization"] ? req.headers["authorization"].replace(/^Bearer\s+/i, "") : undefined);
-
-      if (configuredSecret && inboundSecret) {
-        if (!timingSafeEqualStr(inboundSecret, configuredSecret)) {
-          reply.status(401);
-          return { error: "Invalid webhook secret or token." };
-        }
-      } else if (process.env.REQUIRE_WEBHOOK_AUTH === "true" && configuredSecret && !inboundSecret) {
+        (req.headers["authorization"]
+          ? req.headers["authorization"].replace(/^Bearer\s+/i, "")
+          : undefined);
+      if (!inboundSecret || !timingSafeEqualStr(inboundSecret, configuredSecret)) {
         reply.status(401);
-        return { error: "Authorization required for webhook." };
+        return { error: "Invalid webhook secret or token." };
       }
 
       const raw = (req.body as any) || {};

@@ -75,8 +75,10 @@ app.post('/api/chat', async (c) => {
     return c.json({ error: 'Field "message" is required and cannot be empty.' }, 400);
   }
 
-  // Ensure sessionId exists
-  if (!body.sessionId || typeof body.sessionId !== 'string') {
+  // Ensure sessionId exists and is safe to use as a KV key. A client-supplied
+  // id must be strictly validated, otherwise an attacker could read or collide
+  // with another visitor's stored conversation (IDOR).
+  if (typeof body.sessionId !== 'string' || !/^[A-Za-z0-9_-]{6,64}$/.test(body.sessionId)) {
     body.sessionId = `sess_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}_${Date.now().toString(36)}`;
   }
 
@@ -112,18 +114,38 @@ app.post('/api/action/confirm', async (c) => {
     return c.json({ success: false, message: 'Invalid JSON request body.' }, 400);
   }
 
-  const { sessionId, actionId, approved, actionType, payload, token } = body;
+  const { sessionId, actionId, approved, actionType, payload, token, expiresAt } = body;
 
-  if (!actionId || !actionType || typeof approved !== 'boolean' || !token) {
+  if (
+    !actionId ||
+    !actionType ||
+    typeof approved !== 'boolean' ||
+    !token ||
+    typeof expiresAt !== 'number'
+  ) {
     return c.json(
       { success: false, message: 'Missing required confirmation parameters.' },
       400
     );
   }
 
-  // Verify HMAC cryptographic signature
-  const secret = c.env.ACTION_SECRET || 'edge-action-secret-key-2025';
-  const isSignatureValid = await verifyActionToken(actionId, actionType, token, secret);
+  // Verify HMAC cryptographic signature. The secret is mandatory (no insecure
+  // default) and the signature binds the payload and expiry.
+  const secret = c.env.ACTION_SECRET;
+  if (!secret) {
+    return c.json(
+      { success: false, message: 'Action confirmation is not configured on this server.' },
+      500
+    );
+  }
+  const isSignatureValid = await verifyActionToken(
+    actionId,
+    actionType,
+    payload || {},
+    expiresAt,
+    token,
+    secret
+  );
 
   if (!isSignatureValid) {
     return c.json(

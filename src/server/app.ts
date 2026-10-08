@@ -46,6 +46,8 @@ export async function createApp(config: AppConfig = loadAppConfig()): Promise<Fa
   const app = Fastify({
     logger: false,
     bodyLimit: 2 * 1024 * 1024, // 2MB
+    // Only trust X-Forwarded-* when explicitly running behind a known proxy.
+    trustProxy: process.env.TRUST_PROXY === "true",
   });
 
   // Preserve raw request body buffers for cryptographic HMAC signature verification
@@ -56,10 +58,50 @@ export async function createApp(config: AppConfig = loadAppConfig()): Promise<Fa
     runFirst: true,
   });
 
-  // CORS protection
+  // Malicious URL probe filter (blocks vulnerability scanners, traversal, SQLi, and shell probes)
+  // Directly mirrors the security baseline from Kanban Cloud middleware.ts
+  const MALICIOUS_PROBE_REGEX =
+    /(?:\.env|\.git|wp-admin|wp-login|xmlrpc|phpinfo|eval\(|<script|\.\.[\/\\]|etc\/passwd|union\s+select|sleep\(\d+\)|benchmark\(|drop\s+table|exec\s*\(|cmd\.exe|\/bin\/sh)/i;
+
+  app.addHook("onRequest", async (req, reply) => {
+    const rawUrl = req.raw.url || req.url;
+    if (MALICIOUS_PROBE_REGEX.test(rawUrl)) {
+      reply.status(400).send({ error: "Bad Request: Security policy violation" });
+      return reply;
+    }
+  });
+
+  // CORS protection: cross-origin access is DENIED by default. Only when the
+  // operator explicitly lists origins do we allow them (and then credentials).
+  // Reflecting arbitrary origins while sending credentials is unsafe.
+  const hasCorsOrigins = config.corsOrigins.length > 0;
   await app.register(cors, {
-    origin: config.corsOrigins.length > 0 ? config.corsOrigins : true,
-    credentials: true,
+    origin: hasCorsOrigins ? config.corsOrigins : false,
+    credentials: hasCorsOrigins,
+  });
+
+  // Baseline security headers on every response (no new dependency needed).
+  // Mirrors patterns from SaralGati middleware.ts for consistency across the org.
+  app.addHook("onSend", async (_req, reply, payload) => {
+    reply.header("X-Content-Type-Options", "nosniff");
+    reply.header("X-Frame-Options", "DENY");
+    reply.header("Referrer-Policy", "no-referrer");
+    reply.header("X-Permitted-Cross-Domain-Policies", "none");
+    // HSTS: enforce HTTPS for 2 years (matching SaralGati)
+    reply.header("Strict-Transport-Security", "max-age=63072000; includeSubDomains; preload");
+    // Disable legacy XSS auditor (OWASP guidance: its filter mode introduced its own vulnerabilities)
+    reply.header("X-XSS-Protection", "0");
+    // Restrict powerful browser features
+    reply.header("Permissions-Policy", "camera=(), microphone=(), geolocation=(), browsing-topics=()");
+    // Deliberately minimal CSP: it restricts framing/objects without breaking
+    // the dashboard's inline styles/scripts (no default-src directive).
+    if (!reply.hasHeader("Content-Security-Policy")) {
+      reply.header(
+        "Content-Security-Policy",
+        "frame-ancestors 'none'; object-src 'none'; base-uri 'self'"
+      );
+    }
+    return payload;
   });
 
   // Rate Limiting protection
@@ -106,6 +148,14 @@ export async function createApp(config: AppConfig = loadAppConfig()): Promise<Fa
 
   const requireAuth = createRequireAuth(authOpts);
   const requireDashboardAuth = createRequireDashboardAuth(authOpts);
+
+  // Gate the interactive API docs behind the dashboard credentials so the full
+  // API surface isn't advertised to unauthenticated callers.
+  app.addHook("onRequest", async (req, reply) => {
+    if (req.url === "/docs" || req.url.startsWith("/docs/")) {
+      await requireDashboardAuth(req, reply);
+    }
+  });
 
   await registerRoutes(app, { requireAuth, requireDashboardAuth });
 

@@ -32,24 +32,61 @@ export function isActionSensitive(command: string): { isSensitive: boolean; reas
   const normalized = command.trim().toLowerCase();
 
   // Database sensitive keywords
-  if (/\b(drop\s+table|drop\s+database|truncate|delete\s+from|alter\s+table)\b/i.test(normalized)) {
+  if (/\b(drop\s+table|drop\s+database|drop\s+schema|truncate|delete\s+from|alter\s+table|update\s+\w+\s+set\b|grant\s+all|revoke\s+)\b/i.test(normalized)) {
     return {
       isSensitive: true,
-      reason: "Destructive database operation (DROP/DELETE/TRUNCATE/ALTER).",
+      reason: "Destructive or privilege-altering database operation.",
     };
   }
 
   // Filesystem and OS destructive patterns
   if (
+    /(^|[\s;&|])rm\s+-[a-z]*r[a-z]*f|(^|[\s;&|])rm\s+-[a-z]*f[a-z]*r/.test(normalized) ||
     normalized.includes("rm -rf") ||
     normalized.includes("rmdir /s") ||
     normalized.includes("del /f") ||
+    normalized.includes("del /q") ||
+    normalized.includes("format ") ||
     normalized.includes("mkfs") ||
-    normalized.includes("dd if=")
+    normalized.includes("wipefs") ||
+    /(^|[\s;&|])dd\s+if=/.test(normalized) ||
+    normalized.includes("shred ")
   ) {
     return {
       isSensitive: true,
-      reason: "Recursive filesystem deletion or formatting detected.",
+      reason: "Recursive filesystem deletion, formatting, or disk overwrite detected.",
+    };
+  }
+
+  // Privilege escalation or permission tampering
+  if (
+    /(^|[\s;&|])sudo\b/.test(normalized) ||
+    /(^|[\s;&|])su\s/.test(normalized) ||
+    /chmod\s+(-[a-z]+\s+)*777/.test(normalized) ||
+    /(^|[\s;&|])(chown|useradd|userdel|passwd|crontab|visudo|iptables|ufw)\b/.test(normalized) ||
+    normalized.includes("setcap ") ||
+    /(^|[\s;&|])(shutdown|reboot|halt|poweroff)\b/.test(normalized)
+  ) {
+    return {
+      isSensitive: true,
+      reason: "Privilege escalation, permission tampering, or host power control detected.",
+    };
+  }
+
+  // Remote code execution / pipe-to-shell / encoded payloads
+  if (
+    /\|\s*(sudo\s+)?(ba|z|k)?sh\b/.test(normalized) ||
+    /(curl|wget)[^|;&]*\|\s*(sudo\s+)?(ba|z|k)?sh\b/.test(normalized) ||
+    /(^|[\s;&|])eval\s/.test(normalized) ||
+    /base64\s+(-d|--decode)/.test(normalized) ||
+    /(^|[\s;&|])nc\s+.*-e/.test(normalized) ||
+    /(^|[\s;&|])ncat\s+.*-e/.test(normalized) ||
+    /(^|[\s;&|])bash\s+-c\b/.test(normalized) ||
+    /(^|[\s;&|])sh\s+-c\b/.test(normalized)
+  ) {
+    return {
+      isSensitive: true,
+      reason: "Remote-code-execution or encoded-payload execution pattern detected.",
     };
   }
 
@@ -58,7 +95,9 @@ export function isActionSensitive(command: string): { isSensitive: boolean; reas
     normalized.includes("git push --force") ||
     normalized.includes("git push -f") ||
     normalized.includes("git reset --hard") ||
-    normalized.includes("git clean -fdx")
+    normalized.includes("git clean -fdx") ||
+    normalized.includes("git clean -fd") ||
+    normalized.includes("git filter-branch")
   ) {
     return {
       isSensitive: true,
@@ -69,9 +108,13 @@ export function isActionSensitive(command: string): { isSensitive: boolean; reas
   // Cloud infrastructure teardown
   if (
     normalized.includes("gcloud run services delete") ||
+    normalized.includes("gcloud compute instances delete") ||
+    normalized.includes("gcloud projects delete") ||
     normalized.includes("wrangler delete") ||
+    normalized.includes("wrangler kv:bulk delete") ||
     normalized.includes("flushall") ||
-    normalized.includes("flushdb")
+    normalized.includes("flushdb") ||
+    normalized.includes("drop database")
   ) {
     return {
       isSensitive: true,

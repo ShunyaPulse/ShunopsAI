@@ -263,7 +263,7 @@ async function* streamGemini(
           yield {
             toolCalls: [
               {
-                id: `call_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+                id: `call_${crypto.randomUUID()}`,
                 name: part.functionCall.name,
                 arguments: (part.functionCall.args as Record<string, unknown>) || {},
               },
@@ -517,10 +517,13 @@ export async function executeAgentStream(
   requestBody: ChatRequestBody,
   env: Env
 ): Promise<Response> {
-  const { sessionId, message, systemPrompt: customPrompt } = requestBody;
+  const { sessionId } = requestBody;
+  // Never accept a client-supplied system prompt: it would let a visitor
+  // override the agent's safety/behavior instructions (prompt injection).
+  const message = String(requestBody.message || '').slice(0, 8000);
   const maxTurns = parseInt(env.MAX_HISTORY_TURNS || '10', 10);
   const ttlSeconds = parseInt(env.SESSION_TTL_SECONDS || '86400', 10);
-  const systemPrompt = customPrompt || DEFAULT_SYSTEM_PROMPT;
+  const systemPrompt = DEFAULT_SYSTEM_PROMPT;
 
   // Prepare Server-Sent Events TransformStream
   const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
