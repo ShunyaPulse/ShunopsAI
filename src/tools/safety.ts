@@ -196,13 +196,16 @@ export async function requestHumanApproval(
  * Handle remote approval from API endpoint /api/approve
  */
 export function resolveApproval(id: string, approved: boolean): boolean {
+  if (typeof id !== "string") return false;
   const resolver = approvalResolvers.get(id);
   const request = pendingApprovals.get(id);
   // Both must exist: a resolver without a pending entry (or vice versa) means
   // the request already settled (approved, rejected, or timed out).
   if (!resolver || !request) return false;
 
-  resolver(approved);
+  if (typeof resolver === "function") {
+    resolver(approved);
+  }
   settleApproval(request, approved);
   return true;
 }
