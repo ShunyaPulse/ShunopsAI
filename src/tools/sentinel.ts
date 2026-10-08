@@ -237,18 +237,19 @@ export async function checkKaggleHealth(): Promise<ServiceHealthReport> {
   }
 
   const start = Date.now();
-  const username = process.env.VIDEO_KAGGLE_USERNAME || process.env.KAGGLE_USERNAME;
-  const key = process.env.VIDEO_TOKEN || process.env.KAGGLE_KEY || process.env.KAGGLE_API_TOKEN;
 
   try {
     const listResult = await manageKaggle("list");
     const latencyMs = Date.now() - start;
 
-    if (listResult.startsWith("Kaggle CLI Error") && listResult.includes("ENOENT")) {
+    // manageKaggle reports failures as text instead of throwing. Any CLI error
+    // (missing binary, bad credentials, quota) means the pipeline is unusable,
+    // so it must never be scored as healthy.
+    if (/Kaggle CLI Error/i.test(listResult)) {
       return {
         service: "Kaggle GPU Pipeline",
         category: "pipeline",
-        status: "down",
+        status: listResult.includes("ENOENT") ? "down" : "degraded",
         latencyMs,
         error: listResult.slice(0, 200),
         lastChecked: now,
@@ -285,26 +286,21 @@ export async function checkKaggleHealth(): Promise<ServiceHealthReport> {
 export async function checkSystemHealth(): Promise<ServiceHealthReport> {
   const now = new Date().toISOString();
   const start = Date.now();
-  try {
-    const rawMetrics = await manageComputeEngine("metrics");
-    const totalMem = os.totalmem();
-    const freeMem = os.freemem();
-    const memUsagePct = Math.round(((totalMem - freeMem) / totalMem) * 100);
 
-    return {
-      service: "Compute Host / OS",
-      category: "compute",
-      status: memUsagePct > 95 ? "degraded" : "healthy",
-      latencyMs: Date.now() - start,
-      details: {
-        memoryUsagePercent: `${memUsagePct}%`,
-        freeMemoryMb: Math.round(freeMem / 1024 / 1024),
-        totalMemoryMb: Math.round(totalMem / 1024 / 1024),
-        platform: `${os.platform()} (${os.arch()})`,
-        uptimeMinutes: Math.round(os.uptime() / 60),
-      },
-      lastChecked: now,
-    };
+  const totalMem = os.totalmem();
+  const freeMem = os.freemem();
+  const memUsagePct = Math.round(((totalMem - freeMem) / totalMem) * 100);
+  const details: Record<string, any> = {
+    memoryUsagePercent: `${memUsagePct}%`,
+    freeMemoryMb: Math.round(freeMem / 1024 / 1024),
+    totalMemoryMb: Math.round(totalMem / 1024 / 1024),
+    platform: `${os.platform()} (${os.arch()})`,
+    uptimeMinutes: Math.round(os.uptime() / 60),
+  };
+
+  let probeOutput: string;
+  try {
+    probeOutput = await manageComputeEngine("metrics");
   } catch (err: any) {
     return {
       service: "Compute Host / OS",
@@ -314,35 +310,71 @@ export async function checkSystemHealth(): Promise<ServiceHealthReport> {
       lastChecked: now,
     };
   }
+
+  // manageComputeEngine returns diagnostics (and errors) as text rather than
+  // throwing, so a failed GCE SSH probe must be detected from the output —
+  // otherwise this check would keep reporting "healthy" for an unreachable VM.
+  const probeHead = probeOutput.split("\n")[0]?.trim() ?? "";
+  const gceProbeFailed = /^GCE SSH Error/i.test(probeHead);
+  details.computeProbe = probeHead;
+
+  return {
+    service: "Compute Host / OS",
+    category: "compute",
+    status: gceProbeFailed || memUsagePct > 95 ? "degraded" : "healthy",
+    latencyMs: Date.now() - start,
+    details,
+    error: gceProbeFailed ? probeHead : undefined,
+    lastChecked: now,
+  };
+}
+
+/**
+ * Run a single health probe, converting an unexpected throw into an explicit
+ * `down` report. Without this, a crashing probe would silently disappear from
+ * the summary and the fleet could still be reported as fully operational.
+ */
+async function probe(
+  service: string,
+  category: ServiceHealthReport["category"],
+  run: () => Promise<ServiceHealthReport>
+): Promise<ServiceHealthReport> {
+  try {
+    return await run();
+  } catch (err: any) {
+    return {
+      service,
+      category,
+      status: "down",
+      error: `Health probe threw: ${err?.message || String(err)}`,
+      lastChecked: new Date().toISOString(),
+    };
+  }
 }
 
 /**
  * Master Comprehensive Sentinel Scan: Checks all registered cloud services concurrently.
  */
 export async function runComprehensiveSentinelScan(): Promise<SentinelStatusSummary> {
-  const checks = await Promise.allSettled([
-    checkNeonHealth(process.env.DATABASE_URL, "Neon Primary DB"),
-    process.env.SARALGATI_DATABASE_URL
-      ? checkNeonHealth(process.env.SARALGATI_DATABASE_URL, "Neon Saralgati DB")
-      : null,
-    process.env.KANBAN_DATABASE_URL
-      ? checkNeonHealth(process.env.KANBAN_DATABASE_URL, "Neon Kanban DB")
-      : null,
-    checkRedisHealth(),
-    checkCloudflareAiHealth(),
-    checkAppHealth(process.env.SARALGATI_APP_URL || "", "Saralgati Cloud Run App"),
-    checkAppHealth(process.env.KANBAN_APP_URL || "", "Kanban Cloud Run App"),
-    checkKaggleHealth(),
-    checkSystemHealth(),
-  ]);
+  // Every entry is wrapped in `probe`, which never rejects, so a failing check
+  // is always represented in the report instead of being dropped.
+  const checks: Array<Promise<ServiceHealthReport>> = [
+    probe("Neon Primary DB", "database", () => checkNeonHealth(process.env.DATABASE_URL, "Neon Primary DB")),
+    ...(process.env.SARALGATI_DATABASE_URL
+      ? [probe("Neon Saralgati DB", "database", () => checkNeonHealth(process.env.SARALGATI_DATABASE_URL, "Neon Saralgati DB"))]
+      : []),
+    ...(process.env.KANBAN_DATABASE_URL
+      ? [probe("Neon Kanban DB", "database", () => checkNeonHealth(process.env.KANBAN_DATABASE_URL, "Neon Kanban DB"))]
+      : []),
+    probe("OCI Redis", "cache", checkRedisHealth),
+    probe("Cloudflare Workers AI", "ai", checkCloudflareAiHealth),
+    probe("Saralgati Cloud Run App", "web", () => checkAppHealth(process.env.SARALGATI_APP_URL || "", "Saralgati Cloud Run App")),
+    probe("Kanban Cloud Run App", "web", () => checkAppHealth(process.env.KANBAN_APP_URL || "", "Kanban Cloud Run App")),
+    probe("Kaggle GPU Pipeline", "pipeline", checkKaggleHealth),
+    probe("Compute Host / OS", "compute", checkSystemHealth),
+  ];
 
-  const reports: ServiceHealthReport[] = [];
-
-  for (const c of checks) {
-    if (c.status === "fulfilled" && c.value) {
-      reports.push(c.value);
-    }
-  }
+  const reports: ServiceHealthReport[] = await Promise.all(checks);
 
   const healthyCount = reports.filter((r) => r.status === "healthy").length;
   const degradedCount = reports.filter((r) => r.status === "degraded").length;
@@ -410,9 +442,9 @@ export function formatSentinelReportMarkdown(summary: SentinelStatusSummary): st
 }
 
 /**
- * Self-healing automated remediation logic
+ * Self-healing remediation for a single named service.
  */
-export async function autoHealService(serviceName: string, reason?: string): Promise<{
+async function healSingleService(serviceName: string, reason?: string): Promise<{
   success: boolean;
   actionTaken: string;
   result: string;
@@ -461,7 +493,14 @@ export async function autoHealService(serviceName: string, reason?: string): Pro
 
   // 3. Neon Postgres Self-Healing
   else if (norm.includes("neon") || norm.includes("postgres") || norm.includes("database")) {
-    const rep = await checkNeonHealth();
+    // Probe the connection string belonging to the service that is actually
+    // failing, not always the primary database.
+    const connectionUrl = norm.includes("saralgati")
+      ? process.env.SARALGATI_DATABASE_URL
+      : norm.includes("kanban")
+      ? process.env.KANBAN_DATABASE_URL
+      : undefined;
+    const rep = await checkNeonHealth(connectionUrl, serviceName);
     healReport = {
       success: rep.status === "healthy",
       actionTaken: "Probed Neon connection pool and query executor",
@@ -518,8 +557,10 @@ export async function autoHealService(serviceName: string, reason?: string): Pro
   else if (norm.includes("kaggle") || norm.includes("gpu") || norm.includes("pipeline")) {
     try {
       const kaggleCheck = await manageKaggle("list");
+      // The CLI reports failures as text, so a hard error must not be reported
+      // as a successful heal.
       healReport = {
-        success: true,
+        success: !/Kaggle CLI Error/i.test(kaggleCheck),
         actionTaken: "Swept active Kaggle kernels and checked GPU quotas",
         result: kaggleCheck.slice(0, 300),
       };
@@ -551,4 +592,61 @@ export async function autoHealService(serviceName: string, reason?: string): Pro
   }).catch(() => {});
 
   return healReport;
+}
+
+/**
+ * Self-healing entrypoint.
+ *
+ * Accepts either a single service name or the fleet-wide selector "all" — what
+ * the dashboard Auto-Heal button and the default /api/sentinel/heal request
+ * send. The selector scans the fleet and heals every degraded or down service;
+ * previously "all" matched no branch and always returned a failure.
+ */
+export async function autoHealService(serviceName: string, reason?: string): Promise<{
+  success: boolean;
+  actionTaken: string;
+  result: string;
+}> {
+  const selector = (serviceName || "all").trim().toLowerCase();
+
+  if (selector !== "all" && selector !== "*") {
+    return healSingleService(serviceName, reason);
+  }
+
+  const summary = await runComprehensiveSentinelScan();
+  const failing = summary.services.filter(
+    (s) => s.status === "degraded" || s.status === "down"
+  );
+
+  if (failing.length === 0) {
+    return {
+      success: true,
+      actionTaken: "Scanned the fleet for self-healing",
+      result: `No degraded or down services detected (${summary.healthyCount}/${summary.totalServices} healthy).`,
+    };
+  }
+
+  const outcomes: string[] = [];
+  let healed = 0;
+  for (const svc of failing) {
+    const outcome = await healSingleService(svc.service, svc.error || reason);
+    if (outcome.success) healed++;
+    outcomes.push(`${outcome.success ? "✅" : "❌"} ${svc.service}: ${outcome.result}`);
+  }
+
+  const report = {
+    success: healed === failing.length,
+    actionTaken: `Healed ${healed}/${failing.length} failing service(s) across the fleet`,
+    result: outcomes.join("\n"),
+  };
+
+  sendIncidentAlert({
+    title: `Fleet Self-Healing Sweep: ${healed}/${failing.length} recovered`,
+    service: "all",
+    status: report.success ? "HEALED" : "DEGRADED",
+    actionTaken: report.actionTaken,
+    details: outcomes.join(" | ").slice(0, 1500),
+  }).catch(() => {});
+
+  return report;
 }

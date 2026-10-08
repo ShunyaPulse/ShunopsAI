@@ -76,7 +76,7 @@ async function runSentinelCron() {
     console.error(`[Sentinel Cron] Proactive auditor notice: ${err.message}`);
   }
 
-  // 4. Optional fail-fast signal for scheduled runs.
+  // 6. Optional fail-fast signal for scheduled runs.
   if (failOnDown) {
     const recheck = await runComprehensiveSentinelScan();
     if (recheck.downCount > 0) {

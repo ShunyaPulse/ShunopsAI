@@ -135,7 +135,17 @@ export async function runAutonomousAgent(
 
       // Execute tool calls sequentially or in parallel
       for (const toolCall of toolCalls) {
-        if (toolCall.type !== "function") continue;
+        if (toolCall.type !== "function") {
+          // Every tool_call in the assistant message must be answered by a
+          // matching `tool` message, otherwise the next API request is
+          // rejected with "must be followed by tool messages".
+          messages.push({
+            role: "tool",
+            tool_call_id: toolCall.id,
+            content: "Error: Unsupported non-function tool call. Skipped.",
+          });
+          continue;
+        }
 
         const toolName = toolCall.function.name;
         let parsedArgs: Record<string, any> = {};

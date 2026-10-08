@@ -12,24 +12,11 @@ import {
   BACKUP_GROQ_AUDITOR,
   callModel,
 } from "../ai/consensus.js";
-import { fetchOpenPRs, reviewAndResolvePR } from "./pr-auto-resolver.js";
+import { reviewAndResolvePR } from "./pr-auto-resolver.js";
 import { isAutonomyPaused } from "./autonomy-state.js";
+import { colors } from "../core/colors.js";
 
 dotenv.config();
-
-// ANSI color helpers
-const colors = {
-  reset: "\x1b[0m",
-  bold: "\x1b[1m",
-  dim: "\x1b[2m",
-  cyan: "\x1b[36m",
-  green: "\x1b[32m",
-  yellow: "\x1b[33m",
-  blue: "\x1b[34m",
-  magenta: "\x1b[35m",
-  red: "\x1b[31m",
-  gray: "\x1b[90m",
-};
 
 export interface CodeFlawCandidate {
   filePath: string;
@@ -180,6 +167,13 @@ export async function saveAuditorState(repoSlug: string, state: RepoAuditState):
   } catch {}
 }
 
+/**
+ * GitHub + commit-identity environment for the auditor's GitOps flow.
+ *
+ * Distinct from the shared `getGitHubAuthEnv()` in `src/core/github.ts`: this
+ * one also stamps the Sentinel Bot author/committer identity on auto-heal
+ * commits so the change tracker can recognise its own commits.
+ */
 function getAuthEnv(): NodeJS.ProcessEnv {
   const token = process.env.GH_TOKEN || process.env.GH_PAT || process.env.GITHUB_PAT || process.env.GITHUB_TOKEN || "";
   return {
@@ -610,6 +604,18 @@ export async function auditAndHealRepository(
     const authEnv = getAuthEnv();
     const branchName = `heal/autonomous-fix-${Date.now().toString(36)}`;
 
+    // Remember where we started: a failure part-way through the PR flow used to
+    // leave the working tree on the temporary heal branch (or force-switch it
+    // to `main` even when the caller was on a feature branch).
+    let originalBranch = "main";
+    try {
+      originalBranch =
+        execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
+          cwd: rootDir,
+          encoding: "utf-8",
+        }).trim() || "main";
+    } catch {}
+
     try {
       console.log(`\n${colors.cyan}🚀 Creating autonomous branch and Pull Request for ${remediatedCount} fix(es)...${colors.reset}`);
       execFileSync("git", ["checkout", "-b", branchName], { cwd: rootDir, env: authEnv, stdio: "pipe" });
@@ -658,16 +664,31 @@ export async function auditAndHealRepository(
         auditResult.prMerged = reviewResult.merged;
       }
 
-      // Return to main branch
-      execFileSync("git", ["checkout", "main"], { cwd: rootDir, env: authEnv, stdio: "pipe" });
+    } catch (gitErr: any) {
+      console.error(`GitOps PR creation notice: ${gitErr.message}`);
+    } finally {
+      // Always restore the starting branch, even when the PR flow failed.
+      try {
+        execFileSync("git", ["checkout", originalBranch], {
+          cwd: rootDir,
+          env: authEnv,
+          stdio: "pipe",
+        });
+      } catch (restoreErr: any) {
+        console.warn(
+          `${colors.yellow}⚠️ Could not restore original branch ${originalBranch}: ${restoreErr.message}${colors.reset}`
+        );
+      }
 
       if (auditResult.prMerged) {
         try {
-          execFileSync("git", ["pull", "origin", "main"], { cwd: rootDir, env: authEnv, stdio: "pipe" });
+          execFileSync("git", ["pull", "origin", originalBranch], {
+            cwd: rootDir,
+            env: authEnv,
+            stdio: "pipe",
+          });
         } catch {}
       }
-    } catch (gitErr: any) {
-      console.error(`GitOps PR creation notice: ${gitErr.message}`);
     }
   }
 
