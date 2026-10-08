@@ -44,11 +44,19 @@ async function waitForKaggleKernel(
         `[Autopilot] ${new Date().toLocaleTimeString()} - Status: [REDACTED]`,
       );
 
-      if (statusOutput.includes("COMPLETE")) {
+      // Transient CLI errors (e.g. Kaggle CLI network dropouts, 502/503) should retry, not abort
+      if (statusOutput.includes("Kaggle CLI Error")) {
+        console.warn(
+          `[Autopilot] Transient Kaggle CLI error encountered, retrying...`,
+        );
+      } else if (statusOutput.toUpperCase().includes("COMPLETE")) {
         console.log(`[Autopilot] ✅ Kaggle kernel finished successfully!`);
         return true;
-      }
-      if (statusOutput.includes("ERROR") || statusOutput.includes("FAILED")) {
+      } else if (
+        statusOutput.includes("KernelWorkerStatus.ERROR") ||
+        statusOutput.toUpperCase().includes("FAILED") ||
+        /has status ["']?error["']?/i.test(statusOutput)
+      ) {
         console.error(`[Autopilot] ❌ Kaggle kernel failed with status: [REDACTED]`);
         return false;
       }

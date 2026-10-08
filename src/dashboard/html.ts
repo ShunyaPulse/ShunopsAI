@@ -125,6 +125,14 @@ export function getShunopsDashboardHtml(initialData: {
   </div>
 
   <script>${DASHBOARD_SCRIPTS}</script>
+  <!-- Interactive Edge Agent Widget -->
+  <script
+    src="https://edge-agent-widget.shunopsai.workers.dev/widget.js"
+    data-api-url="https://edge-agent-widget.shunopsai.workers.dev"
+    data-title="ShunopsAI Edge Assistant"
+    data-welcome="Hi! I am your ShunopsAI Edge Assistant. How can I help you manage your systems today?"
+    defer
+  ></script>
 </body>
 </html>`;
 }
