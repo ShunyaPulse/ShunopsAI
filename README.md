@@ -138,6 +138,8 @@
     │   ├── styles.ts            #   Cyberpunk dark-theme CSS styles
     │   └── scripts.ts           #   Interactive client-side JavaScript
     └── core/
+        ├── repos.ts             # Autonomous target-repo fleet manager & environment resolver
+        ├── json.ts              # Robust JSON payload extraction from model inference streams
         ├── github.ts            # GitHub CLI & API integration wrapper
         └── colors.ts            # Terminal formatting & chalk color utilities
 ```
