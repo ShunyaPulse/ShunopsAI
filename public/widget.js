@@ -777,7 +777,7 @@
                   currentToolPill.className = 'cf-tool-pill';
                   currentToolPill.innerHTML = `
                     <div class="cf-tool-spinner"></div>
-                    <span>Executing <strong>${data.name}</strong>...</span>
+                    <span>Executing <strong>${escapeHtml(data.name)}</strong>...</span>
                   `;
                   cursor.remove();
                   assistantBubble.appendChild(currentToolPill);
@@ -786,7 +786,7 @@
                 }
               } else if (currentEvent === 'tool_result') {
                 if (currentToolPill) {
-                  currentToolPill.innerHTML = `<span>✓ Tool <strong>${data.name}</strong> executed</span>`;
+                  currentToolPill.innerHTML = `<span>✓ Tool <strong>${escapeHtml(data.name)}</strong> executed</span>`;
                   currentToolPill.style.color = '#34d399';
                   currentToolPill.style.borderColor = 'rgba(52, 211, 153, 0.4)';
                   currentToolPill = null;

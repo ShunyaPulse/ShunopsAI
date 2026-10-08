@@ -271,14 +271,14 @@ export async function runAutoAlertResolver(
   if (resolvedCount > 0) {
     console.log(`\n${colors.green}Pushing ${resolvedCount} auto-resolved security patches to main...${colors.reset}`);
     try {
-      execFileSync("git", ["add", "-A"]);
+      const authEnv = getGitHubAuthEnv();
+      execFileSync("git", ["add", "-A"], { env: authEnv });
       execFileSync("git", [
         "commit",
         "-m",
         `fix(security): auto-resolved ${resolvedCount} code scanning alerts by ShunopsAI [skip ci]`,
-      ]);
+      ], { env: authEnv });
       const pat = process.env.GH_PAT || process.env.GITHUB_PAT;
-      const authEnv = getGitHubAuthEnv();
       if (pat) {
         execFileSync(
           "git",
