@@ -12,12 +12,66 @@
   const apiUrl =
     currentScript?.getAttribute('data-api-url') ||
     window.location.origin;
-  const widgetTitle =
-    currentScript?.getAttribute('data-title') || 'Edge AI Command Engine';
-  const welcomeMessage =
-    currentScript?.getAttribute('data-welcome') ||
-    'Hello! I am your Edge AI Assistant powered by Cloudflare Workers. I can answer inquiries or execute commands (booking, tracking, lead capture, and system actions). How can I assist you?';
   const siteKey = currentScript?.getAttribute('data-turnstile-sitekey') || '';
+  const rawTitle = currentScript?.getAttribute('data-title');
+  const rawWelcome = currentScript?.getAttribute('data-welcome');
+  const rawChips = currentScript?.getAttribute('data-chips');
+
+  // Intelligent Context Detection
+  const host = (typeof window !== 'undefined' && window.location && window.location.hostname) ? window.location.hostname.toLowerCase() : '';
+  const docTitle = (typeof document !== 'undefined' && document.title) ? document.title.toLowerCase() : '';
+  const isSaralGati = host.includes('saralgati') || docTitle.includes('saralgati') || host.includes('sage-webbing');
+  const isKanban = host.includes('kanban') || docTitle.includes('kanban');
+
+  let defaultTitle = 'Edge AI Command Engine';
+  let defaultWelcome = 'Hello! I am your Edge AI Assistant powered by Cloudflare Workers. How can I assist you today?';
+  let defaultChips = [
+    { label: '📅 Book Consultation', prompt: 'Book a consultation for tomorrow at 4 PM' },
+    { label: '📦 Track Order / Ticket', prompt: 'Track status for reference #1042' },
+    { label: '⚡ System Status', prompt: 'Trigger system action check_status' },
+    { label: '💼 Contact Support', prompt: 'Submit an inquiry or support request' },
+  ];
+
+  if (isSaralGati) {
+    defaultTitle = 'SaralGati Care AI';
+    defaultWelcome = 'Namaste! Main SaralGati Elder & Caregiver AI Assistant hoon. Main emergency alert check karne, smartphone screen guidance dene, dawai schedule ya suspicious call scam verify karne me aapki madad kar sakta hoon. Kaise madad karoon?';
+    defaultChips = [
+      { label: '🚨 SOS & Health Check', prompt: 'Check active elder emergency alerts and health vitals status' },
+      { label: '📱 Phone Guide (सरल)', prompt: 'Mujhe smartphone screen aur buttons chalana simple Hindi me samjhao' },
+      { label: '💊 Dawai Reminder', prompt: 'Elder daily medicine reminder aur care routine schedule dikhao' },
+      { label: '🛡️ Scam & Fraud Shield', prompt: 'Check if a suspicious phone call, SMS, or banking alert is a fraud or scam' },
+    ];
+  } else if (isKanban) {
+    defaultTitle = 'Kanban Cloud AI';
+    defaultWelcome = 'Hi! I am your Kanban Cloud AI Assistant. I can help create tasks, summarize sprint WIP limits, highlight blockers, and configure board automation. How can I assist you?';
+    defaultChips = [
+      { label: '➕ Create Task', prompt: 'Create a new task card on the board' },
+      { label: '📊 Sprint WIP Status', prompt: 'Summarize active board columns and WIP limits' },
+      { label: '🔍 Find Blockers', prompt: 'Show blocked cards and urgent priority tasks' },
+      { label: '⚡ Board Automations', prompt: 'How do I configure automation rules or export board data?' },
+    ];
+  }
+
+  const widgetTitle = rawTitle || defaultTitle;
+  const welcomeMessage = rawWelcome || defaultWelcome;
+
+  let activeChips = defaultChips;
+  if (rawChips) {
+    try {
+      const parsed = JSON.parse(rawChips);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        activeChips = parsed.map((item) => {
+          if (typeof item === 'string') return { label: item, prompt: item };
+          return { label: item.label || item.title || 'Action', prompt: item.prompt || item.label || '' };
+        });
+      }
+    } catch {
+      activeChips = rawChips.split(',').map((c) => {
+        const trimmed = c.trim();
+        return { label: trimmed, prompt: trimmed };
+      }).filter((c) => c.label);
+    }
+  }
 
   // Safe session ID generator
   function generateSessionId() {
@@ -535,10 +589,7 @@
       </div>
 
       <div class="cf-chips">
-        <div class="cf-chip" data-prompt="Book a consultation for tomorrow at 4 PM">📅 Book Consultation</div>
-        <div class="cf-chip" data-prompt="Track order #1042">📦 Track #1042</div>
-        <div class="cf-chip" data-prompt="Trigger system action restart_service">⚡ Restart Service</div>
-        <div class="cf-chip" data-prompt="Submit lead for John Doe, john@example.com, interested in enterprise">💼 Submit Lead</div>
+        ${activeChips.map((c) => `<div class="cf-chip" data-prompt="${escapeHtml(c.prompt)}" title="${escapeHtml(c.prompt)}">${escapeHtml(c.label)}</div>`).join('')}
       </div>
 
       <div class="cf-footer">
