@@ -60,8 +60,8 @@ async function waitForKaggleKernel(
         console.error(`[Autopilot] ❌ Kaggle kernel failed with status: [REDACTED]`);
         return false;
       }
-    } catch (e: any) {
-      console.warn(`[Autopilot] Status check warning: ${e.message}`);
+    } catch {
+      console.warn("[Autopilot] Status check warning: transient polling exception encountered");
     }
 
     // Wait 60 seconds between polling checks
