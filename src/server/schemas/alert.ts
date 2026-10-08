@@ -34,34 +34,34 @@ export const CloudAlertEnvelopeSchema = Type.Object({
       Type.Literal("info"),
     ])
   ),
-  targetUrl: Type.Optional(Type.String()),
-  message: Type.Optional(Type.String()),
+  targetUrl: Type.Optional(Type.String({ maxLength: 2048 })),
+  message: Type.Optional(Type.String({ maxLength: 8000 })),
   rawAlert: Type.Optional(Type.Any()),
 }, { additionalProperties: true });
 
 export type CloudAlertEnvelope = Static<typeof CloudAlertEnvelopeSchema>;
 
 export const TaskRequestSchema = Type.Object({
-  goal: Type.Optional(Type.String()),
-  task: Type.Optional(Type.String()),
-  prompt: Type.Optional(Type.String()),
-  message: Type.Optional(Type.String()),
+  goal: Type.Optional(Type.String({ maxLength: 8000 })),
+  task: Type.Optional(Type.String({ maxLength: 8000 })),
+  prompt: Type.Optional(Type.String({ maxLength: 8000 })),
+  message: Type.Optional(Type.String({ maxLength: 8000 })),
   maxSteps: Type.Optional(Type.Number({ minimum: 1, maximum: 30 })),
-  context: Type.Optional(Type.String()),
+  context: Type.Optional(Type.String({ maxLength: 20000 })),
   async: Type.Optional(Type.Boolean()),
 });
 
 export type TaskRequest = Static<typeof TaskRequestSchema>;
 
 export const ChatRequestSchema = Type.Object({
-  message: Type.String({ minLength: 1 }),
-  history: Type.Optional(Type.String()),
+  message: Type.String({ minLength: 1, maxLength: 4000 }),
+  history: Type.Optional(Type.String({ maxLength: 8000 })),
 });
 
 export type ChatRequest = Static<typeof ChatRequestSchema>;
 
 export const ApproveRequestSchema = Type.Object({
-  id: Type.String({ minLength: 1 }),
+  id: Type.String({ minLength: 1, maxLength: 64 }),
   approved: Type.Boolean(),
 });
 

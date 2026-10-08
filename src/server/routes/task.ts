@@ -67,18 +67,29 @@ export async function taskRoutes(app: FastifyInstance, options: TaskRouteOptions
       } catch (error: any) {
         req.log.error(error);
         reply.status(500);
-        return { success: false, error: "Failed to execute autonomous agent task: " + error?.message };
+        return { success: false, error: "Failed to execute autonomous agent task." };
       }
     }
   );
 
-  // Status check endpoint for async / queued tasks
-  app.get<{ Params: { taskId: string } }>("/api/task/:taskId", async (req, reply) => {
-    const task = await getTaskState(req.params.taskId);
-    if (!task) {
-      reply.status(404);
-      return { success: false, error: `Task '${req.params.taskId}' not found.` };
+  // Status check endpoint for async / queued tasks (privileged: task results
+  // may contain sensitive repository/infrastructure details).
+  app.get<{ Params: { taskId: string } }>(
+    "/api/task/:taskId",
+    { preHandler: [requireAuth] },
+    async (req, reply) => {
+      const taskId = req.params.taskId;
+      // Validate taskId format to prevent injection into Redis keys or logs.
+      if (!/^task_\d+_[a-f0-9]{8}$/.test(taskId)) {
+        reply.status(400);
+        return { success: false, error: "Invalid task ID format." };
+      }
+      const task = await getTaskState(taskId);
+      if (!task) {
+        reply.status(404);
+        return { success: false, error: "Task not found." };
+      }
+      return { success: true, task };
     }
-    return { success: true, task };
-  });
+  );
 }

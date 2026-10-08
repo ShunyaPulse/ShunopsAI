@@ -18,6 +18,25 @@ export interface QueuedTaskState {
 
 const taskStore = new Map<string, QueuedTaskState>();
 
+// Bounds so a long-running server cannot accumulate task state without limit.
+const MAX_TASK_ENTRIES = Number(process.env.MAX_TASK_STATE_ENTRIES) || 500;
+const TASK_RETENTION_MS = Number(process.env.TASK_STATE_RETENTION_MS) || 24 * 60 * 60 * 1000;
+
+/** Evict finished tasks past their retention window and cap the total size. */
+function pruneTaskStore(): void {
+  const now = Date.now();
+  for (const [id, task] of taskStore) {
+    const age = now - new Date(task.createdAt).getTime();
+    const terminal = task.status === "COMPLETED" || task.status === "FAILED";
+    if (terminal && age > TASK_RETENTION_MS) taskStore.delete(id);
+  }
+  while (taskStore.size > MAX_TASK_ENTRIES) {
+    const oldest = taskStore.keys().next().value;
+    if (oldest === undefined) break;
+    taskStore.delete(oldest);
+  }
+}
+
 let redisClient: Redis | null = null;
 function getRedis(): Redis | null {
   if (redisClient) return redisClient;
@@ -44,6 +63,7 @@ function getRedis(): Redis | null {
 
 async function persistTask(task: QueuedTaskState) {
   taskStore.set(task.id, task);
+  pruneTaskStore();
   const r = getRedis();
   if (r && r.status === "ready") {
     try {
@@ -103,7 +123,7 @@ export function createQueuedTask(goal: string, maxSteps = 6, context?: string): 
     } catch (err: any) {
       task.status = "FAILED";
       task.completedAt = new Date().toISOString();
-      task.error = err?.message || String(err);
+      task.error = "Agent task execution failed."; // Redacted: raw messages may contain sensitive paths or credentials
     }
     await persistTask(task);
   }, 10);

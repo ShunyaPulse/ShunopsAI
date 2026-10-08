@@ -288,6 +288,18 @@ export const WIDGET_JS_CONTENT = `(function () {
 
   function renderMarkdown(md) {
     if (!md) return '';
+    // Neutralize dangerous URL schemes before any markdown link is rendered,
+    // otherwise model output like [x](javascript:...) becomes an XSS vector.
+    // Implemented with plain string ops (no regex) to stay escaping-safe inside
+    // the enclosing template literal.
+    md = String(md);
+    const unsafeSchemes = ['javascript:', 'data:', 'vbscript:', 'file:'];
+    for (let si = 0; si < unsafeSchemes.length; si++) {
+      const scheme = unsafeSchemes[si];
+      md = md.split('](' + scheme).join('](#');
+      md = md.split(']( ' + scheme).join('](#');
+      md = md.split('](\t' + scheme).join('](#');
+    }
     return md
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
       .replace(/\`\`\`([a-z0-9_-]*)\\n([\\s\\S]*?)\`\`\`/gi, (_, lang, code) => \`<pre><code>\${code.trim()}</code></pre>\`)
@@ -417,6 +429,7 @@ export const WIDGET_JS_CONTENT = `(function () {
           actionType: actionData.actionType,
           payload: actionData.payload,
           token: actionData.token,
+          expiresAt: actionData.expiresAt,
         }),
       });
       const data = await res.json();
@@ -430,7 +443,12 @@ export const WIDGET_JS_CONTENT = `(function () {
     }
   }
 
-  function renderActionCard(actionData, targetBubble) {
+  function renderActionCard(rawActionData, targetBubble) {
+    // Escape all attacker/model-influenced fields before they hit innerHTML.
+    const actionData = Object.assign({}, rawActionData, {
+      description: escapeHtml(String(rawActionData.description || '')),
+      riskLevel: escapeHtml(String(rawActionData.riskLevel || 'medium')),
+    });
     const card = document.createElement('div');
     card.className = 'cf-action-card';
     card.innerHTML = \`

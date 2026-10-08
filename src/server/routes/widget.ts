@@ -5,10 +5,18 @@ import type { FastifyInstance } from "fastify";
  */
 export async function widgetRoutes(app: FastifyInstance): Promise<void> {
   app.get("/widget.js", async (req, reply) => {
-    const host = `${req.protocol}://${req.headers.host}`;
+    // The Host header is attacker-controllable, so it must be validated before
+    // being embedded into JavaScript (otherwise it is a reflected-XSS vector).
+    // Prefer an explicit PUBLIC_BASE_URL when running behind a proxy.
+    const configuredBase = (process.env.PUBLIC_BASE_URL || "").replace(/\/$/, "");
+    const rawHost = req.headers.host || "";
+    const hostIsSafe = /^[A-Za-z0-9.-]+(:\d{1,5})?$/.test(rawHost) && !rawHost.startsWith(".");
+    const apiBase = configuredBase || (hostIsSafe ? `${req.protocol}://${rawHost}` : "");
+    const apiEndpoint = `${apiBase}/api/chat`;
+    reply.header("X-Content-Type-Options", "nosniff");
     const script = `
 (function() {
-  const apiEndpoint = "${host}/api/chat";
+  const apiEndpoint = ${JSON.stringify(apiEndpoint)};
   const btn = document.createElement("button");
   btn.innerText = "💬 Chat";
   btn.style.position = "fixed";
@@ -60,11 +68,13 @@ export async function widgetRoutes(app: FastifyInstance): Promise<void> {
   const sendBtn = box.querySelector("#chat-send");
   const msgContainer = box.querySelector("#chat-messages");
 
+  function esc(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
   async function sendMsg() {
     const text = inputEl.value.trim();
     if (!text) return;
     inputEl.value = "";
-    msgContainer.innerHTML += \`<div style="align-self:flex-end;background:#2563eb;color:#fff;padding:8px 12px;border-radius:8px;max-width:80%">\${text}</div>\`;
+    msgContainer.innerHTML += \`<div style="align-self:flex-end;background:#2563eb;color:#fff;padding:8px 12px;border-radius:8px;max-width:80%">\${esc(text)}</div>\`;
     msgContainer.scrollTop = msgContainer.scrollHeight;
 
     const botDiv = document.createElement("div");

@@ -21,7 +21,7 @@ export const DASHBOARD_SCRIPTS = `
         const data = await res.json();
         renderServices(data);
       } catch (e) {
-        grid.innerHTML = '<div style="padding: 20px; color: #ef4444; grid-column: 1 / -1;">Failed to fetch Sentinel report: ' + e.message + '</div>';
+        grid.innerHTML = '<div style="padding: 20px; color: #ef4444; grid-column: 1 / -1;">Failed to fetch Sentinel report: ' + escapeHtml(String(e && e.message ? e.message : e)) + '</div>';
       }
     }
 

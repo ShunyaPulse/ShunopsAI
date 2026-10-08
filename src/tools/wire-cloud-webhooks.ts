@@ -1,8 +1,12 @@
 import { execSync } from "node:child_process";
 
 const PROJECT_ID = process.env.GCP_PROJECT_ID || "sage-webbing-422513-q0";
-const N8N_WEBHOOK_URL = "http://34.56.134.20:5678/webhook/autonomous-agent";
-const SHUNOPS_DIRECT_URL = "http://34.56.134.20:8080/api/webhook/cloud-alert?secret=j87n5rifnmw932";
+// Endpoints and the shared webhook secret MUST come from the environment.
+// Never hardcode credentials or internal endpoints in Git-tracked files.
+const N8N_WEBHOOK_URL = process.env.N8N_WEBHOOK_URL || "";
+const SHUNOPS_BASE_URL = (process.env.SHUNOPS_BASE_URL || process.env.PUBLIC_BASE_URL || "").replace(/\/$/, "");
+const SHUNOPS_DIRECT_URL = SHUNOPS_BASE_URL ? `${SHUNOPS_BASE_URL}/api/webhook/cloud-alert` : "";
+const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || process.env.API_SECRET || "";
 
 interface GCPNotificationChannel {
   name: string;
@@ -39,6 +43,11 @@ export async function wireGcpMonitoring(): Promise<{
   channels: GCPNotificationChannel[];
   policy: GCPAlertPolicy | null;
 }> {
+  if (!N8N_WEBHOOK_URL || !SHUNOPS_DIRECT_URL || !WEBHOOK_SECRET) {
+    throw new Error(
+      "wireGcpMonitoring requires N8N_WEBHOOK_URL, SHUNOPS_BASE_URL and WEBHOOK_SECRET (or API_SECRET) to be set."
+    );
+  }
   const token = getGcpAccessToken();
   const headers = {
     Authorization: `Bearer ${token}`,
@@ -90,8 +99,10 @@ export async function wireGcpMonitoring(): Promise<{
         body: JSON.stringify({
           type: "webhook_tokenauth",
           displayName: "ShunopsAI Direct Sentinel Webhook",
-          description: "Dispatches GCP incidents directly to ShunopsAI Fastify backend on port 8080",
+          description: "Dispatches GCP incidents directly to the ShunopsAI Fastify backend",
           labels: { url: SHUNOPS_DIRECT_URL },
+          // Sent as `Authorization: Bearer <token>` — never in the URL query string.
+          sensitiveLabels: { authToken: WEBHOOK_SECRET },
         }),
       }
     );
@@ -195,10 +206,11 @@ export async function wireCloudflareNotifications(): Promise<any> {
     );
 
     const data = (await res.json()) as any;
-    console.log(`\x1b[32m[Cloudflare Wire]\x1b[0m Existing Destinations:`, data.result || data);
+    const destCount = Array.isArray(data?.result) ? data.result.length : (data?.result ? 1 : 0);
+    console.log(`\x1b[32m[Cloudflare Wire]\x1b[0m Existing Destinations verified (count: ${destCount}).`);
     return data;
-  } catch (err: any) {
-    console.warn(`[Cloudflare Wire] Failed to query Cloudflare destinations:`, err.message);
+  } catch {
+    console.warn("[Cloudflare Wire] Failed to query Cloudflare destinations.");
     return null;
   }
 }
@@ -216,14 +228,14 @@ async function main() {
     console.log("\n✅ GCP Cloud Monitoring Wiring Complete:");
     console.log("  - Channels:", gcp.channels.map((c) => `${c.displayName} -> ${c.name}`).join("\n  - "));
     console.log(`  - Policy: ${gcp.policy?.displayName} -> ${gcp.policy?.name}`);
-  } catch (err: any) {
-    console.error("❌ GCP Wiring Error:", err.message);
+  } catch {
+    console.error("❌ GCP Wiring encountered an error during configuration.");
   }
 
   try {
     await wireCloudflareNotifications();
-  } catch (err: any) {
-    console.error("❌ Cloudflare Wiring Error:", err.message);
+  } catch {
+    console.error("❌ Cloudflare Wiring encountered an error during configuration.");
   }
 
   console.log("\n=================================================");
