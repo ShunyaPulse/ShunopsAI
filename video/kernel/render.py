@@ -447,15 +447,43 @@ async def main():
         # 3. Generate non-repeating continuous video montage on GPU
         diffusion.generate_scene_montage(sc["visual_prompt"], d, v_path, scene_idx=i)
 
+        # Pad narration audio to match scene duration exactly with silence (preventing audio drift / premature cutoff)
+        a_padded = f"{TMP}/a_pad_{i:03d}.mp3"
+        pad_filter = f"apad=whole_dur={d:.3f}"
+        run(["ffmpeg", "-y", "-i", a_path, "-af", pad_filter, "-c:a", "libmp3lame", "-b:a", "192k", a_padded])
+        if os.path.exists(a_padded) and os.path.getsize(a_padded) > 500:
+            narr_files.append(a_padded)
+        else:
+            narr_files.append(a_path)
+
         if os.path.exists(v_path) and os.path.getsize(v_path) > 1000:
             clips.append(v_path)
-            narr_files.append(a_path)
             print(f"[Scene {i+1}] Rendered successfully ({d:.2f}s).")
         else:
             raise RuntimeError(f"Scene {i+1} failed to render video clip.")
 
     if not clips:
         raise RuntimeError("No scenes were rendered!")
+
+    # Add 2.0-second cinematic outro buffer so the final dialogue never ends abruptly
+    print("\nAdding 2.0s cinematic outro buffer to master video and narration...")
+    outro_v = f"{TMP}/v_outro.mp4"
+    outro_a = f"{TMP}/a_outro.mp3"
+    # Freeze the last frame of the final scene for 2 seconds
+    run([
+        "ffmpeg", "-y", "-sseof", "-0.1", "-i", clips[-1],
+        "-vf", "tpad=stop_mode=clone:stop_duration=2.0,trim=duration=2.0",
+        "-r", "24", "-c:v", "libx264", "-preset", "veryfast", outro_v
+    ])
+    # 2 seconds of outro silence
+    run([
+        "ffmpeg", "-y", "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
+        "-t", "2.0", "-c:a", "libmp3lame", "-b:a", "192k", outro_a
+    ])
+    if os.path.exists(outro_v) and os.path.getsize(outro_v) > 500:
+        clips.append(outro_v)
+    if os.path.exists(outro_a) and os.path.getsize(outro_a) > 200:
+        narr_files.append(outro_a)
 
     # Assemble concatenated master scenes and narration
     print("\nConcatenating master continuous scenes...")
