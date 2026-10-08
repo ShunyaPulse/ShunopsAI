@@ -167,22 +167,10 @@ async function* parseSSEStream(
 }
 
 /**
- * Primary Provider: Stream inference via Google Gemini API
+ * Map platform chat history into the Gemini `contents` format.
  */
-async function* streamGemini(
-  history: ChatMessage[],
-  systemPrompt: string,
-  apiKey: string,
-  modelName: string
-): AsyncGenerator<{
-  text?: string;
-  toolCalls?: ToolCall[];
-  isFinish?: boolean;
-}> {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:streamGenerateContent?alt=sse&key=${apiKey}`;
-
-  // Map history to Gemini format
-  const contents = history.map((msg) => {
+function toGeminiContents(history: ChatMessage[]): unknown[] {
+  return history.map((msg) => {
     const role = msg.role === 'user' ? 'user' : 'model';
 
     if (msg.role === 'tool') {
@@ -216,6 +204,24 @@ async function* streamGemini(
       parts: [{ text: msg.content }],
     };
   });
+}
+
+/**
+ * Primary Provider: Stream inference via Google Gemini API
+ */
+async function* streamGemini(
+  history: ChatMessage[],
+  systemPrompt: string,
+  apiKey: string,
+  modelName: string
+): AsyncGenerator<{
+  text?: string;
+  toolCalls?: ToolCall[];
+  isFinish?: boolean;
+}> {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:streamGenerateContent?alt=sse&key=${apiKey}`;
+
+  const contents = toGeminiContents(history);
 
   const body = {
     contents,
@@ -277,32 +283,25 @@ async function* streamGemini(
   }
 }
 
+/** OpenAI-compatible chat message shape used for the Groq/OpenRouter request body. */
+interface GroqChatMessage {
+  role: string;
+  content: string | null;
+  name?: string;
+  tool_call_id?: string;
+  tool_calls?: Array<{
+    id: string;
+    type: 'function';
+    function: { name: string; arguments: string };
+  }>;
+}
+
 /**
- * OpenAI-Compatible Streaming Engine (Groq LPUs and OpenRouter)
+ * Map platform chat history into the OpenAI-compatible message format shared by
+ * the Groq and OpenRouter streaming providers.
  */
-async function* streamOpenAICompatible(
-  url: string,
-  history: ChatMessage[],
-  systemPrompt: string,
-  apiKey: string,
-  modelName: string,
-  providerName: string
-): AsyncGenerator<{
-  text?: string;
-  toolCalls?: ToolCall[];
-  isFinish?: boolean;
-}> {
-  const messages: Array<{
-    role: string;
-    content: string | null;
-    name?: string;
-    tool_call_id?: string;
-    tool_calls?: Array<{
-      id: string;
-      type: 'function';
-      function: { name: string; arguments: string };
-    }>;
-  }> = [{ role: 'system', content: systemPrompt }];
+function toGroqMessages(history: ChatMessage[], systemPrompt: string): GroqChatMessage[] {
+  const messages: GroqChatMessage[] = [{ role: 'system', content: systemPrompt }];
 
   for (const m of history) {
     if (m.role === 'tool') {
@@ -332,6 +331,67 @@ async function* streamOpenAICompatible(
     }
   }
 
+  return messages;
+}
+
+/** Tool call assembled from chunked OpenAI-compatible streaming deltas. */
+interface PendingToolCall {
+  id: string;
+  name: string;
+  argsText: string;
+}
+
+/** Merge one streamed tool-call delta into the accumulator indexed by position. */
+function mergeGroqToolCallDelta(
+  pending: Record<number, PendingToolCall>,
+  deltaToolCall: any
+): void {
+  const idx = deltaToolCall.index ?? 0;
+  if (!pending[idx]) {
+    pending[idx] = {
+      id: deltaToolCall.id || `call_${Date.now()}`,
+      name: deltaToolCall.function?.name || '',
+      argsText: '',
+    };
+  }
+  if (deltaToolCall.function?.name) pending[idx].name = deltaToolCall.function.name;
+  if (deltaToolCall.function?.arguments) pending[idx].argsText += deltaToolCall.function.arguments;
+}
+
+/** Convert accumulated streamed tool calls into platform `ToolCall` objects. */
+function finalizeGroqToolCalls(pending: Record<number, PendingToolCall>): ToolCall[] {
+  return Object.values(pending).map((tc) => {
+    let parsedArgs = {};
+    try {
+      parsedArgs = JSON.parse(tc.argsText || '{}');
+    } catch {
+      parsedArgs = {};
+    }
+    return {
+      id: tc.id,
+      name: tc.name,
+      arguments: parsedArgs,
+    };
+  });
+}
+
+/**
+ * OpenAI-Compatible Streaming Engine (Groq LPUs and OpenRouter)
+ */
+async function* streamOpenAICompatible(
+  url: string,
+  history: ChatMessage[],
+  systemPrompt: string,
+  apiKey: string,
+  modelName: string,
+  providerName: string
+): AsyncGenerator<{
+  text?: string;
+  toolCalls?: ToolCall[];
+  isFinish?: boolean;
+}> {
+  const messages = toGroqMessages(history, systemPrompt);
+
   const body = {
     model: modelName,
     messages,
@@ -360,7 +420,7 @@ async function* streamOpenAICompatible(
   }
 
   // Accumulator for tool calls streamed in chunks
-  const pendingToolCalls: Record<number, { id: string; name: string; argsText: string }> = {};
+  const pendingToolCalls: Record<number, PendingToolCall> = {};
 
   for await (const { data } of parseSSEStream(response.body)) {
     if (!data || data === '[DONE]') continue;
@@ -375,36 +435,13 @@ async function* streamOpenAICompatible(
 
       if (Array.isArray(delta.tool_calls)) {
         for (const tc of delta.tool_calls) {
-          const idx = tc.index ?? 0;
-          if (!pendingToolCalls[idx]) {
-            pendingToolCalls[idx] = {
-              id: tc.id || `call_${Date.now()}`,
-              name: tc.function?.name || '',
-              argsText: '',
-            };
-          }
-          if (tc.function?.name) pendingToolCalls[idx].name = tc.function.name;
-          if (tc.function?.arguments) pendingToolCalls[idx].argsText += tc.function.arguments;
+          mergeGroqToolCallDelta(pendingToolCalls, tc);
         }
       }
 
       // Check finish reason
-      const finishReason = parsed.choices?.[0]?.finish_reason;
-      if (finishReason === 'tool_calls') {
-        const completedCalls: ToolCall[] = Object.values(pendingToolCalls).map((tc) => {
-          let parsedArgs = {};
-          try {
-            parsedArgs = JSON.parse(tc.argsText || '{}');
-          } catch {
-            parsedArgs = {};
-          }
-          return {
-            id: tc.id,
-            name: tc.name,
-            arguments: parsedArgs,
-          };
-        });
-        yield { toolCalls: completedCalls, isFinish: true };
+      if (parsed.choices?.[0]?.finish_reason === 'tool_calls') {
+        yield { toolCalls: finalizeGroqToolCalls(pendingToolCalls), isFinish: true };
       }
     } catch {
       // Ignore partial chunk parse error
@@ -506,6 +543,215 @@ async function* cascadeStream(
   throw lastError || new Error('All AI providers (Gemini Key Pool, Groq & OpenRouter) were exhausted.');
 }
 
+/** Everything the edge ReAct loop needs for one request. */
+interface EdgeRunContext {
+  sessionId: string;
+  message: string;
+  systemPrompt: string;
+  maxTurns: number;
+  ttlSeconds: number;
+  env: Env;
+  sendEvent: (event: string, data: unknown) => Promise<void>;
+}
+
+/** Outcome of a single streamed inference round. */
+interface InferenceResult {
+  provider: string;
+  model: string;
+  text: string;
+  toolCalls: ToolCall[];
+}
+
+/**
+ * Stream one inference round through the provider cascade, forwarding text
+ * chunks to the client and collecting any tool calls the model requested.
+ */
+async function streamInference(
+  history: ChatMessage[],
+  systemPrompt: string,
+  env: Env,
+  sendEvent: EdgeRunContext['sendEvent'],
+  onFirstChunk: (provider: string, model: string) => Promise<void>
+): Promise<InferenceResult> {
+  let provider = 'Unknown';
+  let model = 'Unknown';
+  let text = '';
+  const toolCalls: ToolCall[] = [];
+  let isFirstChunk = true;
+
+  for await (const chunk of cascadeStream(history, systemPrompt, env)) {
+    if (isFirstChunk) {
+      provider = chunk.provider;
+      model = chunk.model;
+      await onFirstChunk(provider, model);
+      isFirstChunk = false;
+    }
+
+    if (chunk.text) {
+      text += chunk.text;
+      await sendEvent('chunk', { text: chunk.text });
+    }
+
+    if (chunk.toolCalls && chunk.toolCalls.length > 0) {
+      toolCalls.push(...chunk.toolCalls);
+    }
+  }
+
+  return { provider, model, text, toolCalls };
+}
+
+/**
+ * Execute the model's tool calls in order, streaming each result and feeding it
+ * back into the conversation. Returns the confirmation card when one was raised.
+ */
+async function executeToolCalls(
+  toolCalls: ToolCall[],
+  conversationHistory: ChatMessage[],
+  env: Env,
+  sessionId: string,
+  sendEvent: EdgeRunContext['sendEvent']
+): Promise<ActionConfirmationDetails | null> {
+  let confirmationCard: ActionConfirmationDetails | null = null;
+
+  for (const tc of toolCalls) {
+    await sendEvent('tool_call', {
+      name: tc.name,
+      args: tc.arguments,
+      toolCallId: tc.id,
+    });
+
+    const toolDef = tools[tc.name];
+    if (!toolDef) {
+      const errorResult = { error: `Tool "${tc.name}" is not registered.` };
+      await sendEvent('tool_result', { name: tc.name, result: errorResult });
+      conversationHistory.push({
+        role: 'tool',
+        name: tc.name,
+        toolCallId: tc.id,
+        content: JSON.stringify(errorResult),
+      });
+      continue;
+    }
+
+    // Execute tool handler
+    const result = await toolDef.handler(tc.arguments, env, sessionId);
+
+    // If the tool requires interactive user confirmation (e.g., trigger_system_action)
+    if (result.requiresConfirmation && result.confirmationDetails) {
+      confirmationCard = result.confirmationDetails;
+      await sendEvent('action_required', {
+        action: result.confirmationDetails,
+      });
+    }
+
+    await sendEvent('tool_result', {
+      name: tc.name,
+      result: result.data || result.error,
+    });
+
+    // Feed result back into conversation history
+    conversationHistory.push({
+      role: 'tool',
+      name: tc.name,
+      toolCallId: tc.id,
+      content: JSON.stringify(result.data || result.error),
+    });
+  }
+
+  return confirmationCard;
+}
+
+/**
+ * Run the multi-turn ReAct loop for one request: first inference round, tool
+ * execution, a second round to stream the final answer, then KV persistence.
+ */
+async function runEdgeAgentLoop(context: EdgeRunContext): Promise<void> {
+  const { sessionId, message, systemPrompt, maxTurns, ttlSeconds, env, sendEvent } = context;
+
+  const conversationHistory = await loadSessionHistory(sessionId, env, maxTurns);
+
+  // Append new user message
+  conversationHistory.push({
+    role: 'user',
+    content: message,
+    timestamp: Date.now(),
+  });
+
+  // First round of inference
+  const firstRound = await streamInference(
+    conversationHistory,
+    systemPrompt,
+    env,
+    sendEvent,
+    (provider, model) => sendEvent('start', { provider, model, sessionId })
+  );
+
+  let requiresConfirmationCard: ActionConfirmationDetails | null = null;
+
+  if (firstRound.toolCalls.length > 0) {
+    // Record model's tool call invocation in history
+    conversationHistory.push({
+      role: 'model',
+      content: firstRound.text,
+      toolCalls: firstRound.toolCalls,
+      timestamp: Date.now(),
+    });
+
+    requiresConfirmationCard = await executeToolCalls(
+      firstRound.toolCalls,
+      conversationHistory,
+      env,
+      sessionId,
+      sendEvent
+    );
+
+    // Second round of inference to stream the final conversational answer after tool execution
+    const secondRound = await streamInference(conversationHistory, systemPrompt, env, sendEvent, async () => {});
+
+    // Add final assistant response to history
+    conversationHistory.push({
+      role: 'model',
+      content: secondRound.text,
+      timestamp: Date.now(),
+    });
+  } else {
+    // Pure conversational response without tool calls
+    conversationHistory.push({
+      role: 'model',
+      content: firstRound.text,
+      timestamp: Date.now(),
+    });
+  }
+
+  // Persist conversation turns to Cloudflare KV
+  await saveSessionHistory(sessionId, conversationHistory, env, maxTurns, ttlSeconds);
+
+  // Send completion event
+  await sendEvent('done', {
+    sessionId,
+    hasActionCard: !!requiresConfirmationCard,
+  });
+}
+
+/** Emit the bilingual fallback events used when the edge run fails. */
+async function emitEdgeFailure(
+  sendEvent: EdgeRunContext['sendEvent'],
+  sessionId: string,
+  err: unknown
+): Promise<void> {
+  const errMsg = err instanceof Error ? err.message : String(err);
+  // Emit user-friendly bilingual fallback message
+  const friendlyMessage =
+    'We experienced a temporary connectivity delay at the edge. Please try again. / तकनीकी समस्या के कारण सेवा में विलंब हो रहा है, कृपया पुनः प्रयास करें।';
+
+  await sendEvent('chunk', { text: `\n\n> ⚠️ *${friendlyMessage}*` });
+  await sendEvent('error', {
+    message: friendlyMessage,
+    detail: errMsg.slice(0, 100),
+  });
+  await sendEvent('done', { sessionId, error: true });
+}
+
 /**
  * Core Agent Execution Engine:
  * - Loads session from KV
@@ -536,156 +782,15 @@ export async function executeAgentStream(
   };
 
   // Run the ReAct agent loop asynchronously on the edge
-  (async () => {
-    const conversationHistory = await loadSessionHistory(sessionId, env, maxTurns);
-
-    // Append new user message
-    const userMessage: ChatMessage = {
-      role: 'user',
-      content: message,
-      timestamp: Date.now(),
-    };
-    conversationHistory.push(userMessage);
-
-    let activeProvider = 'Unknown';
-    let activeModel = 'Unknown';
-    let accumulatedText = '';
-    const collectedToolCalls: ToolCall[] = [];
-    let requiresConfirmationCard: ActionConfirmationDetails | null = null;
-
-    try {
-      // First round of inference
-      let isFirstChunk = true;
-
-      for await (const chunk of cascadeStream(conversationHistory, systemPrompt, env)) {
-        if (isFirstChunk) {
-          activeProvider = chunk.provider;
-          activeModel = chunk.model;
-          await sendEvent('start', {
-            provider: activeProvider,
-            model: activeModel,
-            sessionId,
-          });
-          isFirstChunk = false;
-        }
-
-        if (chunk.text) {
-          accumulatedText += chunk.text;
-          await sendEvent('chunk', { text: chunk.text });
-        }
-
-        if (chunk.toolCalls && chunk.toolCalls.length > 0) {
-          collectedToolCalls.push(...chunk.toolCalls);
-        }
-      }
-
-      // If the model called tools, execute them in the ReAct loop
-      if (collectedToolCalls.length > 0) {
-        // Record model's tool call invocation in history
-        conversationHistory.push({
-          role: 'model',
-          content: accumulatedText,
-          toolCalls: collectedToolCalls,
-          timestamp: Date.now(),
-        });
-
-        for (const tc of collectedToolCalls) {
-          await sendEvent('tool_call', {
-            name: tc.name,
-            args: tc.arguments,
-            toolCallId: tc.id,
-          });
-
-          const toolDef = tools[tc.name];
-          if (!toolDef) {
-            const errorResult = { error: `Tool "${tc.name}" is not registered.` };
-            await sendEvent('tool_result', { name: tc.name, result: errorResult });
-            conversationHistory.push({
-              role: 'tool',
-              name: tc.name,
-              toolCallId: tc.id,
-              content: JSON.stringify(errorResult),
-            });
-            continue;
-          }
-
-          // Execute tool handler
-          const result = await toolDef.handler(tc.arguments, env, sessionId);
-
-          // If the tool requires interactive user confirmation (e.g., trigger_system_action)
-          if (result.requiresConfirmation && result.confirmationDetails) {
-            requiresConfirmationCard = result.confirmationDetails;
-            await sendEvent('action_required', {
-              action: result.confirmationDetails,
-            });
-          }
-
-          await sendEvent('tool_result', {
-            name: tc.name,
-            result: result.data || result.error,
-          });
-
-          // Feed result back into conversation history
-          conversationHistory.push({
-            role: 'tool',
-            name: tc.name,
-            toolCallId: tc.id,
-            content: JSON.stringify(result.data || result.error),
-          });
-        }
-
-        // Second round of inference to stream the final conversational answer after tool execution
-        let secondRoundText = '';
-        for await (const chunk of cascadeStream(conversationHistory, systemPrompt, env)) {
-          if (chunk.text) {
-            secondRoundText += chunk.text;
-            await sendEvent('chunk', { text: chunk.text });
-          }
-        }
-
-        // Add final assistant response to history
-        conversationHistory.push({
-          role: 'model',
-          content: secondRoundText,
-          timestamp: Date.now(),
-        });
-      } else {
-        // Pure conversational response without tool calls
-        conversationHistory.push({
-          role: 'model',
-          content: accumulatedText,
-          timestamp: Date.now(),
-        });
-      }
-
-      // Persist conversation turns to Cloudflare KV
-      await saveSessionHistory(sessionId, conversationHistory, env, maxTurns, ttlSeconds);
-
-      // Send completion event
-      await sendEvent('done', {
-        sessionId,
-        hasActionCard: !!requiresConfirmationCard,
-      });
-    } catch (err: unknown) {
-      const errMsg = err instanceof Error ? err.message : String(err);
-      // Emit user-friendly bilingual fallback message
-      const friendlyMessage =
-        'We experienced a temporary connectivity delay at the edge. Please try again. / तकनीकी समस्या के कारण सेवा में विलंब हो रहा है, कृपया पुनः प्रयास करें।';
-
-      await sendEvent('chunk', { text: `\n\n> ⚠️ *${friendlyMessage}*` });
-      await sendEvent('error', {
-        message: friendlyMessage,
-        detail: errMsg.slice(0, 100),
-      });
-      await sendEvent('done', { sessionId, error: true });
-    } finally {
+  void runEdgeAgentLoop({ sessionId, message, systemPrompt, maxTurns, ttlSeconds, env, sendEvent })
+    .catch((err: unknown) => emitEdgeFailure(sendEvent, sessionId, err))
+    .finally(async () => {
       try {
         await writer.close();
       } catch {
         // Stream writer already closed
       }
-    }
-  })();
+    });
 
   return new Response(readable, {
     headers: {

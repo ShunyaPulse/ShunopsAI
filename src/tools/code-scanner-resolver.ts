@@ -4,6 +4,8 @@ import * as path from "node:path";
 import * as dotenv from "dotenv";
 import { colors } from "../core/colors.js";
 import { getGitHubAuthEnv } from "../core/github.js";
+import { extractJsonObject } from "../core/json.js";
+import { isLocalRepo } from "../core/repos.js";
 import { isAutonomyPaused } from "./autonomy-state.js";
 import {
   DEFAULT_PROPOSER,
@@ -41,6 +43,21 @@ export interface CodeAlert {
     };
   };
   state: "open" | "fixed" | "dismissed";
+}
+
+/** Model 1's proposed search/replace patch. */
+interface SecurityPatchProposal {
+  search?: string;
+  replace?: string;
+  rationale?: string;
+}
+
+/** Model 2's audit verdict on a proposed patch. */
+interface SecurityPatchAudit {
+  approved: boolean;
+  finalSearch?: string;
+  finalReplace?: string;
+  auditCritique: string;
 }
 
 
@@ -140,11 +157,10 @@ Do NOT include any markdown code blocks, conversational text, or explanation out
       0.1
     );
 
-    const m1Match = m1Response.text.match(/\{[\s\S]*\}/);
-    if (!m1Match) {
+    const m1Proposal = extractJsonObject<SecurityPatchProposal>(m1Response.text);
+    if (!m1Proposal) {
       return { success: false, message: `Model 1 did not return valid JSON: ${m1Response.text.slice(0, 100)}` };
     }
-    const m1Proposal = JSON.parse(m1Match[0]);
 
     // -------------------------------------------------------------
     // Round 2: Model 2 (Groq GPT-OSS 120B) — Cross-Audit Security Patch
@@ -185,11 +201,10 @@ Do NOT include any text outside the JSON.`;
       0.1
     );
 
-    const m2Match = m2Response.text.match(/\{[\s\S]*\}/);
-    if (!m2Match) {
+    const m2Decision = extractJsonObject<SecurityPatchAudit>(m2Response.text);
+    if (!m2Decision) {
       return { success: false, message: `Model 2 did not return valid JSON: ${m2Response.text.slice(0, 100)}` };
     }
-    const m2Decision = JSON.parse(m2Match[0]);
 
     if (!m2Decision.approved) {
       return { success: false, message: `Auditor rejected patch: ${m2Decision.auditCritique}` };
@@ -248,8 +263,7 @@ export async function runAutoAlertResolver(
     return { resolved: 0, total: 0 };
   }
 
-  const isLocalRepo = repo === "ShunyaPulse/ShunopsAI" || repo === path.basename(process.cwd());
-  if (!isLocalRepo) {
+  if (!isLocalRepo(repo)) {
     console.log(
       `${colors.yellow}ℹ️ Found ${alerts.length} alert(s) in remote repo ${repo}. Dependabot PR resolver will reconcile package-level dependencies.${colors.reset}`
     );

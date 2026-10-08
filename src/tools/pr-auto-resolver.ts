@@ -5,6 +5,8 @@ import * as dotenv from "dotenv";
 import type OpenAI from "openai";
 import { colors } from "../core/colors.js";
 import { getGitHubAuthEnv } from "../core/github.js";
+import { extractJsonObject } from "../core/json.js";
+import { DEFAULT_TARGET_REPOS, getTargetReposList, isLocalRepo } from "../core/repos.js";
 import { isAutonomyPaused } from "./autonomy-state.js";
 import {
   DEFAULT_PROPOSER,
@@ -16,6 +18,11 @@ import {
 
 dotenv.config();
 
+export { DEFAULT_TARGET_REPOS, getTargetReposList };
+
+// ==========================================
+// Types
+// ==========================================
 
 export interface PullRequestItem {
   number: number;
@@ -51,6 +58,64 @@ export interface FailedWorkflowRunItem {
   conclusion: string;
   createdAt: string;
 }
+
+/** Outcome of the dual-model consensus review for a single PR. */
+export interface PRReviewResult {
+  approved: boolean;
+  merged: boolean;
+  message: string;
+}
+
+/** Model 1's architectural review verdict. */
+interface ProposerDecision {
+  approved: boolean;
+  confidence?: number;
+  riskLevel: string;
+  rationale: string;
+}
+
+/** Model 2's security audit verdict. */
+interface AuditorDecision {
+  agreedWithModel1: boolean;
+  finalApproved: boolean;
+  auditorCritique: string;
+}
+
+/** Root-cause diagnosis the proposer produces for a failed workflow run. */
+interface FailureDiagnosis {
+  failureCategory: string;
+  rootCause: string;
+  remediation: string;
+  autoFixable: boolean;
+}
+
+/** Search/replace patch proposed by the proposer for a bot security comment. */
+interface SecurityPatch {
+  search?: string;
+  replace?: string;
+}
+
+/** Everything the consensus rounds need in order to judge a PR. */
+interface PRReviewContext {
+  diffStat: string;
+  checkStatusSummary: string;
+  truncatedDiff: string;
+}
+
+/** A comment's on-disk target: resolved path, full content, and its lines. */
+interface CommentTarget {
+  filePath: string;
+  content: string;
+  lines: string[];
+}
+
+// ==========================================
+// Workflow-run inspection
+// ==========================================
+
+const TRANSIENT_RUNNER_FAILURE =
+  /runner connection lost|network request timed out|ETIMEDOUT|503 Service Unavailable|502 Bad Gateway/i;
+const NPM_AUDIT_FAILURE = /npm audit --audit-level|vulnerabilities\s*\(\d+\s*high|\d+\s*critical\)/i;
 
 /**
  * Fetch recent failed workflow runs in repository
@@ -174,6 +239,81 @@ export async function isRunSupersededOrResolved(
   }
 }
 
+/** Rerun the failed jobs of a run; returns whether the rerun was triggered. */
+function rerunFailedJobs(run: FailedWorkflowRunItem, repo: string): boolean {
+  try {
+    execFileSync("gh", ["run", "rerun", String(run.databaseId), "--repo", repo, "--failed"], {
+      encoding: "utf-8",
+      env: getGitHubAuthEnv(),
+    });
+    console.log(`${colors.green}✓ Triggered rerun for failed jobs in run #${run.databaseId}!${colors.reset}`);
+    return true;
+  } catch (rerunErr: any) {
+    console.warn(`[Rerun error on #${run.databaseId}] ${rerunErr.message}`);
+    return false;
+  }
+}
+
+/** Log dependency-scope guidance for the known npm audit CI failure pattern. */
+function reportNpmAuditGuidance(run: FailedWorkflowRunItem, failedLog: string): void {
+  if (!NPM_AUDIT_FAILURE.test(failedLog)) return;
+
+  console.log(
+    `${colors.yellow}⚠️ Detected npm audit failure in run #${run.databaseId}. Analyzing dependency scope...${colors.reset}`
+  );
+  if (/braces/i.test(failedLog) || /eslint-config-next/i.test(failedLog)) {
+    console.log(
+      `${colors.magenta}Fix identified: CI workflow running npm audit on unpatched transitive devDependencies. Use --omit=dev or update audit level.${colors.reset}`
+    );
+  }
+}
+
+/**
+ * Ask the proposer model to diagnose a failed run.
+ *
+ * Returns the recorded action summary, or `null` when no diagnosis was produced.
+ */
+async function diagnoseFailureWithConsensus(
+  run: FailedWorkflowRunItem,
+  repo: string,
+  failedLog: string
+): Promise<string | null> {
+  try {
+    const logSnippet = failedLog.slice(-2500);
+    const m1Prompt: OpenAI.ChatCompletionMessageParam[] = [
+      {
+        role: "system",
+        content: `You are an Autonomous Site Reliability & CI/CD Engineer. Diagnose the following failed GitHub Actions log and provide a concise JSON object:
+{
+  "failureCategory": "dependency_audit" | "test_failure" | "build_error" | "secret_leak" | "transient_infra",
+  "rootCause": "<1-2 sentence technical explanation>",
+  "remediation": "<exact fix required in code or workflow yaml>",
+  "autoFixable": boolean
+}`,
+      },
+      {
+        role: "user",
+        content: `Repository: ${repo}\nWorkflow: ${run.workflowName}\nBranch: ${run.headBranch}\nRun ID: ${run.databaseId}\nTitle: ${run.displayTitle}\n\nFailed Log Output:\n\`\`\`\n${logSnippet}\n\`\`\``,
+      },
+    ];
+
+    const m1Res = await callModel(DEFAULT_PROPOSER, m1Prompt, BACKUP_OPENROUTER_PROPOSER, 0.1);
+    const diagnosis = extractJsonObject<FailureDiagnosis>(m1Res.text);
+    if (!diagnosis) {
+      return null;
+    }
+
+    console.log(
+      `${colors.cyan}🤖 [Dual-Model Action Diagnosis] ${diagnosis.failureCategory}: ${diagnosis.rootCause}${colors.reset}`
+    );
+    console.log(`${colors.gray}Proposed Remediation: ${diagnosis.remediation}${colors.reset}`);
+    return `Diagnosed (${diagnosis.failureCategory}): ${diagnosis.rootCause}. Remediation: ${diagnosis.remediation}`;
+  } catch (diagErr: any) {
+    console.warn(`[Diagnosis error on #${run.databaseId}] ${diagErr.message}`);
+    return null;
+  }
+}
+
 /**
  * Diagnose and resolve or rerun a failed workflow run
  */
@@ -198,82 +338,31 @@ export async function diagnoseAndResolveFailedRun(
     return { resolved: false, actionTaken: "No failure logs available to diagnose." };
   }
 
-  // 3. Check for transient errors (rate limit, runner network timeout, connection abort)
-  const isTransient =
-    /runner connection lost|network request timed out|ETIMEDOUT|503 Service Unavailable|502 Bad Gateway/i.test(
-      failedLog
-    );
-
-  if (isTransient) {
+  // 3. Transient infrastructure failures: rerun the failed jobs
+  if (TRANSIENT_RUNNER_FAILURE.test(failedLog)) {
     console.log(
       `${colors.cyan}⚡ Transient infrastructure failure detected in run #${run.databaseId}. Attempting auto-rerun...${colors.reset}`
     );
-    try {
-      execFileSync("gh", ["run", "rerun", String(run.databaseId), "--repo", repo, "--failed"], {
-        encoding: "utf-8",
-        env: getGitHubAuthEnv(),
-      });
-      console.log(`${colors.green}✓ Triggered rerun for failed jobs in run #${run.databaseId}!${colors.reset}`);
+    if (rerunFailedJobs(run, repo)) {
       return { resolved: true, actionTaken: "Triggered GitHub Actions rerun for transient failure." };
-    } catch (rerunErr: any) {
-      console.warn(`[Rerun error on #${run.databaseId}] ${rerunErr.message}`);
     }
   }
 
-  // 4. Check for known npm audit failure pattern
-  const isNpmAuditFailure =
-    /npm audit --audit-level|vulnerabilities\s*\(\d+\s*high|\d+\s*critical\)/i.test(failedLog);
-
-  if (isNpmAuditFailure) {
-    console.log(
-      `${colors.yellow}⚠️ Detected npm audit failure in run #${run.databaseId}. Analyzing dependency scope...${colors.reset}`
-    );
-    if (/braces/i.test(failedLog) || /eslint-config-next/i.test(failedLog)) {
-      console.log(
-        `${colors.magenta}Fix identified: CI workflow running npm audit on unpatched transitive devDependencies. Use --omit=dev or update audit level.${colors.reset}`
-      );
-    }
-  }
+  // 4. Known npm audit failure pattern: report fix guidance
+  reportNpmAuditGuidance(run, failedLog);
 
   // 5. Dual-Model Consensus Diagnosis for complex failures
-  try {
-    const logSnippet = failedLog.slice(-2500);
-    const m1Prompt: OpenAI.ChatCompletionMessageParam[] = [
-      {
-        role: "system",
-        content: `You are an Autonomous Site Reliability & CI/CD Engineer. Diagnose the following failed GitHub Actions log and provide a concise JSON object:
-{
-  "failureCategory": "dependency_audit" | "test_failure" | "build_error" | "secret_leak" | "transient_infra",
-  "rootCause": "<1-2 sentence technical explanation>",
-  "remediation": "<exact fix required in code or workflow yaml>",
-  "autoFixable": boolean
-}`,
-      },
-      {
-        role: "user",
-        content: `Repository: ${repo}\nWorkflow: ${run.workflowName}\nBranch: ${run.headBranch}\nRun ID: ${run.databaseId}\nTitle: ${run.displayTitle}\n\nFailed Log Output:\n\`\`\`\n${logSnippet}\n\`\`\``,
-      },
-    ];
-
-    const m1Res = await callModel(DEFAULT_PROPOSER, m1Prompt, BACKUP_OPENROUTER_PROPOSER, 0.1);
-    const m1Match = m1Res.text.match(/\{[\s\S]*\}/);
-    if (m1Match) {
-      const diagnosis = JSON.parse(m1Match[0]);
-      console.log(
-        `${colors.cyan}🤖 [Dual-Model Action Diagnosis] ${diagnosis.failureCategory}: ${diagnosis.rootCause}${colors.reset}`
-      );
-      console.log(`${colors.gray}Proposed Remediation: ${diagnosis.remediation}${colors.reset}`);
-      return {
-        resolved: false,
-        actionTaken: `Diagnosed (${diagnosis.failureCategory}): ${diagnosis.rootCause}. Remediation: ${diagnosis.remediation}`,
-      };
-    }
-  } catch (diagErr: any) {
-    console.warn(`[Diagnosis error on #${run.databaseId}] ${diagErr.message}`);
+  const diagnosis = await diagnoseFailureWithConsensus(run, repo, failedLog);
+  if (diagnosis) {
+    return { resolved: false, actionTaken: diagnosis };
   }
 
   return { resolved: false, actionTaken: `Workflow #${run.databaseId} requires manual remediation.` };
 }
+
+// ==========================================
+// Pull-request inspection
+// ==========================================
 
 /**
  * Fetch all open PRs in repository
@@ -313,93 +402,92 @@ export async function fetchPRReviewComments(
   }
 }
 
-/**
- * Auto-remediate suggestions and alerts left by github-advanced-security[bot] or reviewers on a PR branch
- */
-export async function autoRemediatePRBotSuggestions(
-  pr: PullRequestItem,
-  repo = "ShunyaPulse/ShunopsAI"
-): Promise<number> {
-  const comments = await fetchPRReviewComments(pr.number, repo);
-  const botComments = comments.filter(
-    (c) =>
-      c.user?.login === "github-advanced-security[bot]" ||
-      /```suggestion/i.test(c.body) ||
-      /codeql/i.test(c.body)
+// ==========================================
+// Bot-suggestion remediation
+// ==========================================
+
+const BOT_SUGGESTION_BLOCK = /```suggestion\r?\n([\s\S]*?)```/;
+
+/** Whether a review comment carries an actionable bot security finding. */
+function isBotSecurityComment(comment: PRReviewComment): boolean {
+  return (
+    comment.user?.login === "github-advanced-security[bot]" ||
+    /```suggestion/i.test(comment.body) ||
+    /codeql/i.test(comment.body)
   );
+}
 
-  if (botComments.length === 0) {
-    return 0;
-  }
-
-  const isLocalRepo = repo === "ShunyaPulse/ShunopsAI" || repo === path.basename(process.cwd());
-  if (!isLocalRepo) {
-    return 0;
-  }
-
-  console.log(
-    `${colors.yellow}🤖 [Bot Suggestion Resolver] Detected ${botComments.length} security review comment(s) on PR #${pr.number}${colors.reset}`
-  );
-
-  // Check if working tree is clean
-  let isDirty = false;
+/** Whether the working tree has uncommitted changes (unreadable ⇒ assumed dirty). */
+function isWorkingTreeDirty(): boolean {
   try {
-    const status = execFileSync("git", ["status", "--porcelain"], { encoding: "utf-8" }).trim();
-    if (status.length > 0) isDirty = true;
+    return execFileSync("git", ["status", "--porcelain"], { encoding: "utf-8" }).trim().length > 0;
   } catch {
-    isDirty = true;
+    return true;
   }
+}
 
-  if (isDirty) {
-    console.warn(
-      `[Bot Suggestion Resolver] Working tree has uncommitted changes. Skipping branch checkout for PR #${pr.number}.`
-    );
-    return 0;
-  }
+/** The branch the resolver must return to after operating on a PR branch. */
+function getCurrentBranch(): string {
+  return execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], { encoding: "utf-8" }).trim();
+}
 
-  const currentBranch = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
-    encoding: "utf-8",
-  }).trim();
+/** Fetch and switch to a PR's branch so its comments can be remediated in place. */
+function checkoutPRBranch(pr: PullRequestItem): void {
+  execFileSync("git", ["fetch", "origin", pr.headRefName], { stdio: "pipe" });
+  execFileSync("git", ["checkout", pr.headRefName], { stdio: "pipe" });
+  execFileSync("git", ["pull", "origin", pr.headRefName], { stdio: "pipe" });
+}
 
-  let fixedCount = 0;
+/** Resolve a comment's file on disk; `null` when it cannot be read. */
+async function readCommentTarget(comment: PRReviewComment): Promise<CommentTarget | null> {
+  const filePath = path.resolve(process.cwd(), comment.path);
   try {
-    execFileSync("git", ["fetch", "origin", pr.headRefName], { stdio: "pipe" });
-    execFileSync("git", ["checkout", pr.headRefName], { stdio: "pipe" });
-    execFileSync("git", ["pull", "origin", pr.headRefName], { stdio: "pipe" });
+    const content = await fs.readFile(filePath, "utf-8");
+    return { filePath, content, lines: content.split("\n") };
+  } catch {
+    return null;
+  }
+}
 
-    for (const comment of botComments) {
-      const targetFile = path.resolve(process.cwd(), comment.path);
-      let fileContent = "";
-      try {
-        fileContent = await fs.readFile(targetFile, "utf-8");
-      } catch {
-        continue;
-      }
+/**
+ * Apply a suggestion block embedded in a review comment, if it has one.
+ * Returns whether a line was rewritten.
+ */
+async function applySuggestionEdit(
+  comment: PRReviewComment,
+  target: CommentTarget,
+  lineNo: number
+): Promise<boolean> {
+  const suggestionMatch = comment.body.match(BOT_SUGGESTION_BLOCK);
+  if (!suggestionMatch) return false;
 
-      const lines = fileContent.split("\n");
-      const lineNo = comment.line || comment.original_line || 0;
-      const suggestionMatch = comment.body.match(/```suggestion\r?\n([\s\S]*?)```/);
+  console.log(`${colors.cyan}Applying direct bot suggestion to ${comment.path}:${lineNo}...${colors.reset}`);
+  const suggestedText = (suggestionMatch[1] ?? "").replace(/\r?\n$/, "");
+  target.lines[lineNo - 1] = suggestedText;
+  await fs.writeFile(target.filePath, target.lines.join("\n"), "utf-8");
+  return true;
+}
 
-      if (suggestionMatch && lineNo > 0 && lineNo <= lines.length) {
-        console.log(
-          `${colors.cyan}Applying direct bot suggestion to ${comment.path}:${lineNo}...${colors.reset}`
-        );
-        const suggestedText = (suggestionMatch[1] ?? "").replace(/\r?\n$/, "");
-        lines[lineNo - 1] = suggestedText;
-        await fs.writeFile(targetFile, lines.join("\n"), "utf-8");
-        fixedCount++;
-      } else if (lineNo > 0 && lineNo <= lines.length) {
-        console.log(
-          `${colors.cyan}Drafting Dual-Model security remediation for bot alert on ${comment.path}:${lineNo}...${colors.reset}`
-        );
-        const startIdx = Math.max(0, lineNo - 8);
-        const endIdx = Math.min(lines.length, lineNo + 8);
-        const snippet = lines.slice(startIdx, endIdx).join("\n");
+/**
+ * Ask the proposer model for a security patch around a flagged line and apply
+ * it when it matches. Returns whether the file was rewritten.
+ */
+async function draftConsensusSecurityFix(
+  comment: PRReviewComment,
+  target: CommentTarget,
+  lineNo: number
+): Promise<boolean> {
+  console.log(
+    `${colors.cyan}Drafting Dual-Model security remediation for bot alert on ${comment.path}:${lineNo}...${colors.reset}`
+  );
+  const startIdx = Math.max(0, lineNo - 8);
+  const endIdx = Math.min(target.lines.length, lineNo + 8);
+  const snippet = target.lines.slice(startIdx, endIdx).join("\n");
 
-        const m1Messages: OpenAI.ChatCompletionMessageParam[] = [
-          {
-            role: "system",
-            content: `You are Model 1 (Lead Security Engineer) fixing a CodeQL/Security alert flagged by ${comment.user?.login || "bot"} on a PR.
+  const m1Messages: OpenAI.ChatCompletionMessageParam[] = [
+    {
+      role: "system",
+      content: `You are Model 1 (Lead Security Engineer) fixing a CodeQL/Security alert flagged by ${comment.user?.login || "bot"} on a PR.
 File: ${comment.path}
 Line: ${lineNo}
 Alert details:
@@ -410,61 +498,118 @@ Return ONLY valid JSON with this schema:
   "search": "exact string to replace",
   "replace": "secure replacement string"
 }`,
-          },
-          {
-            role: "user",
-            content: `Code snippet around line ${lineNo}:\n\`\`\`typescript\n${snippet}\n\`\`\``,
-          },
-        ];
+    },
+    {
+      role: "user",
+      content: `Code snippet around line ${lineNo}:\n\`\`\`typescript\n${snippet}\n\`\`\``,
+    },
+  ];
 
-        try {
-          const m1Res = await callModel(DEFAULT_PROPOSER, m1Messages, BACKUP_OPENROUTER_PROPOSER, 0.1);
-          const match = m1Res.text.match(/\{[\s\S]*\}/);
-          if (match) {
-            const patch = JSON.parse(match[0]);
-            if (patch.search && patch.replace && fileContent.includes(patch.search)) {
-              const newContent = fileContent.replace(patch.search, patch.replace);
-              await fs.writeFile(targetFile, newContent, "utf-8");
-              fixedCount++;
-              console.log(
-                `${colors.green}✓ Applied Dual-Model security fix to ${comment.path}${colors.reset}`
-              );
-            }
-          }
-        } catch (aiErr: any) {
-          console.warn(`[AI remediation error on ${comment.path}] ${aiErr.message}`);
-        }
+  try {
+    const m1Res = await callModel(DEFAULT_PROPOSER, m1Messages, BACKUP_OPENROUTER_PROPOSER, 0.1);
+    const patch = extractJsonObject<SecurityPatch>(m1Res.text);
+    if (patch?.search && patch.replace && target.content.includes(patch.search)) {
+      const newContent = target.content.replace(patch.search, patch.replace);
+      await fs.writeFile(target.filePath, newContent, "utf-8");
+      console.log(`${colors.green}✓ Applied Dual-Model security fix to ${comment.path}${colors.reset}`);
+      return true;
+    }
+  } catch (aiErr: any) {
+    console.warn(`[AI remediation error on ${comment.path}] ${aiErr.message}`);
+  }
+  return false;
+}
+
+/** Remediate one bot review comment, returning whether the file changed. */
+async function remediateBotComment(comment: PRReviewComment): Promise<boolean> {
+  const target = await readCommentTarget(comment);
+  if (!target) return false;
+
+  const lineNo = comment.line || comment.original_line || 0;
+  if (lineNo <= 0 || lineNo > target.lines.length) return false;
+
+  if (await applySuggestionEdit(comment, target, lineNo)) return true;
+  return draftConsensusSecurityFix(comment, target, lineNo);
+}
+
+/**
+ * Typecheck, commit, and push applied remediations.
+ * Returns false (and resets the branch) when verification or the push fails.
+ */
+function commitAndPushRemediations(pr: PullRequestItem, fixedCount: number): boolean {
+  console.log(`${colors.cyan}Verifying TypeScript compilation (npm run typecheck)...${colors.reset}`);
+  try {
+    execSync("npm run typecheck", { stdio: "pipe" });
+    execFileSync("git", ["add", "-A"], { stdio: "pipe" });
+    execFileSync(
+      "git",
+      [
+        "commit",
+        "-m",
+        `fix(security): resolve github-advanced-security[bot] suggestions on PR #${pr.number}`,
+      ],
+      { stdio: "pipe" }
+    );
+    execFileSync("git", ["push", "origin", pr.headRefName], {
+      stdio: "pipe",
+      env: getGitHubAuthEnv(),
+    });
+    console.log(
+      `${colors.green}${colors.bold}🚀 Pushed ${fixedCount} automated fix(es) to PR #${pr.number} (${pr.headRefName})!${colors.reset}`
+    );
+    return true;
+  } catch (verifyErr: any) {
+    console.warn(
+      `${colors.red}Typecheck or commit failed; resetting branch ${pr.headRefName}: ${verifyErr.message}${colors.reset}`
+    );
+    execFileSync("git", ["reset", "--hard", `origin/${pr.headRefName}`], { stdio: "pipe" });
+    return false;
+  }
+}
+
+/**
+ * Auto-remediate suggestions and alerts left by github-advanced-security[bot] or reviewers on a PR branch
+ */
+export async function autoRemediatePRBotSuggestions(
+  pr: PullRequestItem,
+  repo = "ShunyaPulse/ShunopsAI"
+): Promise<number> {
+  const comments = await fetchPRReviewComments(pr.number, repo);
+  const botComments = comments.filter(isBotSecurityComment);
+
+  if (botComments.length === 0) {
+    return 0;
+  }
+
+  if (!isLocalRepo(repo)) {
+    return 0;
+  }
+
+  console.log(
+    `${colors.yellow}🤖 [Bot Suggestion Resolver] Detected ${botComments.length} security review comment(s) on PR #${pr.number}${colors.reset}`
+  );
+
+  // Check if working tree is clean
+  if (isWorkingTreeDirty()) {
+    console.warn(
+      `[Bot Suggestion Resolver] Working tree has uncommitted changes. Skipping branch checkout for PR #${pr.number}.`
+    );
+    return 0;
+  }
+
+  const currentBranch = getCurrentBranch();
+  let fixedCount = 0;
+  try {
+    checkoutPRBranch(pr);
+
+    for (const comment of botComments) {
+      if (await remediateBotComment(comment)) {
+        fixedCount++;
       }
     }
 
-    if (fixedCount > 0) {
-      console.log(`${colors.cyan}Verifying TypeScript compilation (npm run typecheck)...${colors.reset}`);
-      try {
-        execSync("npm run typecheck", { stdio: "pipe" });
-        execFileSync("git", ["add", "-A"], { stdio: "pipe" });
-        execFileSync(
-          "git",
-          [
-            "commit",
-            "-m",
-            `fix(security): resolve github-advanced-security[bot] suggestions on PR #${pr.number}`,
-          ],
-          { stdio: "pipe" }
-        );
-        execFileSync("git", ["push", "origin", pr.headRefName], {
-          stdio: "pipe",
-          env: getGitHubAuthEnv(),
-        });
-        console.log(
-          `${colors.green}${colors.bold}🚀 Pushed ${fixedCount} automated fix(es) to PR #${pr.number} (${pr.headRefName})!${colors.reset}`
-        );
-      } catch (verifyErr: any) {
-        console.warn(
-          `${colors.red}Typecheck or commit failed; resetting branch ${pr.headRefName}: ${verifyErr.message}${colors.reset}`
-        );
-        execFileSync("git", ["reset", "--hard", `origin/${pr.headRefName}`], { stdio: "pipe" });
-        fixedCount = 0;
-      }
+    if (fixedCount > 0 && !commitAndPushRemediations(pr, fixedCount)) {
+      fixedCount = 0;
     }
   } catch (err: any) {
     console.warn(`[autoRemediatePRBotSuggestions error] ${err.message}`);
@@ -477,13 +622,17 @@ Return ONLY valid JSON with this schema:
   return fixedCount;
 }
 
+// ==========================================
+// Dual-model PR review
+// ==========================================
+
 /**
  * Review a single PR with AI and decide whether to approve & merge or request changes
  */
 export async function reviewAndResolvePR(
   pr: PullRequestItem,
   repo = "ShunyaPulse/ShunopsAI"
-): Promise<{ approved: boolean; merged: boolean; message: string }> {
+): Promise<PRReviewResult> {
   console.log(
     `\n${colors.cyan}${colors.bold}🔍 Reviewing PR #${pr.number}: "${pr.title}" by @${pr.author.login}${colors.reset}`
   );
@@ -501,20 +650,97 @@ export async function reviewAndResolvePR(
     console.warn(`Bot remediation check note: ${err.message}`);
   }
 
-  let diff = "";
-  try {
-    diff = execFileSync("gh", ["pr", "diff", String(pr.number), "--repo", repo], {
-      encoding: "utf-8",
-      env: getGitHubAuthEnv(),
-    });
-  } catch (e: any) {
-    return { approved: false, merged: false, message: `Could not fetch diff: ${e.message}` };
+  // 2. Fetch the diff
+  const diffResult = fetchPRDiff(pr, repo);
+  if (!diffResult.ok) {
+    return { approved: false, merged: false, message: `Could not fetch diff: ${diffResult.error}` };
   }
-
-  if (!diff.trim()) {
+  if (!diffResult.diff.trim()) {
     return { approved: false, merged: false, message: "Diff is empty" };
   }
 
+  const { diffStat, checkStatusSummary } = summarizePRContext(pr, repo);
+  const context: PRReviewContext = {
+    diffStat,
+    checkStatusSummary,
+    truncatedDiff: truncateDiff(diffResult.diff),
+  };
+
+  console.log(`${colors.cyan}🤝 Initiating Dual-Model Consensus Review for PR #${pr.number}...${colors.reset}`);
+
+  try {
+    // Round 1: Model 1 (Gemini Flash) — Lead Architectural Review
+    const proposer = await runProposerReview(pr, context);
+    if (!proposer.decision) {
+      return { approved: false, merged: false, message: `Model 1 did not return valid JSON: ${proposer.rawText.slice(0, 100)}` };
+    }
+    const m1Decision = proposer.decision;
+    console.log(`${colors.gray}Model 1 Verdict: ${m1Decision.approved ? colors.green + "APPROVED" : colors.red + "REJECTED"} (Risk: ${m1Decision.riskLevel}) - ${m1Decision.rationale}${colors.reset}`);
+
+    // Round 2: Model 2 (Groq GPT-OSS 120B) — Security Audit & Cross-Examination
+    const auditor = await runAuditorReview(pr, context, m1Decision);
+    if (!auditor.decision) {
+      return { approved: false, merged: false, message: `Model 2 did not return valid JSON: ${auditor.rawText.slice(0, 100)}` };
+    }
+    const m2Decision = auditor.decision;
+    console.log(`${colors.gray}Model 2 Verdict: ${m2Decision.finalApproved ? colors.green + "APPROVED" : colors.red + "REJECTED"} (Agreement: ${m2Decision.agreedWithModel1}) - ${m2Decision.auditorCritique}${colors.reset}`);
+
+    // Round 2.5: Rebuttal when the auditor hesitated but the proposer approved
+    if (!m2Decision.finalApproved && m1Decision.approved) {
+      await rebutWithAuditor(auditor.messages, m2Decision, checkStatusSummary);
+    }
+
+    // Consensus evaluation: both models must approve
+    const approved = Boolean(m1Decision.approved && m2Decision.finalApproved);
+    const consensusRationale = `Model 1 (${proposer.modelName}): ${m1Decision.rationale} | Model 2 (${auditor.modelName}): ${m2Decision.auditorCritique}`;
+
+    if (approved) {
+      return submitApprovedReview(
+        pr,
+        repo,
+        m1Decision,
+        m2Decision,
+        proposer.modelName,
+        auditor.modelName,
+        consensusRationale
+      );
+    }
+
+    return postChangesRequiredComment(
+      pr,
+      repo,
+      m1Decision,
+      m2Decision,
+      proposer.modelName,
+      auditor.modelName,
+      consensusRationale
+    );
+  } catch (err: any) {
+    return { approved: false, merged: false, message: `Consensus inference failed: ${err.message}` };
+  }
+}
+
+/** Fetch the PR diff; returns the failure message instead of throwing. */
+function fetchPRDiff(
+  pr: PullRequestItem,
+  repo: string
+): { ok: true; diff: string } | { ok: false; error: string } {
+  try {
+    const diff = execFileSync("gh", ["pr", "diff", String(pr.number), "--repo", repo], {
+      encoding: "utf-8",
+      env: getGitHubAuthEnv(),
+    });
+    return { ok: true, diff };
+  } catch (e: any) {
+    return { ok: false, error: e.message };
+  }
+}
+
+/** Summarise the changed files and CI check results shown to the models. */
+function summarizePRContext(
+  pr: PullRequestItem,
+  repo: string
+): { diffStat: string; checkStatusSummary: string } {
   let diffStat = "";
   let checkStatusSummary = "";
   try {
@@ -535,21 +761,23 @@ export async function reviewAndResolvePR(
       .join(", ");
     checkStatusSummary = checks ? `CI Status Checks: ${checks}` : "CI Checks: not reported";
   } catch {}
+  return { diffStat, checkStatusSummary };
+}
 
-  // Truncate diff if very large
-  const truncatedDiff = diff.length > 8000 ? diff.slice(0, 8000) + "\n... [diff truncated]" : diff;
+/** Keep the review prompt under the model's context budget. */
+function truncateDiff(diff: string): string {
+  return diff.length > 8000 ? diff.slice(0, 8000) + "\n... [diff truncated]" : diff;
+}
 
-  console.log(`${colors.cyan}🤝 Initiating Dual-Model Consensus Review for PR #${pr.number}...${colors.reset}`);
-
-  try {
-    // -------------------------------------------------------------
-    // Round 1: Model 1 (Gemini Flash) — Lead Architectural Review
-    // -------------------------------------------------------------
-    console.log(`${colors.gray}🧠 [Round 1/2] Proposer (${DEFAULT_PROPOSER.name}) analyzing diff...${colors.reset}`);
-    const m1Messages: OpenAI.ChatCompletionMessageParam[] = [
-      {
-        role: "system",
-        content: `You are Model 1 (Lead Proposer & Code Architect) in ShunopsAI's Dual-Model Consensus Review.
+/** Round 1 prompt: architectural review of the diff. */
+function buildProposerMessages(
+  pr: PullRequestItem,
+  context: PRReviewContext
+): OpenAI.ChatCompletionMessageParam[] {
+  return [
+    {
+      role: "system",
+      content: `You are Model 1 (Lead Proposer & Code Architect) in ShunopsAI's Dual-Model Consensus Review.
 Evaluate this PR diff for security, correctness, and functional integrity.
 Return ONLY valid JSON with this schema:
 {
@@ -559,29 +787,24 @@ Return ONLY valid JSON with this schema:
   "rationale": "Concise 1-2 sentence explanation"
 }
 Do NOT return conversational filler or codeblocks outside the JSON.`,
-      },
-      {
-        role: "user",
-        content: `PR #${pr.number}: "${pr.title}" by @${pr.author.login}\nBranch: ${pr.headRefName}\n\n${checkStatusSummary}\n\n${diffStat}\n\nDiff:\n\`\`\`diff\n${truncatedDiff}\n\`\`\``,
-      },
-    ];
+    },
+    {
+      role: "user",
+      content: `PR #${pr.number}: "${pr.title}" by @${pr.author.login}\nBranch: ${pr.headRefName}\n\n${context.checkStatusSummary}\n\n${context.diffStat}\n\nDiff:\n\`\`\`diff\n${context.truncatedDiff}\n\`\`\``,
+    },
+  ];
+}
 
-    const m1Response = await callModel(DEFAULT_PROPOSER, m1Messages, BACKUP_OPENROUTER_PROPOSER, 0.1);
-    const m1Match = m1Response.text.match(/\{[\s\S]*\}/);
-    if (!m1Match) {
-      return { approved: false, merged: false, message: `Model 1 did not return valid JSON: ${m1Response.text.slice(0, 100)}` };
-    }
-    const m1Decision = JSON.parse(m1Match[0]);
-    console.log(`${colors.gray}Model 1 Verdict: ${m1Decision.approved ? colors.green + "APPROVED" : colors.red + "REJECTED"} (Risk: ${m1Decision.riskLevel}) - ${m1Decision.rationale}${colors.reset}`);
-
-    // -------------------------------------------------------------
-    // Round 2: Model 2 (Groq GPT-OSS 120B) — Security Audit & Cross-Examination
-    // -------------------------------------------------------------
-    console.log(`${colors.gray}🕵️ [Round 2/2] Auditor (${DEFAULT_AUDITOR.name}) cross-examining review...${colors.reset}`);
-    const m2Messages: OpenAI.ChatCompletionMessageParam[] = [
-      {
-        role: "system",
-        content: `You are Model 2 (Senior Security Auditor & Critic) in ShunopsAI's Dual-Model Consensus Protocol.
+/** Round 2 prompt: security audit of the proposer's verdict. */
+function buildAuditorMessages(
+  pr: PullRequestItem,
+  context: PRReviewContext,
+  m1Decision: ProposerDecision
+): OpenAI.ChatCompletionMessageParam[] {
+  return [
+    {
+      role: "system",
+      content: `You are Model 2 (Senior Security Auditor & Critic) in ShunopsAI's Dual-Model Consensus Protocol.
 Audit Model 1's proposal and the PR diff. Check for hidden vulnerabilities, unredacted secrets/logs, command injection, breaking changes, or backdoors.
 Return ONLY valid JSON with this schema:
 {
@@ -590,35 +813,69 @@ Return ONLY valid JSON with this schema:
   "auditorCritique": "Concise 1-2 sentence audit findings"
 }
 Do NOT return conversational filler or codeblocks outside the JSON.`,
-      },
-      {
-        role: "user",
-        content: `PR #${pr.number}: "${pr.title}"\nBranch: ${pr.headRefName}\n\n${checkStatusSummary}\n\n${diffStat}\n\nDiff:\n\`\`\`diff\n${truncatedDiff}\n\`\`\`\n\nModel 1 Review:\n${JSON.stringify(m1Decision, null, 2)}`,
-      },
-    ];
+    },
+    {
+      role: "user",
+      content: `PR #${pr.number}: "${pr.title}"\nBranch: ${pr.headRefName}\n\n${context.checkStatusSummary}\n\n${context.diffStat}\n\nDiff:\n\`\`\`diff\n${context.truncatedDiff}\n\`\`\`\n\nModel 1 Review:\n${JSON.stringify(m1Decision, null, 2)}`,
+    },
+  ];
+}
 
-    const m2Response = await callModel(DEFAULT_AUDITOR, m2Messages, BACKUP_GROQ_AUDITOR, 0.1);
-    const m2Match = m2Response.text.match(/\{[\s\S]*\}/);
-    if (!m2Match) {
-      return { approved: false, merged: false, message: `Model 2 did not return valid JSON: ${m2Response.text.slice(0, 100)}` };
-    }
-    const m2Decision = JSON.parse(m2Match[0]);
-    console.log(`${colors.gray}Model 2 Verdict: ${m2Decision.finalApproved ? colors.green + "APPROVED" : colors.red + "REJECTED"} (Agreement: ${m2Decision.agreedWithModel1}) - ${m2Decision.auditorCritique}${colors.reset}`);
+/** Run the proposer's architectural review round. */
+async function runProposerReview(
+  pr: PullRequestItem,
+  context: PRReviewContext
+): Promise<{ decision: ProposerDecision | null; modelName: string; rawText: string }> {
+  console.log(`${colors.gray}🧠 [Round 1/2] Proposer (${DEFAULT_PROPOSER.name}) analyzing diff...${colors.reset}`);
+  const response = await callModel(DEFAULT_PROPOSER, buildProposerMessages(pr, context), BACKUP_OPENROUTER_PROPOSER, 0.1);
+  return {
+    decision: extractJsonObject<ProposerDecision>(response.text),
+    modelName: response.modelName,
+    rawText: response.text,
+  };
+}
 
-    // -------------------------------------------------------------
-    // Round 2.5: Rebuttal & Architectural Clarification (if Auditor hesitated due to truncated diff or missing context)
-    // -------------------------------------------------------------
-    if (!m2Decision.finalApproved && m1Decision.approved) {
-      console.log(`${colors.yellow}⚖️ [Debate Turn 2.5] Auditor raised concerns. Presenting architectural verification for re-examination...${colors.reset}`);
-      const m2ClarificationMessages: OpenAI.ChatCompletionMessageParam[] = [
-        ...m2Messages,
-        {
-          role: "assistant",
-          content: JSON.stringify(m2Decision),
-        },
-        {
-          role: "user",
-          content: `Auditor Critique to resolve: "${m2Decision.auditorCritique}"
+/** Run the auditor's security round, keeping its message history for the rebuttal. */
+async function runAuditorReview(
+  pr: PullRequestItem,
+  context: PRReviewContext,
+  m1Decision: ProposerDecision
+): Promise<{
+  decision: AuditorDecision | null;
+  modelName: string;
+  rawText: string;
+  messages: OpenAI.ChatCompletionMessageParam[];
+}> {
+  console.log(`${colors.gray}🕵️ [Round 2/2] Auditor (${DEFAULT_AUDITOR.name}) cross-examining review...${colors.reset}`);
+  const messages = buildAuditorMessages(pr, context, m1Decision);
+  const response = await callModel(DEFAULT_AUDITOR, messages, BACKUP_GROQ_AUDITOR, 0.1);
+  return {
+    decision: extractJsonObject<AuditorDecision>(response.text),
+    modelName: response.modelName,
+    rawText: response.text,
+    messages,
+  };
+}
+
+/**
+ * Ask the auditor to re-examine its objection with architectural verification.
+ * Mutates `m2Decision` in place with the re-evaluated verdict.
+ */
+async function rebutWithAuditor(
+  auditorMessages: OpenAI.ChatCompletionMessageParam[],
+  m2Decision: AuditorDecision,
+  checkStatusSummary: string
+): Promise<void> {
+  console.log(`${colors.yellow}⚖️ [Debate Turn 2.5] Auditor raised concerns. Presenting architectural verification for re-examination...${colors.reset}`);
+  const m2ClarificationMessages: OpenAI.ChatCompletionMessageParam[] = [
+    ...auditorMessages,
+    {
+      role: "assistant",
+      content: JSON.stringify(m2Decision),
+    },
+    {
+      role: "user",
+      content: `Auditor Critique to resolve: "${m2Decision.auditorCritique}"
 
 Architectural Verification:
 1. CI Status: ${checkStatusSummary} (all security scanners, typecheck, and unit checks passed).
@@ -633,101 +890,108 @@ Return ONLY valid JSON with this schema:
   "auditorCritique": "Updated concise 1-2 sentence audit findings"
 }
 Do NOT return conversational filler or codeblocks outside the JSON.`,
-        },
-      ];
+    },
+  ];
 
-      try {
-        const clarRes = await callModel(DEFAULT_AUDITOR, m2ClarificationMessages, BACKUP_GROQ_AUDITOR, 0.1);
-        const clarMatch = clarRes.text.match(/\{[\s\S]*\}/);
-        if (clarMatch) {
-          const clarDecision = JSON.parse(clarMatch[0]);
-          console.log(`${colors.gray}Auditor Re-evaluation Verdict: ${clarDecision.finalApproved ? colors.green + "APPROVED" : colors.red + "REJECTED"} - ${clarDecision.auditorCritique}${colors.reset}`);
-          m2Decision.finalApproved = clarDecision.finalApproved;
-          m2Decision.agreedWithModel1 = clarDecision.agreedWithModel1;
-          m2Decision.auditorCritique = clarDecision.auditorCritique;
-        }
-      } catch (clarErr: any) {
-        console.warn(`Auditor clarification turn notice: ${clarErr.message}`);
-      }
+  try {
+    const clarRes = await callModel(DEFAULT_AUDITOR, m2ClarificationMessages, BACKUP_GROQ_AUDITOR, 0.1);
+    const clarDecision = extractJsonObject<AuditorDecision>(clarRes.text);
+    if (clarDecision) {
+      console.log(`${colors.gray}Auditor Re-evaluation Verdict: ${clarDecision.finalApproved ? colors.green + "APPROVED" : colors.red + "REJECTED"} - ${clarDecision.auditorCritique}${colors.reset}`);
+      m2Decision.finalApproved = clarDecision.finalApproved;
+      m2Decision.agreedWithModel1 = clarDecision.agreedWithModel1;
+      m2Decision.auditorCritique = clarDecision.auditorCritique;
     }
-
-    // Consensus evaluation: both models must approve
-    const approved = Boolean(m1Decision.approved && m2Decision.finalApproved);
-    const consensusRationale = `Model 1 (${m1Response.modelName}): ${m1Decision.rationale} | Model 2 (${m2Response.modelName}): ${m2Decision.auditorCritique}`;
-
-    const authEnv = getGitHubAuthEnv();
-
-    if (approved) {
-      // 1. Submit approval review with dual signatures
-      try {
-        execFileSync(
-          "gh",
-          [
-            "pr", "review", String(pr.number), "--repo", repo, "--approve",
-            "--body", `🤝 **ShunopsAI Dual-Model Consensus Review (Unanimously Approved)**\n\n- **Model 1 (${m1Response.modelName})**: ${m1Decision.rationale} *(Risk: ${m1Decision.riskLevel})*\n- **Model 2 (${m2Response.modelName})**: ${m2Decision.auditorCritique}`,
-          ],
-          { stdio: "pipe", env: authEnv }
-        );
-        console.log(`${colors.green}✓ Approved PR #${pr.number} with Dual-Model Consensus!${colors.reset}`);
-      } catch (reviewErr: any) {
-        console.warn(`[Review notice] ${reviewErr.message}`);
-      }
-
-      // 2. Merge PR
-      try {
-        execFileSync(
-          "gh",
-          ["pr", "merge", String(pr.number), "--repo", repo, "--squash", "--delete-branch", "--admin"],
-          { stdio: "pipe", env: authEnv }
-        );
-        console.log(`${colors.green}${colors.bold}🚀 Successfully Merged PR #${pr.number} & deleted branch ${pr.headRefName}!${colors.reset}`);
-        return { approved: true, merged: true, message: consensusRationale };
-      } catch (mergeErr: any) {
-        console.warn(`Could not direct-merge #${pr.number} (trying auto-merge): ${mergeErr.message}`);
-        try {
-          execFileSync(
-            "gh",
-            ["pr", "merge", String(pr.number), "--repo", repo, "--squash", "--auto"],
-            { stdio: "pipe", env: authEnv }
-          );
-          return { approved: true, merged: true, message: `Auto-merge enabled: ${consensusRationale}` };
-        } catch (autoErr: any) {
-          return { approved: true, merged: false, message: `Approved, but merge requires status check: ${autoErr.message}` };
-        }
-      }
-    } else {
-      // Leave comment on PR with consensus rejection reasons
-      try {
-        execFileSync(
-          "gh",
-          [
-            "pr", "comment", String(pr.number), "--repo", repo,
-            "--body", `⚠️ **ShunopsAI Dual-Model Security Audit (Changes Required)**\n\n- **Model 1 (${m1Response.modelName})**: ${m1Decision.rationale}\n- **Model 2 (${m2Response.modelName})**: ${m2Decision.auditorCritique}`,
-          ],
-          { stdio: "pipe", env: authEnv }
-        );
-      } catch (commentErr: any) {
-        console.error(`Comment error on #${pr.number}: ${commentErr.message}`);
-      }
-      return { approved: false, merged: false, message: consensusRationale };
-    }
-  } catch (err: any) {
-    return { approved: false, merged: false, message: `Consensus inference failed: ${err.message}` };
+  } catch (clarErr: any) {
+    console.warn(`Auditor clarification turn notice: ${clarErr.message}`);
   }
 }
 
-export const DEFAULT_TARGET_REPOS = [
-  "ShunyaPulse/ShunopsAI",
-  "ShunyaPulse/SaralGati",
-  "ShunyaPulse/kanban-cloud",
-];
+/** Approve (dual signature) and merge an accepted PR, falling back to auto-merge. */
+function submitApprovedReview(
+  pr: PullRequestItem,
+  repo: string,
+  m1Decision: ProposerDecision,
+  m2Decision: AuditorDecision,
+  m1ModelName: string,
+  m2ModelName: string,
+  consensusRationale: string
+): PRReviewResult {
+  const authEnv = getGitHubAuthEnv();
 
-export function getTargetReposList(): string[] {
-  const envRepos = process.env.AUTONOMOUS_TARGET_REPOS;
-  if (!envRepos) {
-    return DEFAULT_TARGET_REPOS;
+  // 1. Submit approval review with dual signatures
+  try {
+    execFileSync(
+      "gh",
+      [
+        "pr", "review", String(pr.number), "--repo", repo, "--approve",
+        "--body", `🤝 **ShunopsAI Dual-Model Consensus Review (Unanimously Approved)**\n\n- **Model 1 (${m1ModelName})**: ${m1Decision.rationale} *(Risk: ${m1Decision.riskLevel})*\n- **Model 2 (${m2ModelName})**: ${m2Decision.auditorCritique}`,
+      ],
+      { stdio: "pipe", env: authEnv }
+    );
+    console.log(`${colors.green}✓ Approved PR #${pr.number} with Dual-Model Consensus!${colors.reset}`);
+  } catch (reviewErr: any) {
+    console.warn(`[Review notice] ${reviewErr.message}`);
   }
-  return envRepos.split(",").map((r) => r.trim()).filter(Boolean);
+
+  // 2. Merge PR
+  try {
+    execFileSync(
+      "gh",
+      ["pr", "merge", String(pr.number), "--repo", repo, "--squash", "--delete-branch", "--admin"],
+      { stdio: "pipe", env: authEnv }
+    );
+    console.log(`${colors.green}${colors.bold}🚀 Successfully Merged PR #${pr.number} & deleted branch ${pr.headRefName}!${colors.reset}`);
+    return { approved: true, merged: true, message: consensusRationale };
+  } catch (mergeErr: any) {
+    console.warn(`Could not direct-merge #${pr.number} (trying auto-merge): ${mergeErr.message}`);
+    try {
+      execFileSync(
+        "gh",
+        ["pr", "merge", String(pr.number), "--repo", repo, "--squash", "--auto"],
+        { stdio: "pipe", env: authEnv }
+      );
+      return { approved: true, merged: true, message: `Auto-merge enabled: ${consensusRationale}` };
+    } catch (autoErr: any) {
+      return { approved: true, merged: false, message: `Approved, but merge requires status check: ${autoErr.message}` };
+    }
+  }
+}
+
+/** Record a consensus rejection on the PR. */
+function postChangesRequiredComment(
+  pr: PullRequestItem,
+  repo: string,
+  m1Decision: ProposerDecision,
+  m2Decision: AuditorDecision,
+  m1ModelName: string,
+  m2ModelName: string,
+  consensusRationale: string
+): PRReviewResult {
+  try {
+    execFileSync(
+      "gh",
+      [
+        "pr", "comment", String(pr.number), "--repo", repo,
+        "--body", `⚠️ **ShunopsAI Dual-Model Security Audit (Changes Required)**\n\n- **Model 1 (${m1ModelName})**: ${m1Decision.rationale}\n- **Model 2 (${m2ModelName})**: ${m2Decision.auditorCritique}`,
+      ],
+      { stdio: "pipe", env: getGitHubAuthEnv() }
+    );
+  } catch (commentErr: any) {
+    console.error(`Comment error on #${pr.number}: ${commentErr.message}`);
+  }
+  return { approved: false, merged: false, message: consensusRationale };
+}
+
+// ==========================================
+// Fleet runners
+// ==========================================
+
+/** Print a boxed section banner used by the autonomous runners. */
+function logBanner(color: string, title: string): void {
+  console.log(`\n${color}${colors.bold}====================================================${colors.reset}`);
+  console.log(`${color}${colors.bold}${title}${colors.reset}`);
+  console.log(`${color}${colors.bold}====================================================${colors.reset}\n`);
 }
 
 /**
@@ -736,9 +1000,7 @@ export function getTargetReposList(): string[] {
 export async function runAutoActionResolver(
   targetRepo?: string
 ): Promise<{ total: number; resolved: number }> {
-  console.log(`\n${colors.yellow}${colors.bold}====================================================${colors.reset}`);
-  console.log(`${colors.yellow}${colors.bold}⚙️ ShunopsAI Autonomous CI/CD Actions Monitor & Resolver${colors.reset}`);
-  console.log(`${colors.yellow}${colors.bold}====================================================${colors.reset}\n`);
+  logBanner(colors.yellow, "⚙️ ShunopsAI Autonomous CI/CD Actions Monitor & Resolver");
 
   const repos = targetRepo ? [targetRepo] : getTargetReposList();
   let totalActions = 0;
@@ -775,9 +1037,7 @@ export async function runAutoPRResolver(
     return { total: 0, resolved: 0, failedActionsTotal: 0, failedActionsResolved: 0 };
   }
 
-  console.log(`\n${colors.cyan}${colors.bold}====================================================${colors.reset}`);
-  console.log(`${colors.cyan}${colors.bold}🤖 ShunopsAI Autonomous Pull Request Reviewer & Resolver${colors.reset}`);
-  console.log(`${colors.cyan}${colors.bold}====================================================${colors.reset}\n`);
+  logBanner(colors.cyan, "🤖 ShunopsAI Autonomous Pull Request Reviewer & Resolver");
 
   const repos = targetRepo ? [targetRepo] : getTargetReposList();
   let totalPRs = 0;
@@ -819,4 +1079,3 @@ if (isCLI) {
     process.exit(0);
   });
 }
-
