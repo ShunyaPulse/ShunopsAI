@@ -17,6 +17,15 @@ import { sendVideoReadyEmail, sendIncidentAlert } from "../tools/notifier.js";
 
 import { isAutonomyPaused, getAutonomyStatus } from "../tools/autonomy-state.js";
 
+function sanitizeErrorMessage(input: unknown): string {
+  const raw = String(input ?? "Unknown error");
+
+  // Redact common secret-bearing fields and long token-like strings.
+  return raw
+    .replace(/(api[_-]?key|token|authorization|password|secret)\s*[:=]\s*["']?[^"',\s}]+["']?/gi, "$1=[REDACTED]")
+    .replace(/\b[A-Za-z0-9_\-]{24,}\b/g, "[REDACTED]");
+}
+
 interface AutopilotRunResult {
   ok: boolean;
   topic?: CuratedTopicResult;
@@ -219,9 +228,11 @@ export async function runAutonomousCycle(): Promise<AutopilotRunResult> {
       emailSent,
     };
   } catch (err: any) {
-    console.error(`[Autopilot] ❌ Autonomous cycle encountered an error: ${err.message}`);
+    const rawErrMsg = String(err?.message || err);
+    const safeErrMsg = sanitizeErrorMessage(rawErrMsg);
+    console.error(`[Autopilot] ❌ Autonomous cycle encountered an error: ${safeErrMsg}`);
     // If error is fixable (e.g. YouTube OAuth expired, Kaggle credentials/quota, or SMTP), send alert email
-    const errMsg = String(err?.message || err).toLowerCase();
+    const errMsg = rawErrMsg.toLowerCase();
     const isFixable =
       errMsg.includes("token") ||
       errMsg.includes("auth") ||
@@ -237,11 +248,11 @@ export async function runAutonomousCycle(): Promise<AutopilotRunResult> {
           service: "Daily Video Autopilot",
           status: "DEGRADED",
           actionTaken: "Cycle skipped for today. Please update credentials when convenient.",
-          details: `Error encountered during daily run: ${err.message}`,
+          details: `Error encountered during daily run: ${safeErrMsg}`,
         });
       } catch {}
     }
-    return { ok: false, error: err.message };
+    return { ok: false, error: safeErrMsg };
   } finally {
     // Retain only the most recent 2 video jobs to preserve VM disk space
     await cleanupOldVideoJobs(2);
