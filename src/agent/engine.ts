@@ -267,20 +267,20 @@ async function* streamGemini(
 }
 
 /**
- * Fallback Provider: Stream inference via Groq LPUs (OpenAI compatible)
+ * OpenAI-Compatible Streaming Engine (Groq LPUs and OpenRouter)
  */
-async function* streamGroq(
+async function* streamOpenAICompatible(
+  url: string,
   history: ChatMessage[],
   systemPrompt: string,
   apiKey: string,
-  modelName: string
+  modelName: string,
+  providerName: string
 ): AsyncGenerator<{
   text?: string;
   toolCalls?: ToolCall[];
   isFinish?: boolean;
 }> {
-  const url = 'https://api.groq.com/openai/v1/chat/completions';
-
   const messages: Array<{
     role: string;
     content: string | null;
@@ -341,11 +341,11 @@ async function* streamGroq(
 
   if (!response.ok) {
     const errText = await response.text();
-    throw new Error(`Groq API error status ${response.status}: ${errText.slice(0, 150)}`);
+    throw new Error(`${providerName} API error status ${response.status}: ${errText.slice(0, 150)}`);
   }
 
   if (!response.body) {
-    throw new Error('Groq API returned empty response body.');
+    throw new Error(`${providerName} API returned empty response body.`);
   }
 
   // Accumulator for tool calls streamed in chunks
@@ -401,8 +401,25 @@ async function* streamGroq(
   }
 }
 
+async function* streamGroq(
+  history: ChatMessage[],
+  systemPrompt: string,
+  apiKey: string,
+  modelName: string
+) {
+  yield* streamOpenAICompatible(
+    'https://api.groq.com/openai/v1/chat/completions',
+    history,
+    systemPrompt,
+    apiKey,
+    modelName,
+    'Groq'
+  );
+}
+
 /**
- * Cascade caller that switches across Gemini Key pool -> Groq -> OpenRouter
+ * Cascade caller that switches across Gemini Key pool -> Groq LPUs -> OpenRouter High-Capacity
+ * Complies with Rule 3 in GEMINI.md
  */
 async function* cascadeStream(
   history: ChatMessage[],
@@ -416,7 +433,7 @@ async function* cascadeStream(
 }> {
   const geminiKeys = getPermutedKeys(env.GEMINI_KEYS, env.GEMINI_API_KEY);
   const primaryModel = env.PRIMARY_MODEL || 'gemini-3.8-flash';
-  const groqModel = env.GROQ_FALLBACK_MODEL || 'llama-3.3-70b-versatile';
+  const groqModel = env.GROQ_FALLBACK_MODEL || 'openai/gpt-oss-120b';
 
   let lastError: Error | null = null;
 
@@ -435,18 +452,47 @@ async function* cascadeStream(
 
   // 2. Fallback to Groq LPUs if Gemini is exhausted or 429'd
   if (env.GROQ_API_KEY) {
-    try {
-      for await (const chunk of streamGroq(history, systemPrompt, env.GROQ_API_KEY, groqModel)) {
-        yield { ...chunk, provider: 'Groq LPU', model: groqModel };
+    const groqCandidates = Array.from(new Set([groqModel, 'openai/gpt-oss-120b', 'qwen/qwen3.8-27b'].filter(Boolean)));
+    for (const gModel of groqCandidates) {
+      try {
+        for await (const chunk of streamGroq(history, systemPrompt, env.GROQ_API_KEY, gModel)) {
+          yield { ...chunk, provider: 'Groq LPU', model: gModel };
+        }
+        return;
+      } catch (err: unknown) {
+        lastError = err instanceof Error ? err : new Error(String(err));
       }
-      return;
-    } catch (err: unknown) {
-      lastError = err instanceof Error ? err : new Error(String(err));
+    }
+  }
+
+  // 3. Fallback to OpenRouter High-Capacity if Groq is exhausted or unavailable
+  if (env.OPENROUTER_API_KEY) {
+    const openrouterCandidates = [
+      'openrouter/free',
+      'meta-llama/llama-3.3-70b-instruct:free',
+      'nvidia/nemotron-3-ultra-550b-a55b:free',
+    ];
+    for (const orModel of openrouterCandidates) {
+      try {
+        for await (const chunk of streamOpenAICompatible(
+          'https://openrouter.ai/api/v1/chat/completions',
+          history,
+          systemPrompt,
+          env.OPENROUTER_API_KEY,
+          orModel,
+          'OpenRouter'
+        )) {
+          yield { ...chunk, provider: 'OpenRouter', model: orModel };
+        }
+        return;
+      } catch (err: unknown) {
+        lastError = err instanceof Error ? err : new Error(String(err));
+      }
     }
   }
 
   // If all providers failed
-  throw lastError || new Error('All AI providers (Gemini Key Pool & Groq) were exhausted.');
+  throw lastError || new Error('All AI providers (Gemini Key Pool, Groq & OpenRouter) were exhausted.');
 }
 
 /**

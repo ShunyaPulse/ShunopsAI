@@ -57,7 +57,7 @@ app.get('/api/health', (c) => {
     timestamp: new Date().toISOString(),
     runtime: 'Cloudflare Workers (Edge)',
     primaryModel: c.env.PRIMARY_MODEL || 'gemini-3.8-flash',
-    fallbackModel: c.env.GROQ_FALLBACK_MODEL || 'llama-3.3-70b-versatile',
+    fallbackModel: c.env.GROQ_FALLBACK_MODEL || 'openai/gpt-oss-120b',
   });
 });
 
