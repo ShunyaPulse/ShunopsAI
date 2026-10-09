@@ -16,13 +16,13 @@ interface YouTubeUploadOptions {
 
 interface YouTubeUploadResult {
   ok: boolean;
-  videoId?: string;
-  videoUrl?: string;
-  studioUrl?: string;
-  title?: string;
-  privacyStatus?: string;
-  thumbnailSet?: boolean;
-  error?: string;
+  videoId?: string | undefined;
+  videoUrl?: string | undefined;
+  studioUrl?: string | undefined;
+  title?: string | undefined;
+  privacyStatus?: string | undefined;
+  thumbnailSet?: boolean | undefined;
+  error?: string | undefined;
 }
 
 let cachedAccessToken: string | null = null;
@@ -101,6 +101,52 @@ export async function setYouTubeThumbnail(videoId: string, thumbnailPath: string
   }
 }
 
+function normalizeTitle(t: string): string {
+  return t.toLowerCase().replace(/[^a-z0-9]/g, "").trim();
+}
+
+/**
+ * Checks if a video with a matching title already exists on the user's YouTube channel.
+ * Prevents accidental duplicate re-uploads.
+ */
+export async function findExistingVideoByTitle(
+  candidateTitle: string,
+  accessToken: string
+): Promise<{ exists: boolean; videoId?: string; title?: string }> {
+  try {
+    const res = await fetch(
+      "https://www.googleapis.com/youtube/v3/search?forMine=true&type=video&maxResults=50&part=snippet",
+      {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      }
+    );
+    if (!res.ok) return { exists: false };
+    const data = (await res.json()) as any;
+    const normTarget = normalizeTitle(candidateTitle);
+
+    for (const item of data.items || []) {
+      const existingTitle = item.snippet?.title || "";
+      const existingNorm = normalizeTitle(existingTitle);
+      const vid = item.id?.videoId;
+      if (!vid) continue;
+
+      if (
+        normTarget === existingNorm ||
+        (normTarget.length > 20 && existingNorm.length > 20 && (normTarget.includes(existingNorm) || existingNorm.includes(normTarget)))
+      ) {
+        return {
+          exists: true,
+          videoId: vid,
+          title: existingTitle,
+        };
+      }
+    }
+  } catch (err: any) {
+    console.warn(`[YouTube] Duplicate check warning: ${err?.message ? "[REDACTED]" : "none"}`);
+  }
+  return { exists: false };
+}
+
 /**
  * Uploads a video to YouTube using Resumable Upload protocol.
  * Defaults to private visibility for review before publishing.
@@ -142,6 +188,22 @@ export async function uploadToYouTube(options: YouTubeUploadOptions): Promise<Yo
     const categoryId = options.categoryId || "28"; // 28 = Science & Technology, 27 = Education
 
     const accessToken = await getYouTubeAccessToken();
+
+    // Guardrail: Ensure video is not already present on channel
+    const duplicate = await findExistingVideoByTitle(title, accessToken);
+    if (duplicate.exists && duplicate.videoId) {
+      console.log(`[YouTube] 🛑 Duplicate prevented: Video with matching title already exists on channel: "${duplicate.title}" (ID: ${duplicate.videoId}). Skipping upload.`);
+      return {
+        ok: true,
+        videoId: duplicate.videoId,
+        videoUrl: `https://youtu.be/${duplicate.videoId}`,
+        studioUrl: `https://studio.youtube.com/video/${duplicate.videoId}/edit`,
+        title: duplicate.title,
+        privacyStatus: "existing",
+        thumbnailSet: false,
+      };
+    }
+
     const stats = await fs.stat(videoPath);
     const fileSize = stats.size;
 
