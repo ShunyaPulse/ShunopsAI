@@ -538,9 +538,9 @@ import * as fsSync from "node:fs";
  * Automatically publishes a rendered video job to YouTube with private visibility.
  */
 export async function publishJobToYouTube(jobDirOrId: string, privacy: "private" | "unlisted" | "public" = "private"): Promise<string> {
-  const directPath = path.resolve(process.cwd(), jobDirOrId);
-  const targetDir = fsSync.existsSync(directPath)
-    ? directPath
+  const isDirect = path.isAbsolute(jobDirOrId) || jobDirOrId.includes("/") || jobDirOrId.includes("\\");
+  const targetDir = isDirect
+    ? path.resolve(process.cwd(), jobDirOrId)
     : path.join(JOBS_DIR, jobDirOrId, "output");
 
   const videoPath = path.join(targetDir, "video.mp4");

@@ -169,62 +169,90 @@ export async function uploadToYouTube(options: YouTubeUploadOptions): Promise<Yo
       },
     };
 
-    const initRes = await fetch(
-      "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status,paidProductPlacementDetails",
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          "Content-Type": "application/json; charset=UTF-8",
-          "X-Upload-Content-Length": String(fileSize),
-          "X-Upload-Content-Type": "video/mp4",
-        },
-        body: JSON.stringify(metadata),
+    let videoId = "";
+    const maxAttempts = 3;
+    let lastError = "";
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        if (attempt > 1) {
+          console.log(`[YouTube] Retry attempt ${attempt}/${maxAttempts} after transient network reset...`);
+          await new Promise((r) => setTimeout(r, 4000 * attempt));
+        }
+
+        const currentToken = await getYouTubeAccessToken();
+        const initRes = await fetch(
+          "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status,paidProductPlacementDetails",
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${currentToken}`,
+              "Content-Type": "application/json; charset=UTF-8",
+              "X-Upload-Content-Length": String(fileSize),
+              "X-Upload-Content-Type": "video/mp4",
+            },
+            body: JSON.stringify(metadata),
+          }
+        );
+
+        if (!initRes.ok) {
+          const errText = await initRes.text();
+          lastError = `Failed to initiate YouTube upload: ${errText}`;
+          continue;
+        }
+
+        const uploadUrl = initRes.headers.get("Location") || initRes.headers.get("location");
+        if (!uploadUrl) {
+          lastError = "YouTube did not return a resumable Location upload URL.";
+          continue;
+        }
+
+        // Step 2: Upload the video file binary
+        console.log(`[YouTube] Uploading video content (${(fileSize / 1024 / 1024).toFixed(1)} MB)...`);
+        const { execFile } = await import("node:child_process");
+        const { promisify } = await import("node:util");
+        const execFileAsync = promisify(execFile);
+
+        const { stdout, stderr } = await execFileAsync(
+          "curl",
+          [
+            "-sS",
+            "--http1.1",
+            "-X",
+            "PUT",
+            "-T",
+            videoPath,
+            "-H",
+            "Content-Type: video/mp4",
+            "-H",
+            `Content-Length: ${fileSize}`,
+            uploadUrl,
+          ],
+          { maxBuffer: 20 * 1024 * 1024, timeout: 900000 }
+        );
+
+        let uploadData: any;
+        try {
+          uploadData = JSON.parse(stdout);
+        } catch {
+          lastError = `YouTube upload failed: ${stdout || stderr}`;
+          continue;
+        }
+
+        if (uploadData.id) {
+          videoId = uploadData.id;
+          break;
+        } else {
+          lastError = `YouTube upload completed but video ID was not returned: ${JSON.stringify(uploadData)}`;
+        }
+      } catch (uploadErr: any) {
+        lastError = uploadErr.message;
+        console.warn(`[YouTube] Upload attempt ${attempt} warning: ${uploadErr.message}`);
       }
-    );
-
-    if (!initRes.ok) {
-      const errText = await initRes.text();
-      return { ok: false, error: `Failed to initiate YouTube upload: ${errText}` };
     }
 
-    const uploadUrl = initRes.headers.get("Location") || initRes.headers.get("location");
-    if (!uploadUrl) {
-      return { ok: false, error: "YouTube did not return a resumable Location upload URL." };
-    }
-
-    // Step 2: Upload the video file binary
-    console.log(`[YouTube] Uploading video content (${(fileSize / 1024 / 1024).toFixed(1)} MB)...`);
-    const { execFile } = await import("node:child_process");
-    const { promisify } = await import("node:util");
-    const execFileAsync = promisify(execFile);
-
-    const { stdout, stderr } = await execFileAsync(
-      "curl",
-      [
-        "-sS",
-        "-X",
-        "PUT",
-        "-T",
-        videoPath,
-        "-H",
-        "Content-Type: video/mp4",
-        "-H",
-        `Content-Length: ${fileSize}`,
-        uploadUrl,
-      ],
-      { maxBuffer: 20 * 1024 * 1024, timeout: 900000 }
-    );
-
-    let uploadData: any;
-    try {
-      uploadData = JSON.parse(stdout);
-    } catch {
-      return { ok: false, error: `YouTube upload failed: ${stdout || stderr}` };
-    }
-    const videoId = uploadData.id;
     if (!videoId) {
-      return { ok: false, error: `YouTube upload completed but video ID was not returned: ${JSON.stringify(uploadData)}` };
+      return { ok: false, error: lastError || "YouTube upload failed after multiple attempts." };
     }
 
     const videoUrl = `https://youtu.be/${videoId}`;

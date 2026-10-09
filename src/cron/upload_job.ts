@@ -2,12 +2,29 @@ import "dotenv/config";
 import * as path from "node:path";
 import * as fsSync from "node:fs";
 import * as fs from "node:fs/promises";
-import { publishJobToYouTube } from "../tools/video.js";
+import { publishJobToYouTube, manageKaggle } from "../tools/video.js";
 import { sendVideoReadyEmail } from "../tools/notifier.js";
 
 async function main() {
-  const jobId = process.argv[2] || "mutpcenl";
+  const rawArg = process.argv[2] || "mutpcenl";
+  const jobId = rawArg.replace(/^shunyapulse\//, "").replace(/^video-render-/, "");
   const destDir = path.resolve(process.cwd(), "jobs", jobId, "output");
+  const videoFile = path.join(destDir, "video.mp4");
+
+  if (!fsSync.existsSync(videoFile)) {
+    console.log(`[Upload] Artifacts not found locally at ${videoFile}. Checking Kaggle kernel...`);
+    const kernelRef = `shunyapulse/video-render-${jobId}`;
+    const status = await manageKaggle("status", kernelRef);
+    console.log(`[Upload] Kaggle Kernel Status: ${status}`);
+
+    console.log(`[Upload] Downloading artifacts from Kaggle kernel ${kernelRef}...`);
+    const downloadLog = await manageKaggle("output", kernelRef);
+    console.log(`[Upload] Kaggle download completed:\n${downloadLog}`);
+  }
+
+  if (!fsSync.existsSync(videoFile)) {
+    throw new Error(`Video file still not found at: ${videoFile}. Please check Kaggle kernel status or logs.`);
+  }
 
   console.log(`[Upload] Publishing job "${jobId}" from ${destDir} to YouTube...`);
   const ytResultRaw = await publishJobToYouTube(destDir, "private");
@@ -29,11 +46,10 @@ async function main() {
     title: ytResult.title,
     videoUrl: ytResult.videoUrl,
     studioUrl: ytResult.studioUrl,
-    topic: meta.title || "Aadhaar Biometric Super-Engine Architecture",
-    category: "Technology & Cybersecurity",
-    valueHook:
-      "Complete engineering breakdown of 1:N deduplication, ABIS biometric vectorization, and cryptographic HSM security powering India's UIDAI architecture.",
-    thumbnailPath: ["frame_30s.jpg", "frame_15s.jpg", "frame_03s.jpg", "frame_45s.jpg"]
+    topic: meta.title || "Autonomous Video Project",
+    category: meta.category || "Science & Technology",
+    valueHook: meta.description || meta.value_hook || "Autonomous AI video production render.",
+    thumbnailPath: ["thumbnail.jpg", "thumbnail.png", "frame_30s.jpg", "frame_15s.jpg", "frame_03s.jpg", "frame_45s.jpg"]
       .map((f) => path.join(destDir, f))
       .find((f) => fsSync.existsSync(f)),
     chapters: meta.chapters,
