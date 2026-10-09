@@ -129,7 +129,7 @@ export async function sweepAndPublishVideos(): Promise<{ checked: number; publis
     }
   }
 
-  console.log(`[Cloud Sweeper] Found ${videoKernels.length} video-render kernel(s) in account "${USER}".`);
+  console.log(`[Cloud Sweeper] Found ${videoKernels.length} video-render kernel(s) in account "[REDACTED]".`);
 
   let publishedCount = 0;
 
@@ -186,7 +186,7 @@ export async function sweepAndPublishVideos(): Promise<{ checked: number; publis
     try {
       await manageKaggle("output", kernelRef);
     } catch (e: any) {
-      console.error(`[Cloud Sweeper] Failed to download output for ${kernelRef}:`, e?.message ? "[REDACTED]" : "none");
+      console.error("[Cloud Sweeper] Failed to download output for " + kernelRef + ": " + (e?.message ? "[REDACTED]" : "none"));
       continue;
     }
 
