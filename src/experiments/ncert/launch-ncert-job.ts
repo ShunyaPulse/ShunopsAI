@@ -60,14 +60,14 @@ export async function launchNCERTJob(): Promise<{ jobId: string; kernel: string;
 
   console.log(`[NCERT Launch] Uploading dataset to Kaggle (${user}/video-job-${id})...`);
   const dsRes = await kaggle(["datasets", "create", "-p", dsDir]);
-  console.log("[NCERT Launch] Dataset create response:", dsRes);
+  console.log("[NCERT Launch] Dataset create response:", dsRes ? "[REDACTED]" : "none");
 
   console.log("[NCERT Launch] Waiting 20s for Kaggle dataset provisioning...");
   await new Promise((r) => setTimeout(r, 20000));
 
   console.log(`[NCERT Launch] Pushing kernel ${user}/video-render-${id} to Kaggle GPU...`);
   const pushRes = await kaggle(["kernels", "push", "-p", kDir]);
-  console.log("[NCERT Launch] Kernel push response:", pushRes);
+  console.log("[NCERT Launch] Kernel push response:", pushRes ? "[REDACTED]" : "none");
 
   return {
     jobId: id,
@@ -90,8 +90,8 @@ async function main() {
 
 const isCLI = process.argv[1]?.endsWith("launch-ncert-job.ts") || process.argv[1]?.endsWith("launch-ncert-job.js");
 if (isCLI) {
-  main().catch((err) => {
-    console.error("[NCERT Launch Error]", err);
+  main().catch(() => {
+    console.error("[NCERT Launch Error] Execution failed");
     process.exit(1);
   });
 }

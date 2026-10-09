@@ -13,7 +13,7 @@ async function run() {
 }
 
 run().catch((err) => {
-  console.error("[Launch] Failed to start video job:", err);
+  console.error("[Launch] Failed to start video job:", err ? "[REDACTED]" : "none");
   process.exit(1);
 });
 

@@ -19,7 +19,7 @@ async function main() {
 
     console.log(`[Upload] Downloading artifacts from Kaggle kernel ${kernelRef}...`);
     const downloadLog = await manageKaggle("output", kernelRef);
-    console.log(`[Upload] Kaggle download completed:\n${downloadLog}`);
+    console.log(`[Upload] Kaggle download completed.`);
   }
 
   if (!fsSync.existsSync(videoFile)) {
@@ -28,7 +28,7 @@ async function main() {
 
   console.log(`[Upload] Publishing job "${jobId}" from ${destDir} to YouTube...`);
   const ytResultRaw = await publishJobToYouTube(destDir, "private");
-  console.log("[Upload] YouTube response:", ytResultRaw);
+  console.log("[Upload] YouTube response: [REDACTED]");
   const ytResult = JSON.parse(ytResultRaw);
 
   if (!ytResult.ok || !ytResult.videoUrl) {
