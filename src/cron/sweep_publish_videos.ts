@@ -154,7 +154,7 @@ export async function sweepAndPublishVideos(): Promise<{ checked: number; publis
     }
 
     const upperStatus = status.toUpperCase();
-    console.log(`[Cloud Sweeper] Status: ${status.trim()}`);
+    console.log(`[Cloud Sweeper] Status: [REDACTED]`);
 
     if (upperStatus.includes("RUNNING") || upperStatus.includes("QUEUED")) {
       console.log(`[Cloud Sweeper] ⏳ Kernel is actively rendering on Kaggle GPU. Skipping.`);
