@@ -494,7 +494,7 @@ async def main():
             print(f"Skipping scene {i+1}: TTS failed.")
             continue
 
-        d = duration(a_path) + 0.35
+        d = round(duration(a_path), 3)
 
         # 2. Extract Subtitle cues for this scene (Pure English captions)
         eng_caption = sc.get("caption", "").strip()
@@ -526,12 +526,17 @@ async def main():
         # 3. Generate non-repeating continuous video montage on GPU
         diffusion.generate_scene_montage(sc["visual_prompt"], d, v_path, scene_idx=i)
 
-        # Pad narration audio to match scene duration exactly with silence (preventing audio drift / premature cutoff)
-        a_padded = f"{TMP}/a_pad_{i:03d}.mp3"
-        pad_filter = f"apad=whole_dur={d:.3f}"
-        run(["ffmpeg", "-y", "-i", a_path, "-af", pad_filter, "-c:a", "libmp3lame", "-b:a", "192k", a_padded])
-        if os.path.exists(a_padded) and os.path.getsize(a_padded) > 500:
-            narr_files.append(a_padded)
+        # Synchronize audio and video precisely:
+        # Avoid artificial silence delays between sentences while preventing sub-frame audio drift
+        v_dur = duration(v_path)
+        if v_dur > duration(a_path) + 0.03:
+            a_padded = f"{TMP}/a_pad_{i:03d}.mp3"
+            pad_filter = f"apad=whole_dur={v_dur:.3f}"
+            run(["ffmpeg", "-y", "-i", a_path, "-af", pad_filter, "-c:a", "libmp3lame", "-b:a", "192k", a_padded])
+            if os.path.exists(a_padded) and os.path.getsize(a_padded) > 500:
+                narr_files.append(a_padded)
+            else:
+                narr_files.append(a_path)
         else:
             narr_files.append(a_path)
 
