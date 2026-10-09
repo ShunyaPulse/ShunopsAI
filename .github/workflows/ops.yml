@@ -143,6 +143,9 @@ jobs:
           GH_PAT: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
           AUTONOMOUS_TARGET_REPOS: ${{ secrets.AUTONOMOUS_TARGET_REPOS || 'ShunyaPulse/ShunopsAI,ShunyaPulse/SaralGati,ShunyaPulse/kanban-cloud' }}
+          YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
           TARGET_SERVICE: ${{ github.event.inputs.target_service || 'issue-trigger' }}
           TASK_GOAL: ${{ github.event.inputs.task_goal || github.event.issue.title }}
         run: |
@@ -154,6 +157,8 @@ jobs:
             npx tsx src/tools/autonomous-repo-auditor.ts
           elif [ "$TARGET_SERVICE" = "pull_requests_dual_model_review" ]; then
             npx tsx src/tools/pr-auto-resolver.ts
+          elif [ "$TARGET_SERVICE" = "kaggle_gpu_pipeline" ]; then
+            npx tsx src/cron/sweep_publish_videos.ts
           else
             npx tsx agent.ts "Target Service: $TARGET_SERVICE. Action: $TASK_GOAL"
           fi

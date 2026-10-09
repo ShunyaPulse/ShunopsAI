@@ -604,11 +604,11 @@ async def main():
         "BorderStyle=1,Outline=2,Shadow=1,Alignment=2,MarginV=42"
     )
     print("Mastering final modern video with burn-in captions, highlight roll-off curves, and film grain...")
-    master_vf = (
-        f"curves=all='0/0 0.85/0.83 1/0.92':blue='0/0 0.75/0.72 1/0.88':green='0/0 0.80/0.78 1/0.92',"
-        f"noise=alls=1.5:allf=t+u,"
+    master_vf = ",".join([
+        f"curves=all='0/0 0.85/0.83 1/0.92':blue='0/0 0.75/0.72 1/0.88':green='0/0 0.80/0.78 1/0.92'",
+        f"noise=alls=1.5:allf=t+u",
         f"subtitles={OUT}/captions.srt:force_style='{style}'"
-    )
+    ])
     ok = run([
         "ffmpeg", "-y", "-i", f"{TMP}/video_raw.mp4", "-i", f"{TMP}/narration.mp3",
         "-vf", master_vf,

@@ -9,7 +9,8 @@ async function run() {
 
   console.log(`[Launch] Starting video job for topic: "${topic}" (${minutes} mins, ${language})...`);
   const res = await startVideoJob(topic, minutes, language, trendReason);
-  console.log("[Launch] Video job completed successfully.");
+  console.log("[Launch] Video job successfully dispatched to Kaggle GPU cloud.");
+  console.log("[Launch] Cloud Sweeper in GitHub Actions will sweep, download, and publish to YouTube once complete.");
 }
 
 run().catch((err) => {

@@ -1,0 +1,62 @@
+name: "Cloud Video Sweeper & Publisher"
+
+on:
+  schedule:
+    # Check every 4 hours for completed Kaggle video diffusion renders
+    - cron: "0 */4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sweep-and-publish:
+    name: "Sweep Kaggle Video Renders"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v7
+        with:
+          token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 20
+          cache: "npm"
+
+      - name: Setup Python & Kaggle CLI
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      - name: Install Kaggle CLI
+        run: |
+          python -m pip install --upgrade pip
+          pip install kaggle
+
+      - name: Install Node Dependencies
+        run: npm ci
+
+      - name: Sweep Kaggle Kernels and Publish Completed Videos
+        env:
+          KAGGLE_USERNAME: ${{ secrets.KAGGLE_USERNAME }}
+          KAGGLE_KEY: ${{ secrets.KAGGLE_KEY }}
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+          VIDEO_TOKEN: ${{ secrets.VIDEO_TOKEN }}
+          YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+          REDIS_URL: ${{ secrets.REDIS_URL }}
+          REDIS_HOST: ${{ secrets.REDIS_HOST }}
+          REDIS_PORT: ${{ secrets.REDIS_PORT }}
+          REDIS_PASSWORD: ${{ secrets.REDIS_PASSWORD }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+        run: |
+          npx tsx src/cron/sweep_publish_videos.ts
+

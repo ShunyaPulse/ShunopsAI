@@ -85,6 +85,8 @@ async function main() {
   console.log("[NCERT Launch] Kernel: [REDACTED]");
   console.log(`Title: ${result.title}`);
   console.log(`Scenes: ${result.scenes}`);
+  console.log("Status: Render running on Kaggle GPU cloud.");
+  console.log("Cloud Sweeper in CI will auto-detect completion and publish to YouTube.");
   console.log("=======================================================\n");
 }
 
