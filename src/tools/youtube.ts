@@ -89,14 +89,13 @@ export async function setYouTubeThumbnail(videoId: string, thumbnailPath: string
     });
 
     if (!res.ok) {
-      const err = await res.text();
-      console.warn(`[YouTube] Warning: failed to set custom thumbnail: ${err}`);
+      console.warn("[YouTube] Warning: failed to set custom thumbnail: [REDACTED]");
       return false;
     }
     console.log(`[YouTube] Successfully set custom thumbnail for video ${videoId}`);
     return true;
-  } catch (e: any) {
-    console.warn(`[YouTube] Thumbnail error: ${e.message}`);
+  } catch {
+    console.warn("[YouTube] Thumbnail error: [REDACTED]");
     return false;
   }
 }
@@ -177,8 +176,8 @@ export async function uploadToYouTube(options: YouTubeUploadOptions): Promise<Yo
         if (!tags.length && Array.isArray(meta.tags)) {
           tags = meta.tags;
         }
-      } catch (err: any) {
-        console.warn(`[YouTube] Could not parse meta.json: ${err.message}`);
+      } catch {
+        console.warn("[YouTube] Could not parse meta.json: [REDACTED]");
       }
     }
 
@@ -309,7 +308,7 @@ export async function uploadToYouTube(options: YouTubeUploadOptions): Promise<Yo
         }
       } catch (uploadErr: any) {
         lastError = uploadErr.message;
-        console.warn(`[YouTube] Upload attempt ${attempt} warning: ${uploadErr.message}`);
+        console.warn(`[YouTube] Upload attempt ${attempt} warning: [REDACTED]`);
       }
     }
 

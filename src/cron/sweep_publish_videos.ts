@@ -135,7 +135,7 @@ export async function sweepAndPublishVideos(): Promise<{ checked: number; publis
 
   for (const kernelRef of videoKernels) {
     const jobId = kernelRef.replace(new RegExp(`^${USER}/video-render-`), "");
-    console.log(`\n[Cloud Sweeper] Inspecting kernel: ${kernelRef} (Job: ${jobId})...`);
+    console.log(`\n[Cloud Sweeper] Inspecting job: ${jobId}...`);
 
     // 1. Check deduplication state
     const alreadyPublished = await isJobAlreadyPublished(jobId);
@@ -154,7 +154,16 @@ export async function sweepAndPublishVideos(): Promise<{ checked: number; publis
     }
 
     const upperStatus = status.toUpperCase();
-    console.log(`[Cloud Sweeper] Status: [REDACTED]`);
+    const displayStatus = upperStatus.includes("RUNNING")
+      ? "RUNNING"
+      : upperStatus.includes("QUEUED")
+      ? "QUEUED"
+      : upperStatus.includes("COMPLETE")
+      ? "COMPLETE"
+      : upperStatus.includes("ERROR") || upperStatus.includes("FAILED")
+      ? "ERROR"
+      : "UNKNOWN";
+    console.log(`[Cloud Sweeper] Status: ${displayStatus}`);
 
     if (upperStatus.includes("RUNNING") || upperStatus.includes("QUEUED")) {
       console.log(`[Cloud Sweeper] ⏳ Kernel is actively rendering on Kaggle GPU. Skipping.`);
@@ -167,18 +176,18 @@ export async function sweepAndPublishVideos(): Promise<{ checked: number; publis
         title: "Kaggle Video Kernel Failed",
         service: "Kaggle GPU Pipeline",
         status: "DOWN",
-        details: `Kaggle video render failed for ${kernelRef}. Status: ${status.slice(0, 300)}`,
+        details: `Kaggle video render failed for job ${jobId}. Status: ${displayStatus}`,
       }).catch(() => null);
       continue;
     }
 
     if (!upperStatus.includes("COMPLETE")) {
-      console.log(`[Cloud Sweeper] Unrecognized status for ${kernelRef}. Skipping.`);
+      console.log(`[Cloud Sweeper] Unrecognized status for job ${jobId}. Skipping.`);
       continue;
     }
 
     // 3. Kernel is COMPLETE and NOT published! Process download and publish.
-    console.log(`[Cloud Sweeper] 🎯 Kernel ${kernelRef} is COMPLETE and pending publication!`);
+    console.log(`[Cloud Sweeper] 🎯 Job ${jobId} is COMPLETE and pending publication!`);
     const destDir = path.join(JOBS_DIR, jobId, "output");
     await fs.mkdir(destDir, { recursive: true });
 
@@ -186,7 +195,7 @@ export async function sweepAndPublishVideos(): Promise<{ checked: number; publis
     try {
       await manageKaggle("output", kernelRef);
     } catch (e: any) {
-      console.error("[Cloud Sweeper] Failed to download output for " + kernelRef + ": " + (e?.message ? "[REDACTED]" : "none"));
+      console.error("[Cloud Sweeper] Failed to download output for job " + jobId + ": " + (e?.message ? "[REDACTED]" : "none"));
       continue;
     }
 
