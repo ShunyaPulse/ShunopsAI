@@ -15,7 +15,7 @@ async function main() {
     console.log(`[Upload] Artifacts not found locally at ${videoFile}. Checking Kaggle kernel...`);
     const kernelRef = `shunyapulse/video-render-${jobId}`;
     const status = await manageKaggle("status", kernelRef);
-    console.log(`[Upload] Kaggle Kernel Status: ${status}`);
+    console.log("[Upload] Kaggle Kernel Status: [REDACTED]");
 
     console.log(`[Upload] Downloading artifacts from Kaggle kernel ${kernelRef}...`);
     const downloadLog = await manageKaggle("output", kernelRef);

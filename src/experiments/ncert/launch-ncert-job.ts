@@ -58,14 +58,14 @@ export async function launchNCERTJob(): Promise<{ jobId: string; kernel: string;
     })
   );
 
-  console.log(`[NCERT Launch] Uploading dataset to Kaggle (${user}/video-job-${id})...`);
+  console.log(`[NCERT Launch] Uploading dataset to Kaggle (job-${id})...`);
   const dsRes = await kaggle(["datasets", "create", "-p", dsDir]);
   console.log("[NCERT Launch] Dataset create response:", dsRes ? "[REDACTED]" : "none");
 
   console.log("[NCERT Launch] Waiting 20s for Kaggle dataset provisioning...");
   await new Promise((r) => setTimeout(r, 20000));
 
-  console.log(`[NCERT Launch] Pushing kernel ${user}/video-render-${id} to Kaggle GPU...`);
+  console.log(`[NCERT Launch] Pushing kernel to Kaggle GPU (job-${id})...`);
   const pushRes = await kaggle(["kernels", "push", "-p", kDir]);
   console.log("[NCERT Launch] Kernel push response:", pushRes ? "[REDACTED]" : "none");
 
@@ -82,7 +82,7 @@ async function main() {
   console.log("\n=======================================================");
   console.log("🚀 [NCERT Launch] Pilot Video Render Successfully Dispatched!");
   console.log(`Job ID: ${result.jobId}`);
-  console.log(`Kernel: ${result.kernel}`);
+  console.log("[NCERT Launch] Kernel: [REDACTED]");
   console.log(`Title: ${result.title}`);
   console.log(`Scenes: ${result.scenes}`);
   console.log("=======================================================\n");
