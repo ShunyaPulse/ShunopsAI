@@ -1,9 +1,9 @@
 name: "ShunopsAI Cloud Operations & Sentinel"
 
 on:
-  # Automated scheduled monitoring disabled; manual trigger available via workflow_dispatch
-  # schedule:
-  #   - cron: "0 */12 * * *"
+  schedule:
+    # Automated scheduled monitoring every 12 hours (ShunopsAI invariant)
+    - cron: "0 */12 * * *"
   workflow_dispatch:
     inputs:
       target_service:

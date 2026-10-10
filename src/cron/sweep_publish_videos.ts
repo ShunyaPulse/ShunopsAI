@@ -18,7 +18,7 @@ import * as path from "node:path";
 import * as fsSync from "node:fs";
 import * as fs from "node:fs/promises";
 import { Redis } from "ioredis";
-import { manageKaggle, publishJobToYouTube, kaggle } from "../tools/video.js";
+import { manageKaggle, publishJobToYouTube, kaggle, rerunVideoJob } from "../tools/video.js";
 import { sendVideoReadyEmail, sendIncidentAlert } from "../tools/notifier.js";
 
 const STATE_FILE = path.resolve(process.cwd(), ".auditor-state.json");
@@ -103,6 +103,56 @@ async function markJobAsPublished(jobId: string, videoId: string, videoUrl: stri
   } catch {}
 }
 
+async function getJobRetryCount(jobId: string): Promise<number> {
+  const redis = getRedis();
+  if (redis) {
+    try {
+      await redis.connect();
+      const val = await redis.get(`shunops:video:retries:${jobId}`);
+      await redis.quit();
+      if (val) return parseInt(val, 10) || 0;
+    } catch {
+      try {
+        redis.disconnect();
+      } catch {}
+    }
+  }
+
+  try {
+    if (fsSync.existsSync(STATE_FILE)) {
+      const data = JSON.parse(await fs.readFile(STATE_FILE, "utf-8"));
+      return data?.failedRetries?.[jobId] || 0;
+    }
+  } catch {}
+
+  return 0;
+}
+
+async function markJobRetried(jobId: string, count: number): Promise<void> {
+  const redis = getRedis();
+  if (redis) {
+    try {
+      await redis.connect();
+      await redis.set(`shunops:video:retries:${jobId}`, String(count));
+      await redis.quit();
+    } catch {
+      try {
+        redis.disconnect();
+      } catch {}
+    }
+  }
+
+  try {
+    let data: any = {};
+    if (fsSync.existsSync(STATE_FILE)) {
+      data = JSON.parse(await fs.readFile(STATE_FILE, "utf-8"));
+    }
+    data.failedRetries = data.failedRetries || {};
+    data.failedRetries[jobId] = count;
+    await fs.writeFile(STATE_FILE, JSON.stringify(data, null, 2), "utf-8");
+  } catch {}
+}
+
 export async function sweepAndPublishVideos(): Promise<{ checked: number; published: number }> {
   console.log(`\n=======================================================`);
   console.log(`🛰️ [Cloud Sweeper] Scanning Kaggle Video Kernels...`);
@@ -172,12 +222,20 @@ export async function sweepAndPublishVideos(): Promise<{ checked: number; publis
 
     if (upperStatus.includes("ERROR") || upperStatus.includes("FAILED") || /has status ["']?error["']?/i.test(status)) {
       console.error(`[Cloud Sweeper] ❌ Kernel finished with error: [REDACTED]`);
-      await sendIncidentAlert({
-        title: "Kaggle Video Kernel Failed",
-        service: "Kaggle GPU Pipeline",
-        status: "DOWN",
-        details: `Kaggle video render failed for job ${jobId}. Status: ${displayStatus}`,
-      }).catch(() => null);
+      const retries = await getJobRetryCount(jobId);
+      if (retries === 0) {
+        console.log(`[Cloud Sweeper] 🔄 Auto-healing: Rerunning failed kernel for job ${jobId} with latest patched renderer...`);
+        try {
+          await rerunVideoJob(jobId);
+          await markJobRetried(jobId, 1);
+          console.log(`[Cloud Sweeper] 🚀 Successfully re-dispatched job ${jobId} to Kaggle GPU.`);
+        } catch {
+          console.warn(`[Cloud Sweeper] Auto-heal rerun notice: [REDACTED]`);
+          await markJobRetried(jobId, 1);
+        }
+      } else {
+        console.log(`[Cloud Sweeper] ⏩ Job "${jobId}" was already retried. Skipping further checks to conserve GPU quota.`);
+      }
       continue;
     }
 
