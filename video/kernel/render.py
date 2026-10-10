@@ -40,22 +40,6 @@ for mod in list(sys.modules.keys()):
     if "torchao" in mod:
         del sys.modules[mod]
 
-try:
-    import types
-    dummy_ao = types.ModuleType("torchao")
-    dummy_q = types.ModuleType("torchao.quantization")
-    class FqnToConfig:
-        pass
-    def quantize_(*args, **kwargs):
-        pass
-    dummy_q.FqnToConfig = FqnToConfig
-    dummy_q.quantize_ = quantize_
-    dummy_ao.quantization = dummy_q
-    sys.modules["torchao"] = dummy_ao
-    sys.modules["torchao.quantization"] = dummy_q
-except Exception:
-    pass
-
 # Ensure all dependencies are present and upgraded
 subprocess.run([
     sys.executable, "-m", "pip", "install", "-q", "-U",
