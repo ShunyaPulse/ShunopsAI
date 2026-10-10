@@ -25,15 +25,36 @@ import time
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
 # Reconcile torchao version compatibility with latest diffusers
-# (Outdated torchao in Kaggle images lacks FqnToConfig, causing diffusers.loaders.single_file to throw ImportError)
+# (Incompatible torchao in Kaggle images lacks FqnToConfig, causing diffusers single_file/wan/animatediff loaders to throw ImportError)
+subprocess.run([sys.executable, "-m", "pip", "uninstall", "-y", "-q", "torchao"], check=False)
 try:
-    from torchao.quantization import FqnToConfig
+    import site
+    for sp in site.getsitepackages():
+        target = os.path.join(sp, "torchao")
+        if os.path.exists(target):
+            shutil.rmtree(target, ignore_errors=True)
 except Exception:
-    subprocess.run([sys.executable, "-m", "pip", "install", "-q", "-U", "torchao"], check=False)
-    try:
-        from torchao.quantization import FqnToConfig
-    except Exception:
-        subprocess.run([sys.executable, "-m", "pip", "uninstall", "-y", "-q", "torchao"], check=False)
+    pass
+
+for mod in list(sys.modules.keys()):
+    if "torchao" in mod:
+        del sys.modules[mod]
+
+try:
+    import types
+    dummy_ao = types.ModuleType("torchao")
+    dummy_q = types.ModuleType("torchao.quantization")
+    class FqnToConfig:
+        pass
+    def quantize_(*args, **kwargs):
+        pass
+    dummy_q.FqnToConfig = FqnToConfig
+    dummy_q.quantize_ = quantize_
+    dummy_ao.quantization = dummy_q
+    sys.modules["torchao"] = dummy_ao
+    sys.modules["torchao.quantization"] = dummy_q
+except Exception:
+    pass
 
 # Ensure all dependencies are present and upgraded
 subprocess.run([
