@@ -358,6 +358,11 @@ export function getAuthPageHtml(mode: "login" | "register"): string {
           : `Already have an account? <a href="/login">Sign in</a>`
       }
     </div>
+    <div style="margin-top:18px; font-size:11px; text-align:center; color:#64748b;">
+      <a href="/privacy" style="color:#64748b; text-decoration:none;">Privacy Policy</a> &bull;
+      <a href="/terms" style="color:#64748b; text-decoration:none;">Terms of Service</a> &bull;
+      <a href="/about" style="color:#64748b; text-decoration:none;">About</a>
+    </div>
   </div>
 
   <script>

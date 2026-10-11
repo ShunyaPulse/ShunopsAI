@@ -1,16 +1,9 @@
 import { DASHBOARD_STYLES } from "./styles.js";
 
 /**
- * Renders the standalone Public Self-Service BYOK Key Hub.
- *
- * Security Architecture (Zero-Persistence & Hardware-Bound Vault):
- * - Storage: W3C IndexedDB + Non-Extractable CryptoKey (extractable: false, AES-256-GCM).
- *   Raw master key bytes cannot be extracted by JavaScript or exfiltrated via XSS.
- * - Zero-Persistence: Keys sent per-request over TLS 1.3 for ephemeral execution in memory.
- *   Zero server database storage, zero disk writes, zero secret logging.
- * - Stateless Verification: POST /api/portal/verify tests keys directly against provider APIs.
- * - Least-Privilege GitHub Guidance: Fine-grained tokens scoped to a single repo only.
- * - Hardened Inputs: autocomplete="new-password", masked password fields, zero innerHTML XSS sinks.
+ * Renders the User-Friendly Assistant & Integrations Settings Portal.
+ * Simplified for normal users with zero technical knowledge.
+ * Deep cryptographic and architectural specifications are located in /privacy, /terms, and /about.
  */
 export function getShunopsPortalHtml(): string {
   return `<!DOCTYPE html>
@@ -18,43 +11,43 @@ export function getShunopsPortalHtml(): string {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ShunopsAI • Public BYOK Key Portal (Zero-Persistence)</title>
+  <title>Assistant &amp; Integrations Settings • ShunopsAI</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
   <style>
     ${DASHBOARD_STYLES}
 
     .portal-page-container {
-      max-width: 1320px;
+      max-width: 1240px;
       margin: 0 auto;
-      padding: 20px 20px 40px;
+      padding: 20px 20px 50px;
       width: 100%;
     }
 
     .portal-hero {
       text-align: center;
-      padding: 16px 16px 24px;
-      max-width: 860px;
+      padding: 16px 16px 28px;
+      max-width: 820px;
       margin: 0 auto;
     }
     .portal-hero h1 {
       font-size: 28px;
       font-weight: 800;
-      background: linear-gradient(90deg, #fff, #00f0ff, #a78bfa);
+      background: linear-gradient(90deg, #fff, #38bdf8, #a78bfa);
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
-      margin-bottom: 8px;
+      margin-bottom: 10px;
     }
     .portal-hero p {
       color: #94a3b8;
       font-size: 14px;
-      line-height: 1.5;
+      line-height: 1.6;
     }
 
     /* 2-column responsive layout */
     .portal-content-grid {
       display: grid;
-      grid-template-columns: 440px 1fr;
+      grid-template-columns: 420px 1fr;
       gap: 24px;
       align-items: start;
     }
@@ -88,7 +81,7 @@ export function getShunopsPortalHtml(): string {
     .service-choice-card.selected {
       border-color: #00f0ff;
       background: #101c38;
-      box-shadow: 0 0 16px rgba(0, 240, 255, 0.15);
+      box-shadow: 0 0 16px rgba(0, 240, 255, 0.12);
     }
     .service-choice-header {
       display: flex;
@@ -119,16 +112,15 @@ export function getShunopsPortalHtml(): string {
       background: #0b1120;
       border: 1px solid #1e293b;
       border-radius: 14px;
-      padding: 22px;
+      padding: 24px;
     }
 
-    /* Zero-Persistence Security Trust Banner */
     .security-status-banner {
       background: linear-gradient(135deg, rgba(16, 185, 129, 0.12), rgba(14, 165, 233, 0.08));
       border: 1px solid rgba(16, 185, 129, 0.35);
       border-radius: 10px;
       padding: 12px 16px;
-      margin-bottom: 18px;
+      margin-bottom: 20px;
       display: flex;
       justify-content: space-between;
       align-items: center;
@@ -159,7 +151,7 @@ export function getShunopsPortalHtml(): string {
       background: rgba(56, 189, 248, 0.12);
       color: #38bdf8;
       border: 1px solid rgba(56, 189, 248, 0.3);
-      padding: 3px 9px;
+      padding: 4px 10px;
       border-radius: 16px;
       font-size: 11px;
       text-decoration: none;
@@ -208,10 +200,9 @@ export function getShunopsPortalHtml(): string {
       pointer-events: none;
     }
 
-    /* Verification status badges */
     .verify-badge {
       font-size: 11px;
-      padding: 2px 8px;
+      padding: 3px 8px;
       border-radius: 10px;
       font-weight: 600;
       display: inline-flex;
@@ -246,7 +237,7 @@ export function getShunopsPortalHtml(): string {
       background: #0f172a;
       border: 1px solid #38bdf8;
       border-radius: 14px;
-      max-width: 640px;
+      max-width: 600px;
       width: 100%;
       padding: 26px;
       box-shadow: 0 16px 40px rgba(0, 240, 255, 0.15);
@@ -289,21 +280,23 @@ export function getShunopsPortalHtml(): string {
 
   <header>
     <div class="brand">
-      <div class="brand-icon">⚡</div>
-      <div>
-        <div class="brand-title">SHUNOPSAI PORTAL</div>
-        <div class="brand-subtitle">Zero-Persistence BYOK Hub</div>
-      </div>
+      <a href="/workspace" style="text-decoration:none; display:flex; align-items:center; gap:12px; color:inherit;">
+        <div class="brand-icon">⚡</div>
+        <div>
+          <div class="brand-title">SHUNOPSAI</div>
+          <div class="brand-subtitle">Assistant &amp; Tools Settings</div>
+        </div>
+      </a>
     </div>
     <div class="header-pills">
       <button type="button" class="btn btn-secondary" onclick="openSecurityModal()" style="font-size:12px; padding:6px 14px;">
-        🛡️ Zero-Persistence Model
+        🛡️ How Privacy Works
       </button>
-      <a href="/workspace" class="btn btn-secondary" style="text-decoration:none;font-size:12px;padding:6px 14px;">
-        ← Workspace
+      <a href="/workspace" class="btn btn-secondary" style="text-decoration:none; font-size:12px; padding:6px 14px;">
+        &larr; Workspace
       </a>
       <button type="button" class="btn btn-success" id="btn-save-test" onclick="saveAndTestKeys()">
-        🧪 Test &amp; Connect Keys
+        💾 Save &amp; Connect
       </button>
     </div>
   </header>
@@ -312,9 +305,9 @@ export function getShunopsPortalHtml(): string {
     
     <!-- Hero -->
     <div class="portal-hero">
-      <h1>Zero-Persistence BYOK Key Hub</h1>
+      <h1>Customize Your AI Assistant &amp; Tools</h1>
       <p>
-        Select your services, enter your free API keys once, and connect them. Keys are encrypted using <strong>non-extractable W3C CryptoKeys</strong> in your browser's private IndexedDB sandbox. Server runs ephemerally in RAM with <strong>zero database persistence</strong>.
+        Select what you'd like your assistant to help with. You can use our <strong>free built-in AI</strong> with zero setup, or optionally connect your own free Google Gemini or Groq keys for unlimited chats.
       </p>
     </div>
 
@@ -325,9 +318,9 @@ export function getShunopsPortalHtml(): string {
       <div class="panel" style="padding:20px;">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; padding-bottom:10px; border-bottom:1px solid #1e293b;">
           <h2 style="font-size:16px; color:#fff; display:flex; align-items:center; gap:8px; margin:0;">
-            <span>1️⃣</span> Select Services
+            <span>1️⃣</span> Choose Your Tools
           </h2>
-          <span style="font-size:11px; color:var(--text-muted);">Toggle checkboxes below</span>
+          <span style="font-size:11px; color:var(--text-muted);">Click to turn on or off</span>
         </div>
 
         <div class="service-selection-col">
@@ -335,10 +328,10 @@ export function getShunopsPortalHtml(): string {
           <div class="service-choice-card selected" id="card-video" onclick="toggleService('video')">
             <div class="service-choice-header">
               <div class="custom-checkbox" id="chk-video">✓</div>
-              <strong style="font-size:14px; color:#fff;">🎬 AI Video Studio (Wan2.1 DiT)</strong>
+              <strong style="font-size:14px; color:#fff;">🎬 Video Maker</strong>
             </div>
             <p style="font-size:12px; color:#94a3b8; line-height:1.4; margin-left:30px;">
-              Generates 1080p documentary videos with Alibaba Wan2.1 DiT, Edge-TTS voices &amp; auto-publish.
+              Creates narrated short documentary videos and presentations with voiceovers.
             </p>
           </div>
 
@@ -346,10 +339,10 @@ export function getShunopsPortalHtml(): string {
           <div class="service-choice-card selected" id="card-sentinel" onclick="toggleService('sentinel')">
             <div class="service-choice-header">
               <div class="custom-checkbox" id="chk-sentinel">✓</div>
-              <strong style="font-size:14px; color:#fff;">🛡️ 24/7 Cloud Sentinel &amp; Auto-Heal</strong>
+              <strong style="font-size:14px; color:#fff;">🛡️ 24/7 Website Monitor</strong>
             </div>
             <p style="font-size:12px; color:#94a3b8; line-height:1.4; margin-left:30px;">
-              Continuous uptime monitoring and automated recovery for Cloud Run, Postgres &amp; endpoints.
+              Checks your website health around the clock and alerts you if it ever goes down.
             </p>
           </div>
 
@@ -357,10 +350,10 @@ export function getShunopsPortalHtml(): string {
           <div class="service-choice-card" id="card-github" onclick="toggleService('github')">
             <div class="service-choice-header">
               <div class="custom-checkbox" id="chk-github"></div>
-              <strong style="font-size:14px; color:#fff;">🔍 GitHub Security &amp; Bug Healer</strong>
+              <strong style="font-size:14px; color:#fff;">🔍 Code &amp; Project Helper</strong>
             </div>
             <p style="font-size:12px; color:#94a3b8; line-height:1.4; margin-left:30px;">
-              Auto-scans repositories, patches CodeQL alerts, and reviews PRs with Dual-Model Consensus.
+              Reviews your code changes, spots bugs, and suggests quick fixes.
             </p>
           </div>
 
@@ -368,10 +361,10 @@ export function getShunopsPortalHtml(): string {
           <div class="service-choice-card" id="card-widget" onclick="toggleService('widget')">
             <div class="service-choice-header">
               <div class="custom-checkbox" id="chk-widget"></div>
-              <strong style="font-size:14px; color:#fff;">🤖 Embeddable Website Chatbot</strong>
+              <strong style="font-size:14px; color:#fff;">🤖 Website Customer Chatbot</strong>
             </div>
             <p style="font-size:12px; color:#94a3b8; line-height:1.4; margin-left:30px;">
-              Embed AI assistant into websites with 1 script tag for instant 24/7 client support.
+              Add a friendly chat assistant to your website for 24/7 visitor questions.
             </p>
           </div>
         </div>
@@ -384,57 +377,47 @@ export function getShunopsPortalHtml(): string {
         <div class="security-status-banner">
           <div style="display:flex; align-items:center; gap:12px;">
             <div style="width:34px; height:34px; border-radius:8px; background:rgba(16,185,129,0.15); border:1px solid rgba(16,185,129,0.3); display:flex; align-items:center; justify-content:center; font-size:18px;">
-              🛡️
+              🔒
             </div>
             <div>
               <div style="font-size:13px; font-weight:700; color:#10b981;">
-                Zero-Persistence Architecture • Non-Extractable Vault
+                Private &amp; Secure Storage
               </div>
               <div style="font-size:11px; color:#94a3b8;">
-                Keys encrypted via non-extractable IndexedDB CryptoKeys • Zero server persistence • 1-time setup
+                Your keys stay encrypted in your own browser. Never stored in our database.
               </div>
             </div>
           </div>
           <button type="button" class="btn btn-secondary" onclick="openSecurityModal()" style="font-size:11px; padding:4px 10px;">
-            Architecture Details ↗
+            Learn More &rarr;
           </button>
         </div>
 
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
           <h2 style="font-size:16px; color:#fff; display:flex; align-items:center; gap:8px; margin:0;">
-            <span>2️⃣</span> Configure AI Engine &amp; Service Keys
+            <span>2️⃣</span> Choose AI Mode
           </h2>
-          <span style="font-size:11px; color:#38bdf8; display:inline-flex; align-items:center; gap:5px;">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:13px; height:13px;"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-            Click icon to reveal keys
-          </span>
         </div>
-        <p style="font-size:12px; color:#94a3b8; margin-bottom:16px;">
-          Choose whether to run on ShunopsAI's shared infrastructure or bring your own free keys for dedicated rate limits.
-        </p>
 
         <!-- AI Engine Mode Selector -->
         <div style="background:#0f172a; border:1px solid #1e293b; border-radius:12px; padding:14px; margin-bottom:18px;">
-          <div style="font-size:13px; font-weight:700; color:#fff; margin-bottom:10px; display:flex; align-items:center; gap:8px;">
-            <span>🧠</span> Multi-Cloud AI Router &amp; Inference Engine
-          </div>
           <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
             <div id="mode-shared" onclick="setAiMode('shared')" style="cursor:pointer; padding:12px; border-radius:8px; border:2px solid #1e293b; background:#0b1120; transition:all 0.2s;">
               <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px;">
                 <input type="radio" name="ai-mode" id="radio-shared" style="accent-color:#00f0ff;" checked />
-                <strong style="font-size:12px; color:#fff;">Shared Cloud Engine</strong>
+                <strong style="font-size:13px; color:#fff;">✨ Free Built-in AI</strong>
               </div>
-              <p style="font-size:11px; color:#94a3b8; margin:0; line-height:1.3;">
-                Zero setup. Uses server key pool &amp; pooled quotas at no cost.
+              <p style="font-size:11px; color:#94a3b8; margin:0; line-height:1.4;">
+                Ready immediately. Uses our shared AI with zero setup.
               </p>
             </div>
             <div id="mode-byok" onclick="setAiMode('byok')" style="cursor:pointer; padding:12px; border-radius:8px; border:2px solid #1e293b; background:#0b1120; transition:all 0.2s;">
               <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px;">
                 <input type="radio" name="ai-mode" id="radio-byok" style="accent-color:#00f0ff;" />
-                <strong style="font-size:12px; color:#fff;">Dedicated BYOK Keys</strong>
+                <strong style="font-size:13px; color:#fff;">🔑 Use My Own Free Keys</strong>
               </div>
-              <p style="font-size:11px; color:#94a3b8; margin:0; line-height:1.3;">
-                Sub-second Groq LPUs &amp; personal Gemini quotas. Saved in browser vault.
+              <p style="font-size:11px; color:#94a3b8; margin:0; line-height:1.4;">
+                Add your free Google or Groq key for unlimited fast chats.
               </p>
             </div>
           </div>
@@ -443,17 +426,17 @@ export function getShunopsPortalHtml(): string {
         <!-- AI Keys (Groq + Gemini) - Shown only when BYOK Mode is selected -->
         <div id="section-ai-keys" style="display:none;">
           <div style="font-size:12px; font-weight:700; color:#38bdf8; margin-bottom:10px; display:flex; align-items:center; gap:6px;">
-            <span>🔑</span> Your Personal AI Model Keys (Ultra-Fast)
+            <span>🔑</span> Add Your Free AI Keys (Fast &amp; Unlimited)
           </div>
           <!-- Groq Key -->
           <div class="key-input-group">
             <div class="key-label-row">
               <div>
-                <strong style="color:#fff; font-size:13px;">1. Groq API Key</strong>
-                <span style="font-size:11px; color:#64748b; margin-left:6px;">(Ultra-Fast LLM)</span>
+                <strong style="color:#fff; font-size:13px;">1. Groq API Key (Optional)</strong>
+                <span style="font-size:11px; color:#64748b; margin-left:6px;">(Ultra-fast responses)</span>
               </div>
               <a href="https://console.groq.com/keys" target="_blank" rel="noopener noreferrer" class="direct-link-badge">
-                🔗 Get Free Groq Key (30s) →
+                🔗 Get Free Key (1 min) &rarr;
               </a>
             </div>
             <div class="password-input-wrapper">
@@ -464,7 +447,7 @@ export function getShunopsPortalHtml(): string {
             </div>
             <div id="status-badge-groq"></div>
             <div style="font-size:11px; color:#64748b; margin-top:6px;">
-              📌 <em>Guide: Log in at console.groq.com/keys → Click "Create API Key" → Paste here.</em>
+              📌 <em>Easy step: Click the link &rarr; Log in &rarr; Click "Create API Key" &rarr; Paste it here.</em>
             </div>
           </div>
 
@@ -472,11 +455,11 @@ export function getShunopsPortalHtml(): string {
           <div class="key-input-group">
             <div class="key-label-row">
               <div>
-                <strong style="color:#fff; font-size:13px;">2. Google Gemini API Key</strong>
-                <span style="font-size:11px; color:#64748b; margin-left:6px;">(Multi-Modal &amp; Scripts)</span>
+                <strong style="color:#fff; font-size:13px;">2. Google Gemini API Key (Optional)</strong>
+                <span style="font-size:11px; color:#64748b; margin-left:6px;">(Google's AI model)</span>
               </div>
               <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" class="direct-link-badge">
-                🔗 Get Free Gemini Key (1-Click) →
+                🔗 Get Free Gemini Key &rarr;
               </a>
             </div>
             <div class="password-input-wrapper">
@@ -487,7 +470,7 @@ export function getShunopsPortalHtml(): string {
             </div>
             <div id="status-badge-gemini"></div>
             <div style="font-size:11px; color:#64748b; margin-top:6px;">
-              📌 <em>Guide: Visit Google AI Studio → Click "Create API Key in new project" → Paste here.</em>
+              📌 <em>Easy step: Click the link &rarr; Log in with Google &rarr; Click "Create API key" &rarr; Paste here.</em>
             </div>
           </div>
         </div>
@@ -497,15 +480,15 @@ export function getShunopsPortalHtml(): string {
           <div class="key-input-group">
             <div class="key-label-row">
               <div>
-                <strong style="color:#fff; font-size:13px;">3. Kaggle Credentials</strong>
-                <span style="font-size:11px; color:#64748b; margin-left:6px;">(Free Dual T4 GPU Render)</span>
+                <strong style="color:#fff; font-size:13px;">3. Kaggle Account (For Video Rendering)</strong>
+                <span style="font-size:11px; color:#64748b; margin-left:6px;">(Free)</span>
               </div>
               <a href="https://www.kaggle.com/settings" target="_blank" rel="noopener noreferrer" class="direct-link-badge">
-                🔗 Get Free Kaggle Token →
+                🔗 Get Kaggle Token &rarr;
               </a>
             </div>
             <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px;">
-              <input type="text" id="input-kaggle-user" class="chat-input" placeholder="Kaggle Username" autocomplete="off" />
+              <input type="text" id="input-kaggle-user" class="chat-input" placeholder="Your Kaggle Username" autocomplete="off" />
               <div class="password-input-wrapper">
                 <input type="text" id="input-kaggle-key" class="chat-input" placeholder="Kaggle API Token" autocomplete="off" data-lpignore="true" data-1p-ignore="true" />
                 <button type="button" class="eye-toggle-btn" onclick="toggleMask('input-kaggle-key', this)" aria-label="Toggle key visibility" title="Show/Hide">
@@ -513,20 +496,17 @@ export function getShunopsPortalHtml(): string {
                 </button>
               </div>
             </div>
-            <div style="font-size:11px; color:#64748b; margin-top:6px;">
-              📌 <em>Guide: Go to Kaggle Settings → Under 'API Tokens (Recommended)' → Click 'Generate New Token' → Copy username and token.</em>
-            </div>
           </div>
 
           <!-- Hugging Face Token -->
           <div class="key-input-group">
             <div class="key-label-row">
               <div>
-                <strong style="color:#fff; font-size:13px;">4. Hugging Face Access Token</strong>
-                <span style="font-size:11px; color:#64748b; margin-left:6px;">(Model weights)</span>
+                <strong style="color:#fff; font-size:13px;">4. Hugging Face Token</strong>
+                <span style="font-size:11px; color:#64748b; margin-left:6px;">(Free)</span>
               </div>
               <a href="https://huggingface.co/settings/tokens" target="_blank" rel="noopener noreferrer" class="direct-link-badge">
-                🔗 Get Free HF Token (Read) →
+                🔗 Get Free Token &rarr;
               </a>
             </div>
             <div class="password-input-wrapper">
@@ -539,16 +519,16 @@ export function getShunopsPortalHtml(): string {
           </div>
         </div>
 
-        <!-- GitHub Keys (Least Privilege Fine-Grained Token) -->
+        <!-- GitHub Keys -->
         <div id="section-github-keys" style="display:none;">
           <div class="key-input-group">
             <div class="key-label-row">
               <div>
-                <strong style="color:#fff; font-size:13px;">5. GitHub Fine-Grained Token (Recommended)</strong>
-                <span style="font-size:11px; color:#64748b; margin-left:6px;">(Scoped to 1 repository)</span>
+                <strong style="color:#fff; font-size:13px;">5. GitHub Token (Optional)</strong>
+                <span style="font-size:11px; color:#64748b; margin-left:6px;">(For checking your repositories)</span>
               </div>
               <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener noreferrer" class="direct-link-badge">
-                🔗 Create Scoped Token →
+                🔗 Create GitHub Token &rarr;
               </a>
             </div>
             <div class="password-input-wrapper">
@@ -558,9 +538,6 @@ export function getShunopsPortalHtml(): string {
               </button>
             </div>
             <div id="status-badge-github"></div>
-            <div style="font-size:11px; color:#64748b; margin-top:6px;">
-              📌 <em>Guide: GitHub Settings → Developer Settings → Personal access tokens → Fine-grained tokens. Select 'Only select repositories' (choose 1 repo). Permissions: Contents (Read), Pull requests (Read &amp; Write), Code scanning alerts (Read &amp; Write). Never use classic full-account tokens!</em>
-            </div>
           </div>
         </div>
 
@@ -569,22 +546,22 @@ export function getShunopsPortalHtml(): string {
           <div class="key-input-group">
             <div class="key-label-row">
               <div>
-                <strong style="color:#fff; font-size:13px;">6. Website / Cloud URL to Monitor</strong>
-                <span style="font-size:11px; color:#64748b; margin-left:6px;">(Endpoint)</span>
+                <strong style="color:#fff; font-size:13px;">6. Your Website URL to Monitor</strong>
+                <span style="font-size:11px; color:#64748b; margin-left:6px;">(Link)</span>
               </div>
             </div>
-            <input type="text" id="input-monitor-url" class="chat-input" placeholder="https://my-app.run.app or https://mywebsite.com" autocomplete="off" style="width:100%;" />
+            <input type="text" id="input-monitor-url" class="chat-input" placeholder="https://mywebsite.com" autocomplete="off" style="width:100%;" />
           </div>
         </div>
 
         <!-- Action Buttons -->
         <div style="display:flex; gap:10px; justify-content:space-between; align-items:center; margin-top:20px; flex-wrap:wrap;">
           <button type="button" class="btn btn-secondary" onclick="clearAllKeys()" style="color:#ef4444; border-color:#7f1d1d;" title="Remove saved keys from this browser">
-            🗑️ Clear Saved Keys
+            🗑️ Clear My Saved Keys
           </button>
           <div style="display:flex; gap:10px;">
             <button type="button" class="btn btn-success" id="btn-save-test-bottom" onclick="saveAndTestKeys()">
-              🧪 Test &amp; Connect Keys
+              💾 Save &amp; Connect
             </button>
           </div>
         </div>
@@ -598,51 +575,50 @@ export function getShunopsPortalHtml(): string {
   <!-- Security Model Modal -->
   <div class="security-modal-overlay" id="security-modal" onclick="closeSecurityModalOnBackdrop(event)">
     <div class="security-modal-card">
-      <h3>🛡️ ShunopsAI Zero-Persistence Security Architecture</h3>
+      <h3>🛡️ How Your Data is Protected</h3>
       <p style="font-size:13px; color:#cbd5e1; line-height:1.6; margin-bottom:18px;">
-        How your API keys are protected under our Zero-Persistence architecture:
+        ShunopsAI is designed from the ground up to protect your privacy:
       </p>
 
       <div class="audit-point">
         <div class="audit-point-icon">🔒</div>
         <div class="audit-point-text">
-          <strong>1. Non-Extractable CryptoKey Vault (IndexedDB)</strong>
-          <p>Keys are encrypted locally using AES-256-GCM. The encryption key is generated with <code>extractable: false</code> inside W3C WebCrypto and stored in IndexedDB. Raw key bytes cannot be extracted by JavaScript or exfiltrated by XSS scripts.</p>
+          <strong>1. Keys Stay in Your Browser</strong>
+          <p>When you enter an API key, it is encrypted locally on your computer. We never store your keys in our database.</p>
         </div>
       </div>
 
       <div class="audit-point">
         <div class="audit-point-icon">⚡</div>
         <div class="audit-point-text">
-          <strong>2. Zero Server Persistence (Ephemeral In-Memory)</strong>
-          <p>When you trigger tasks, keys are transmitted per-request over TLS 1.3 headers. The server uses them strictly in RAM during execution and flushes them immediately. Keys are never saved to databases, disks, or server logs.</p>
+          <strong>2. Used Only While You Chat</strong>
+          <p>Keys are sent securely when you ask a question and are discarded immediately after the response is delivered.</p>
         </div>
       </div>
 
       <div class="audit-point">
-        <div class="audit-point-icon">🧪</div>
+        <div class="audit-point-icon">🗑️</div>
         <div class="audit-point-text">
-          <strong>3. Stateless Provider Verification</strong>
-          <p>When you click "Test &amp; Connect", a lightweight 1-token probe tests your keys directly against official provider APIs (Groq, Google AI Studio, GitHub, Hugging Face). The probe is strictly stateless.</p>
+          <strong>3. Full Control Anytime</strong>
+          <p>You can remove or change your keys with one click using the "Clear My Saved Keys" button at any time.</p>
         </div>
       </div>
 
-      <div class="audit-point">
-        <div class="audit-point-icon">🎯</div>
-        <div class="audit-point-text">
-          <strong>4. Least-Privilege Scoping</strong>
-          <p>We strictly recommend fine-grained GitHub tokens scoped to a single repository with read-only contents and PR write permissions, eliminating full-account blast radius.</p>
-        </div>
-      </div>
-
-      <div style="text-align:right; margin-top:20px;">
+      <div style="text-align:right; margin-top:20px; display:flex; justify-content:space-between; align-items:center;">
+        <a href="/privacy" style="font-size:12px; color:#38bdf8; text-decoration:none;">View Full Privacy Policy &rarr;</a>
         <button type="button" class="btn btn-secondary" onclick="closeSecurityModal()">Got it</button>
       </div>
     </div>
   </div>
 
   <footer style="text-align:center; padding:24px; color:#64748b; font-size:12px; border-top:1px solid #1e293b; margin-top:40px;">
-    ShunopsAI Autonomous System • Zero-Persistence Architecture • Hardware-Bound IndexedDB Vault
+    <div style="display:flex; justify-content:center; gap:20px; margin-bottom:8px;">
+      <a href="/workspace" style="color:#94a3b8; text-decoration:none;">Workspace</a>
+      <a href="/privacy" style="color:#94a3b8; text-decoration:none;">Privacy Policy</a>
+      <a href="/terms" style="color:#94a3b8; text-decoration:none;">Terms of Service</a>
+      <a href="/about" style="color:#94a3b8; text-decoration:none;">About &amp; Technical Details</a>
+    </div>
+    &copy; 2026 ShunopsAI. Clean, simple, and private by design.
   </footer>
 
   <script>
@@ -688,9 +664,6 @@ export function getShunopsPortalHtml(): string {
       applySectionVisibility();
     }
 
-    // -------------------------------------------------------------
-    // Option B: IndexedDB + Non-Extractable CryptoKey Vault
-    // -------------------------------------------------------------
     const DB_NAME = "shunops_secure_vault_v3";
     const DB_VERSION = 1;
     const STORE_NAME = "keys_store";
@@ -719,12 +692,10 @@ export function getShunopsPortalHtml(): string {
           if (getReq.result) {
             resolve(getReq.result);
           } else {
-            // Generate non-extractable AES-GCM 256-bit key
-            // extractable: false prevents any JS/XSS from calling crypto.subtle.exportKey!
             try {
               const newKey = await crypto.subtle.generateKey(
                 { name: "AES-GCM", length: 256 },
-                false, // extractable = FALSE
+                false,
                 ["encrypt", "decrypt"]
               );
               const putTx = db.transaction(STORE_NAME, "readwrite");
@@ -889,9 +860,6 @@ export function getShunopsPortalHtml(): string {
       applySectionVisibility();
     }
 
-    // -------------------------------------------------------------
-    // Real Test Connection & Option B Storage
-    // -------------------------------------------------------------
     async function saveAndTestKeys() {
       const btn1 = document.getElementById("btn-save-test");
       const btn2 = document.getElementById("btn-save-test-bottom");
@@ -921,7 +889,6 @@ export function getShunopsPortalHtml(): string {
       };
 
       try {
-        // Run live stateless probe against /api/portal/verify
         const res = await fetch("/api/portal/verify", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -950,43 +917,36 @@ export function getShunopsPortalHtml(): string {
             if (!results.hf.valid) allPassed = false;
           }
 
-          // Option B: Store encrypted in IndexedDB using non-extractable CryptoKey
           await storeEncryptedInIndexedDB(keys);
-
-          // Clear any plaintext localStorage remnants
           localStorage.removeItem("shunops_byok_keys");
           localStorage.removeItem("shunops_secure_vault_v2");
 
           if (allPassed) {
-            showStatusMessage("✅ Connected! Validated via provider APIs & locked in non-extractable vault.", false);
+            showStatusMessage("✅ Connected! All keys verified and saved privately.", false);
           } else {
-            showStatusMessage("⚠️ Keys stored, but some failed verification. Please review badges above.", true);
+            showStatusMessage("⚠️ Saved, but please check the badges above.", true);
           }
         } else {
           await storeEncryptedInIndexedDB(keys);
-          showStatusMessage("✅ Keys locked in non-extractable browser vault.", false);
+          showStatusMessage("✅ Saved privately in your browser.", false);
         }
       } catch (err) {
         await storeEncryptedInIndexedDB(keys).catch(() => {});
-        showStatusMessage("✅ Keys locked in non-extractable browser vault.", false);
+        showStatusMessage("✅ Saved privately in your browser.", false);
       } finally {
-        if (btn1) btn1.textContent = "🧪 Test & Connect Keys";
-        if (btn2) btn2.textContent = "🧪 Test & Connect Keys";
+        if (btn1) btn1.textContent = "💾 Save & Connect";
+        if (btn2) btn2.textContent = "💾 Save & Connect";
       }
     }
 
     async function loadSavedKeys() {
       try {
-        // First try Option B: IndexedDB
         let keys = await loadEncryptedFromIndexedDB();
-
-        // Fallback migration from legacy localStorage if exists
         if (!keys) {
           const raw = localStorage.getItem("shunops_byok_keys");
           if (raw) {
             try {
               keys = JSON.parse(raw);
-              // Migrate to IndexedDB immediately and clean localStorage
               await storeEncryptedInIndexedDB(keys);
               localStorage.removeItem("shunops_byok_keys");
             } catch (e) {}
@@ -1023,7 +983,7 @@ export function getShunopsPortalHtml(): string {
     }
 
     async function clearAllKeys() {
-      if (!confirm("Are you sure you want to clear your saved keys from this browser?")) {
+      if (!confirm("Are you sure you want to remove your saved keys from this browser?")) {
         return;
       }
       await purgeIndexedDB();
@@ -1039,12 +999,9 @@ export function getShunopsPortalHtml(): string {
       document.getElementById("input-monitor-url").value = "";
 
       clearAllBadges();
-      showStatusMessage("🗑️ All saved keys cleared and zeroized from browser vault.", true);
+      showStatusMessage("🗑️ All saved keys cleared from your browser.", true);
     }
 
-    // -------------------------------------------------------------
-    // Initialization
-    // -------------------------------------------------------------
     window.addEventListener("DOMContentLoaded", () => {
       applySectionVisibility();
       loadSavedKeys();

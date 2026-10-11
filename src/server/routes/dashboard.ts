@@ -4,6 +4,7 @@ import { getShunopsDashboardHtml } from "../../dashboard/html.js";
 import { getShunopsPortalHtml } from "../../dashboard/portal.js";
 import { getAuthPageHtml } from "../../dashboard/auth-pages.js";
 import { getUserWorkspaceHtml } from "../../dashboard/workspace.js";
+import { getPrivacyPolicyHtml, getTermsOfServiceHtml, getAboutHtml } from "../../dashboard/legal-pages.js";
 import { findUserBySessionToken } from "../db.js";
 
 export interface DashboardRouteOptions {
@@ -158,6 +159,22 @@ export async function dashboardRoutes(app: FastifyInstance, opts: DashboardRoute
     }
 
     return reply.type("text/html").send(getUserWorkspaceHtml(user.username));
+  });
+
+  // Legal & Technical Architecture Documentation Pages
+  app.get("/privacy", async (_req, reply) => {
+    reply.header("Cache-Control", "public, max-age=3600");
+    return reply.type("text/html").send(getPrivacyPolicyHtml());
+  });
+
+  app.get("/terms", async (_req, reply) => {
+    reply.header("Cache-Control", "public, max-age=3600");
+    return reply.type("text/html").send(getTermsOfServiceHtml());
+  });
+
+  app.get("/about", async (_req, reply) => {
+    reply.header("Cache-Control", "public, max-age=3600");
+    return reply.type("text/html").send(getAboutHtml());
   });
 
   app.get("/health", async () => {
