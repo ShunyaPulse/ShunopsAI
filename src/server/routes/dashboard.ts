@@ -7,7 +7,7 @@ import { getUserWorkspaceHtml } from "../../dashboard/workspace.js";
 import { findUserBySessionToken } from "../db.js";
 
 export interface DashboardRouteOptions {
-  requireDashboardAuth?: preHandlerHookHandler;
+  requireDashboardAuth?: (req: any, reply: any) => Promise<void>;
 }
 
 /**
@@ -25,10 +25,21 @@ export async function dashboardRoutes(app: FastifyInstance, opts: DashboardRoute
 
   const renderPortal = () => getShunopsPortalHtml();
 
-  app.get("/", { preHandler }, async (req, reply) => {
-    // If visited from a web browser, render the ShunopsAI Command Center UI
+  app.get("/", async (req, reply) => {
+    // If visited from a web browser, check authenticated session
     if (req.headers.accept?.includes("text/html")) {
-      return reply.type("text/html").send(renderDashboard());
+      const token = (req.cookies as any)?.shunops_user_session;
+      if (!token) {
+        return reply.redirect("/login");
+      }
+      const user = await findUserBySessionToken(token);
+      if (!user) {
+        return reply.redirect("/login");
+      }
+      if (user.role === "admin") {
+        return reply.type("text/html").send(renderDashboard());
+      }
+      return reply.redirect("/workspace");
     }
 
     return {
@@ -38,9 +49,12 @@ export async function dashboardRoutes(app: FastifyInstance, opts: DashboardRoute
       fallbackModels: FALLBACK_MODELS,
       availableTools: Object.keys(toolRegistry),
       endpoints: {
-        dashboard: "GET / (in browser)",
-        portal: "GET /portal (Public BYOK & Monetization Portal)",
+        dashboard: "GET /dashboard (Admin Command Center)",
+        workspace: "GET /workspace (User Workspace)",
+        portal: "GET /portal (Protected BYOK & Key Hub)",
         health: "GET /health",
+        login: "GET /login",
+        register: "GET /register",
         sentinelStatus: "GET /api/sentinel/status",
         sentinelHeal: "POST /api/sentinel/heal",
         runTask: "POST /api/task",
@@ -58,22 +72,64 @@ export async function dashboardRoutes(app: FastifyInstance, opts: DashboardRoute
     };
   });
 
-  app.get("/dashboard", { preHandler }, async (_req, reply) => {
+  app.get("/dashboard", async (req, reply) => {
     reply.header("Cache-Control", "no-store, no-cache, must-revalidate");
     reply.header("Pragma", "no-cache");
-    return reply.type("text/html").send(renderDashboard());
+
+    const token = (req.cookies as any)?.shunops_user_session;
+    if (token) {
+      const user = await findUserBySessionToken(token);
+      if (user && user.role === "admin") {
+        return reply.type("text/html").send(renderDashboard());
+      }
+      if (user) {
+        return reply.redirect("/workspace");
+      }
+    }
+
+    // Check optional header credentials for CLI / automation
+    const authHeader = (req.headers.authorization as string) || "";
+    if (authHeader && opts.requireDashboardAuth) {
+      try {
+        await opts.requireDashboardAuth(req, reply);
+        if (reply.sent) return;
+        return reply.type("text/html").send(renderDashboard());
+      } catch {}
+    }
+
+    return reply.redirect("/login");
   });
 
-  // Public Self-Service BYOK & Key Hub
-  app.get("/portal", async (_req, reply) => {
+  // Protected BYOK & Key Hub (Requires authenticated session)
+  app.get("/portal", async (req, reply) => {
     reply.header("Cache-Control", "no-store, no-cache, must-revalidate");
     reply.header("Pragma", "no-cache");
+
+    const token = (req.cookies as any)?.shunops_user_session;
+    if (!token) {
+      return reply.redirect("/login");
+    }
+    const user = await findUserBySessionToken(token);
+    if (!user) {
+      return reply.redirect("/login");
+    }
+
     return reply.type("text/html").send(renderPortal());
   });
 
-  app.get("/connect", async (_req, reply) => {
+  app.get("/connect", async (req, reply) => {
     reply.header("Cache-Control", "no-store, no-cache, must-revalidate");
     reply.header("Pragma", "no-cache");
+
+    const token = (req.cookies as any)?.shunops_user_session;
+    if (!token) {
+      return reply.redirect("/login");
+    }
+    const user = await findUserBySessionToken(token);
+    if (!user) {
+      return reply.redirect("/login");
+    }
+
     return reply.type("text/html").send(renderPortal());
   });
 

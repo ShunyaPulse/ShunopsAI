@@ -299,8 +299,8 @@ export function getShunopsPortalHtml(): string {
       <button type="button" class="btn btn-secondary" onclick="openSecurityModal()" style="font-size:12px; padding:6px 14px;">
         🛡️ Zero-Persistence Model
       </button>
-      <a href="/dashboard" class="btn btn-secondary" style="text-decoration:none;font-size:12px;padding:6px 14px;">
-        ← Command Center
+      <a href="/workspace" class="btn btn-secondary" style="text-decoration:none;font-size:12px;padding:6px 14px;">
+        ← Workspace
       </a>
       <button type="button" class="btn btn-success" id="btn-save-test" onclick="saveAndTestKeys()">
         🧪 Test &amp; Connect Keys
