@@ -1,49 +1,28 @@
 import type { FastifyInstance } from "fastify";
 import { runAutonomousAgent, toolRegistry, type ToolName } from "../../agent/index.js";
 import { ChatRequestSchema, type ChatRequest } from "../schemas/alert.js";
+import {
+  verifyCloudflareTurnstile,
+  verifyShieldSolution,
+} from "../middleware/bot-shield.js";
+import {
+  getClientIp,
+  getClientSubnet,
+  checkDistributedSubnetQuota,
+} from "../middleware/ratelimit.js";
 
-interface RateLimitBucket {
-  count: number;
-  resetAt: number;
-}
-
-// In-memory sliding window rate-limiter for anonymous callers using owner LLM quota
-const anonymousRateLimits = new Map<string, RateLimitBucket>();
-const ANON_WINDOW_MS = 10 * 60 * 1000; // 10 minutes
-const ANON_MAX_REQUESTS = 5; // 5 requests per 10 minutes per IP
-
-function checkAnonymousQuota(ip: string): { allowed: boolean; remaining: number; retryAfterSeconds: number } {
-  const now = Date.now();
-  const bucket = anonymousRateLimits.get(ip);
-
-  // Periodic cleanup if map grows
-  if (anonymousRateLimits.size > 10_000) {
-    for (const [key, b] of anonymousRateLimits.entries()) {
-      if (b.resetAt <= now) anonymousRateLimits.delete(key);
-    }
-  }
-
-  if (!bucket || bucket.resetAt <= now) {
-    anonymousRateLimits.set(ip, { count: 1, resetAt: now + ANON_WINDOW_MS });
-    return { allowed: true, remaining: ANON_MAX_REQUESTS - 1, retryAfterSeconds: 0 };
-  }
-
-  if (bucket.count >= ANON_MAX_REQUESTS) {
-    const retryAfter = Math.ceil((bucket.resetAt - now) / 1000);
-    return { allowed: false, remaining: 0, retryAfterSeconds: retryAfter };
-  }
-
-  bucket.count += 1;
-  return { allowed: true, remaining: ANON_MAX_REQUESTS - bucket.count, retryAfterSeconds: 0 };
-}
+const ANON_WINDOW_SECONDS = 10 * 60; // 10 minutes
+const ANON_MAX_REQUESTS = 5; // 5 requests per 10 minutes per Subnet
 
 /**
  * Public conversational endpoint for website visitors (Fastify Engine).
- * Body: { message: string, history?: string }
  *
- * OWNER QUOTA GUARDRAIL:
- * - Anonymous callers (no BYOK header): capped at 5 requests / 10 minutes per IP, maxSteps: 1.
- * - BYOK callers (x-groq-key or x-gemini-key): uses visitor's own quota, standard limits.
+ * 5-LAYER SECURITY SHIELD (Ported from Kanban-Cloud):
+ * Layer 1: Honeypot Trap (hp_website) - drops auto-filling bots instantly.
+ * Layer 2: Cloudflare Turnstile Server-Side verification (/v0/siteverify).
+ * Layer 3: Cryptographic Proof-of-Work Bot-Shield (fallback if Turnstile unavailable).
+ * Layer 4: Subnet-Level Distributed Rate-Limiting (/24 IPv4, /48 IPv6) via OCI Redis.
+ * Layer 5: Token & Quota Guardrail (maxSteps: 1 for anonymous, BYOK bypass).
  */
 export async function chatRoutes(app: FastifyInstance): Promise<void> {
   app.post<{ Body: ChatRequest }>(
@@ -54,20 +33,68 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
       },
     },
     async (req, reply) => {
-      const { message, history } = req.body;
+      const { message, history, hp_website, turnstileToken, shield } = req.body;
+      const clientIp = getClientIp(req);
+      const clientSubnet = getClientSubnet(clientIp);
+
+      // Layer 1: Honeypot Trap (if scraper bot filled hidden field, reject immediately)
+      if (hp_website) {
+        req.log.warn(`Honeypot trap triggered by client: ${clientIp}`);
+        reply.status(400);
+        return {
+          reply: "Security validation error: request rejected.",
+          success: false,
+        };
+      }
+
       const userGroqKey = (req.headers["x-groq-key"] as string | undefined)?.trim();
       const userGeminiKey = (req.headers["x-gemini-key"] as string | undefined)?.trim();
 
       const isBYOK = Boolean(userGroqKey || userGeminiKey);
-      const keyOverrides = isBYOK ? {
-        groqApiKey: userGroqKey,
-        geminiApiKey: userGeminiKey,
-      } : undefined;
+      const keyOverrides = isBYOK
+        ? {
+            groqApiKey: userGroqKey,
+            geminiApiKey: userGeminiKey,
+          }
+        : undefined;
 
-      // Strict Quota Guardrail for Owner Keys
+      // Layer 2: Cloudflare Turnstile Verification (if token provided or secret configured)
+      if (turnstileToken) {
+        const isHuman = await verifyCloudflareTurnstile(turnstileToken, clientIp);
+        if (!isHuman) {
+          reply.status(403);
+          return {
+            reply: "Cloudflare Turnstile bot verification failed. Please refresh and try again.",
+            success: false,
+          };
+        }
+      }
+
+      // Layer 3: Anti-Bot Proof-of-Work Challenge (Stops Python, Curl, Headless scripts)
+      if (shield) {
+        const isValidShield = verifyShieldSolution(
+          shield.salt,
+          shield.timestamp,
+          shield.targetDifficulty,
+          shield.signature,
+          shield.solution
+        );
+        if (!isValidShield) {
+          reply.status(403);
+          return {
+            reply: "Browser security challenge failed. Please refresh the page.",
+            success: false,
+          };
+        }
+      }
+
+      // Layer 4 & 5: Subnet-Level Distributed Rate-Limiting & Owner Token Guardrail
       if (!isBYOK) {
-        const clientIp = req.ip || (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || "unknown";
-        const quota = checkAnonymousQuota(clientIp);
+        const quota = await checkDistributedSubnetQuota(
+          clientSubnet,
+          ANON_MAX_REQUESTS,
+          ANON_WINDOW_SECONDS
+        );
 
         reply.header("X-RateLimit-Limit", ANON_MAX_REQUESTS);
         reply.header("X-RateLimit-Remaining", quota.remaining);
@@ -76,7 +103,7 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
           reply.header("Retry-After", quota.retryAfterSeconds);
           reply.status(429);
           return {
-            reply: `Anonymous usage quota exceeded (5 requests per 10 minutes to protect server resources). Please enter your own free Groq or Gemini API key in the BYOK Settings / Portal to continue chatting without limits!`,
+            reply: `Anonymous usage quota exceeded (5 requests per 10 minutes per network subnet to protect server resources). Please enter your own free Groq or Gemini API key in the BYOK Settings / Portal to continue chatting without limits!`,
             success: false,
           };
         }
