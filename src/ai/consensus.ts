@@ -100,7 +100,11 @@ export function createClient(target: ModelEndpoint): OpenAI {
   }
 
   if (target.provider === "gemini") {
-    const raw = process.env.GEMINI_KEYS || process.env.GEMINI_API_KEY || "";
+    const raw =
+      process.env.GEMINI_KEYS ||
+      process.env.GEMINI_API_KEYS ||
+      process.env.GEMINI_API_KEY ||
+      "";
     const keys = raw.split(",").map((k) => k.trim()).filter(Boolean);
     const key = keys.length > 0 ? keys[randomInt(0, keys.length)] : "dummy-gemini-key";
     return new OpenAI({
