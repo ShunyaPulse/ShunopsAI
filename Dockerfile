@@ -13,4 +13,6 @@ ENV NODE_ENV=production
 
 EXPOSE 8080
 
+USER node
+
 CMD ["npx", "tsx", "server.ts"]
