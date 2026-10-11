@@ -1,4 +1,21 @@
 /**
+ * Server-side HTML escaper for untrusted values rendered into page markup.
+ *
+ * This is the Node counterpart of the `escapeHtml` helper embedded in
+ * {@link DASHBOARD_SCRIPTS} below. Interpolate untrusted input (usernames,
+ * provider labels, etc.) through this before placing it into server-generated
+ * HTML to prevent stored/reflected XSS.
+ */
+export function escapeHtml(value: unknown): string {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+/**
  * Client-side JavaScript for the ShunopsAI Command Center dashboard.
  *
  * Kept as a plain string (not a separate asset) so the dashboard stays a

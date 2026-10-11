@@ -1,8 +1,14 @@
+import { escapeHtml } from "./scripts.js";
+
 /**
  * Multi-Tenant User Workspace Dashboard HTML.
  * Renders user's isolated workspace, connected BYOK services, and personal tasks.
  */
 export function getUserWorkspaceHtml(username: string): string {
+  // Trust the DB no further than the browser: a username is attacker-influenced
+  // at registration, so it must be escaped before it is interpolated into HTML.
+  const safeUsername = escapeHtml(username);
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -149,7 +155,7 @@ export function getUserWorkspaceHtml(username: string): string {
       <div class="brand-text">ShunopsAI Workspace</div>
     </div>
     <div class="user-pill">
-      <div class="username-badge">👤 <span id="display-username">${username}</span></div>
+      <div class="username-badge">👤 <span id="display-username">${safeUsername}</span></div>
       <button class="logout-btn" onclick="logout()">Sign Out</button>
     </div>
   </header>
@@ -157,7 +163,7 @@ export function getUserWorkspaceHtml(username: string): string {
   <div class="container">
     <div class="welcome-card">
       <div>
-        <h1 style="font-size: 20px; font-weight: 700; margin-bottom: 4px;">Welcome to your Private Dashboard, ${username}!</h1>
+        <h1 style="font-size: 20px; font-weight: 700; margin-bottom: 4px;">Welcome to your Private Dashboard, ${safeUsername}!</h1>
         <p style="font-size: 13px; color: var(--muted);">Your isolated workspace is connected to dedicated serverless compute and zero-persistence BYOK vaults.</p>
       </div>
       <a href="/portal" class="btn-action">🔑 Manage My Keys →</a>
