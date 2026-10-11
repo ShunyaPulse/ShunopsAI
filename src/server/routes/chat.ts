@@ -123,11 +123,12 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
       }
 
       try {
-        const goal = `Answer this website visitor query politely and helpfully: "${message}". Context/History: ${history || "None"}`;
+        const goal = `Answer this query politely and helpfully: "${message}".`;
         const result = await runAutonomousAgent(goal, {
           maxSteps: isBYOK ? 3 : 1, // Single step for anonymous to minimize owner token consumption
           disabledTools: Object.keys(toolRegistry) as ToolName[],
           keyOverrides,
+          initialContext: history ? `Previous Conversation Context & Memory:\n${history}` : undefined,
         });
 
         return {

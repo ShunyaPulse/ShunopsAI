@@ -2,8 +2,8 @@ import { escapeHtml } from "./scripts.js";
 
 /**
  * Multi-Tenant User Workspace Dashboard HTML.
- * Designed to be clean, simple, and friendly for non-technical users.
- * All deep technical jargon is moved to /privacy, /terms, and /about.
+ * Includes interactive multi-turn conversation thread, dynamic context memory,
+ * and optional custom context drawer for rich conversational continuity.
  */
 export function getUserWorkspaceHtml(username: string): string {
   const safeUsername = escapeHtml(username);
@@ -96,7 +96,7 @@ export function getUserWorkspaceHtml(username: string): string {
       background: rgba(239, 68, 68, 0.15);
     }
     .container {
-      max-width: 1060px;
+      max-width: 1100px;
       width: 100%;
       margin: 28px auto;
       padding: 0 20px;
@@ -145,10 +145,10 @@ export function getUserWorkspaceHtml(username: string): string {
     }
     .grid {
       display: grid;
-      grid-template-columns: 1.4fr 1fr;
+      grid-template-columns: 1.55fr 1fr;
       gap: 20px;
     }
-    @media (max-width: 840px) {
+    @media (max-width: 860px) {
       .grid {
         grid-template-columns: 1fr;
       }
@@ -163,7 +163,7 @@ export function getUserWorkspaceHtml(username: string): string {
     .box h2 {
       font-size: 16px;
       font-weight: 700;
-      margin-bottom: 8px;
+      margin-bottom: 4px;
       color: #fff;
       display: flex;
       align-items: center;
@@ -173,8 +173,103 @@ export function getUserWorkspaceHtml(username: string): string {
       font-size: 13px;
       color: var(--muted);
       line-height: 1.5;
-      margin-bottom: 16px;
+      margin-bottom: 14px;
     }
+
+    /* Chat thread & message bubbles */
+    .chat-thread-container {
+      height: 380px;
+      overflow-y: auto;
+      padding: 14px;
+      background: #060911;
+      border: 1px solid #1e293b;
+      border-radius: 12px;
+      margin-bottom: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      scroll-behavior: smooth;
+    }
+    .chat-thread-container::-webkit-scrollbar {
+      width: 6px;
+    }
+    .chat-thread-container::-webkit-scrollbar-thumb {
+      background: #1e293b;
+      border-radius: 3px;
+    }
+
+    .msg-bubble {
+      padding: 10px 14px;
+      font-size: 13px;
+      line-height: 1.55;
+      word-break: break-word;
+      animation: fadeIn 0.15s ease-in;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .msg-user {
+      align-self: flex-end;
+      max-width: 82%;
+      background: linear-gradient(135deg, #1d4ed8, #2563eb);
+      color: #fff;
+      border-radius: 14px 14px 4px 14px;
+      box-shadow: 0 2px 8px rgba(37, 99, 235, 0.25);
+    }
+    .msg-assistant {
+      align-self: flex-start;
+      max-width: 88%;
+      background: #0f172a;
+      border: 1px solid #1e293b;
+      color: #e2e8f0;
+      border-radius: 14px 14px 14px 4px;
+    }
+    .msg-header {
+      font-size: 11px;
+      font-weight: 600;
+      margin-bottom: 4px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .msg-user .msg-header {
+      color: #bfdbfe;
+      justify-content: flex-end;
+    }
+    .msg-assistant .msg-header {
+      color: #38bdf8;
+    }
+    .msg-body {
+      white-space: pre-wrap;
+    }
+
+    .thinking-bubble {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: #94a3b8;
+      font-size: 12px;
+      padding: 10px 14px;
+      background: #0f172a;
+      border: 1px solid #1e293b;
+      border-radius: 14px 14px 14px 4px;
+      align-self: flex-start;
+    }
+    .dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #38bdf8;
+      animation: pulse 1.2s infinite ease-in-out;
+    }
+    .dot:nth-child(2) { animation-delay: 0.2s; }
+    .dot:nth-child(3) { animation-delay: 0.4s; }
+    @keyframes pulse {
+      0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+      40% { transform: scale(1.1); opacity: 1; }
+    }
+
     .chat-input-wrapper {
       background: #090d16;
       border: 1px solid #1e293b;
@@ -212,30 +307,22 @@ export function getUserWorkspaceHtml(username: string): string {
     .chat-send-btn:hover {
       background: #7dd3fc;
     }
-    .chat-reply-area {
-      margin-top: 14px;
-      background: #070a12;
-      border: 1px solid #1e293b;
-      border-radius: 10px;
-      padding: 14px;
-      font-size: 13px;
-      line-height: 1.6;
-      color: #e2e8f0;
-      min-height: 50px;
-      white-space: pre-wrap;
-      display: none;
+    .chat-send-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
     }
+
     .quick-chips {
       display: flex;
       flex-wrap: wrap;
       gap: 8px;
-      margin-top: 12px;
+      margin-top: 10px;
     }
     .chip {
       background: rgba(255, 255, 255, 0.04);
       border: 1px solid rgba(255, 255, 255, 0.1);
       color: #94a3b8;
-      padding: 5px 10px;
+      padding: 4px 10px;
       border-radius: 14px;
       font-size: 11px;
       cursor: pointer;
@@ -246,6 +333,7 @@ export function getUserWorkspaceHtml(username: string): string {
       border-color: var(--accent);
       color: #fff;
     }
+
     .feature-item {
       display: flex;
       align-items: flex-start;
@@ -274,7 +362,7 @@ export function getUserWorkspaceHtml(username: string): string {
       margin: 0;
     }
     .footer {
-      max-width: 1060px;
+      max-width: 1100px;
       margin: 0 auto;
       padding: 24px 20px 40px;
       border-top: 1px solid var(--border);
@@ -312,37 +400,70 @@ export function getUserWorkspaceHtml(username: string): string {
     <div class="welcome-card">
       <div>
         <h1 class="welcome-title">Welcome, ${safeUsername}!</h1>
-        <p class="welcome-desc">Your private personal assistant is ready to help you write, research, and get things done.</p>
+        <p class="welcome-desc">Your private AI assistant remembers your conversation context and helps you write, analyze, and automate tasks.</p>
       </div>
       <a href="/portal" class="btn-action">⚙️ Assistant Settings &rarr;</a>
     </div>
 
     <div class="grid">
-      <!-- Left: Chat Assistant -->
+      <!-- Left: Chat Assistant with Multi-Turn Context Thread -->
       <div class="box">
-        <h2>💬 Ask Your AI Assistant</h2>
-        <p>
-          Ask questions, get explanations, draft messages, or brainstorm ideas anytime.
-        </p>
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+          <h2>💬 Ask Your AI Assistant</h2>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <span id="context-badge" style="font-size:11px; background:rgba(56,189,248,0.12); color:#38bdf8; border:1px solid rgba(56,189,248,0.25); padding:2px 8px; border-radius:12px; font-weight:600;">
+              🧠 Context: 0 turns
+            </span>
+            <button type="button" onclick="clearConversation()" style="background:transparent; border:1px solid rgba(255,255,255,0.12); color:#94a3b8; font-size:11px; padding:3px 9px; border-radius:8px; cursor:pointer; transition:all 0.15s;" title="Start fresh conversation and reset memory">
+              🧹 Reset Context
+            </button>
+          </div>
+        </div>
+        <p>Continuous conversation memory is active. The assistant remembers your previous questions in this session.</p>
 
+        <!-- Message Thread -->
+        <div id="chat-thread" class="chat-thread-container">
+          <div id="empty-state" style="margin:auto; text-align:center; color:#64748b; font-size:13px; padding:20px;">
+            👋 Hello <strong>${safeUsername}</strong>! Ask a question or pick a prompt below to begin.
+          </div>
+        </div>
+
+        <!-- Optional Context / Notes Drawer -->
+        <div style="margin-bottom:10px;">
+          <button type="button" onclick="toggleContextDrawer()" style="background:transparent; border:none; color:#38bdf8; font-size:12px; cursor:pointer; display:flex; align-items:center; gap:6px; padding:2px 0;">
+            <span id="context-toggle-arrow">▸</span> 📎 <span>Add Custom Context or Notes (Optional)</span>
+          </button>
+          <div id="custom-context-drawer" style="display:none; margin-top:8px;">
+            <textarea id="custom-context-input" placeholder="Paste background notes, document snippet, code, or special instructions here to give your assistant extra context for this chat session..." style="width:100%; height:64px; background:#070a12; border:1px solid #1e293b; border-radius:8px; padding:8px 10px; color:#fff; font-size:12px; font-family:inherit; resize:vertical; outline:none;"></textarea>
+          </div>
+        </div>
+
+        <!-- Input Row -->
         <div class="chat-input-wrapper">
-          <input type="text" id="user-chat-input" class="chat-input" placeholder="Ask anything (e.g. 'How can you help me today?')..." onkeydown="if(event.key==='Enter') sendUserChat()">
+          <input type="text" id="user-chat-input" class="chat-input" placeholder="Type your message or follow-up question..." onkeydown="if(event.key==='Enter') sendUserChat()">
           <button class="chat-send-btn" id="send-btn" onclick="sendUserChat()">Send</button>
         </div>
 
+        <!-- Quick Suggestions -->
         <div class="quick-chips">
           <div class="chip" onclick="askSuggestion('What can you help me do?')">💡 What can you do?</div>
           <div class="chip" onclick="askSuggestion('Help me write a friendly professional email')">✉️ Draft an email</div>
           <div class="chip" onclick="askSuggestion('Explain cloud hosting in simple terms')">☁️ Explain simply</div>
         </div>
-
-        <div id="user-chat-reply" class="chat-reply-area"></div>
       </div>
 
       <!-- Right: Simple Overview & Tools -->
       <div class="box">
         <h2>🚀 What You Can Do</h2>
         <p>Everything is set up and ready. No technical configuration needed.</p>
+
+        <div class="feature-item">
+          <div class="feature-icon">🧠</div>
+          <div>
+            <div class="feature-title">Continuous Context Memory</div>
+            <p class="feature-desc">Ask follow-up questions naturally. The assistant keeps track of your conversation history in real time.</p>
+          </div>
+        </div>
 
         <div class="feature-item">
           <div class="feature-icon">✨</div>
@@ -390,14 +511,85 @@ export function getUserWorkspaceHtml(username: string): string {
   </div>
 
   <script>
+    // In-memory conversation context turns
+    let conversationHistory = [];
+
     async function logout() {
       await fetch('/api/auth/logout', { method: 'POST' });
       window.location.href = '/login';
     }
 
+    function toggleContextDrawer() {
+      const drawer = document.getElementById('custom-context-drawer');
+      const arrow = document.getElementById('context-toggle-arrow');
+      if (drawer.style.display === 'none') {
+        drawer.style.display = 'block';
+        arrow.textContent = '▾';
+      } else {
+        drawer.style.display = 'none';
+        arrow.textContent = '▸';
+      }
+    }
+
+    function updateContextBadge() {
+      const badge = document.getElementById('context-badge');
+      const turns = Math.floor(conversationHistory.length / 2);
+      badge.textContent = '🧠 Context: ' + turns + ' ' + (turns === 1 ? 'turn' : 'turns');
+    }
+
+    function clearConversation() {
+      conversationHistory = [];
+      const thread = document.getElementById('chat-thread');
+      thread.innerHTML = '<div id="empty-state" style="margin:auto; text-align:center; color:#64748b; font-size:13px; padding:20px;">👋 Fresh conversation started! Ask a question below.</div>';
+      updateContextBadge();
+    }
+
     function askSuggestion(text) {
       document.getElementById('user-chat-input').value = text;
       sendUserChat();
+    }
+
+    function escapeHtmlText(str) {
+      const div = document.createElement('div');
+      div.textContent = str;
+      return div.innerHTML;
+    }
+
+    function appendMessageBubble(role, content) {
+      const emptyState = document.getElementById('empty-state');
+      if (emptyState) emptyState.remove();
+
+      const thread = document.getElementById('chat-thread');
+      const bubble = document.createElement('div');
+      bubble.className = 'msg-bubble ' + (role === 'user' ? 'msg-user' : 'msg-assistant');
+
+      const header = document.createElement('div');
+      header.className = 'msg-header';
+      header.textContent = role === 'user' ? '👤 You' : '⚡ Assistant';
+
+      const body = document.createElement('div');
+      body.className = 'msg-body';
+      body.textContent = content;
+
+      bubble.appendChild(header);
+      bubble.appendChild(body);
+      thread.appendChild(bubble);
+      thread.scrollTop = thread.scrollHeight;
+    }
+
+    function showThinkingIndicator() {
+      const thread = document.getElementById('chat-thread');
+      const thinking = document.createElement('div');
+      thinking.id = 'thinking-indicator';
+      thinking.className = 'thinking-bubble';
+      thinking.innerHTML = '<span>Thinking</span><span class="dot"></span><span class="dot"></span><span class="dot"></span>';
+      thread.appendChild(thinking);
+      thread.scrollTop = thread.scrollHeight;
+    }
+
+    function removeThinkingIndicator() {
+      const thinking = document.getElementById('thinking-indicator');
+      if (thinking) thinking.remove();
     }
 
     const DB_NAME = "shunops_secure_vault_v3";
@@ -434,16 +626,31 @@ export function getUserWorkspaceHtml(username: string): string {
 
     async function sendUserChat() {
       const input = document.getElementById('user-chat-input');
-      const replyDiv = document.getElementById('user-chat-reply');
       const sendBtn = document.getElementById('send-btn');
       const msg = input.value.trim();
       if (!msg) return;
 
-      replyDiv.style.display = 'block';
-      replyDiv.textContent = 'Thinking...';
+      input.value = '';
       sendBtn.disabled = true;
       sendBtn.textContent = '...';
-      input.value = '';
+
+      // 1. Render User Message
+      appendMessageBubble('user', msg);
+      showThinkingIndicator();
+
+      // 2. Build multi-turn context
+      const customContext = document.getElementById('custom-context-input')?.value.trim();
+      const historyItems = [];
+      if (customContext) {
+        historyItems.push('Custom Workspace Notes/Instructions:\\n' + customContext);
+      }
+      if (conversationHistory.length > 0) {
+        // Send last 8 turns of context
+        const recent = conversationHistory.slice(-8);
+        const turnsText = recent.map(t => (t.role === 'user' ? 'User: ' : 'Assistant: ') + t.content).join('\\n');
+        historyItems.push('Previous Conversation History:\\n' + turnsText);
+      }
+      const historyPayload = historyItems.length > 0 ? historyItems.join('\\n\\n') : undefined;
 
       try {
         const headers = { 'Content-Type': 'application/json' };
@@ -457,12 +664,26 @@ export function getUserWorkspaceHtml(username: string): string {
         const res = await fetch('/api/chat', {
           method: 'POST',
           headers,
-          body: JSON.stringify({ message: msg })
+          body: JSON.stringify({
+            message: msg,
+            history: historyPayload
+          })
         });
+
         const data = await res.json();
-        replyDiv.textContent = data.reply || 'No response received. Please try again.';
+        removeThinkingIndicator();
+
+        const reply = data.reply || 'No response received. Please try again.';
+        appendMessageBubble('assistant', reply);
+
+        // Update context memory
+        conversationHistory.push({ role: 'user', content: msg });
+        conversationHistory.push({ role: 'assistant', content: reply });
+        updateContextBadge();
+
       } catch (err) {
-        replyDiv.textContent = 'Sorry, could not connect right now. Please check your connection and try again.';
+        removeThinkingIndicator();
+        appendMessageBubble('assistant', 'Sorry, could not connect right now. Please check your connection and try again.');
       } finally {
         sendBtn.disabled = false;
         sendBtn.textContent = 'Send';

@@ -13,7 +13,7 @@ import { requestHumanApproval, isActionSensitive } from "../tools/safety.js";
 export interface AgentOptions {
   maxSteps?: number;
   temperature?: number;
-  initialContext?: string;
+  initialContext?: string | undefined;
   models?: string[];
   targets?: ModelTarget[];
   /** Tools that must never be exposed or executed for this run (least-privilege). */
