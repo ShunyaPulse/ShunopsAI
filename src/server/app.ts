@@ -30,7 +30,7 @@ export interface AppConfig {
 export function loadAppConfig(): AppConfig {
   return {
     apiToken: process.env.AGENT_API_TOKEN || process.env.API_SECRET || "",
-    host: process.env.HOST || "127.0.0.1",
+    host: process.env.HOST || "0.0.0.0",
     corsOrigins: (process.env.CORS_ORIGINS || "").split(",").map((s) => s.trim()).filter(Boolean),
     rateLimitMax: Number(process.env.RATE_LIMIT_MAX) || 30,
     rateLimitWindowMs: Number(process.env.RATE_LIMIT_WINDOW) || 60_000,
