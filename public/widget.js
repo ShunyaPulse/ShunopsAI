@@ -750,7 +750,34 @@
     scrollToBottom();
   }
 
-  // Send message and stream SSE
+  // Cryptographic Proof-of-Work Challenge Solver (Anti-Bot Clearance)
+  async function solveProofOfWork(challenge) {
+    if (!challenge || !window.crypto || !window.crypto.subtle) return null;
+    const enc = new TextEncoder();
+    const targetDifficulty = challenge.targetDifficulty || 2;
+    const targetPrefix = '0'.repeat(targetDifficulty);
+    let nonce = 0;
+    while (nonce < 100000) {
+      const data = enc.encode(challenge.salt + ':' + nonce);
+      const buf = await window.crypto.subtle.digest('SHA-256', data);
+      const hex = Array.from(new Uint8Array(buf))
+        .map((b) => b.toString(16).padStart(2, '0'))
+        .join('');
+      if (hex.startsWith(targetPrefix)) {
+        return {
+          salt: challenge.salt,
+          timestamp: challenge.timestamp,
+          targetDifficulty: challenge.targetDifficulty,
+          signature: challenge.signature,
+          solution: String(nonce),
+        };
+      }
+      nonce++;
+    }
+    return null;
+  }
+
+  // Send message and stream SSE or read JSON response
   async function sendMessage() {
     const text = inputEl.value.trim();
     if (!text || isStreaming) return;
@@ -772,17 +799,54 @@
     let currentToolPill = null;
 
     try {
+      // Step 1: Solve Proof-of-Work challenge to clear bot shield
+      let shieldSolution = null;
+      try {
+        const chRes = await fetch(`${apiUrl}/api/shield/challenge`);
+        if (chRes.ok) {
+          const chData = await chRes.json();
+          shieldSolution = await solveProofOfWork(chData);
+        }
+      } catch {}
+
+      // Step 2: Grab Turnstile response if present in window
+      let turnstileToken = undefined;
+      if (typeof window !== 'undefined' && window.turnstile && typeof window.turnstile.getResponse === 'function') {
+        try {
+          turnstileToken = window.turnstile.getResponse() || undefined;
+        } catch {}
+      }
+
       const response = await fetch(`${apiUrl}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           sessionId,
           message: text,
+          shield: shieldSolution || undefined,
+          turnstileToken,
         }),
       });
 
+      const contentType = response.headers.get('content-type') || '';
+
       if (!response.ok) {
-        throw new Error(`Edge returned HTTP ${response.status}`);
+        if (contentType.includes('application/json')) {
+          const errData = await response.json();
+          cursor.remove();
+          assistantBubble.innerHTML = renderMarkdown(errData.reply || errData.error || `Error HTTP ${response.status}`);
+          scrollToBottom();
+          return;
+        }
+        throw new Error(`Server returned HTTP ${response.status}`);
+      }
+
+      if (contentType.includes('application/json')) {
+        const data = await response.json();
+        cursor.remove();
+        assistantBubble.innerHTML = renderMarkdown(data.reply || data.error || 'Message received.');
+        scrollToBottom();
+        return;
       }
 
       if (!response.body) {

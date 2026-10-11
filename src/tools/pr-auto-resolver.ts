@@ -934,7 +934,23 @@ function submitApprovedReview(
     console.warn(`[Review notice] ${reviewErr.message}`);
   }
 
-  // 2. Merge PR
+  // 2. Check if automated merging is authorized
+  const allowUnattendedMerge = /^(1|true|yes)$/i.test(
+    process.env.ALLOW_UNATTENDED_PR_MERGE || process.env.AUTO_MERGE_APPROVED_PRS || ""
+  );
+
+  if (!allowUnattendedMerge) {
+    console.log(
+      `${colors.yellow}⏸️ PR #${pr.number} approved via consensus, but auto-merge is disabled (ALLOW_UNATTENDED_PR_MERGE is false). Leaving for human operator to merge.${colors.reset}`
+    );
+    return {
+      approved: true,
+      merged: false,
+      message: `Approved by dual-model consensus; awaiting human operator merge authorization.`,
+    };
+  }
+
+  // 3. Merge PR if explicitly authorized
   try {
     execFileSync(
       "gh",

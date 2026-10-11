@@ -137,6 +137,18 @@ export function sensitivityPayload(toolName: string, args: Record<string, any>):
       return `gcloud run ${args.subcommand ?? ""} ${arr}`.trim();
     case "manage_cloudflare":
       return `wrangler ${args.command ?? ""}`.trim();
+    case "manage_github":
+      return `github ${args.action ?? ""} ${args.repo ?? ""} ${args.branch ?? ""}`.trim();
+    case "publish_to_youtube":
+      return `youtube ${args.action ?? ""} ${args.videoId ?? ""}`.trim();
+    case "manage_kaggle":
+      return `kaggle ${args.action ?? ""} ${args.dataset ?? args.kernel ?? ""}`.trim();
+    case "produce_video":
+      return `produce_video ${args.action ?? args.pipeline ?? ""}`.trim();
+    case "auto_heal_service":
+      return `auto_heal ${args.serviceName ?? ""} ${args.action ?? ""}`.trim();
+    case "write_file":
+      return `write_file ${args.filepath ?? ""} (${args.content?.length ?? 0} bytes)`.trim();
     default:
       return JSON.stringify(args);
   }

@@ -35,6 +35,22 @@ async function bootstrap() {
     console.log(`\x1b[36m👉 Cloud Alert:\x1b[0m  POST http://localhost:${PORT}/api/webhook/cloud-alert`);
     console.log(`\x1b[36m👉 Widget:\x1b[0m       http://localhost:${PORT}/widget.js`);
     console.log(`\x1b[32m\x1b[1m========================================================\x1b[0m\n`);
+
+    // Graceful Shutdown Handler for Cloud Run, Docker, and Kubernetes
+    const handleShutdown = async (signal: string) => {
+      console.log(`\n🛑 Received ${signal}, draining connections and closing Fastify server...`);
+      try {
+        await app.close();
+        console.log("✅ Server shutdown completed cleanly.");
+        process.exit(0);
+      } catch (closeErr) {
+        console.error("Error during server shutdown:", closeErr);
+        process.exit(1);
+      }
+    };
+
+    process.on("SIGTERM", () => handleShutdown("SIGTERM"));
+    process.on("SIGINT", () => handleShutdown("SIGINT"));
   } catch (err: any) {
     console.error("Failed to start ShunopsAI Fastify Server:", err);
     process.exit(1);

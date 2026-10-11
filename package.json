@@ -5,8 +5,9 @@
   "description": "ShunopsAI: Autonomous Multi-Cloud & DevOps Sentinel Agent powered by OpenRouter, GitHub Actions, and n8n",
   "main": "agent.ts",
   "scripts": {
-    "start": "tsx agent.ts",
+    "start": "tsx server.ts",
     "server": "tsx server.ts",
+    "agent": "tsx agent.ts",
     "test": "tsx tests/production-suite.test.ts",
     "typecheck": "tsc --noEmit",
     "resolve-alerts": "tsx src/tools/code-scanner-resolver.ts",

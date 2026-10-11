@@ -28,8 +28,6 @@ on:
         default: "Perform full health check and auto-heal any degraded services"
   repository_dispatch:
     types: [cloud-incident, sentinel-heal, code-alert, auto-heal]
-  issues:
-    types: [opened, labeled]
 
 permissions:
   contents: write
@@ -116,8 +114,8 @@ jobs:
               labels: ['incident', 'cloud-ops', 'bug']
             });
 
-      - name: Execute Trigger-Based, Dispatch, or Issue Task
-        if: github.event_name == 'workflow_dispatch' || github.event_name == 'issues' || github.event_name == 'repository_dispatch'
+      - name: Execute Authenticated Dispatch or Triggered Task
+        if: github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch'
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
@@ -149,7 +147,7 @@ jobs:
           YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
           YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
           TARGET_SERVICE: ${{ github.event.client_payload.target_service || github.event.inputs.target_service || 'all_services_health_check' }}
-          TASK_GOAL: ${{ github.event.client_payload.task_goal || github.event.inputs.task_goal || github.event.issue.title || 'Perform full health check and auto-heal degraded services' }}
+          TASK_GOAL: ${{ github.event.client_payload.task_goal || github.event.inputs.task_goal || 'Perform full health check and auto-heal degraded services' }}
         run: |
           echo "🎯 [Cloud Ops] Target: $TARGET_SERVICE"
           echo "🎯 [Cloud Ops] Goal: $TASK_GOAL"

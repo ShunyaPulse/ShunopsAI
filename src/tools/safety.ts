@@ -122,6 +122,53 @@ export function isActionSensitive(command: string): { isSensitive: boolean; reas
     };
   }
 
+  // Inline script and language runtime evaluation (bypasses static shell regex)
+  if (
+    /(^|[\s;&|])node(\.exe)?\s+(-e|--eval)\b/.test(normalized) ||
+    /(^|[\s;&|])python[23]?(\.exe)?\s+-c\b/.test(normalized) ||
+    /(^|[\s;&|])perl\s+-e\b/.test(normalized) ||
+    /(^|[\s;&|])ruby\s+-e\b/.test(normalized)
+  ) {
+    return {
+      isSensitive: true,
+      reason: "Direct inline code evaluation (node -e / python -c) detected.",
+    };
+  }
+
+  // File search-and-destroy patterns
+  if (/(^|[\s;&|])find\s+.*-(delete|exec\s+rm)\b/.test(normalized)) {
+    return {
+      isSensitive: true,
+      reason: "Recursive search-and-delete filesystem operation detected.",
+    };
+  }
+
+  // Shell evasion ($IFS) and critical path redirections
+  if (
+    normalized.includes("$ifs") ||
+    normalized.includes("${ifs}") ||
+    />\s*(\/etc\/|\/boot\/|\.env|c:\\windows)/i.test(normalized)
+  ) {
+    return {
+      isSensitive: true,
+      reason: "Shell delimiter manipulation ($IFS) or sensitive file overwrite redirection detected.",
+    };
+  }
+
+  // Destructive operations in GitHub, YouTube, Kaggle, and Cloudflare tools
+  if (
+    /^github\s+(delete_|force_push|destroy)/i.test(normalized) ||
+    /^youtube\s+(delete|destroy|remove)/i.test(normalized) ||
+    /^kaggle\s+(delete|destroy|remove)/i.test(normalized) ||
+    /^auto_heal\s+.*(delete|destroy|purge)/i.test(normalized) ||
+    /^write_file\s+.*\.env/i.test(normalized)
+  ) {
+    return {
+      isSensitive: true,
+      reason: "Destructive cloud resource deletion, forced overwrite, or secret mutation requested.",
+    };
+  }
+
   return { isSensitive: false, reason: "" };
 }
 

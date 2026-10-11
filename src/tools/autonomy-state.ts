@@ -119,16 +119,24 @@ export async function setAutonomyPaused(
   // Manage PM2 daily-autopilot process if available
   let pm2Message = "";
   try {
-    if (paused) {
-      execFileSync("pm2", ["stop", "daily-autopilot"], { stdio: "ignore" });
-      pm2Message = "PM2 daily-autopilot stopped.";
+    const pm2ListOutput = execFileSync("pm2", ["jlist"], { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] });
+    const processes = JSON.parse(pm2ListOutput || "[]");
+    const hasAutopilot = Array.isArray(processes) && processes.some((p: any) => p.name === "daily-autopilot");
+
+    if (hasAutopilot) {
+      if (paused) {
+        execFileSync("pm2", ["stop", "daily-autopilot"], { stdio: "ignore" });
+        pm2Message = "PM2 daily-autopilot process paused successfully.";
+      } else {
+        execFileSync("pm2", ["restart", "daily-autopilot"], { stdio: "ignore" });
+        pm2Message = "PM2 daily-autopilot process resumed successfully.";
+      }
     } else {
-      execFileSync("pm2", ["restart", "daily-autopilot"], { stdio: "ignore" });
-      pm2Message = "PM2 daily-autopilot resumed.";
+      pm2Message = "PM2 active, but daily-autopilot process is not registered. State guardrail applied.";
     }
   } catch {
-    // PM2 may not be running locally in dev, ignore gracefully
-    pm2Message = "PM2 process managed via state guardrail.";
+    // PM2 CLI not found or errored
+    pm2Message = "PM2 is not installed or active in this runtime; autonomy state persisted via Redis/local guardrail.";
   }
   status.pm2Status = pm2Message;
 

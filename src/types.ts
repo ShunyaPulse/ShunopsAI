@@ -109,6 +109,21 @@ export interface ActionConfirmationDetails {
   expiresAt: number;
 }
 
+export interface ShieldChallenge {
+  salt: string;
+  targetDifficulty: number;
+  timestamp: number;
+  signature: string;
+}
+
+export interface ShieldSolutionPayload {
+  salt: string;
+  timestamp: number;
+  targetDifficulty: number;
+  signature: string;
+  solution: string;
+}
+
 /**
  * Request payload for POST /api/chat
  */
@@ -117,6 +132,7 @@ export interface ChatRequestBody {
   message: string;
   turnstileToken?: string;
   systemPrompt?: string;
+  shield?: ShieldSolutionPayload;
 }
 
 /**

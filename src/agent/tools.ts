@@ -88,7 +88,8 @@ export const toolRegistry: Record<ToolName, ToolDefinition> = {
       } catch (e: any) {
         return `Error: ${e.message}`;
       }
-      const timeout = args.timeoutMs || 30000;
+      // Cap timeout to 60 seconds maximum to prevent runner lockups
+      const timeout = Math.min(Math.max(Number(args.timeoutMs) || 30000, 1000), 60000);
 
       try {
         const { stdout, stderr } = await execAsync(args.command, {

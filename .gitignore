@@ -20,6 +20,7 @@ jobs/
 test_output/
 output/
 -p/
+*.sarif
 
 # OS / editor
 .DS_Store
@@ -31,8 +32,10 @@ Thumbs.db
 *.log
 npm-debug.log*
 
-# Autonomous Auditor local state
+# Autonomous state & local caches
 .auditor-state.json
+.autonomy-paused.json
+autonomy-paused.json
 
 # Python and temp caches
 __pycache__/
