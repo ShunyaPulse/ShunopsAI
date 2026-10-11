@@ -1,9 +1,9 @@
 import { DASHBOARD_STYLES } from "./styles.js";
 
 /**
- * Renders the standalone Public Self-Service & Monetization Portal (BYOK Hub).
- * Designed for non-technical users to easily select services, input free API keys,
- * follow step-by-step visual guides, and launch automated services or monetize them.
+ * Renders the standalone Public Self-Service BYOK Portal.
+ * Designed for non-technical users to easily select services and input free API keys
+ * with step-by-step visual guides.
  */
 export function getShunopsPortalHtml(): string {
   return `<!DOCTYPE html>
@@ -11,7 +11,7 @@ export function getShunopsPortalHtml(): string {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ShunopsAI • Public Self-Service & Monetization Portal (BYOK)</title>
+  <title>ShunopsAI • Public Self-Service BYOK Portal</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <style>
@@ -125,32 +125,6 @@ export function getShunopsPortalHtml(): string {
       color: #000;
       box-shadow: 0 0 10px rgba(56, 189, 248, 0.4);
     }
-    .monetize-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-      gap: 16px;
-      margin-top: 20px;
-    }
-    .monetize-card {
-      background: linear-gradient(135deg, #0e172a, #14223d);
-      border: 1px solid #1f2d4d;
-      border-radius: 12px;
-      padding: 20px;
-    }
-    .monetize-card h4 {
-      color: #38bdf8;
-      font-size: 15px;
-      margin-bottom: 8px;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-    .monetize-earning {
-      font-size: 18px;
-      font-weight: 800;
-      color: #10b981;
-      margin-bottom: 8px;
-    }
   </style>
 </head>
 <body>
@@ -159,12 +133,12 @@ export function getShunopsPortalHtml(): string {
       <div class="brand-icon">⚡</div>
       <div>
         <div class="brand-title">SHUNOPSAI PORTAL</div>
-        <div class="brand-subtitle">Public BYOK Setup & Monetization Launchpad</div>
+        <div class="brand-subtitle">Public BYOK Setup Hub</div>
       </div>
     </div>
     <div class="header-pills">
       <a href="/dashboard" class="btn btn-secondary" style="text-decoration:none;font-size:12px;padding:6px 14px;">← Back to Command Center</a>
-      <button class="btn btn-success" onclick="saveAndTestKeys()">💾 Save & Connect Keys</button>
+      <button class="btn btn-success" onclick="saveAndTestKeys()">💾 Save &amp; Connect Keys</button>
     </div>
   </header>
 
@@ -172,9 +146,9 @@ export function getShunopsPortalHtml(): string {
     
     <!-- Hero / Introduction -->
     <div class="portal-hero">
-      <h1>Turn Autonomous AI Into Income & Automation</h1>
+      <h1>ShunopsAI • Self-Service BYOK Hub</h1>
       <p>
-        ShunopsAI delivers high-leverage multi-cloud & video automation tools. Select what you need, paste your free API keys using our 30-second direct links, and run everything with zero coding knowledge.
+        Select the services you need, paste your free API keys using the direct links below, and connect everything in under 2 minutes — no coding required.
       </p>
     </div>
 
@@ -195,7 +169,7 @@ export function getShunopsPortalHtml(): string {
             <strong style="font-size:15px; color:#fff;">🎬 AI Video Studio (YouTube Cash Cow)</strong>
           </div>
           <p style="font-size:12px; color:#94a3b8; line-height:1.5;">
-            Creates 1080p documentary videos with Alibaba Wan2.1 DiT, Edge-TTS Hindi/English voices, subtitles & auto-publishes to YouTube.
+            Creates 1080p documentary videos with Alibaba Wan2.1 DiT, Edge-TTS Hindi/English voices, subtitles &amp; auto-publishes to YouTube.
           </p>
         </div>
 
@@ -203,7 +177,7 @@ export function getShunopsPortalHtml(): string {
         <div class="service-choice-card selected" id="card-sentinel" onclick="toggleService('sentinel')">
           <div class="service-choice-header">
             <div class="custom-checkbox" id="chk-sentinel">✓</div>
-            <strong style="font-size:15px; color:#fff;">🛡️ 24/7 Cloud Sentinel & Auto-Heal</strong>
+            <strong style="font-size:15px; color:#fff;">🛡️ 24/7 Cloud Sentinel &amp; Auto-Heal</strong>
           </div>
           <p style="font-size:12px; color:#94a3b8; line-height:1.5;">
             Continuous uptime monitoring, automatic recovery, and alert management for Cloud Run, Postgres, Redis, and websites.
@@ -214,7 +188,7 @@ export function getShunopsPortalHtml(): string {
         <div class="service-choice-card" id="card-github" onclick="toggleService('github')">
           <div class="service-choice-header">
             <div class="custom-checkbox" id="chk-github"></div>
-            <strong style="font-size:15px; color:#fff;">🔍 GitHub Security & Bug Healer</strong>
+            <strong style="font-size:15px; color:#fff;">🔍 GitHub Security &amp; Bug Healer</strong>
           </div>
           <p style="font-size:12px; color:#94a3b8; line-height:1.5;">
             Proactively scans repositories for security flaws, auto-fixes CodeQL/Semgrep alerts, and reviews PRs with Dual-Model Consensus.
@@ -257,14 +231,14 @@ export function getShunopsPortalHtml(): string {
         No credit card is required for these free tiers. Click the direct links below to get your keys in seconds:
       </p>
 
-      <!-- Video & AI Inputs -->
+      <!-- AI Keys (Groq + Gemini) — shown when AI Router or Video is active -->
       <div id="section-ai-keys">
         <!-- Groq Key -->
         <div class="key-input-group">
           <div class="key-label-row">
             <div>
               <strong style="color:#fff; font-size:14px;">1. Groq LPU API Key</strong>
-              <span style="font-size:11px; color:#64748b; margin-left:8px;">(High-Speed LLM & Script Generator)</span>
+              <span style="font-size:11px; color:#64748b; margin-left:8px;">(High-Speed LLM &amp; Script Generator)</span>
             </div>
             <a href="https://console.groq.com/keys" target="_blank" rel="noopener noreferrer" class="direct-link-badge">
               🔗 Get Free Groq Key (30s • No Card) →
@@ -272,7 +246,7 @@ export function getShunopsPortalHtml(): string {
           </div>
           <input type="password" id="input-groq-key" class="chat-input" placeholder="gsk_..." style="width:100%;" />
           <div style="font-size:11px; color:#64748b; margin-top:6px;">
-            📌 <em>Guide: Log in with Google at console.groq.com/keys → Click "Create API Key" → Copy & paste here.</em>
+            📌 <em>Guide: Log in with Google at console.groq.com/keys → Click "Create API Key" → Copy &amp; paste here.</em>
           </div>
         </div>
 
@@ -281,7 +255,7 @@ export function getShunopsPortalHtml(): string {
           <div class="key-label-row">
             <div>
               <strong style="color:#fff; font-size:14px;">2. Google Gemini API Key</strong>
-              <span style="font-size:11px; color:#64748b; margin-left:8px;">(Multi-Modal & Dual Consensus)</span>
+              <span style="font-size:11px; color:#64748b; margin-left:8px;">(Multi-Modal &amp; Dual Consensus)</span>
             </div>
             <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" class="direct-link-badge">
               🔗 Get Free Gemini Key (1-Click) →
@@ -294,24 +268,24 @@ export function getShunopsPortalHtml(): string {
         </div>
       </div>
 
-      <!-- Kaggle & Video Inputs -->
+      <!-- Video Keys (Kaggle + Hugging Face) — shown only when Video is active -->
       <div id="section-video-keys">
         <div class="key-input-group">
           <div class="key-label-row">
             <div>
               <strong style="color:#fff; font-size:14px;">3. Kaggle Cloud Credentials</strong>
-              <span style="font-size:11px; color:#64748b; margin-left:8px;">(Free Dual T4 GPU Video Rendering • $0/mo)</span>
+              <span style="font-size:11px; color:#64748b; margin-left:8px;">(Free Dual T4 GPU Video Rendering • \$0/mo)</span>
             </div>
             <a href="https://www.kaggle.com/settings" target="_blank" rel="noopener noreferrer" class="direct-link-badge">
-              🔗 Get Free Kaggle Token (kaggle.json) →
+              🔗 Get Free Kaggle Token →
             </a>
           </div>
           <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px;">
             <input type="text" id="input-kaggle-user" class="chat-input" placeholder="Kaggle Username (e.g. shunyapulse)" />
-            <input type="password" id="input-kaggle-key" class="chat-input" placeholder="Kaggle API Key (from kaggle.json)" />
+            <input type="password" id="input-kaggle-key" class="chat-input" placeholder="Kaggle API Token" />
           </div>
           <div style="font-size:11px; color:#64748b; margin-top:6px;">
-            📌 <em>Guide: Go to Kaggle Settings → Scroll to 'API' section → Click 'Create New Token'. Open downloaded kaggle.json file to copy username and key.</em>
+            📌 <em>Guide: Go to Kaggle Settings → Under 'API Tokens (Recommended)' → Click 'Generate New Token' → Copy your username and the generated token.</em>
           </div>
         </div>
 
@@ -330,13 +304,13 @@ export function getShunopsPortalHtml(): string {
         </div>
       </div>
 
-      <!-- GitHub & Cloud Sentinel Inputs -->
+      <!-- GitHub Keys — shown only when GitHub Security is active -->
       <div id="section-github-keys" style="display:none;">
         <div class="key-input-group">
           <div class="key-label-row">
             <div>
               <strong style="color:#fff; font-size:14px;">5. GitHub Personal Access Token</strong>
-              <span style="font-size:11px; color:#64748b; margin-left:8px;">(For Repo Auditing & Pull Request Auto-Healing)</span>
+              <span style="font-size:11px; color:#64748b; margin-left:8px;">(For Repo Auditing &amp; Pull Request Auto-Healing)</span>
             </div>
             <a href="https://github.com/settings/tokens/new?scopes=repo,security_events" target="_blank" rel="noopener noreferrer" class="direct-link-badge">
               🔗 Create GitHub Token (Pre-Configured) →
@@ -346,7 +320,7 @@ export function getShunopsPortalHtml(): string {
         </div>
       </div>
 
-      <!-- Website / Monitoring Endpoint -->
+      <!-- Sentinel Keys — shown only when Sentinel is active -->
       <div id="section-sentinel-keys">
         <div class="key-input-group">
           <div class="key-label-row">
@@ -361,91 +335,15 @@ export function getShunopsPortalHtml(): string {
 
       <div style="display:flex; gap:12px; justify-content:flex-end; margin-top:20px;">
         <button class="btn btn-secondary" onclick="loadSavedKeys()">↺ Reset from Storage</button>
-        <button class="btn btn-success" onclick="saveAndTestKeys()">💾 Save & Connect All Keys</button>
+        <button class="btn btn-success" onclick="saveAndTestKeys()">💾 Save &amp; Connect All Keys</button>
       </div>
       <div id="save-status" style="margin-top:10px; font-size:12px; text-align:right;"></div>
-    </div>
-
-    <!-- Step 3: 1-Click Launchers -->
-    <div class="panel" style="padding:24px; margin-top:24px;">
-      <h2 style="font-size:18px; color:#fff; display:flex; align-items:center; gap:8px; margin-bottom:16px;">
-        <span>3️⃣</span> Direct 1-Click Service Launchers
-      </h2>
-
-      <!-- Video Launcher -->
-      <div style="background:#0f172a; border-radius:10px; padding:18px; border:1px solid #1e293b; margin-bottom:16px;">
-        <h4 style="color:#38bdf8; margin-bottom:10px;">🎬 Instant Autonomous AI Video Creator</h4>
-        <div style="display:grid; grid-template-columns: 2fr 1fr 1fr auto; gap:12px; align-items:center;">
-          <input type="text" id="quick-video-topic" class="chat-input" placeholder="Topic (e.g. 5 Dark Mysteries of Mariana Trench)" />
-          <select id="quick-video-minutes" class="chat-input" style="background:#1e293b; color:#fff;">
-            <option value="3">3 Minutes</option>
-            <option value="5" selected>5 Minutes</option>
-            <option value="10">10 Minutes</option>
-          </select>
-          <select id="quick-video-lang" class="chat-input" style="background:#1e293b; color:#fff;">
-            <option value="Hindi" selected>Hindi Voice</option>
-            <option value="English">English Voice</option>
-          </select>
-          <button class="btn" onclick="launchVideoFromPortal()">🚀 Dispatch Render</button>
-        </div>
-      </div>
-
-      <!-- Quick Sentinel Test -->
-      <div style="background:#0f172a; border-radius:10px; padding:18px; border:1px solid #1e293b;">
-        <h4 style="color:#10b981; margin-bottom:10px;">🛡️ Instant Cloud Sentinel Health Check</h4>
-        <p style="font-size:12px; color:#94a3b8; margin-bottom:12px;">Pings Cloud Run, Redis, Neon Postgres & Cloudflare AI and gives a real-time health scorecard.</p>
-        <button class="btn btn-secondary" onclick="runSentinelAuditFromPortal()">🩺 Run Health Check Now</button>
-      </div>
-    </div>
-
-    <!-- Step 4: Monetization Blueprint -->
-    <div class="panel" style="padding:24px; margin-top:24px;">
-      <h2 style="font-size:18px; color:#fff; display:flex; align-items:center; gap:8px;">
-        <span>💰</span> Monetization Blueprint: How You Earn with ShunopsAI
-      </h2>
-      <p style="font-size:13px; color:#94a3b8; margin-top:6px;">
-        Proven business models anyone can execute using this exact system:
-      </p>
-
-      <div class="monetize-grid">
-        <div class="monetize-card">
-          <h4>🎬 YouTube Automation Channels</h4>
-          <div class="monetize-earning">₹40,000 - ₹3,50,000+/mo</div>
-          <p style="font-size:12px; color:#cbd5e1; line-height:1.5;">
-            Use the free Kaggle GPU pipeline to generate 1 documentary/educational video daily. Earn from YouTube AdSense, brand integrations, and affiliate links in descriptions.
-          </p>
-        </div>
-
-        <div class="monetize-card">
-          <h4>🛡️ DevOps Sentinel Agency</h4>
-          <div class="monetize-earning">₹15,000 - ₹50,000/client/mo</div>
-          <p style="font-size:12px; color:#cbd5e1; line-height:1.5;">
-            Offer small business owners and startups 24/7 uptime monitoring with automated crash recovery. When their server or database slows down, ShunopsAI restarts it instantly.
-          </p>
-        </div>
-
-        <div class="monetize-card">
-          <h4>🤖 AI Web Chatbot Installation</h4>
-          <div class="monetize-earning">₹10,000 setup + ₹2,500/mo</div>
-          <p style="font-size:12px; color:#cbd5e1; line-height:1.5;">
-            Embed the ShunopsAI Edge Widget (<code style="color:#67e8f9;">widget.js</code>) into client websites (doctors, real estate, agencies). Charge a setup fee plus recurring hosting.
-          </p>
-        </div>
-
-        <div class="monetize-card">
-          <h4>🔍 Code Security & PR Auditing</h4>
-          <div class="monetize-earning">₹5,000 - ₹20,000 per repo</div>
-          <p style="font-size:12px; color:#cbd5e1; line-height:1.5;">
-            Run automated Dual-Model Consensus security audits on client GitHub repos, eliminate CodeQL/Semgrep vulnerabilities, and submit clean pull requests.
-          </p>
-        </div>
-      </div>
     </div>
 
   </div>
 
   <footer style="text-align:center; padding:30px; color:#64748b; font-size:12px; border-top:1px solid #1e293b; margin-top:40px;">
-    ShunopsAI Autonomous System • Powered by Dual-Model Consensus, OpenRouter, Groq & Gemini
+    ShunopsAI Autonomous System • Powered by Dual-Model Consensus, OpenRouter, Groq &amp; Gemini
   </footer>
 
   <script>
@@ -457,6 +355,17 @@ export function getShunopsPortalHtml(): string {
       ai: true,
       widget: false
     };
+
+    function applySectionVisibility() {
+      document.getElementById("section-ai-keys").style.display =
+        (activeServices.ai || activeServices.video) ? "block" : "none";
+      document.getElementById("section-video-keys").style.display =
+        activeServices.video ? "block" : "none";
+      document.getElementById("section-github-keys").style.display =
+        activeServices.github ? "block" : "none";
+      document.getElementById("section-sentinel-keys").style.display =
+        activeServices.sentinel ? "block" : "none";
+    }
 
     function toggleService(key) {
       activeServices[key] = !activeServices[key];
@@ -471,10 +380,7 @@ export function getShunopsPortalHtml(): string {
         chk.innerText = "";
       }
 
-      // Update visible key sections
-      document.getElementById("section-github-keys").style.display = activeServices.github ? "block" : "none";
-      document.getElementById("section-video-keys").style.display = activeServices.video ? "block" : "none";
-      document.getElementById("section-ai-keys").style.display = (activeServices.ai || activeServices.video) ? "block" : "none";
+      applySectionVisibility();
     }
 
     function saveAndTestKeys() {
@@ -518,21 +424,10 @@ export function getShunopsPortalHtml(): string {
       } catch (e) {}
     }
 
-    async function launchVideoFromPortal() {
-      const topic = document.getElementById("quick-video-topic").value.trim() || "Deep Amazon Jungle : 7 Days Solo Survival Mystery";
-      const minutes = parseInt(document.getElementById("quick-video-minutes").value, 10);
-      const language = document.getElementById("quick-video-lang").value;
-
-      alert("🚀 Launching AI Video Engine for: '" + topic + "' (" + minutes + " mins, " + language + ")... Redirecting to Command Center.");
-      window.location.href = "/dashboard";
-    }
-
-    async function runSentinelAuditFromPortal() {
-      alert("🩺 Running cloud fleet audit... Check Command Center for live status.");
-      window.location.href = "/dashboard";
-    }
-
-    window.addEventListener("DOMContentLoaded", loadSavedKeys);
+    window.addEventListener("DOMContentLoaded", () => {
+      applySectionVisibility();
+      loadSavedKeys();
+    });
   </script>
 </body>
 </html>`;
