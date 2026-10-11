@@ -54,9 +54,21 @@ export async function taskRoutes(app: FastifyInstance, options: TaskRouteOptions
 
       const userGroqKey = (req.headers["x-groq-key"] as string | undefined)?.trim();
       const userGeminiKey = (req.headers["x-gemini-key"] as string | undefined)?.trim();
-      const keyOverrides = (userGroqKey || userGeminiKey) ? {
-        groqApiKey: userGroqKey,
-        geminiApiKey: userGeminiKey,
+
+      const isValidGroqFormat = Boolean(userGroqKey && /^gsk_[a-zA-Z0-9_-]{20,}$/.test(userGroqKey));
+      const isValidGeminiFormat = Boolean(userGeminiKey && /^AIzaSy[a-zA-Z0-9_-]{25,}$/.test(userGeminiKey));
+
+      if ((userGroqKey && !isValidGroqFormat) || (userGeminiKey && !isValidGeminiFormat)) {
+        reply.status(400);
+        return {
+          success: false,
+          error: "Invalid BYOK API key format provided in request headers.",
+        };
+      }
+
+      const keyOverrides = (isValidGroqFormat || isValidGeminiFormat) ? {
+        groqApiKey: isValidGroqFormat ? userGroqKey : undefined,
+        geminiApiKey: isValidGeminiFormat ? userGeminiKey : undefined,
       } : undefined;
 
       // Synchronous execution (default for zero-config n8n compatibility)
