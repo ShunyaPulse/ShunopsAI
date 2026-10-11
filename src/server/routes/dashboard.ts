@@ -56,15 +56,21 @@ export async function dashboardRoutes(app: FastifyInstance, opts: DashboardRoute
   });
 
   app.get("/dashboard", { preHandler }, async (_req, reply) => {
+    reply.header("Cache-Control", "no-store, no-cache, must-revalidate");
+    reply.header("Pragma", "no-cache");
     return reply.type("text/html").send(renderDashboard());
   });
 
-  // Public Self-Service BYOK & Monetization Portal
+  // Public Self-Service BYOK & Key Hub
   app.get("/portal", async (_req, reply) => {
+    reply.header("Cache-Control", "no-store, no-cache, must-revalidate");
+    reply.header("Pragma", "no-cache");
     return reply.type("text/html").send(renderPortal());
   });
 
   app.get("/connect", async (_req, reply) => {
+    reply.header("Cache-Control", "no-store, no-cache, must-revalidate");
+    reply.header("Pragma", "no-cache");
     return reply.type("text/html").send(renderPortal());
   });
 

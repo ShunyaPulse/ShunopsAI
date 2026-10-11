@@ -1,14 +1,15 @@
 import { DASHBOARD_STYLES } from "./styles.js";
 
 /**
- * Renders the standalone Public Self-Service BYOK Portal.
- * Clean, Simple & Secure:
- * - Hardware-accelerated AES-256-GCM encryption in background (W3C WebCrypto API)
- * - Zero user passwords or passphrases needed (auto-unlocked on device)
- * - 1-Time Setup: Keys persist and auto-load on every visit
- * - Simple "Clear Saved Keys" button without confusing jargon
- * - Password masking with 👁️ toggles
- * - Zero-Knowledge: Keys never touch our backend databases
+ * Renders the standalone Public Self-Service BYOK Key Hub.
+ *
+ * Security & Design Principles:
+ * - Real Connection Verification: POST /api/portal/verify tests keys against official provider endpoints
+ * - Honest Zero-Knowledge Model: Keys stored client-side in browser storage, never written to server DB/disk
+ * - Least-Privilege GitHub Guidance: Fine-grained tokens scoped to a single repo only (no classic full repo PAT)
+ * - Safe DOM Manipulation: Zero innerHTML sinks, preventing XSS injection
+ * - Input Security: autocomplete="new-password", masked password fields with show/hide toggles
+ * - Canonical HTTPS: No untrusted ephemeral third-party tunnel URLs
  */
 export function getShunopsPortalHtml(): string {
   return `<!DOCTYPE html>
@@ -22,38 +23,6 @@ export function getShunopsPortalHtml(): string {
   <style>
     ${DASHBOARD_STYLES}
 
-    /* Insecure HTTP alert banner */
-    .insecure-alert-banner {
-      background: linear-gradient(90deg, #450a0a, #7f1d1d);
-      border-bottom: 1px solid #ef4444;
-      padding: 12px 20px;
-      color: #fecaca;
-      font-size: 13px;
-      display: none;
-      align-items: center;
-      justify-content: center;
-      gap: 12px;
-      text-align: center;
-      box-shadow: 0 4px 12px rgba(239, 68, 68, 0.2);
-    }
-    .insecure-alert-banner a {
-      background: #ef4444;
-      color: #fff;
-      padding: 5px 14px;
-      border-radius: 6px;
-      font-weight: 700;
-      text-decoration: none;
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      font-size: 12px;
-      transition: background 0.2s;
-    }
-    .insecure-alert-banner a:hover {
-      background: #dc2626;
-    }
-
-    /* Portal Layout */
     .portal-page-container {
       max-width: 1320px;
       margin: 0 auto;
@@ -81,7 +50,7 @@ export function getShunopsPortalHtml(): string {
       line-height: 1.5;
     }
 
-    /* Two-column responsive layout */
+    /* 2-column responsive layout */
     .portal-content-grid {
       display: grid;
       grid-template-columns: 440px 1fr;
@@ -152,7 +121,7 @@ export function getShunopsPortalHtml(): string {
       padding: 22px;
     }
 
-    /* Security Trust Badge */
+    /* Honest Security Status Banner */
     .security-status-banner {
       background: linear-gradient(135deg, rgba(16, 185, 129, 0.1), rgba(14, 165, 233, 0.08));
       border: 1px solid rgba(16, 185, 129, 0.3);
@@ -172,6 +141,7 @@ export function getShunopsPortalHtml(): string {
       background: #0f172a;
       border-radius: 10px;
       border: 1px solid #1e293b;
+      position: relative;
     }
     .key-label-row {
       display: flex;
@@ -226,6 +196,28 @@ export function getShunopsPortalHtml(): string {
     }
     .eye-toggle-btn:hover {
       color: #00f0ff;
+    }
+
+    /* Verification status badges */
+    .verify-badge {
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: 10px;
+      font-weight: 600;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      margin-top: 6px;
+    }
+    .verify-badge.success {
+      background: rgba(16, 185, 129, 0.15);
+      color: #10b981;
+      border: 1px solid rgba(16, 185, 129, 0.3);
+    }
+    .verify-badge.error {
+      background: rgba(239, 68, 68, 0.15);
+      color: #ef4444;
+      border: 1px solid rgba(239, 68, 68, 0.3);
     }
 
     /* Modal */
@@ -285,14 +277,6 @@ export function getShunopsPortalHtml(): string {
 </head>
 <body>
 
-  <!-- Insecure HTTP Warning Banner (Shown only if opened over plain HTTP) -->
-  <div class="insecure-alert-banner" id="insecure-http-alert">
-    <span>⚠️ <strong>HTTP CONNECTION:</strong> Your browser shows "Not Secure" because this link is unencrypted HTTP.</span>
-    <a id="upgrade-https-btn" href="#">
-      🔒 Open Secure HTTPS Link →
-    </a>
-  </div>
-
   <header>
     <div class="brand">
       <div class="brand-icon">⚡</div>
@@ -302,14 +286,14 @@ export function getShunopsPortalHtml(): string {
       </div>
     </div>
     <div class="header-pills">
-      <button class="btn btn-secondary" onclick="openSecurityModal()" style="font-size:12px; padding:6px 14px;">
-        🛡️ Security Info
+      <button type="button" class="btn btn-secondary" onclick="openSecurityModal()" style="font-size:12px; padding:6px 14px;">
+        🛡️ Security Model
       </button>
       <a href="/dashboard" class="btn btn-secondary" style="text-decoration:none;font-size:12px;padding:6px 14px;">
         ← Command Center
       </a>
-      <button class="btn btn-success" onclick="saveAndTestKeys()">
-        💾 Save &amp; Connect Keys
+      <button type="button" class="btn btn-success" id="btn-save-test" onclick="saveAndTestKeys()">
+        🧪 Test &amp; Connect Keys
       </button>
     </div>
   </header>
@@ -320,7 +304,7 @@ export function getShunopsPortalHtml(): string {
     <div class="portal-hero">
       <h1>Self-Service Free API Key Hub</h1>
       <p>
-        Select the services you want, paste your free keys once, and click <strong>Save &amp; Connect</strong>. Your keys are saved securely on your device and will load automatically on your next visit.
+        Select the services you need, enter your free API keys once, and click <strong>Test &amp; Connect</strong>. Keys remain stored only on your local browser and are verified directly against official provider APIs.
       </p>
     </div>
 
@@ -405,15 +389,15 @@ export function getShunopsPortalHtml(): string {
             </div>
             <div>
               <div style="font-size:13px; font-weight:700; color:#10b981;">
-                Encrypted Device Storage (AES-256)
+                Client-Side Storage • Zero Server Persistence
               </div>
               <div style="font-size:11px; color:#94a3b8;">
-                Keys are saved only on your device • Never stored on our servers • 1-time setup
+                Keys remain on your browser only • Verified live via official APIs • 1-time setup
               </div>
             </div>
           </div>
           <button type="button" class="btn btn-secondary" onclick="openSecurityModal()" style="font-size:11px; padding:4px 10px;">
-            How it works ↗
+            Security Details ↗
           </button>
         </div>
 
@@ -421,7 +405,7 @@ export function getShunopsPortalHtml(): string {
           <h2 style="font-size:16px; color:#fff; display:flex; align-items:center; gap:8px; margin:0;">
             <span>2️⃣</span> Paste Free API Keys
           </h2>
-          <span style="font-size:11px; color:#38bdf8;">🔒 Click 👁️ to view/hide</span>
+          <span style="font-size:11px; color:#38bdf8;">🔒 Click 👁️ to toggle visibility</span>
         </div>
         <p style="font-size:12px; color:#94a3b8; margin-bottom:18px;">
           Zero cost free tiers • No credit card needed. Keys for unselected services remain hidden.
@@ -441,9 +425,10 @@ export function getShunopsPortalHtml(): string {
               </a>
             </div>
             <div class="password-input-wrapper">
-              <input type="password" id="input-groq-key" class="chat-input" placeholder="gsk_..." />
+              <input type="password" id="input-groq-key" class="chat-input" placeholder="gsk_..." autocomplete="new-password" />
               <button type="button" class="eye-toggle-btn" onclick="toggleMask('input-groq-key', this)" title="Show/Hide">👁️</button>
             </div>
+            <div id="status-badge-groq"></div>
             <div style="font-size:11px; color:#64748b; margin-top:6px;">
               📌 <em>Guide: Log in at console.groq.com/keys → Click "Create API Key" → Paste here.</em>
             </div>
@@ -461,9 +446,10 @@ export function getShunopsPortalHtml(): string {
               </a>
             </div>
             <div class="password-input-wrapper">
-              <input type="password" id="input-gemini-key" class="chat-input" placeholder="AIzaSy..." />
+              <input type="password" id="input-gemini-key" class="chat-input" placeholder="AIzaSy..." autocomplete="new-password" />
               <button type="button" class="eye-toggle-btn" onclick="toggleMask('input-gemini-key', this)" title="Show/Hide">👁️</button>
             </div>
+            <div id="status-badge-gemini"></div>
             <div style="font-size:11px; color:#64748b; margin-top:6px;">
               📌 <em>Guide: Visit Google AI Studio → Click "Create API Key in new project" → Paste here.</em>
             </div>
@@ -483,9 +469,9 @@ export function getShunopsPortalHtml(): string {
               </a>
             </div>
             <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px;">
-              <input type="text" id="input-kaggle-user" class="chat-input" placeholder="Kaggle Username" />
+              <input type="text" id="input-kaggle-user" class="chat-input" placeholder="Kaggle Username" autocomplete="off" />
               <div class="password-input-wrapper">
-                <input type="password" id="input-kaggle-key" class="chat-input" placeholder="Kaggle API Token" />
+                <input type="password" id="input-kaggle-key" class="chat-input" placeholder="Kaggle API Token" autocomplete="new-password" />
                 <button type="button" class="eye-toggle-btn" onclick="toggleMask('input-kaggle-key', this)" title="Show/Hide">👁️</button>
               </div>
             </div>
@@ -498,7 +484,7 @@ export function getShunopsPortalHtml(): string {
           <div class="key-input-group">
             <div class="key-label-row">
               <div>
-                <strong style="color:#fff; font-size:13px;">4. Hugging Face Token</strong>
+                <strong style="color:#fff; font-size:13px;">4. Hugging Face Access Token</strong>
                 <span style="font-size:11px; color:#64748b; margin-left:6px;">(Model weights)</span>
               </div>
               <a href="https://huggingface.co/settings/tokens" target="_blank" rel="noopener noreferrer" class="direct-link-badge">
@@ -506,27 +492,32 @@ export function getShunopsPortalHtml(): string {
               </a>
             </div>
             <div class="password-input-wrapper">
-              <input type="password" id="input-hf-token" class="chat-input" placeholder="hf_..." />
+              <input type="password" id="input-hf-token" class="chat-input" placeholder="hf_..." autocomplete="new-password" />
               <button type="button" class="eye-toggle-btn" onclick="toggleMask('input-hf-token', this)" title="Show/Hide">👁️</button>
             </div>
+            <div id="status-badge-hf"></div>
           </div>
         </div>
 
-        <!-- GitHub Keys -->
+        <!-- GitHub Keys (Least Privilege Fine-Grained Token) -->
         <div id="section-github-keys" style="display:none;">
           <div class="key-input-group">
             <div class="key-label-row">
               <div>
-                <strong style="color:#fff; font-size:13px;">5. GitHub Access Token</strong>
-                <span style="font-size:11px; color:#64748b; margin-left:6px;">(Repo Auto-Healing)</span>
+                <strong style="color:#fff; font-size:13px;">5. GitHub Fine-Grained Token (Recommended)</strong>
+                <span style="font-size:11px; color:#64748b; margin-left:6px;">(Scoped to 1 repository)</span>
               </div>
-              <a href="https://github.com/settings/tokens/new?scopes=repo,security_events" target="_blank" rel="noopener noreferrer" class="direct-link-badge">
-                🔗 Create GitHub Token →
+              <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener noreferrer" class="direct-link-badge">
+                🔗 Create Scoped Token →
               </a>
             </div>
             <div class="password-input-wrapper">
-              <input type="password" id="input-github-token" class="chat-input" placeholder="ghp_..." />
+              <input type="password" id="input-github-token" class="chat-input" placeholder="github_pat_..." autocomplete="new-password" />
               <button type="button" class="eye-toggle-btn" onclick="toggleMask('input-github-token', this)" title="Show/Hide">👁️</button>
+            </div>
+            <div id="status-badge-github"></div>
+            <div style="font-size:11px; color:#64748b; margin-top:6px;">
+              📌 <em>Guide: GitHub Settings → Developer Settings → Personal access tokens → Fine-grained tokens. Select 'Only select repositories' (choose 1 repo). Permissions: Contents (Read), Pull requests (Read &amp; Write), Code scanning alerts (Read &amp; Write). Never use classic full-account tokens!</em>
             </div>
           </div>
         </div>
@@ -540,17 +531,19 @@ export function getShunopsPortalHtml(): string {
                 <span style="font-size:11px; color:#64748b; margin-left:6px;">(Endpoint)</span>
               </div>
             </div>
-            <input type="text" id="input-monitor-url" class="chat-input" placeholder="https://my-app.run.app or https://mywebsite.com" style="width:100%;" />
+            <input type="text" id="input-monitor-url" class="chat-input" placeholder="https://my-app.run.app or https://mywebsite.com" autocomplete="off" style="width:100%;" />
           </div>
         </div>
 
         <!-- Action Buttons -->
         <div style="display:flex; gap:10px; justify-content:space-between; align-items:center; margin-top:20px; flex-wrap:wrap;">
-          <button class="btn btn-secondary" onclick="clearAllKeys()" style="color:#ef4444; border-color:#7f1d1d;" title="Remove saved keys from this browser">
+          <button type="button" class="btn btn-secondary" onclick="clearAllKeys()" style="color:#ef4444; border-color:#7f1d1d;" title="Remove saved keys from this browser">
             🗑️ Clear Saved Keys
           </button>
           <div style="display:flex; gap:10px;">
-            <button class="btn btn-success" onclick="saveAndTestKeys()">💾 Save &amp; Connect Keys</button>
+            <button type="button" class="btn btn-success" id="btn-save-test-bottom" onclick="saveAndTestKeys()">
+              🧪 Test &amp; Connect Keys
+            </button>
           </div>
         </div>
         <div id="save-status" style="margin-top:12px; font-size:12px; text-align:right;"></div>
@@ -560,46 +553,54 @@ export function getShunopsPortalHtml(): string {
 
   </div>
 
-  <!-- Security Info Modal -->
+  <!-- Security Model Modal -->
   <div class="security-modal-overlay" id="security-modal" onclick="closeSecurityModalOnBackdrop(event)">
     <div class="security-modal-card">
-      <h3>🛡️ How Your API Keys Are Protected</h3>
+      <h3>🛡️ ShunopsAI Security &amp; Trust Model</h3>
       <p style="font-size:13px; color:#cbd5e1; line-height:1.6; margin-bottom:18px;">
-        ShunopsAI is designed with a strict zero-knowledge model:
+        How your API keys are protected:
       </p>
 
       <div class="audit-point">
-        <div class="audit-point-icon">🔐</div>
+        <div class="audit-point-icon">🔒</div>
         <div class="audit-point-text">
-          <strong>1. Encrypted on Your Device</strong>
-          <p>Keys are encrypted locally in your browser using W3C WebCrypto (AES-256-GCM). They remain on your device so you never have to re-enter them.</p>
+          <strong>1. Zero Server Persistence</strong>
+          <p>ShunopsAI backend servers never save, database, or log your API keys. They exist purely in your browser's private local storage.</p>
         </div>
       </div>
 
       <div class="audit-point">
-        <div class="audit-point-icon">🚫</div>
+        <div class="audit-point-icon">🧪</div>
         <div class="audit-point-text">
-          <strong>2. Never Saved on Our Servers</strong>
-          <p>ShunopsAI servers never store or database your API keys. Your keys belong only to you.</p>
+          <strong>2. Real Stateless Verification</strong>
+          <p>When you click "Test &amp; Connect", a lightweight 1-token probe tests your keys directly against official provider APIs (Groq, Google AI Studio, GitHub, Hugging Face). The probe is strictly stateless.</p>
+        </div>
+      </div>
+
+      <div class="audit-point">
+        <div class="audit-point-icon">🎯</div>
+        <div class="audit-point-text">
+          <strong>3. Least-Privilege Scoping</strong>
+          <p>We strictly recommend fine-grained GitHub tokens scoped to a single repository with read-only contents and PR write permissions, avoiding full-account access.</p>
         </div>
       </div>
 
       <div class="audit-point">
         <div class="audit-point-icon">🌐</div>
         <div class="audit-point-text">
-          <strong>3. Direct Encrypted Connections</strong>
-          <p>When you generate a video or request an AI completion, requests go directly to official providers (Groq, Google AI Studio, Kaggle) via encrypted HTTPS.</p>
+          <strong>4. Direct Encrypted Transport</strong>
+          <p>All communication uses standard TLS 1.3 / HTTPS encryption in transit with strict no-store caching headers.</p>
         </div>
       </div>
 
       <div style="text-align:right; margin-top:20px;">
-        <button class="btn btn-secondary" onclick="closeSecurityModal()">Got it</button>
+        <button type="button" class="btn btn-secondary" onclick="closeSecurityModal()">Got it</button>
       </div>
     </div>
   </div>
 
   <footer style="text-align:center; padding:24px; color:#64748b; font-size:12px; border-top:1px solid #1e293b; margin-top:40px;">
-    ShunopsAI Autonomous System • Protected with AES-256 Client-Side Encryption
+    ShunopsAI Autonomous System • Client-Side Zero-Knowledge BYOK Hub
   </footer>
 
   <script>
@@ -612,83 +613,21 @@ export function getShunopsPortalHtml(): string {
       widget: false
     };
 
-    const VAULT_STORAGE_KEY = "shunops_secure_vault_v2";
+    const STORAGE_KEY = "shunops_byok_keys";
 
     // -------------------------------------------------------------
-    // Automatic AES-256-GCM Encryption Engine
-    // -------------------------------------------------------------
-    async function deriveDeviceKey(saltBytes) {
-      const enc = new TextEncoder();
-      const secret = "shunops-device-" + window.location.origin + navigator.userAgent.slice(0, 32);
-      const keyMaterial = await crypto.subtle.importKey(
-        "raw",
-        enc.encode(secret),
-        { name: "PBKDF2" },
-        false,
-        ["deriveKey"]
-      );
-      return crypto.subtle.deriveKey(
-        {
-          name: "PBKDF2",
-          salt: saltBytes,
-          iterations: 100000,
-          hash: "SHA-256"
-        },
-        keyMaterial,
-        { name: "AES-GCM", length: 256 },
-        false,
-        ["encrypt", "decrypt"]
-      );
-    }
-
-    async function encryptPayload(dataObj) {
-      const enc = new TextEncoder();
-      const rawBytes = enc.encode(JSON.stringify(dataObj));
-      const salt = crypto.getRandomValues(new Uint8Array(16));
-      const iv = crypto.getRandomValues(new Uint8Array(12));
-      const key = await deriveDeviceKey(salt);
-      const cipherBuffer = await crypto.subtle.encrypt(
-        { name: "AES-GCM", iv: iv },
-        key,
-        rawBytes
-      );
-      return {
-        vault: "AES-256-GCM",
-        iv: Array.from(iv).map(b => b.toString(16).padStart(2, '0')).join(''),
-        salt: Array.from(salt).map(b => b.toString(16).padStart(2, '0')).join(''),
-        ciphertext: Array.from(new Uint8Array(cipherBuffer)).map(b => b.toString(16).padStart(2, '0')).join(''),
-        updatedAt: new Date().toISOString()
-      };
-    }
-
-    async function decryptPayload(vaultPkg) {
-      const hexToBytes = (hex) => new Uint8Array(hex.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
-      const salt = hexToBytes(vaultPkg.salt);
-      const iv = hexToBytes(vaultPkg.iv);
-      const cipherBytes = hexToBytes(vaultPkg.ciphertext);
-      const key = await deriveDeviceKey(salt);
-      const decryptedBuffer = await crypto.subtle.decrypt(
-        { name: "AES-GCM", iv: iv },
-        key,
-        cipherBytes
-      );
-      const dec = new TextDecoder();
-      return JSON.parse(dec.decode(decryptedBuffer));
-    }
-
-    // -------------------------------------------------------------
-    // UI Helpers
+    // UI Helpers (Masking, Modals, Status)
     // -------------------------------------------------------------
     function toggleMask(inputId, btn) {
       const el = document.getElementById(inputId);
       if (!el) return;
       if (el.type === "password") {
         el.type = "text";
-        btn.innerText = "🔒";
+        btn.textContent = "🔒";
         btn.title = "Hide";
       } else {
         el.type = "password";
-        btn.innerText = "👁️";
+        btn.textContent = "👁️";
         btn.title = "Show";
       }
     }
@@ -705,6 +644,33 @@ export function getShunopsPortalHtml(): string {
       if (e.target.id === "security-modal") {
         closeSecurityModal();
       }
+    }
+
+    function showStatusMessage(text, isError) {
+      const status = document.getElementById("save-status");
+      if (!status) return;
+      status.textContent = text;
+      status.style.color = isError ? "#ef4444" : "#10b981";
+      status.style.fontWeight = "600";
+      setTimeout(() => { status.textContent = ""; }, 5000);
+    }
+
+    function setBadge(containerId, isValid, message) {
+      const el = document.getElementById(containerId);
+      if (!el) return;
+      el.textContent = "";
+      if (!message) return;
+      const span = document.createElement("span");
+      span.className = "verify-badge " + (isValid ? "success" : "error");
+      span.textContent = (isValid ? "✅ " : "❌ ") + message;
+      el.appendChild(span);
+    }
+
+    function clearAllBadges() {
+      ["status-badge-groq", "status-badge-gemini", "status-badge-github", "status-badge-hf"].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = "";
+      });
     }
 
     function applySectionVisibility() {
@@ -725,79 +691,135 @@ export function getShunopsPortalHtml(): string {
       
       if (activeServices[key]) {
         card.classList.add("selected");
-        chk.innerText = "✓";
+        chk.textContent = "✓";
       } else {
         card.classList.remove("selected");
-        chk.innerText = "";
+        chk.textContent = "";
       }
 
       applySectionVisibility();
     }
 
     // -------------------------------------------------------------
-    // Storage Operations (Save Encrypted, Auto-Load, Clear)
+    // Real Test Connection & Storage
     // -------------------------------------------------------------
     async function saveAndTestKeys() {
-      const status = document.getElementById("save-status");
-      status.innerHTML = '<span style="color:#38bdf8;">🔄 Encrypting & saving keys...</span>';
+      const btn1 = document.getElementById("btn-save-test");
+      const btn2 = document.getElementById("btn-save-test-bottom");
+      if (btn1) btn1.textContent = "⏳ Testing Connection...";
+      if (btn2) btn2.textContent = "⏳ Testing Connection...";
+
+      clearAllBadges();
+
+      const groq = document.getElementById("input-groq-key").value.trim();
+      const gemini = document.getElementById("input-gemini-key").value.trim();
+      const kaggleUser = document.getElementById("input-kaggle-user").value.trim();
+      const kaggleKey = document.getElementById("input-kaggle-key").value.trim();
+      const hf = document.getElementById("input-hf-token").value.trim();
+      const github = document.getElementById("input-github-token").value.trim();
+      const monitorUrl = document.getElementById("input-monitor-url").value.trim();
+
+      const keys = {
+        groq,
+        gemini,
+        kaggleUser,
+        kaggleKey,
+        hf,
+        github,
+        monitorUrl,
+        services: activeServices
+      };
 
       try {
-        const keys = {
-          groq: document.getElementById("input-groq-key").value.trim(),
-          gemini: document.getElementById("input-gemini-key").value.trim(),
-          kaggleUser: document.getElementById("input-kaggle-user").value.trim(),
-          kaggleKey: document.getElementById("input-kaggle-key").value.trim(),
-          hf: document.getElementById("input-hf-token").value.trim(),
-          github: document.getElementById("input-github-token").value.trim(),
-          monitorUrl: document.getElementById("input-monitor-url").value.trim(),
-          services: activeServices
-        };
+        // Run live stateless probe against /api/portal/verify
+        const res = await fetch("/api/portal/verify", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ groq, gemini, github, hf }),
+        });
 
-        const encryptedPackage = await encryptPayload(keys);
-        localStorage.setItem(VAULT_STORAGE_KEY, JSON.stringify(encryptedPackage));
-        
-        status.innerHTML = '<span style="color:#10b981;font-weight:700;">✅ Keys saved &amp; encrypted! They will auto-load on your next visit.</span>';
-        setTimeout(() => { status.innerHTML = ""; }, 5000);
+        if (res.ok) {
+          const data = await res.json();
+          const results = data.results || {};
+          let allPassed = true;
+
+          if (groq && results.groq) {
+            setBadge("status-badge-groq", results.groq.valid, results.groq.message);
+            if (!results.groq.valid) allPassed = false;
+          }
+          if (gemini && results.gemini) {
+            setBadge("status-badge-gemini", results.gemini.valid, results.gemini.message);
+            if (!results.gemini.valid) allPassed = false;
+          }
+          if (github && results.github) {
+            setBadge("status-badge-github", results.github.valid, results.github.message);
+            if (!results.github.valid) allPassed = false;
+          }
+          if (hf && results.hf) {
+            setBadge("status-badge-hf", results.hf.valid, results.hf.message);
+            if (!results.hf.valid) allPassed = false;
+          }
+
+          // Save keys locally in browser
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(keys));
+          // Clean up old legacy keys if present
+          localStorage.removeItem("shunops_secure_vault_v2");
+
+          if (allPassed) {
+            showStatusMessage("✅ Connected! All tested keys are valid and saved locally.", false);
+          } else {
+            showStatusMessage("⚠️ Keys saved, but some failed verification. Please review badges above.", true);
+          }
+        } else {
+          // Server offline or verify route error, fallback to saving locally
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(keys));
+          showStatusMessage("✅ Keys saved locally in browser.", false);
+        }
       } catch (err) {
-        status.innerHTML = '<span style="color:#ef4444;font-weight:700;">❌ Save failed: ' + (err.message || err) + '</span>';
+        // Network timeout, save locally
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(keys));
+        showStatusMessage("✅ Keys saved locally in browser.", false);
+      } finally {
+        if (btn1) btn1.textContent = "🧪 Test & Connect Keys";
+        if (btn2) btn2.textContent = "🧪 Test & Connect Keys";
       }
     }
 
-    async function loadSavedKeys() {
+    function loadSavedKeys() {
       try {
-        const raw = localStorage.getItem(VAULT_STORAGE_KEY);
-        if (!raw) {
-          const legacyRaw = localStorage.getItem("shunops_byok_keys");
-          if (legacyRaw) {
-            populateInputs(JSON.parse(legacyRaw));
+        const raw = localStorage.getItem(STORAGE_KEY) || localStorage.getItem("shunops_secure_vault_v2");
+        if (!raw) return;
+
+        let keys = null;
+        try {
+          keys = JSON.parse(raw);
+          // If legacy ciphertext envelope, skip and clean
+          if (keys && keys.vault && keys.ciphertext) {
+            localStorage.removeItem("shunops_secure_vault_v2");
+            return;
           }
+        } catch {
           return;
         }
 
-        const vaultPkg = JSON.parse(raw);
-        const keys = await decryptPayload(vaultPkg);
-        populateInputs(keys);
-      } catch (e) {
-        console.warn("Could not decrypt saved keys:", e);
-      }
-    }
-
-    function populateInputs(keys) {
-      if (!keys) return;
-      if (keys.groq) document.getElementById("input-groq-key").value = keys.groq;
-      if (keys.gemini) document.getElementById("input-gemini-key").value = keys.gemini;
-      if (keys.kaggleUser) document.getElementById("input-kaggle-user").value = keys.kaggleUser;
-      if (keys.kaggleKey) document.getElementById("input-kaggle-key").value = keys.kaggleKey;
-      if (keys.hf) document.getElementById("input-hf-token").value = keys.hf;
-      if (keys.github) document.getElementById("input-github-token").value = keys.github;
-      if (keys.monitorUrl) document.getElementById("input-monitor-url").value = keys.monitorUrl;
-      
-      if (keys.services) {
-        for (const s of Object.keys(keys.services)) {
-          if (activeServices[s] !== keys.services[s]) {
-            toggleService(s);
+        if (!keys) return;
+        if (keys.groq) document.getElementById("input-groq-key").value = keys.groq;
+        if (keys.gemini) document.getElementById("input-gemini-key").value = keys.gemini;
+        if (keys.kaggleUser) document.getElementById("input-kaggle-user").value = keys.kaggleUser;
+        if (keys.kaggleKey) document.getElementById("input-kaggle-key").value = keys.kaggleKey;
+        if (keys.hf) document.getElementById("input-hf-token").value = keys.hf;
+        if (keys.github) document.getElementById("input-github-token").value = keys.github;
+        if (keys.monitorUrl) document.getElementById("input-monitor-url").value = keys.monitorUrl;
+        
+        if (keys.services) {
+          for (const s of Object.keys(keys.services)) {
+            if (activeServices[s] !== keys.services[s]) {
+              toggleService(s);
+            }
           }
         }
+      } catch (e) {
+        // Ignore read failures
       }
     }
 
@@ -805,8 +827,8 @@ export function getShunopsPortalHtml(): string {
       if (!confirm("Are you sure you want to clear your saved keys from this browser?")) {
         return;
       }
-      localStorage.removeItem(VAULT_STORAGE_KEY);
-      localStorage.removeItem("shunops_byok_keys");
+      localStorage.removeItem(STORAGE_KEY);
+      localStorage.removeItem("shunops_secure_vault_v2");
 
       document.getElementById("input-groq-key").value = "";
       document.getElementById("input-gemini-key").value = "";
@@ -816,25 +838,14 @@ export function getShunopsPortalHtml(): string {
       document.getElementById("input-github-token").value = "";
       document.getElementById("input-monitor-url").value = "";
 
-      const status = document.getElementById("save-status");
-      status.innerHTML = '<span style="color:#ef4444;font-weight:700;">🗑️ All saved keys cleared from this browser.</span>';
-      setTimeout(() => { status.innerHTML = ""; }, 4000);
+      clearAllBadges();
+      showStatusMessage("🗑️ All saved keys cleared from this browser.", true);
     }
 
     // -------------------------------------------------------------
     // Initialization
     // -------------------------------------------------------------
     window.addEventListener("DOMContentLoaded", () => {
-      // Check for unencrypted HTTP
-      if (location.protocol === "http:" && location.hostname !== "localhost" && location.hostname !== "127.0.0.1") {
-        const alertEl = document.getElementById("insecure-http-alert");
-        const upgradeBtn = document.getElementById("upgrade-https-btn");
-        if (alertEl) {
-          alertEl.style.display = "flex";
-          upgradeBtn.href = "https://keeps-teaching-say-modes.trycloudflare.com/portal";
-        }
-      }
-
       applySectionVisibility();
       loadSavedKeys();
     });

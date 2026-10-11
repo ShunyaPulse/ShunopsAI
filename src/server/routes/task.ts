@@ -52,11 +52,19 @@ export async function taskRoutes(app: FastifyInstance, options: TaskRouteOptions
         };
       }
 
+      const userGroqKey = (req.headers["x-groq-key"] as string | undefined)?.trim();
+      const userGeminiKey = (req.headers["x-gemini-key"] as string | undefined)?.trim();
+      const keyOverrides = (userGroqKey || userGeminiKey) ? {
+        groqApiKey: userGroqKey,
+        geminiApiKey: userGeminiKey,
+      } : undefined;
+
       // Synchronous execution (default for zero-config n8n compatibility)
       try {
         const result = await runAutonomousAgent(taskGoal, {
           maxSteps,
           ...(context ? { initialContext: context } : {}),
+          keyOverrides,
         });
 
         return {

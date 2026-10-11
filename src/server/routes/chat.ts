@@ -16,12 +16,20 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
     },
     async (req, reply) => {
       const { message, history } = req.body;
+      const userGroqKey = (req.headers["x-groq-key"] as string | undefined)?.trim();
+      const userGeminiKey = (req.headers["x-gemini-key"] as string | undefined)?.trim();
+
+      const keyOverrides = (userGroqKey || userGeminiKey) ? {
+        groqApiKey: userGroqKey,
+        geminiApiKey: userGeminiKey,
+      } : undefined;
 
       try {
         const goal = `Answer this website visitor query politely and helpfully: "${message}". Context/History: ${history || "None"}`;
         const result = await runAutonomousAgent(goal, {
           maxSteps: 3,
           disabledTools: Object.keys(toolRegistry) as ToolName[],
+          keyOverrides,
         });
 
         return {
@@ -29,7 +37,7 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
           success: result.success,
         };
       } catch (error: any) {
-        req.log.error(error);
+        req.log.warn("Chat completion error: [REDACTED]");
         reply.status(500);
         return {
           reply: "Sorry, I encountered an issue processing your request. Please try again shortly.",

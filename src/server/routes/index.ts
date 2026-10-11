@@ -7,6 +7,7 @@ import { approvalsRoutes } from "./approvals.js";
 import { webhookRoutes } from "./webhook.js";
 import { widgetRoutes } from "./widget.js";
 import { autonomyRoutes } from "./autonomy.js";
+import { portalRoutes } from "./portal.js";
 
 export interface MountRoutesDeps {
   requireAuth: preHandlerHookHandler;
@@ -18,6 +19,7 @@ export interface MountRoutesDeps {
  */
 export async function registerRoutes(app: FastifyInstance, deps: MountRoutesDeps): Promise<void> {
   await app.register(dashboardRoutes, { requireDashboardAuth: deps.requireDashboardAuth });
+  await app.register(portalRoutes);
   await app.register(sentinelRoutes, {
     requireDashboardAuth: deps.requireDashboardAuth,
     requireAuth: deps.requireAuth,

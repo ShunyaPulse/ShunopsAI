@@ -1,6 +1,6 @@
 import OpenAI from "openai";
 import { colors } from "../core/colors.js";
-import { AGENT_MODELS_CHAIN, callChatCompletionWithFailover, type ModelTarget } from "./models.js";
+import { AGENT_MODELS_CHAIN, callChatCompletionWithFailover, type ModelTarget, type ProviderKeyOverrides } from "./models.js";
 import { buildSystemPrompt } from "./prompts.js";
 import { sensitivityPayload } from "./sandbox.js";
 import { toolRegistry, registeredTools, type ToolDefinition, type ToolName } from "./tools.js";
@@ -18,6 +18,8 @@ export interface AgentOptions {
   targets?: ModelTarget[];
   /** Tools that must never be exposed or executed for this run (least-privilege). */
   disabledTools?: ToolName[];
+  /** Optional request-scoped BYOK provider key overrides. */
+  keyOverrides?: ProviderKeyOverrides | undefined;
 }
 
 export interface AgentRunResult {
@@ -99,7 +101,8 @@ export async function runAutonomousAgent(
         messages,
         targets,
         activeTools,
-        temperature
+        temperature,
+        options.keyOverrides
       );
 
       const choice = response.choices?.[0];

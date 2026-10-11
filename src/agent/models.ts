@@ -59,25 +59,31 @@ function getGeminiKey(): string {
   return keys[randomInt(0, keys.length)] || "dummy-gemini-key";
 }
 
+export interface ProviderKeyOverrides {
+  groqApiKey?: string | undefined;
+  geminiApiKey?: string | undefined;
+  openrouterApiKey?: string | undefined;
+}
+
 /**
- * Create an OpenAI-compatible client for a provider target.
+ * Create an OpenAI-compatible client for a provider target, with optional request-scoped BYOK overrides.
  */
-export function createClientForTarget(target: ModelTarget): OpenAI {
+export function createClientForTarget(target: ModelTarget, overrides?: ProviderKeyOverrides): OpenAI {
   if (target.provider === "groq") {
     return new OpenAI({
       baseURL: GROQ_BASE_URL,
-      apiKey: process.env.GROQ_API_KEY || "dummy-groq-key",
+      apiKey: overrides?.groqApiKey || process.env.GROQ_API_KEY || "dummy-groq-key",
     });
   }
   if (target.provider === "gemini") {
     return new OpenAI({
       baseURL: GEMINI_OPENAI_BASE_URL,
-      apiKey: getGeminiKey(),
+      apiKey: overrides?.geminiApiKey || getGeminiKey(),
     });
   }
   return new OpenAI({
     baseURL: OPENROUTER_BASE_URL,
-    apiKey: process.env.OPENROUTER_API_KEY || "dummy-openrouter-key",
+    apiKey: overrides?.openrouterApiKey || process.env.OPENROUTER_API_KEY || "dummy-openrouter-key",
     defaultHeaders: {
       "HTTP-Referer": "https://github.com/nemotron-agent",
       "X-Title": "Nemotron-Autonomous-Agent",
@@ -93,17 +99,18 @@ export async function callChatCompletionWithFailover(
   messages: OpenAI.ChatCompletionMessageParam[],
   targets: ModelTarget[],
   tools: OpenAI.ChatCompletionTool[],
-  temperature = 0.2
+  temperature = 0.2,
+  overrides?: ProviderKeyOverrides
 ): Promise<{ response: OpenAI.ChatCompletion; usedModel: string }> {
   let lastError: any = null;
 
   for (const target of targets) {
     // If Gemini target, attempt with up to 4 different keys from pool before giving up on that model
-    const attempts = target.provider === "gemini" ? 4 : 1;
+    const attempts = target.provider === "gemini" && !overrides?.geminiApiKey ? 4 : 1;
 
     for (let att = 0; att < attempts; att++) {
       try {
-        const client = createClientForTarget(target);
+        const client = createClientForTarget(target, overrides);
         console.log(
           `${colors.gray}[Requesting Model]${colors.reset} [${target.provider.toUpperCase()}] ${target.model}`
         );
