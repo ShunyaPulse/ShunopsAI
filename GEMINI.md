@@ -62,3 +62,24 @@
 - Never pass raw API responses, error objects with stack traces, or external payloads (`rawAlert`, `data.result`, `healReport`) directly into `console.log` or logging formatters.
 - Always redact sensitive variables with `[REDACTED]` or extract safe primitive strings to avoid GitHub CodeQL `js/clear-text-logging` alerts.
 
+## 9. Multi-Tenant SaaS Auth, Registration & Account Linking Invariants
+- **Strict Server-Side HTML Sanitization (Anti-XSS):**
+  - Never interpolate raw user inputs (`username`, display names, emails) into server-rendered HTML template strings. Always pass through `escapeHtml()` escaping `&`, `<`, `>`, `"`, `'`.
+- **Google OAuth Audience & Verification Lock:**
+  - On Google ID token authentication, ALWAYS verify `googleData.aud === GOOGLE_CLIENT_ID` (never accept tokens minted for foreign OAuth client IDs) and ensure `email_verified === true`.
+- **Canonical Multi-Provider Account Linking:**
+  - When a user signs in via OAuth (Google/GitHub) with a verified email matching an existing account, link the OAuth ID into the existing user record rather than throwing duplicate errors or creating orphaned duplicate accounts.
+- **Hashed Session Tokens at Rest:**
+  - Session tokens stored in database tables (`shunops_sessions.token`) must ALWAYS be stored as cryptographic hashes (`SHA-256`) rather than plaintext cookies. A read-only database leak must never grant session hijacking.
+- **OTP Replay Elimination & Strict Zero-Replay:**
+  - One-Time Passwords (OTPs) must burn immediately upon first successful verification. Never provide grace periods or "recently used" replay windows where a consumed code remains valid.
+- **Account Enumeration Prevention:**
+  - Authentication and OTP endpoints (`/api/auth/email-otp/send`, `/api/auth/send-otp`) must return uniform success responses ("If an account exists, a code was sent") rather than distinct 404 vs 409 responses that reveal whether an email exists.
+- **Edge Proxy IP Resolution (Anti-Spoofing):**
+  - Never extract client IP via `x-forwarded-for.split(",")[0]` (which is client-controlled). Always read `CF-Connecting-IP` or the LAST hop appended by trusted reverse proxies / Google Cloud Run (`parts[parts.length - 1]`).
+- **BYOK Isolation & Quota Drain Protection:**
+  - When request-scoped BYOK keys (`x-groq-key`, `x-gemini-key`) are provided, validate format patterns strictly (`gsk_...`, `AIzaSy...`). When BYOK overrides are set, NEVER fall back to server owner pool keys if the user's key fails.
+- **Constant-Time Crypto Checks:**
+  - All HMAC challenges and signature comparisons must strictly use `crypto.timingSafeEqual` over buffers to prevent timing side-channel attacks.
+
+
