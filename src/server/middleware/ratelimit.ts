@@ -1,42 +1,7 @@
-import { Redis } from "ioredis";
+import { getRedisClient, isRedisConnected } from "../redis.js";
 
-// Lazy connection to distributed OCI Redis
-let redisInstance: Redis | null = null;
-let redisHealthy = true;
-
-function getRedis(): Redis | null {
-  const redisUrl = process.env.REDIS_URL;
-  if (!redisUrl && !process.env.REDIS_HOST) return null;
-
-  if (!redisInstance) {
-    try {
-      redisInstance = redisUrl
-        ? new Redis(redisUrl, {
-            lazyConnect: true,
-            maxRetriesPerRequest: 1,
-            connectTimeout: 2000,
-          })
-        : new Redis({
-            host: process.env.REDIS_HOST || "127.0.0.1",
-            port: Number(process.env.REDIS_PORT) || 6379,
-            password: process.env.REDIS_PASSWORD || undefined,
-            lazyConnect: true,
-            maxRetriesPerRequest: 1,
-            connectTimeout: 2000,
-          });
-
-      redisInstance.on("error", () => {
-        redisHealthy = false;
-      });
-      redisInstance.on("connect", () => {
-        redisHealthy = true;
-      });
-    } catch {
-      redisHealthy = false;
-      return null;
-    }
-  }
-  return redisHealthy ? redisInstance : null;
+function getRedis() {
+  return getRedisClient();
 }
 
 // In-memory sliding window fallback if Redis is unavailable
@@ -112,7 +77,7 @@ export async function checkDistributedSubnetQuota(
 ): Promise<RateLimitCheckResult> {
   const redis = getRedis();
 
-  if (redis && redisHealthy) {
+  if (redis && isRedisConnected()) {
     try {
       const key = `ratelimit:subnet:${subnetKey}`;
       const current = await redis.incr(key);

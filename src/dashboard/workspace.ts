@@ -2,8 +2,12 @@ import { escapeHtml } from "./scripts.js";
 
 /**
  * Multi-Tenant User Workspace Dashboard HTML.
- * Includes interactive multi-turn conversation thread, dynamic context memory,
- * and optional custom context drawer for rich conversational continuity.
+ * Includes:
+ * 1. Human-in-the-Loop Approvals Queue
+ * 2. Persistent Conversation Thread & History
+ * 3. Account Lifecycle (Password Change, Export Data, Delete Account)
+ * 4. Personal API Key Management
+ * 5. Plan & Usage Metering
  */
 export function getUserWorkspaceHtml(username: string): string {
   const safeUsername = escapeHtml(username);
@@ -26,6 +30,7 @@ export function getUserWorkspaceHtml(username: string): string {
       --text: #f8fafc;
       --muted: #94a3b8;
       --green: #10b981;
+      --danger: #ef4444;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -96,7 +101,7 @@ export function getUserWorkspaceHtml(username: string): string {
       background: rgba(239, 68, 68, 0.15);
     }
     .container {
-      max-width: 1100px;
+      max-width: 1140px;
       width: 100%;
       margin: 28px auto;
       padding: 0 20px;
@@ -145,7 +150,7 @@ export function getUserWorkspaceHtml(username: string): string {
     }
     .grid {
       display: grid;
-      grid-template-columns: 1.55fr 1fr;
+      grid-template-columns: 1.5fr 1fr;
       gap: 20px;
     }
     @media (max-width: 860px) {
@@ -159,6 +164,10 @@ export function getUserWorkspaceHtml(username: string): string {
       border-radius: 16px;
       padding: 22px;
       box-shadow: 0 8px 24px rgba(0,0,0,0.25);
+      margin-bottom: 20px;
+    }
+    .box:last-child {
+      margin-bottom: 0;
     }
     .box h2 {
       font-size: 16px;
@@ -361,8 +370,23 @@ export function getUserWorkspaceHtml(username: string): string {
       line-height: 1.4;
       margin: 0;
     }
+    .btn-sub {
+      background: rgba(255,255,255,0.06);
+      border: 1px solid var(--border);
+      color: #cbd5e1;
+      padding: 6px 12px;
+      border-radius: 8px;
+      font-size: 12px;
+      cursor: pointer;
+      font-weight: 600;
+      transition: all 0.15s;
+    }
+    .btn-sub:hover {
+      background: rgba(255,255,255,0.12);
+      color: #fff;
+    }
     .footer {
-      max-width: 1100px;
+      max-width: 1140px;
       margin: 0 auto;
       padding: 24px 20px 40px;
       border-top: 1px solid var(--border);
@@ -400,31 +424,46 @@ export function getUserWorkspaceHtml(username: string): string {
     <div class="welcome-card">
       <div>
         <h1 class="welcome-title">Welcome, ${safeUsername}!</h1>
-        <p class="welcome-desc">Your private AI assistant remembers your conversation context and helps you write, analyze, and automate tasks.</p>
+        <p class="welcome-desc">Your private multi-tenant workspace with persistent conversation history, task isolation, and approval controls.</p>
       </div>
-      <a href="/portal" class="btn-action">⚙️ Assistant Settings &rarr;</a>
+      <div style="display:flex; gap:10px;">
+        <button class="btn-sub" onclick="toggleAccountModal()">⚙️ Account Settings</button>
+        <a href="/portal" class="btn-action">🔑 BYOK Keys &rarr;</a>
+      </div>
+    </div>
+
+    <!-- Approvals Queue Alert Bar (Shown when sensitive actions await human confirmation) -->
+    <div id="workspace-approvals-box" style="display:none; background:rgba(239, 68, 68, 0.1); border:1px solid rgba(239, 68, 68, 0.4); border-radius:14px; padding:18px; margin-bottom:24px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span style="font-size:18px;">⚠️</span>
+          <strong style="color:#f87171; font-size:15px;">Human Approval Required for Sensitive Autonomous Step</strong>
+        </div>
+        <button class="btn-sub" onclick="fetchWorkspaceApprovals()">🔄 Refresh</button>
+      </div>
+      <div id="workspace-approvals-list"></div>
     </div>
 
     <div class="grid">
-      <!-- Left: Chat Assistant with Multi-Turn Context Thread -->
+      <!-- Left: Chat Assistant with Persistent Conversation History -->
       <div class="box">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
           <h2>💬 Ask Your AI Assistant</h2>
           <div style="display:flex; align-items:center; gap:8px;">
             <span id="context-badge" style="font-size:11px; background:rgba(56,189,248,0.12); color:#38bdf8; border:1px solid rgba(56,189,248,0.25); padding:2px 8px; border-radius:12px; font-weight:600;">
-              🧠 Context: 0 turns
+              🧠 Persistent Memory Active
             </span>
-            <button type="button" onclick="clearConversation()" style="background:transparent; border:1px solid rgba(255,255,255,0.12); color:#94a3b8; font-size:11px; padding:3px 9px; border-radius:8px; cursor:pointer; transition:all 0.15s;" title="Start fresh conversation and reset memory">
-              🧹 Reset Context
+            <button type="button" onclick="clearConversation()" style="background:transparent; border:1px solid rgba(255,255,255,0.12); color:#94a3b8; font-size:11px; padding:3px 9px; border-radius:8px; cursor:pointer; transition:all 0.15s;" title="Wipe chat history from database and start fresh">
+              🧹 Clear History
             </button>
           </div>
         </div>
-        <p>Continuous conversation memory is active. The assistant remembers your previous questions in this session.</p>
+        <p>Your conversation history is securely saved in your database account and restored across reloads.</p>
 
         <!-- Message Thread -->
         <div id="chat-thread" class="chat-thread-container">
           <div id="empty-state" style="margin:auto; text-align:center; color:#64748b; font-size:13px; padding:20px;">
-            👋 Hello <strong>${safeUsername}</strong>! Ask a question or pick a prompt below to begin.
+            👋 Loading your persistent workspace conversation...
           </div>
         </div>
 
@@ -448,60 +487,68 @@ export function getUserWorkspaceHtml(username: string): string {
         <div class="quick-chips">
           <div class="chip" onclick="askSuggestion('What can you help me do?')">💡 What can you do?</div>
           <div class="chip" onclick="askSuggestion('Help me write a friendly professional email')">✉️ Draft an email</div>
-          <div class="chip" onclick="askSuggestion('Explain cloud hosting in simple terms')">☁️ Explain simply</div>
+          <div class="chip" onclick="askSuggestion('Explain cloud hosting and containers simply')">☁️ Explain simply</div>
         </div>
       </div>
 
-      <!-- Right: Simple Overview & Tools -->
-      <div class="box">
-        <h2>🚀 What You Can Do</h2>
-        <p>Everything is set up and ready. No technical configuration needed.</p>
-
-        <div class="feature-item">
-          <div class="feature-icon">🧠</div>
-          <div>
-            <div class="feature-title">Continuous Context Memory</div>
-            <p class="feature-desc">Ask follow-up questions naturally. The assistant keeps track of your conversation history in real time.</p>
+      <!-- Right Column: Quota & Metering + Account Lifecycle -->
+      <div>
+        <!-- Plan & Usage Meter -->
+        <div class="box">
+          <h2>📊 My Plan & Quota Usage</h2>
+          <p>Multi-tenant resource metering and query limits.</p>
+          <div style="background:#090d16; border:1px solid #1e293b; border-radius:10px; padding:14px; margin-bottom:12px;">
+            <div style="display:flex; justify-content:space-between; margin-bottom:8px; font-size:13px;">
+              <span>Plan: <strong id="user-plan-badge" style="color:#38bdf8;">Community</strong></span>
+              <span>Used: <strong id="user-usage-count">0</strong> / <span id="user-usage-limit">100</span></span>
+            </div>
+            <div style="background:#1e293b; border-radius:6px; height:8px; overflow:hidden;">
+              <div id="user-usage-bar" style="background:linear-gradient(90deg, #38bdf8, #2563eb); height:100%; width:0%; transition:width 0.4s;"></div>
+            </div>
+            <div style="font-size:11px; color:#94a3b8; margin-top:8px;">
+              Need unlimited queries? Connect your free Groq or Gemini key in the <a href="/portal" style="color:#38bdf8;">BYOK Portal</a>.
+            </div>
           </div>
         </div>
 
-        <div class="feature-item">
-          <div class="feature-icon">✨</div>
-          <div>
-            <div class="feature-title">Free Built-in AI Included</div>
-            <p class="feature-desc">Start chatting immediately. Fast and ready with no setup required.</p>
+        <!-- Personal API Keys Box -->
+        <div class="box">
+          <h2>🔑 Personal API Keys</h2>
+          <p>Generate isolated keys to invoke tasks from external scripts or n8n.</p>
+          <div style="display:flex; gap:8px; margin-bottom:12px;">
+            <input type="text" id="api-key-name-input" placeholder="Key description (e.g. n8n runner)" style="flex:1; background:#070a12; border:1px solid #1e293b; border-radius:8px; padding:6px 10px; color:#fff; font-size:12px; outline:none;" />
+            <button class="btn-sub" onclick="generateApiKey()">+ Create</button>
+          </div>
+          <div id="new-key-display" style="display:none; background:rgba(16,185,129,0.15); border:1px solid #10b981; border-radius:8px; padding:10px; margin-bottom:12px; font-size:12px;">
+            <div style="font-weight:600; color:#10b981; margin-bottom:4px;">New Key Generated (Save it now):</div>
+            <code id="new-key-value" style="font-family:'JetBrains Mono', monospace; word-break:break-all; color:#fff;"></code>
+          </div>
+          <div id="user-keys-list" style="font-size:12px; color:#94a3b8; font-family:'JetBrains Mono', monospace;">
+            Loading active keys...
           </div>
         </div>
 
-        <div class="feature-item">
-          <div class="feature-icon">🔑</div>
-          <div>
-            <div class="feature-title">Add Your Own Keys (Optional)</div>
-            <p class="feature-desc">Want unlimited questions? You can easily connect your own free Google Gemini or Groq key.</p>
+        <!-- Account Security & Lifecycle Box -->
+        <div class="box">
+          <h2>🔒 Account Privacy & Security</h2>
+          <p>GDPR data controls, password changes, and account deletion.</p>
+          <div style="display:flex; flex-direction:column; gap:10px;">
+            <button class="btn-sub" onclick="togglePasswordChangeDrawer()">🔑 Change Password</button>
+            <div id="password-change-drawer" style="display:none; background:#070a12; border:1px solid #1e293b; border-radius:8px; padding:12px;">
+              <input type="password" id="pw-current" placeholder="Current Password" style="width:100%; background:#090d16; border:1px solid #1e293b; border-radius:6px; padding:6px 10px; color:#fff; font-size:12px; margin-bottom:8px; outline:none;" />
+              <input type="password" id="pw-new" placeholder="New Password (min 8 chars)" style="width:100%; background:#090d16; border:1px solid #1e293b; border-radius:6px; padding:6px 10px; color:#fff; font-size:12px; margin-bottom:8px; outline:none;" />
+              <button class="btn-sub" style="background:#2563eb; color:#fff; border:none; width:100%;" onclick="submitPasswordChange()">Update Password</button>
+            </div>
+            <button class="btn-sub" onclick="exportMyData()">📥 Export My Data (JSON)</button>
+            <button class="btn-sub" style="border-color:rgba(239,68,68,0.4); color:#ef4444;" onclick="deleteMyAccount()">🗑️ Delete My Account Permanently</button>
           </div>
-        </div>
-
-        <div class="feature-item">
-          <div class="feature-icon">🔒</div>
-          <div>
-            <div class="feature-title">Private &amp; Secure</div>
-            <p class="feature-desc">Your conversations are private. We never sell your data or use it for training.</p>
-          </div>
-        </div>
-
-        <div style="margin-top: 18px; padding-top: 14px; border-top: 1px solid rgba(255,255,255,0.06); display: flex; align-items: center; justify-content: space-between;">
-          <div style="display:flex; align-items:center; gap:8px; font-size:12px; color:var(--green);">
-            <span style="width:8px; height:8px; border-radius:50%; background:var(--green); display:inline-block;"></span>
-            Assistant Status: Ready
-          </div>
-          <a href="/portal" style="font-size:12px; color:#38bdf8; text-decoration:none;">Settings &rarr;</a>
         </div>
       </div>
     </div>
   </div>
 
   <div class="footer">
-    <div>&copy; 2026 ShunopsAI. Designed for simplicity and privacy.</div>
+    <div>&copy; 2026 ShunopsAI. Designed for multi-tenant privacy and sovereign autonomy.</div>
     <div style="display:flex; gap:16px;">
       <a href="/portal">Settings</a>
       <a href="/privacy">Privacy Policy</a>
@@ -511,7 +558,6 @@ export function getUserWorkspaceHtml(username: string): string {
   </div>
 
   <script>
-    // In-memory conversation context turns
     let conversationHistory = [];
 
     async function logout() {
@@ -531,17 +577,57 @@ export function getUserWorkspaceHtml(username: string): string {
       }
     }
 
-    function updateContextBadge() {
-      const badge = document.getElementById('context-badge');
-      const turns = Math.floor(conversationHistory.length / 2);
-      badge.textContent = '🧠 Context: ' + turns + ' ' + (turns === 1 ? 'turn' : 'turns');
+    function togglePasswordChangeDrawer() {
+      const d = document.getElementById('password-change-drawer');
+      d.style.display = d.style.display === 'none' ? 'block' : 'none';
     }
 
-    function clearConversation() {
-      conversationHistory = [];
+    function updateContextBadge() {
+      const badge = document.getElementById('context-badge');
+      const count = conversationHistory.length;
+      badge.textContent = '🧠 Persistent Memory (' + count + ' messages)';
+    }
+
+    // 1. Persistent Chat History: Load from DB on startup
+    async function loadSavedChatHistory() {
       const thread = document.getElementById('chat-thread');
-      thread.innerHTML = '<div id="empty-state" style="margin:auto; text-align:center; color:#64748b; font-size:13px; padding:20px;">👋 Fresh conversation started! Ask a question below.</div>';
-      updateContextBadge();
+      try {
+        const res = await fetch('/api/workspace/chat-history');
+        const data = await res.json();
+        const emptyState = document.getElementById('empty-state');
+
+        if (data.success && data.messages && data.messages.length > 0) {
+          if (emptyState) emptyState.remove();
+          thread.innerHTML = '';
+          conversationHistory = [];
+          data.messages.forEach(m => {
+            appendMessageBubble(m.role, m.message, false);
+            conversationHistory.push({ role: m.role, content: m.message });
+          });
+          updateContextBadge();
+        } else {
+          if (emptyState) {
+            emptyState.innerHTML = '👋 Hello <strong>${safeUsername}</strong>! Ask a question or pick a prompt below to begin.';
+          }
+        }
+      } catch (e) {
+        const emptyState = document.getElementById('empty-state');
+        if (emptyState) emptyState.innerHTML = '👋 Welcome! Start a new conversation below.';
+      }
+    }
+
+    // 2. Clear Chat History in DB & in Memory
+    async function clearConversation() {
+      if (!confirm('Are you sure you want to clear your conversation history?')) return;
+      try {
+        await fetch('/api/workspace/chat-history', { method: 'DELETE' });
+        conversationHistory = [];
+        const thread = document.getElementById('chat-thread');
+        thread.innerHTML = '<div id="empty-state" style="margin:auto; text-align:center; color:#64748b; font-size:13px; padding:20px;">👋 Fresh conversation started! Ask a question below.</div>';
+        updateContextBadge();
+      } catch (e) {
+        alert('Could not clear history: ' + e.message);
+      }
     }
 
     function askSuggestion(text) {
@@ -555,7 +641,7 @@ export function getUserWorkspaceHtml(username: string): string {
       return div.innerHTML;
     }
 
-    function appendMessageBubble(role, content) {
+    function appendMessageBubble(role, content, autoScroll = true) {
       const emptyState = document.getElementById('empty-state');
       if (emptyState) emptyState.remove();
 
@@ -574,7 +660,7 @@ export function getUserWorkspaceHtml(username: string): string {
       bubble.appendChild(header);
       bubble.appendChild(body);
       thread.appendChild(bubble);
-      thread.scrollTop = thread.scrollHeight;
+      if (autoScroll) thread.scrollTop = thread.scrollHeight;
     }
 
     function showThinkingIndicator() {
@@ -645,7 +731,6 @@ export function getUserWorkspaceHtml(username: string): string {
         historyItems.push('Custom Workspace Notes/Instructions:\\n' + customContext);
       }
       if (conversationHistory.length > 0) {
-        // Send last 8 turns of context
         const recent = conversationHistory.slice(-8);
         const turnsText = recent.map(t => (t.role === 'user' ? 'User: ' : 'Assistant: ') + t.content).join('\\n');
         historyItems.push('Previous Conversation History:\\n' + turnsText);
@@ -654,7 +739,6 @@ export function getUserWorkspaceHtml(username: string): string {
 
       try {
         const headers = { 'Content-Type': 'application/json' };
-        // Wire BYOK Keys if present in browser vault
         const vault = await loadVaultKeys();
         if (vault) {
           if (vault.groq) headers['x-groq-key'] = vault.groq;
@@ -676,10 +760,10 @@ export function getUserWorkspaceHtml(username: string): string {
         const reply = data.reply || 'No response received. Please try again.';
         appendMessageBubble('assistant', reply);
 
-        // Update context memory
         conversationHistory.push({ role: 'user', content: msg });
         conversationHistory.push({ role: 'assistant', content: reply });
         updateContextBadge();
+        fetchBillingUsage();
 
       } catch (err) {
         removeThinkingIndicator();
@@ -689,6 +773,190 @@ export function getUserWorkspaceHtml(username: string): string {
         sendBtn.textContent = 'Send';
       }
     }
+
+    // 3. Human Approvals Queue Polling & Execution
+    async function fetchWorkspaceApprovals() {
+      const box = document.getElementById('workspace-approvals-box');
+      const list = document.getElementById('workspace-approvals-list');
+      try {
+        const res = await fetch('/api/pending-approvals');
+        if (!res.ok) return;
+        const data = await res.json();
+        const pending = data.pending || [];
+
+        if (pending.length === 0) {
+          box.style.display = 'none';
+          return;
+        }
+
+        box.style.display = 'block';
+        list.innerHTML = pending.map(req => \`
+          <div style="background: rgba(0,0,0,0.3); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 8px; padding: 12px; margin-top: 10px;">
+            <div style="display:flex; justify-content:space-between;">
+              <strong style="color:#f87171;">\${escapeHtmlText(req.action)}</strong>
+              <span style="font-size:11px; color:#94a3b8; font-family:monospace;">\${escapeHtmlText(req.id)}</span>
+            </div>
+            <div style="font-size:12px; color:#cbd5e1; margin:4px 0;">\${escapeHtmlText(req.riskReason)}</div>
+            <pre style="background:#000; padding:6px; border-radius:4px; font-size:11px; overflow-x:auto; margin:6px 0; color:#e2e8f0;">\${escapeHtmlText(req.commandOrPayload)}</pre>
+            <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:8px;">
+              <button class="btn-sub" style="border-color:#ef4444; color:#ef4444;" onclick="submitApproval('\${escapeHtmlText(req.id)}', false)">❌ Reject</button>
+              <button class="btn-sub" style="background:#10b981; color:#fff; border:none;" onclick="submitApproval('\${escapeHtmlText(req.id)}', true)">✅ Approve</button>
+            </div>
+          </div>
+        \`).join('');
+      } catch (e) {}
+    }
+
+    async function submitApproval(id, approved) {
+      try {
+        const res = await fetch('/api/approve', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id, approved })
+        });
+        const data = await res.json();
+        alert(data.message || (approved ? 'Approved' : 'Rejected'));
+        fetchWorkspaceApprovals();
+      } catch (e) {
+        alert('Failed: ' + e.message);
+      }
+    }
+
+    // 4. Billing Usage & Meter
+    async function fetchBillingUsage() {
+      try {
+        const res = await fetch('/api/billing/usage');
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.success) {
+          document.getElementById('user-plan-badge').textContent = (data.plan || 'community').toUpperCase();
+          document.getElementById('user-usage-count').textContent = data.queryCount || 0;
+          document.getElementById('user-usage-limit').textContent = data.limit >= 999999 ? 'Unlimited' : data.limit;
+          const pct = Math.min(100, Math.round(((data.queryCount || 0) / (data.limit || 100)) * 100));
+          document.getElementById('user-usage-bar').style.width = pct + '%';
+        }
+      } catch (e) {}
+    }
+
+    // 5. Personal API Keys
+    async function loadApiKeys() {
+      const container = document.getElementById('user-keys-list');
+      try {
+        const res = await fetch('/api/user/api-keys');
+        const data = await res.json();
+        if (data.success && data.keys) {
+          if (data.keys.length === 0) {
+            container.innerHTML = '<div style="color:#64748b;">No active API keys yet.</div>';
+            return;
+          }
+          container.innerHTML = data.keys.map(k => \`
+            <div style="display:flex; justify-content:space-between; align-items:center; padding:6px 0; border-bottom:1px solid rgba(255,255,255,0.05);">
+              <div>
+                <span style="color:#fff; font-weight:600;">\${escapeHtmlText(k.name)}</span>
+                <span style="color:#64748b; margin-left:6px;">(\${escapeHtmlText(k.keyPrefix)}...)</span>
+              </div>
+              <button class="btn-sub" style="padding:2px 8px; font-size:10px; border-color:#ef4444; color:#ef4444;" onclick="revokeApiKey(\${k.id})">Revoke</button>
+            </div>
+          \`).join('');
+        }
+      } catch (e) {
+        container.innerHTML = '<div style="color:#ef4444;">Failed to load keys.</div>';
+      }
+    }
+
+    async function generateApiKey() {
+      const input = document.getElementById('api-key-name-input');
+      const name = input.value.trim() || 'API Key';
+      try {
+        const res = await fetch('/api/user/api-keys', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name })
+        });
+        const data = await res.json();
+        if (data.success) {
+          input.value = '';
+          document.getElementById('new-key-value').textContent = data.key;
+          document.getElementById('new-key-display').style.display = 'block';
+          loadApiKeys();
+        } else {
+          alert('Error: ' + (data.error || 'Failed to generate key'));
+        }
+      } catch (e) {
+        alert('Failed: ' + e.message);
+      }
+    }
+
+    async function revokeApiKey(id) {
+      if (!confirm('Revoke this API key?')) return;
+      try {
+        const res = await fetch('/api/user/api-keys/' + id, { method: 'DELETE' });
+        const data = await res.json();
+        if (data.success) loadApiKeys();
+      } catch (e) {
+        alert('Failed: ' + e.message);
+      }
+    }
+
+    // 6. Account Lifecycle: Change Password, Export Data, Delete Account
+    async function submitPasswordChange() {
+      const currentPassword = document.getElementById('pw-current').value;
+      const newPassword = document.getElementById('pw-new').value;
+      if (!newPassword || newPassword.length < 8) {
+        alert('New password must be at least 8 characters long.');
+        return;
+      }
+      try {
+        const res = await fetch('/api/auth/change-password', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ currentPassword, newPassword })
+        });
+        const data = await res.json();
+        if (data.success) {
+          alert('Password updated successfully!');
+          document.getElementById('pw-current').value = '';
+          document.getElementById('pw-new').value = '';
+          togglePasswordChangeDrawer();
+        } else {
+          alert('Error: ' + (data.error || 'Failed to update password'));
+        }
+      } catch (e) {
+        alert('Failed: ' + e.message);
+      }
+    }
+
+    function exportMyData() {
+      window.location.href = '/api/auth/account/export';
+    }
+
+    async function deleteMyAccount() {
+      const conf = confirm('⚠️ ARE YOU ABSOLUTELY SURE?\\n\\nThis will permanently delete your account, workspace, conversation history, and API keys. This action CANNOT be undone.');
+      if (!conf) return;
+      const conf2 = prompt('Type DELETE to confirm permanent account removal:');
+      if (conf2 !== 'DELETE') {
+        alert('Account deletion aborted.');
+        return;
+      }
+      try {
+        const res = await fetch('/api/auth/account', { method: 'DELETE' });
+        const data = await res.json();
+        if (data.success) {
+          alert('Your account has been deleted permanently.');
+          window.location.href = '/register';
+        }
+      } catch (e) {
+        alert('Error: ' + e.message);
+      }
+    }
+
+    window.addEventListener('DOMContentLoaded', () => {
+      loadSavedChatHistory();
+      fetchWorkspaceApprovals();
+      fetchBillingUsage();
+      loadApiKeys();
+      setInterval(fetchWorkspaceApprovals, 4000); // Live approvals polling
+    });
   </script>
 </body>
 </html>`;

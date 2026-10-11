@@ -7,7 +7,7 @@
   "scripts": {
     "start": "tsx agent.ts",
     "server": "tsx server.ts",
-    "test": "tsx test-tools.ts",
+    "test": "tsx tests/production-suite.test.ts",
     "typecheck": "tsc --noEmit",
     "resolve-alerts": "tsx src/tools/code-scanner-resolver.ts",
     "worker:dev": "wrangler dev",

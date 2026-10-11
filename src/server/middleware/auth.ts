@@ -1,6 +1,6 @@
 import * as crypto from "node:crypto";
 import type { FastifyRequest, FastifyReply } from "fastify";
-import { findUserBySessionToken } from "../db.js";
+import { findUserBySessionToken, findUserByApiKey } from "../db.js";
 
 /** Constant-time string comparison that never throws on length mismatch. */
 export function timingSafeEqualStr(a: string, b: string): boolean {
@@ -37,45 +37,76 @@ export function verifyBasicAuth(header: string, expectedUser?: string, expectedP
 }
 
 /**
- * Build the bearer/X-API-Key/Basic Auth hook for privileged endpoints in Fastify.
+ * Build the multi-tenant auth hook for privileged endpoints in Fastify.
+ * Accepts:
+ * 1. Master Bearer token / X-API-Key (grants admin access)
+ * 2. Per-User API key (shun_...)
+ * 3. Master Basic Auth credentials
+ * 4. Logged-in session cookie (shunops_user_session)
+ * Attaches the resolved user to (req as any).user.
  */
 export function createRequireAuth(config: AuthConfig) {
   const { apiToken, host, dashboardUsername, dashboardPassword } = config;
 
   return async function requireAuth(req: FastifyRequest, reply: FastifyReply): Promise<void> {
     const header = (req.headers.authorization as string) || "";
-
-    // 1. Validate Bearer token or X-API-Key
     const bearer = header.startsWith("Bearer ") ? header.slice(7) : "";
     const provided = bearer || (req.headers["x-api-key"] as string) || "";
 
+    // 1. Validate Master Bearer token or Master X-API-Key
     if (apiToken && provided && timingSafeEqualStr(provided, apiToken)) {
+      (req as any).user = { id: 0, username: "master_admin", role: "admin", isMaster: true };
       return;
     }
 
-    // 2. Validate Basic Auth from authenticated browser session
+    // 2. Validate Per-User API Key (shun_...)
+    if (provided && provided.startsWith("shun_")) {
+      try {
+        const user = await findUserByApiKey(provided);
+        if (user) {
+          (req as any).user = user;
+          return;
+        }
+      } catch {}
+    }
+
+    // 3. Validate Basic Auth from authenticated browser session or automation
     if (dashboardUsername && dashboardPassword && verifyBasicAuth(header, dashboardUsername, dashboardPassword)) {
+      (req as any).user = { id: 0, username: dashboardUsername, role: "admin", isMaster: true };
       return;
     }
 
-    // Allow unauthenticated only for genuinely local, direct connections when
-    // no apiToken is configured. A request bearing X-Forwarded-For is treated
-    // as proxied (i.e. potentially public) and must authenticate, so a
-    // reverse proxy in front of a localhost bind cannot silently expose this.
+    // 4. Validate Logged-in Session Cookie (shunops_user_session)
+    const sessionCookie = (req.cookies as any)?.shunops_user_session;
+    if (sessionCookie) {
+      try {
+        const user = await findUserBySessionToken(sessionCookie);
+        if (user) {
+          (req as any).user = user;
+          return;
+        }
+      } catch {}
+    }
+
+    // 5. Allow unauthenticated only for genuinely local, direct connections when
+    // no apiToken is configured (dev mode).
     if (!apiToken && (host === "127.0.0.1" || host === "localhost")) {
       const remote = req.socket?.remoteAddress || "";
       const isLoopback =
         remote === "127.0.0.1" || remote === "::1" || remote === "::ffff:127.0.0.1";
       const isProxied = Boolean(req.headers["x-forwarded-for"]);
-      if (isLoopback && !isProxied) return;
+      if (isLoopback && !isProxied) {
+        (req as any).user = { id: 0, username: "local_dev", role: "admin", isMaster: true };
+        return;
+      }
     }
 
-    reply.status(401).send({ error: "Unauthorized." });
+    reply.status(401).send({ error: "Unauthorized. Valid session, user API key, or authorization token required." });
   };
 }
 
 /**
- * Build HTTP Basic Auth challenge hook for browser dashboard & sentinel pages.
+ * Build HTTP Basic Auth / Admin challenge hook for browser dashboard & sentinel pages.
  */
 export function createRequireDashboardAuth(config: AuthConfig) {
   const { apiToken, host, dashboardUsername, dashboardPassword } = config;
@@ -85,13 +116,15 @@ export function createRequireDashboardAuth(config: AuthConfig) {
 
     // 1. Basic Auth check (for automation/CLI with explicit credentials)
     if (dashboardUsername && dashboardPassword && verifyBasicAuth(header, dashboardUsername, dashboardPassword)) {
+      (req as any).user = { id: 0, username: dashboardUsername, role: "admin", isMaster: true };
       return;
     }
 
-    // 2. Bearer token check
+    // 2. Bearer token check (Master API token)
     const bearer = header.startsWith("Bearer ") ? header.slice(7) : "";
     const token = bearer || (req.headers["x-api-key"] as string) || "";
     if (token && apiToken && timingSafeEqualStr(token, apiToken)) {
+      (req as any).user = { id: 0, username: "master_admin", role: "admin", isMaster: true };
       return;
     }
 
@@ -101,6 +134,7 @@ export function createRequireDashboardAuth(config: AuthConfig) {
       try {
         const user = await findUserBySessionToken(sessionCookie);
         if (user && user.role === "admin") {
+          (req as any).user = user;
           return;
         }
       } catch {}
@@ -113,10 +147,13 @@ export function createRequireDashboardAuth(config: AuthConfig) {
       const isLoopback =
         remote === "127.0.0.1" || remote === "::1" || remote === "::ffff:127.0.0.1";
       const isProxied = Boolean(req.headers["x-forwarded-for"]);
-      if (isLoopback && !isProxied) return;
+      if (isLoopback && !isProxied) {
+        (req as any).user = { id: 0, username: "local_dev", role: "admin", isMaster: true };
+        return;
+      }
     }
 
-    // For browser requests (HTML), redirect directly to /login (no native popup!)
+    // For browser requests (HTML), redirect directly to /login
     if (req.headers.accept?.includes("text/html")) {
       return reply.redirect("/login");
     }

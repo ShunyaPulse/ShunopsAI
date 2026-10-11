@@ -2,13 +2,14 @@ import type { FastifyInstance, preHandlerHookHandler } from "fastify";
 import { runAutonomousAgent } from "../../agent/index.js";
 import { TaskRequestSchema, type TaskRequest } from "../schemas/alert.js";
 import { createQueuedTask, getTaskState } from "../taskQueue.js";
+import { listUserTasks, saveTaskRecord } from "../db.js";
 
 export interface TaskRouteOptions {
   requireAuth: preHandlerHookHandler;
 }
 
 /**
- * Privileged autonomous task execution endpoint (Fastify Engine with Hybrid Lifecycle).
+ * Privileged autonomous task execution endpoint (Fastify Engine with Multi-Tenant Isolation).
  * Body: { goal?: string, task?: string, maxSteps?: number, context?: string, async?: boolean }
  */
 export async function taskRoutes(app: FastifyInstance, options: TaskRouteOptions): Promise<void> {
@@ -24,6 +25,9 @@ export async function taskRoutes(app: FastifyInstance, options: TaskRouteOptions
     },
     async (req, reply) => {
       const body = req.body || {};
+      const user = (req as any).user;
+      const userId = user?.id && user.id > 0 ? user.id : undefined;
+
       const taskGoal =
         body.goal ||
         body.task ||
@@ -33,24 +37,6 @@ export async function taskRoutes(app: FastifyInstance, options: TaskRouteOptions
 
       const maxSteps = typeof body.maxSteps === "number" ? body.maxSteps : 6;
       const context = body.context;
-
-      // Check if caller requests async execution via body or HTTP header
-      const isAsync =
-        Boolean(body.async) ||
-        req.headers.prefer === "respond-async" ||
-        (req.headers["x-execution-mode"] as string)?.toLowerCase() === "async";
-
-      if (isAsync) {
-        const queued = createQueuedTask(taskGoal, maxSteps, context);
-        reply.status(202);
-        return {
-          success: true,
-          status: queued.status,
-          taskId: queued.id,
-          message: "Task accepted for background processing.",
-          pollUrl: `/api/task/${queued.id}`,
-        };
-      }
 
       const userGroqKey = (req.headers["x-groq-key"] as string | undefined)?.trim();
       const userGeminiKey = (req.headers["x-gemini-key"] as string | undefined)?.trim();
@@ -66,12 +52,36 @@ export async function taskRoutes(app: FastifyInstance, options: TaskRouteOptions
         };
       }
 
-      const keyOverrides = (isValidGroqFormat || isValidGeminiFormat) ? {
-        groqApiKey: isValidGroqFormat ? userGroqKey : undefined,
-        geminiApiKey: isValidGeminiFormat ? userGeminiKey : undefined,
-      } : undefined;
+      const keyOverrides:
+        | { groqApiKey?: string | undefined; geminiApiKey?: string | undefined }
+        | undefined =
+        isValidGroqFormat || isValidGeminiFormat
+          ? {
+              groqApiKey: isValidGroqFormat ? userGroqKey : undefined,
+              geminiApiKey: isValidGeminiFormat ? userGeminiKey : undefined,
+            }
+          : undefined;
+
+      // Check if caller requests async execution via body or HTTP header
+      const isAsync =
+        Boolean(body.async) ||
+        req.headers.prefer === "respond-async" ||
+        (req.headers["x-execution-mode"] as string)?.toLowerCase() === "async";
+
+      if (isAsync) {
+        const queued = createQueuedTask(taskGoal, maxSteps, context, userId, keyOverrides);
+        reply.status(202);
+        return {
+          success: true,
+          status: queued.status,
+          taskId: queued.id,
+          message: "Task accepted for background processing.",
+          pollUrl: `/api/task/${queued.id}`,
+        };
+      }
 
       // Synchronous execution (default for zero-config n8n compatibility)
+      const syncTaskId = `task_${Date.now()}_sync`;
       try {
         const result = await runAutonomousAgent(taskGoal, {
           maxSteps,
@@ -79,37 +89,79 @@ export async function taskRoutes(app: FastifyInstance, options: TaskRouteOptions
           keyOverrides,
         });
 
+        // Record task outcome in database
+        saveTaskRecord({
+          id: syncTaskId,
+          userId,
+          goal: taskGoal,
+          status: result.success ? "COMPLETED" : "FAILED",
+          stepsTaken: result.stepsTaken,
+          finalAnswer: result.finalAnswer || undefined,
+          createdAt: new Date().toISOString(),
+          completedAt: new Date().toISOString(),
+        }).catch(() => {});
+
         return {
           success: result.success,
           finalAnswer: result.finalAnswer,
           stepsTaken: result.stepsTaken,
+          taskId: syncTaskId,
         };
       } catch (error: any) {
         req.log.error(error);
+        saveTaskRecord({
+          id: syncTaskId,
+          userId,
+          goal: taskGoal,
+          status: "FAILED",
+          error: "Failed to execute autonomous agent task.",
+          createdAt: new Date().toISOString(),
+          completedAt: new Date().toISOString(),
+        }).catch(() => {});
+
         reply.status(500);
         return { success: false, error: "Failed to execute autonomous agent task." };
       }
     }
   );
 
-  // Status check endpoint for async / queued tasks (privileged: task results
-  // may contain sensitive repository/infrastructure details).
+  // Status check endpoint for async / queued tasks with multi-tenant isolation
   app.get<{ Params: { taskId: string } }>(
     "/api/task/:taskId",
     { preHandler: [requireAuth] },
     async (req, reply) => {
       const taskId = req.params.taskId;
-      // Validate taskId format to prevent injection into Redis keys or logs.
-      if (!/^task_\d+_[a-f0-9]{8}$/.test(taskId)) {
+      if (!/^task_\d+_[a-f0-9_]+$/.test(taskId)) {
         reply.status(400);
         return { success: false, error: "Invalid task ID format." };
       }
+
       const task = await getTaskState(taskId);
       if (!task) {
         reply.status(404);
         return { success: false, error: "Task not found." };
       }
+
+      const user = (req as any).user;
+      // Multi-tenant task isolation: If user is not admin, prevent viewing tasks belonging to other accounts
+      if (user && user.role !== "admin" && task.userId && task.userId !== user.id) {
+        reply.status(403);
+        return { success: false, error: "Access denied. You can only view tasks belonging to your account." };
+      }
+
       return { success: true, task };
+    }
+  );
+
+  // List all tasks for the authenticated user
+  app.get(
+    "/api/tasks",
+    { preHandler: [requireAuth] },
+    async (req) => {
+      const user = (req as any).user;
+      const userId = user?.id || 0;
+      const tasks = await listUserTasks(userId);
+      return { success: true, tasks };
     }
   );
 }

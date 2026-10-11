@@ -11,6 +11,10 @@ import {
   upsertGoogleUser,
   upsertGithubUser,
   markEmailAsVerified,
+  updateUserPassword,
+  deleteUserAccount,
+  exportUserData,
+  revokeAllUserSessions,
 } from "../db.js";
 import { sendEmailOTP, verifyEmailOTP } from "../email-otp.js";
 import { verifyCloudflareTurnstile } from "../middleware/bot-shield.js";
@@ -550,5 +554,130 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     }
     reply.clearCookie(COOKIE_NAME, { path: "/" });
     return { success: true, message: "Logged out." };
+  });
+
+  // 7. Password Reset via Email OTP
+  app.post("/api/auth/reset-password", async (req: FastifyRequest, reply: FastifyReply) => {
+    const { email, emailOtp, newPassword, turnstileToken, hp_website } = (req.body as any) || {};
+
+    if (hp_website) {
+      reply.status(400);
+      return { error: "Validation failed." };
+    }
+
+    if (!email || !emailOtp || !newPassword) {
+      reply.status(400);
+      return { error: "Email, 6-digit OTP code, and new password are required." };
+    }
+
+    if (typeof newPassword !== "string" || newPassword.length < 8) {
+      reply.status(400);
+      return { error: "New password must be at least 8 characters long." };
+    }
+
+    const clientIp = getClientIp(req);
+    if (turnstileToken) {
+      const isHuman = await verifyCloudflareTurnstile(turnstileToken, clientIp);
+      if (!isHuman) {
+        reply.status(403);
+        return { error: "Security captcha check failed. Please refresh and try again." };
+      }
+    }
+
+    const cleanEmail = email.trim().toLowerCase();
+    const otpValid = await verifyEmailOTP(cleanEmail, emailOtp.toString().trim());
+    if (!otpValid) {
+      reply.status(400);
+      return { error: "Invalid or expired verification code. Please request a new code." };
+    }
+
+    const user = await findUserByEmail(cleanEmail);
+    if (!user) {
+      reply.status(404);
+      return { error: "No account found with this email." };
+    }
+
+    const newHash = await bcrypt.hash(newPassword, 10);
+    await updateUserPassword(user.id, newHash);
+    await revokeAllUserSessions(user.id);
+
+    return { success: true, message: "Password reset successfully. Please log in with your new password." };
+  });
+
+  // 8. Change Password (Authenticated session)
+  app.post("/api/auth/change-password", async (req: FastifyRequest, reply: FastifyReply) => {
+    const token = (req.cookies as any)?.[COOKIE_NAME];
+    if (!token) {
+      reply.status(401);
+      return { error: "Authentication required." };
+    }
+
+    const user = await findUserBySessionToken(token);
+    if (!user) {
+      reply.status(401);
+      return { error: "Authentication required." };
+    }
+
+    const { currentPassword, newPassword } = (req.body as any) || {};
+    if (!newPassword || typeof newPassword !== "string" || newPassword.length < 8) {
+      reply.status(400);
+      return { error: "New password must be at least 8 characters." };
+    }
+
+    // Verify existing password if one was set
+    const userRecord = await findUserByUsername(user.username);
+    if (userRecord?.password_hash) {
+      if (!currentPassword) {
+        reply.status(400);
+        return { error: "Current password is required." };
+      }
+      const match = await bcrypt.compare(currentPassword, userRecord.password_hash);
+      if (!match) {
+        reply.status(400);
+        return { error: "Incorrect current password." };
+      }
+    }
+
+    const newHash = await bcrypt.hash(newPassword, 10);
+    await updateUserPassword(user.id, newHash);
+    return { success: true, message: "Password updated successfully." };
+  });
+
+  // 9. Export Account Data (GDPR compliance)
+  app.get("/api/auth/account/export", async (req: FastifyRequest, reply: FastifyReply) => {
+    const token = (req.cookies as any)?.[COOKIE_NAME];
+    if (!token) {
+      reply.status(401);
+      return { error: "Authentication required." };
+    }
+
+    const user = await findUserBySessionToken(token);
+    if (!user) {
+      reply.status(401);
+      return { error: "Authentication required." };
+    }
+
+    const data = await exportUserData(user.id);
+    reply.header("Content-Disposition", `attachment; filename="shunops_user_export_${user.username}.json"`);
+    return data;
+  });
+
+  // 10. Delete Account (Permanently delete user, workspace, tasks, sessions)
+  app.delete("/api/auth/account", async (req: FastifyRequest, reply: FastifyReply) => {
+    const token = (req.cookies as any)?.[COOKIE_NAME];
+    if (!token) {
+      reply.status(401);
+      return { error: "Authentication required." };
+    }
+
+    const user = await findUserBySessionToken(token);
+    if (!user) {
+      reply.status(401);
+      return { error: "Authentication required." };
+    }
+
+    await deleteUserAccount(user.id);
+    reply.clearCookie(COOKIE_NAME, { path: "/" });
+    return { success: true, message: "Account and associated data deleted permanently." };
   });
 }

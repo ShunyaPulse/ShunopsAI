@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 
 /**
  * 1-Line Embeddable Website Chat Widget (~5KB Vanilla JS) - Fastify Plugin.
+ * Now equipped with cryptographic Proof-of-Work Bot-Shield solver (Kanban-Cloud parity).
  */
 export async function widgetRoutes(app: FastifyInstance): Promise<void> {
   app.get("/widget.js", async (req, reply) => {
@@ -13,10 +14,14 @@ export async function widgetRoutes(app: FastifyInstance): Promise<void> {
     const hostIsSafe = /^[A-Za-z0-9.-]+(:\d{1,5})?$/.test(rawHost) && !rawHost.startsWith(".");
     const apiBase = configuredBase || (hostIsSafe ? `${req.protocol}://${rawHost}` : "");
     const apiEndpoint = `${apiBase}/api/chat`;
+    const challengeEndpoint = `${apiBase}/api/shield/challenge`;
+
     reply.header("X-Content-Type-Options", "nosniff");
     const script = `
 (function() {
   const apiEndpoint = ${JSON.stringify(apiEndpoint)};
+  const challengeEndpoint = ${JSON.stringify(challengeEndpoint)};
+
   const btn = document.createElement("button");
   btn.innerText = "💬 Chat";
   btn.style.position = "fixed";
@@ -70,6 +75,29 @@ export async function widgetRoutes(app: FastifyInstance): Promise<void> {
 
   function esc(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
+  async function solveProofOfWork(challenge) {
+    if (!challenge || !window.crypto || !window.crypto.subtle) return null;
+    const enc = new TextEncoder();
+    const targetPrefix = "0".repeat(challenge.targetDifficulty || 2);
+    let nonce = 0;
+    while (nonce < 100000) {
+      const data = enc.encode(challenge.salt + ":" + nonce);
+      const buf = await window.crypto.subtle.digest("SHA-256", data);
+      const hex = Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("");
+      if (hex.startsWith(targetPrefix)) {
+        return {
+          salt: challenge.salt,
+          timestamp: challenge.timestamp,
+          targetDifficulty: challenge.targetDifficulty,
+          signature: challenge.signature,
+          solution: String(nonce)
+        };
+      }
+      nonce++;
+    }
+    return null;
+  }
+
   async function sendMsg() {
     const text = inputEl.value.trim();
     if (!text) return;
@@ -87,10 +115,21 @@ export async function widgetRoutes(app: FastifyInstance): Promise<void> {
     msgContainer.appendChild(botDiv);
 
     try {
+      // Step 1: Solve Proof-of-Work challenge to bypass anti-bot shields
+      let shieldSolution = null;
+      try {
+        const chRes = await fetch(challengeEndpoint);
+        if (chRes.ok) {
+          const chData = await chRes.json();
+          shieldSolution = await solveProofOfWork(chData);
+        }
+      } catch (err) {}
+
+      // Step 2: Post chat query with shield solution
       const res = await fetch(apiEndpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text })
+        body: JSON.stringify({ message: text, shield: shieldSolution })
       });
       const data = await res.json();
       botDiv.innerText = data.reply || "No response";

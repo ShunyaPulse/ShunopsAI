@@ -10,6 +10,9 @@ import { autonomyRoutes } from "./autonomy.js";
 import { portalRoutes } from "./portal.js";
 import { shieldRoutes } from "./shield.js";
 import { authRoutes } from "./auth.js";
+import { adminRoutes } from "./admin.js";
+import { workspaceRoutes } from "./workspace.js";
+import { billingRoutes } from "./billing.js";
 
 export interface MountRoutesDeps {
   requireAuth: preHandlerHookHandler;
@@ -24,6 +27,9 @@ export async function registerRoutes(app: FastifyInstance, deps: MountRoutesDeps
   await app.register(portalRoutes);
   await app.register(shieldRoutes);
   await app.register(authRoutes);
+  await app.register(adminRoutes, { requireDashboardAuth: deps.requireDashboardAuth });
+  await app.register(workspaceRoutes, { requireAuth: deps.requireAuth });
+  await app.register(billingRoutes, { requireAuth: deps.requireAuth });
   await app.register(sentinelRoutes, {
     requireDashboardAuth: deps.requireDashboardAuth,
     requireAuth: deps.requireAuth,

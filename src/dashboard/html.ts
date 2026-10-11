@@ -78,6 +78,37 @@ export function getShunopsDashboardHtml(initialData: {
         </div>
       </div>
 
+      <!-- Approvals Queue Panel -->
+      <div class="panel" id="approvals-panel">
+        <div class="panel-header">
+          <div class="panel-title">
+            <span>⚠️</span> Human-in-the-Loop Approvals Queue
+          </div>
+          <button class="btn btn-secondary" onclick="fetchPendingApprovals()">🔄 Refresh</button>
+        </div>
+        <div id="approvals-list" style="padding: 16px; font-size: 13px; color: var(--text-muted);">
+          <div style="font-family: var(--code-font);">No pending sensitive actions awaiting approval.</div>
+        </div>
+      </div>
+
+      <!-- Admin User Management & Governance Panel -->
+      <div class="panel" id="users-panel">
+        <div class="panel-header">
+          <div class="panel-title">
+            <span>👥</span> User Governance &amp; Multi-Tenancy
+          </div>
+          <button class="btn btn-secondary" onclick="fetchAdminUsers()">🔄 Load Users</button>
+        </div>
+        <div id="admin-stats-bar" style="padding: 12px 16px; background: rgba(255,255,255,0.03); border-bottom: 1px solid var(--border); display: flex; gap: 20px; font-size: 12px; font-family: var(--code-font);">
+          <span>Users: <strong id="stat-total-users" style="color:#38bdf8;">0</strong></span>
+          <span>Tasks: <strong id="stat-total-tasks" style="color:#10b981;">0</strong></span>
+          <span>Messages: <strong id="stat-total-msgs" style="color:#f59e0b;">0</strong></span>
+        </div>
+        <div id="users-table-container" style="padding: 16px; overflow-x: auto;">
+          <div style="font-size: 13px; color: var(--text-muted); font-family: var(--code-font);">Loading user accounts...</div>
+        </div>
+      </div>
+
       <!-- Out-of-the-Box Capabilities Banner -->
       <div class="panel" style="padding: 20px; background: linear-gradient(135deg, #0e172a, #132240);">
         <h3 style="font-size: 15px; margin-bottom: 8px; color: #67e8f9;">🤖 ShunopsAI Multi-Agent Architecture & Monetization</h3>

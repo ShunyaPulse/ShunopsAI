@@ -238,10 +238,172 @@ export const DASHBOARD_SCRIPTS = `
       }
     }
 
+    // --- Human-in-the-Loop Approvals Queue ---
+    async function fetchPendingApprovals() {
+      const container = document.getElementById("approvals-list");
+      if (!container) return;
+
+      try {
+        const res = await fetch("/api/pending-approvals", {
+          headers: getAuthHeaders(),
+          credentials: "same-origin"
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        const pending = data.pending || [];
+
+        if (pending.length === 0) {
+          container.innerHTML = '<div style="font-family: var(--code-font); color: var(--text-muted);">No pending sensitive actions awaiting approval.</div>';
+          return;
+        }
+
+        container.innerHTML = pending.map(req => \`
+          <div style="background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 8px; padding: 14px; margin-bottom: 12px;">
+            <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom: 6px;">
+              <div>
+                <strong style="color: #f87171; font-size: 14px;">⚠️ \${escapeHtml(req.action)}</strong>
+                <div style="font-size: 12px; color: #cbd5e1; margin-top: 2px;">\${escapeHtml(req.riskReason)}</div>
+              </div>
+              <span style="font-size: 10px; font-family: var(--code-font); color: var(--text-muted);">\${escapeHtml(req.id)}</span>
+            </div>
+            <pre style="background: rgba(0,0,0,0.4); padding: 8px; border-radius: 4px; font-size: 11px; overflow-x: auto; margin: 8px 0; color: #f1f5f9;">\${escapeHtml(req.commandOrPayload)}</pre>
+            <div style="display:flex; gap: 8px; justify-content: flex-end; margin-top: 8px;">
+              <button class="btn btn-danger" style="padding: 4px 14px; font-size: 11px;" onclick="resolveActionApproval('\${escapeHtml(req.id)}', false)">❌ Reject</button>
+              <button class="btn btn-success" style="padding: 4px 14px; font-size: 11px;" onclick="resolveActionApproval('\${escapeHtml(req.id)}', true)">✅ Approve</button>
+            </div>
+          </div>
+        \`).join("");
+      } catch (err) {}
+    }
+
+    async function resolveActionApproval(id, approved) {
+      try {
+        const res = await fetch("/api/approve", {
+          method: "POST",
+          headers: getAuthHeaders(),
+          credentials: "same-origin",
+          body: JSON.stringify({ id, approved })
+        });
+        const data = await res.json();
+        alert(data.message || (approved ? "Approved!" : "Rejected!"));
+        fetchPendingApprovals();
+      } catch (err) {
+        alert("Failed to submit approval verdict: " + err.message);
+      }
+    }
+
+    // --- Admin User Governance & Multi-Tenancy ---
+    async function fetchAdminUsers() {
+      const container = document.getElementById("users-table-container");
+      if (!container) return;
+
+      try {
+        // Fetch stats
+        const statsRes = await fetch("/api/admin/stats", { headers: getAuthHeaders(), credentials: "same-origin" });
+        if (statsRes.ok) {
+          const statsData = await statsRes.json();
+          if (statsData.stats) {
+            document.getElementById("stat-total-users").innerText = statsData.stats.totalUsers || 0;
+            document.getElementById("stat-total-tasks").innerText = statsData.stats.totalTasks || 0;
+            document.getElementById("stat-total-msgs").innerText = statsData.stats.totalChatMessages || 0;
+          }
+        }
+
+        // Fetch users
+        const usersRes = await fetch("/api/admin/users?limit=50", { headers: getAuthHeaders(), credentials: "same-origin" });
+        if (!usersRes.ok) return;
+        const usersData = await usersRes.json();
+        const users = usersData.users || [];
+
+        if (users.length === 0) {
+          container.innerHTML = '<div style="font-family: var(--code-font); color: var(--text-muted);">No registered users found.</div>';
+          return;
+        }
+
+        container.innerHTML = \`
+          <table style="width: 100%; border-collapse: collapse; font-size: 12px; font-family: var(--code-font);">
+            <thead>
+              <tr style="border-bottom: 1px solid var(--border); color: var(--text-muted); text-align: left;">
+                <th style="padding: 8px 6px;">ID</th>
+                <th style="padding: 8px 6px;">Username</th>
+                <th style="padding: 8px 6px;">Email</th>
+                <th style="padding: 8px 6px;">Role</th>
+                <th style="padding: 8px 6px;">Plan</th>
+                <th style="padding: 8px 6px; text-align: right;">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              \${users.map(u => \`
+                <tr style="border-bottom: 1px solid rgba(255,255,255,0.04);">
+                  <td style="padding: 8px 6px; color: var(--text-muted);">\${u.id}</td>
+                  <td style="padding: 8px 6px; font-weight: 600; color: #fff;">\${escapeHtml(u.username)}</td>
+                  <td style="padding: 8px 6px; color: var(--text-muted);">\${escapeHtml(u.email || 'N/A')}</td>
+                  <td style="padding: 8px 6px;">
+                    <span style="padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 700; background: \${u.role === 'admin' ? 'rgba(56, 189, 248, 0.2)' : 'rgba(255,255,255,0.06)'}; color: \${u.role === 'admin' ? '#38bdf8' : '#94a3b8'};">
+                      \${escapeHtml(u.role.toUpperCase())}
+                    </span>
+                  </td>
+                  <td style="padding: 8px 6px; color: #10b981;">\${escapeHtml((u.plan || 'community').toUpperCase())}</td>
+                  <td style="padding: 8px 6px; text-align: right;">
+                    <button class="btn btn-secondary" style="padding: 2px 8px; font-size: 10px; margin-right: 4px;" onclick="changeUserRole(\${u.id}, '\${u.role === 'admin' ? 'user' : 'admin'}')">
+                      \${u.role === 'admin' ? 'Demote' : 'Promote'}
+                    </button>
+                    <button class="btn btn-danger" style="padding: 2px 8px; font-size: 10px;" onclick="revokeUserSessions(\${u.id})">
+                      Revoke
+                    </button>
+                  </td>
+                </tr>
+              \`).join("")}
+            </tbody>
+          </table>
+        \`;
+      } catch (err) {
+        container.innerHTML = '<div style="color: #ef4444;">Failed to load users: ' + escapeHtml(err.message) + '</div>';
+      }
+    }
+
+    async function changeUserRole(userId, newRole) {
+      if (!confirm("Change user role to '" + newRole + "'?")) return;
+      try {
+        const res = await fetch("/api/admin/users/" + userId + "/role", {
+          method: "POST",
+          headers: getAuthHeaders(),
+          credentials: "same-origin",
+          body: JSON.stringify({ role: newRole })
+        });
+        const data = await res.json();
+        if (data.success) {
+          fetchAdminUsers();
+        } else {
+          alert("Error: " + (data.error || "Could not change role"));
+        }
+      } catch (e) {
+        alert("Failed to update role: " + e.message);
+      }
+    }
+
+    async function revokeUserSessions(userId) {
+      if (!confirm("Revoke all active sessions for user " + userId + "? They will be logged out immediately.")) return;
+      try {
+        const res = await fetch("/api/admin/users/" + userId + "/revoke-sessions", {
+          method: "POST",
+          headers: getAuthHeaders(),
+          credentials: "same-origin"
+        });
+        const data = await res.json();
+        alert(data.message || "Sessions revoked.");
+      } catch (e) {
+        alert("Failed to revoke sessions: " + e.message);
+      }
+    }
+
     // Auto-load on startup
     window.addEventListener("DOMContentLoaded", () => {
       refreshSentinel();
       checkAutonomyStatus();
+      fetchPendingApprovals();
+      fetchAdminUsers();
       setInterval(checkAutonomyStatus, 10000);
+      setInterval(fetchPendingApprovals, 4000); // Live approvals polling
     });
   `;

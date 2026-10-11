@@ -5,7 +5,8 @@ import { getShunopsPortalHtml } from "../../dashboard/portal.js";
 import { getAuthPageHtml } from "../../dashboard/auth-pages.js";
 import { getUserWorkspaceHtml } from "../../dashboard/workspace.js";
 import { getPrivacyPolicyHtml, getTermsOfServiceHtml, getAboutHtml } from "../../dashboard/legal-pages.js";
-import { findUserBySessionToken } from "../db.js";
+import { findUserBySessionToken, checkDbHealth } from "../db.js";
+import { checkRedisHealth } from "../redis.js";
 
 export interface DashboardRouteOptions {
   requireDashboardAuth?: (req: any, reply: any) => Promise<void>;
@@ -180,6 +181,26 @@ export async function dashboardRoutes(app: FastifyInstance, opts: DashboardRoute
   app.get("/health", async () => {
     return {
       status: "healthy",
+      timestamp: new Date().toISOString(),
+      uptimeSeconds: Math.floor(process.uptime()),
+    };
+  });
+
+  // Readiness probe verifying Neon Postgres and Redis connectivity
+  app.get("/ready", async (_req, reply) => {
+    const dbHealth = await checkDbHealth();
+    const redisHealth = await checkRedisHealth();
+
+    const isReady = dbHealth.ok;
+    const statusCode = isReady ? 200 : 503;
+
+    reply.status(statusCode);
+    return {
+      status: isReady ? "ready" : "unhealthy",
+      database: dbHealth.status,
+      databaseLatencyMs: dbHealth.latencyMs,
+      redis: redisHealth.status,
+      redisLatencyMs: redisHealth.latencyMs,
       timestamp: new Date().toISOString(),
       uptimeSeconds: Math.floor(process.uptime()),
     };

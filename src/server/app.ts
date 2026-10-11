@@ -44,8 +44,25 @@ export function loadAppConfig(): AppConfig {
  * Build the fully-wired Fastify application with TypeBox validation & raw body support.
  */
 export async function createApp(config: AppConfig = loadAppConfig()): Promise<FastifyInstance> {
+  const isTest = process.env.NODE_ENV === "test";
   const app = Fastify({
-    logger: false,
+    logger: isTest
+      ? false
+      : {
+          level: process.env.LOG_LEVEL || "info",
+          redact: [
+            "req.headers.authorization",
+            "req.headers['x-api-key']",
+            "req.headers['x-groq-key']",
+            "req.headers['x-gemini-key']",
+            "req.headers.cookie",
+            "password",
+            "token",
+            "newPassword",
+            "currentPassword",
+            "apiKey",
+          ],
+        },
     bodyLimit: 2 * 1024 * 1024, // 2MB
     // Only trust X-Forwarded-* when explicitly running behind a known proxy.
     trustProxy: process.env.TRUST_PROXY === "true",
