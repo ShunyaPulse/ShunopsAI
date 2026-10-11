@@ -188,6 +188,65 @@ export async function upsertGoogleUser(googleId: string, email: string, name?: s
   return user;
 }
 
+export async function findUserByGithubId(githubId: string): Promise<UserRecord | null> {
+  const sql = getSql();
+  const rows = await (sql as any).query(
+    `SELECT id, username, email, password_hash, google_id, github_id, email_verified, role, created_at FROM shunops_users WHERE github_id = $1 LIMIT 1;`,
+    [githubId]
+  );
+  return rows[0] || null;
+}
+
+export async function upsertGithubUser(githubId: string, email: string, login: string, name?: string): Promise<UserRecord> {
+  const sql = getSql();
+  const cleanEmail = email.trim().toLowerCase();
+
+  // 1. Try to find by github_id
+  const byGithub = await findUserByGithubId(githubId);
+  if (byGithub) return byGithub;
+
+  // 2. Try to link with existing email (Canonical Account Linking)
+  const byEmail = await findUserByEmail(cleanEmail);
+  if (byEmail) {
+    const updated = await (sql as any).query(
+      `UPDATE shunops_users SET github_id = $1, email_verified = TRUE WHERE id = $2
+       RETURNING id, username, email, password_hash, google_id, github_id, email_verified, role, created_at;`,
+      [githubId, byEmail.id]
+    );
+    return updated[0];
+  }
+
+  // 3. Create new user with username derived from github login
+  let baseUsername = (login || name || cleanEmail.split("@")[0] || "gh_user")
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]/g, "")
+    .slice(0, 30);
+  if (baseUsername.length < 3) baseUsername = `gh_${Date.now().toString(36)}`;
+
+  let username = baseUsername;
+  let counter = 1;
+  while (await findUserByUsername(username)) {
+    username = `${baseUsername}_${counter++}`;
+  }
+
+  const rows = await (sql as any).query(
+    `INSERT INTO shunops_users (username, email, github_id, email_verified)
+     VALUES ($1, $2, $3, TRUE)
+     RETURNING id, username, email, password_hash, google_id, github_id, email_verified, role, created_at;`,
+    [username, cleanEmail, githubId]
+  );
+  const user = rows[0];
+
+  await (sql as any).query(
+    `INSERT INTO shunops_user_workspaces (user_id, name)
+     VALUES ($1, $2)
+     ON CONFLICT (user_id) DO NOTHING;`,
+    [user.id, `${username}'s Workspace`]
+  );
+
+  return user;
+}
+
 export async function markEmailAsVerified(email: string): Promise<void> {
   const sql = getSql();
   await (sql as any).query(

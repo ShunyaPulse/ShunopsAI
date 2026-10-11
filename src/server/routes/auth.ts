@@ -9,6 +9,7 @@ import {
   deleteSession,
   findUserBySessionToken,
   upsertGoogleUser,
+  upsertGithubUser,
   markEmailAsVerified,
 } from "../db.js";
 import { sendEmailOTP, verifyEmailOTP } from "../email-otp.js";
@@ -355,7 +356,154 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     }
   });
 
-  // 5. Current User Session Check
+  // 5. GitHub OAuth: Initiate Authorization Redirect
+  app.get("/api/auth/github", async (req: FastifyRequest, reply: FastifyReply) => {
+    const clientId = process.env.GITHUB_CLIENT_ID;
+    if (!clientId) {
+      reply.status(503);
+      return reply.type("text/html").send(`
+        <!DOCTYPE html><html><body style="background:#090d16;color:#f8fafc;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;">
+        <div style="background:#0f172a;border:1px solid #334155;border-radius:12px;padding:32px;max-width:480px;text-align:center;">
+          <h2 style="color:#38bdf8;">GitHub OAuth Setup Required</h2>
+          <p style="color:#94a3b8;font-size:14px;line-height:1.6;">GITHUB_CLIENT_ID is not configured in the environment yet.<br>Please set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET.</p>
+          <a href="/login" style="display:inline-block;margin-top:16px;color:#38bdf8;text-decoration:none;">← Back to Login</a>
+        </div>
+        </body></html>
+      `);
+    }
+
+    const state = crypto.randomBytes(16).toString("hex");
+    reply.setCookie("gh_oauth_state", state, {
+      path: "/",
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      maxAge: 600,
+    });
+
+    const host = req.headers.host || "shunopsai-685823552970.asia-south1.run.app";
+    const protocol = req.headers["x-forwarded-proto"] || "https";
+    const redirectUri = `${protocol}://${host}/api/auth/github/callback`;
+
+    const githubAuthUrl = `https://github.com/login/oauth/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=read:user,user:email&state=${state}`;
+    return reply.redirect(githubAuthUrl);
+  });
+
+  // 6. GitHub OAuth: Callback & Token Exchange
+  app.get("/api/auth/github/callback", async (req: FastifyRequest, reply: FastifyReply) => {
+    const { code, state, error: ghError } = (req.query as any) || {};
+
+    if (ghError) {
+      return reply.redirect("/login?error=" + encodeURIComponent("GitHub authorization was cancelled."));
+    }
+
+    const savedState = (req.cookies as any)?.gh_oauth_state;
+    if (!state || !savedState || state !== savedState) {
+      return reply.redirect("/login?error=" + encodeURIComponent("Invalid GitHub OAuth state. Possible CSRF."));
+    }
+    reply.clearCookie("gh_oauth_state", { path: "/" });
+
+    if (!code) {
+      return reply.redirect("/login?error=" + encodeURIComponent("Missing authorization code from GitHub."));
+    }
+
+    const clientId = process.env.GITHUB_CLIENT_ID;
+    const clientSecret = process.env.GITHUB_CLIENT_SECRET;
+    if (!clientId || !clientSecret) {
+      return reply.redirect("/login?error=" + encodeURIComponent("GitHub OAuth not fully configured on server."));
+    }
+
+    try {
+      // Exchange code for access_token
+      const tokenRes = await fetch("https://github.com/login/oauth/access_token", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify({
+          client_id: clientId,
+          client_secret: clientSecret,
+          code,
+        }),
+      });
+
+      const tokenData = (await tokenRes.json()) as { access_token?: string; error?: string };
+      if (!tokenData.access_token) {
+        console.error("[GitHub OAuth Token Error]: [REDACTED]");
+        return reply.redirect("/login?error=" + encodeURIComponent("Failed to exchange GitHub authorization code."));
+      }
+
+      // Fetch user profile from GitHub
+      const userRes = await fetch("https://api.github.com/user", {
+        headers: {
+          Authorization: `Bearer ${tokenData.access_token}`,
+          "User-Agent": "ShunopsAI-Auth",
+        },
+      });
+
+      if (!userRes.ok) {
+        return reply.redirect("/login?error=" + encodeURIComponent("Failed to fetch GitHub profile."));
+      }
+
+      const ghUser = (await userRes.json()) as {
+        id: number | string;
+        login: string;
+        name?: string;
+        email?: string;
+        avatar_url?: string;
+      };
+
+      let email = ghUser.email;
+
+      // If profile email is hidden, fetch from /user/emails
+      if (!email) {
+        try {
+          const emailsRes = await fetch("https://api.github.com/user/emails", {
+            headers: {
+              Authorization: `Bearer ${tokenData.access_token}`,
+              "User-Agent": "ShunopsAI-Auth",
+            },
+          });
+          if (emailsRes.ok) {
+            const emails = (await emailsRes.json()) as Array<{
+              email: string;
+              primary: boolean;
+              verified: boolean;
+            }>;
+            const primary = emails.find((e) => e.primary && e.verified) || emails.find((e) => e.verified) || emails[0];
+            if (primary) email = primary.email;
+          }
+        } catch {}
+      }
+
+      if (!email) {
+        email = `${ghUser.login.toLowerCase()}@users.noreply.github.com`;
+      }
+
+      // Upsert user in database with Canonical Account Linking
+      const user = await upsertGithubUser(ghUser.id.toString(), email, ghUser.login, ghUser.name);
+
+      // Create session and set cookie
+      const sessionToken = crypto.randomBytes(32).toString("hex");
+      await createSession(user.id, sessionToken, 7);
+
+      reply.setCookie(COOKIE_NAME, sessionToken, {
+        path: "/",
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        maxAge: 7 * 24 * 60 * 60,
+      });
+
+      return reply.redirect("/workspace");
+    } catch (err: any) {
+      console.error("[GitHub OAuth Callback Error]: [REDACTED]");
+      return reply.redirect("/login?error=" + encodeURIComponent("Authentication with GitHub failed."));
+    }
+  });
+
+  // 7. Current User Session Check
   app.get("/api/auth/me", async (req: FastifyRequest, reply: FastifyReply) => {
     const token = (req.cookies as any)?.[COOKIE_NAME];
     if (!token) {
