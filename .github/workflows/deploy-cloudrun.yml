@@ -100,7 +100,7 @@ jobs:
             --cpu=1 \
             --min-instances=0 \
             --max-instances=2 \
-            --set-env-vars=NODE_ENV=production,HOST=0.0.0.0
+            --update-env-vars=NODE_ENV=production,HOST=0.0.0.0
 
           echo "✅ Traffic switch to latest revision..."
           gcloud run services update-traffic shunopsai \
