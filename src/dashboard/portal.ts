@@ -2,14 +2,13 @@ import { DASHBOARD_STYLES } from "./styles.js";
 
 /**
  * Renders the standalone Public Self-Service BYOK Portal.
- * Maximum Security:
- * - W3C WebCrypto API: Hardware-accelerated AES-256-GCM authenticated encryption at rest
- * - PBKDF2 (100,000 iterations, SHA-256) key derivation with cryptographically random salt & IV
- * - Zero-Knowledge Architecture: Keys never stored or logged on ShunopsAI backend servers
- * - Insecure HTTP Warning & 1-Click TLS/HTTPS Upgrade
- * - Password masking with individual show/hide eye toggles
- * - Instant Cryptographic Shredder (Purge Vault)
- * - Security & Privacy Protocol Audit Inspector
+ * Clean, Simple & Secure:
+ * - Hardware-accelerated AES-256-GCM encryption in background (W3C WebCrypto API)
+ * - Zero user passwords or passphrases needed (auto-unlocked on device)
+ * - 1-Time Setup: Keys persist and auto-load on every visit
+ * - Simple "Clear Saved Keys" button without confusing jargon
+ * - Password masking with 👁️ toggles
+ * - Zero-Knowledge: Keys never touch our backend databases
  */
 export function getShunopsPortalHtml(): string {
   return `<!DOCTYPE html>
@@ -17,7 +16,7 @@ export function getShunopsPortalHtml(): string {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ShunopsAI • Public BYOK Vault (AES-256 Encrypted)</title>
+  <title>ShunopsAI • Public BYOK Key Portal</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <style>
@@ -54,7 +53,7 @@ export function getShunopsPortalHtml(): string {
       background: #dc2626;
     }
 
-    /* Portal Overrides: Single page balanced grid layout */
+    /* Portal Layout */
     .portal-page-container {
       max-width: 1320px;
       margin: 0 auto;
@@ -82,10 +81,10 @@ export function getShunopsPortalHtml(): string {
       line-height: 1.5;
     }
 
-    /* Two-column side-by-side layout: Services on left, Keys on right */
+    /* Two-column responsive layout */
     .portal-content-grid {
       display: grid;
-      grid-template-columns: 460px 1fr;
+      grid-template-columns: 440px 1fr;
       gap: 24px;
       align-items: start;
     }
@@ -153,7 +152,7 @@ export function getShunopsPortalHtml(): string {
       padding: 22px;
     }
 
-    /* Enterprise Security Status Banner */
+    /* Security Trust Badge */
     .security-status-banner {
       background: linear-gradient(135deg, rgba(16, 185, 129, 0.1), rgba(14, 165, 233, 0.08));
       border: 1px solid rgba(16, 185, 129, 0.3);
@@ -201,7 +200,6 @@ export function getShunopsPortalHtml(): string {
       color: #000;
     }
 
-    /* Password Input Wrapper with Eye Toggle */
     .password-input-wrapper {
       position: relative;
       display: flex;
@@ -230,7 +228,7 @@ export function getShunopsPortalHtml(): string {
       color: #00f0ff;
     }
 
-    /* Security Audit Modal */
+    /* Modal */
     .security-modal-overlay {
       display: none;
       position: fixed;
@@ -246,20 +244,20 @@ export function getShunopsPortalHtml(): string {
       background: #0f172a;
       border: 1px solid #38bdf8;
       border-radius: 14px;
-      max-width: 680px;
+      max-width: 620px;
       width: 100%;
-      padding: 28px;
+      padding: 26px;
       box-shadow: 0 16px 40px rgba(0, 240, 255, 0.15);
       max-height: 90vh;
       overflow-y: auto;
     }
     .security-modal-card h3 {
-      font-size: 20px;
+      font-size: 18px;
       color: #fff;
       display: flex;
       align-items: center;
       gap: 10px;
-      margin-bottom: 16px;
+      margin-bottom: 14px;
     }
     .audit-point {
       display: flex;
@@ -275,7 +273,7 @@ export function getShunopsPortalHtml(): string {
       display: block;
       color: #38bdf8;
       font-size: 13px;
-      margin-bottom: 3px;
+      margin-bottom: 2px;
     }
     .audit-point-text p {
       color: #94a3b8;
@@ -287,11 +285,11 @@ export function getShunopsPortalHtml(): string {
 </head>
 <body>
 
-  <!-- Insecure HTTP Warning Banner (Auto-activates on non-HTTPS) -->
+  <!-- Insecure HTTP Warning Banner (Shown only if opened over plain HTTP) -->
   <div class="insecure-alert-banner" id="insecure-http-alert">
-    <span>⚠️ <strong>INSECURE CONNECTION:</strong> Your browser shows "Not Secure" because this page is loaded over unencrypted HTTP.</span>
-    <a id="upgrade-https-btn" href="https://keeps-teaching-say-modes.trycloudflare.com/portal">
-      🔒 Upgrade to Secure HTTPS (Cloudflare TLS) →
+    <span>⚠️ <strong>HTTP CONNECTION:</strong> Your browser shows "Not Secure" because this link is unencrypted HTTP.</span>
+    <a id="upgrade-https-btn" href="#">
+      🔒 Open Secure HTTPS Link →
     </a>
   </div>
 
@@ -300,42 +298,42 @@ export function getShunopsPortalHtml(): string {
       <div class="brand-icon">⚡</div>
       <div>
         <div class="brand-title">SHUNOPSAI PORTAL</div>
-        <div class="brand-subtitle">Enterprise BYOK Key Vault</div>
+        <div class="brand-subtitle">Self-Service BYOK Hub</div>
       </div>
     </div>
     <div class="header-pills">
       <button class="btn btn-secondary" onclick="openSecurityModal()" style="font-size:12px; padding:6px 14px;">
-        🛡️ Security Protocol
+        🛡️ Security Info
       </button>
       <a href="/dashboard" class="btn btn-secondary" style="text-decoration:none;font-size:12px;padding:6px 14px;">
         ← Command Center
       </a>
       <button class="btn btn-success" onclick="saveAndTestKeys()">
-        💾 Save &amp; Encrypt Keys
+        💾 Save &amp; Connect Keys
       </button>
     </div>
   </header>
 
   <div class="portal-page-container">
     
-    <!-- Hero / Introduction -->
+    <!-- Hero -->
     <div class="portal-hero">
-      <h1>Zero-Knowledge Self-Service BYOK Vault</h1>
+      <h1>Self-Service Free API Key Hub</h1>
       <p>
-        Select your services, paste free API keys, and encrypt them with hardware-accelerated <strong>AES-256-GCM</strong>. Your keys are never transmitted to our servers or stored unencrypted.
+        Select the services you want, paste your free keys once, and click <strong>Save &amp; Connect</strong>. Your keys are saved securely on your device and will load automatically on your next visit.
       </p>
     </div>
 
-    <!-- Main 2-Column Responsive Layout -->
+    <!-- 2-Column Responsive Layout -->
     <div class="portal-content-grid">
       
-      <!-- Left Column: Step 1 (Services Selection) -->
+      <!-- Left Column: Services -->
       <div class="panel" style="padding:20px;">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; padding-bottom:10px; border-bottom:1px solid #1e293b;">
           <h2 style="font-size:16px; color:#fff; display:flex; align-items:center; gap:8px; margin:0;">
             <span>1️⃣</span> Select Services
           </h2>
-          <span style="font-size:11px; color:var(--text-muted);">Adapts key inputs →</span>
+          <span style="font-size:11px; color:var(--text-muted);">Toggle checkboxes below</span>
         </div>
 
         <div class="service-selection-col">
@@ -346,7 +344,7 @@ export function getShunopsPortalHtml(): string {
               <strong style="font-size:14px; color:#fff;">🎬 AI Video Studio (Wan2.1 DiT)</strong>
             </div>
             <p style="font-size:12px; color:#94a3b8; line-height:1.4; margin-left:30px;">
-              Creates 1080p documentary videos with Alibaba Wan2.1 DiT, Edge-TTS voices &amp; auto-publish.
+              Generates 1080p documentary videos with Alibaba Wan2.1 DiT, Edge-TTS voices &amp; auto-publish.
             </p>
           </div>
 
@@ -396,26 +394,26 @@ export function getShunopsPortalHtml(): string {
         </div>
       </div>
 
-      <!-- Right Column: Step 2 (Keys Input Panel) -->
+      <!-- Right Column: API Keys Input -->
       <div class="key-config-panel">
         
-        <!-- Enterprise Cryptographic Trust Banner -->
+        <!-- Trust Banner -->
         <div class="security-status-banner">
           <div style="display:flex; align-items:center; gap:12px;">
             <div style="width:34px; height:34px; border-radius:8px; background:rgba(16,185,129,0.15); border:1px solid rgba(16,185,129,0.3); display:flex; align-items:center; justify-content:center; font-size:18px;">
               🛡️
             </div>
             <div>
-              <div style="font-size:13px; font-weight:700; color:#10b981; letter-spacing:0.3px;">
-                Zero-Knowledge Client-Side Vault • AES-256-GCM
+              <div style="font-size:13px; font-weight:700; color:#10b981;">
+                Encrypted Device Storage (AES-256)
               </div>
               <div style="font-size:11px; color:#94a3b8;">
-                PBKDF2 (100k rounds) • Keys encrypted before storage • Zero server persistence
+                Keys are saved only on your device • Never stored on our servers • 1-time setup
               </div>
             </div>
           </div>
-          <button type="button" class="btn btn-secondary" onclick="openSecurityModal()" style="font-size:11px; padding:5px 12px;">
-            Audit Architecture ↗
+          <button type="button" class="btn btn-secondary" onclick="openSecurityModal()" style="font-size:11px; padding:4px 10px;">
+            How it works ↗
           </button>
         </div>
 
@@ -423,19 +421,19 @@ export function getShunopsPortalHtml(): string {
           <h2 style="font-size:16px; color:#fff; display:flex; align-items:center; gap:8px; margin:0;">
             <span>2️⃣</span> Paste Free API Keys
           </h2>
-          <span style="font-size:11px; color:#38bdf8; font-weight:600;">🔒 Masked Inputs (Click 👁️ to verify)</span>
+          <span style="font-size:11px; color:#38bdf8;">🔒 Click 👁️ to view/hide</span>
         </div>
         <p style="font-size:12px; color:#94a3b8; margin-bottom:18px;">
-          Free tiers only • Zero cost • No credit card required. Only keys for checked services are required.
+          Zero cost free tiers • No credit card needed. Keys for unselected services remain hidden.
         </p>
 
-        <!-- AI Keys (Groq + Gemini) — shown when AI Router or Video is active -->
+        <!-- AI Keys (Groq + Gemini) -->
         <div id="section-ai-keys">
           <!-- Groq Key -->
           <div class="key-input-group">
             <div class="key-label-row">
               <div>
-                <strong style="color:#fff; font-size:13px;">1. Groq LPU API Key</strong>
+                <strong style="color:#fff; font-size:13px;">1. Groq API Key</strong>
                 <span style="font-size:11px; color:#64748b; margin-left:6px;">(Ultra-Fast LLM)</span>
               </div>
               <a href="https://console.groq.com/keys" target="_blank" rel="noopener noreferrer" class="direct-link-badge">
@@ -456,7 +454,7 @@ export function getShunopsPortalHtml(): string {
             <div class="key-label-row">
               <div>
                 <strong style="color:#fff; font-size:13px;">2. Google Gemini API Key</strong>
-                <span style="font-size:11px; color:#64748b; margin-left:6px;">(Multi-Modal &amp; Consensus)</span>
+                <span style="font-size:11px; color:#64748b; margin-left:6px;">(Multi-Modal &amp; Scripts)</span>
               </div>
               <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" class="direct-link-badge">
                 🔗 Get Free Gemini Key (1-Click) →
@@ -472,12 +470,12 @@ export function getShunopsPortalHtml(): string {
           </div>
         </div>
 
-        <!-- Video Keys (Kaggle + Hugging Face) — shown only when Video is active -->
+        <!-- Video Keys (Kaggle + Hugging Face) -->
         <div id="section-video-keys">
           <div class="key-input-group">
             <div class="key-label-row">
               <div>
-                <strong style="color:#fff; font-size:13px;">3. Kaggle Cloud Credentials</strong>
+                <strong style="color:#fff; font-size:13px;">3. Kaggle Credentials</strong>
                 <span style="font-size:11px; color:#64748b; margin-left:6px;">(Free Dual T4 GPU Render)</span>
               </div>
               <a href="https://www.kaggle.com/settings" target="_blank" rel="noopener noreferrer" class="direct-link-badge">
@@ -500,7 +498,7 @@ export function getShunopsPortalHtml(): string {
           <div class="key-input-group">
             <div class="key-label-row">
               <div>
-                <strong style="color:#fff; font-size:13px;">4. Hugging Face Access Token</strong>
+                <strong style="color:#fff; font-size:13px;">4. Hugging Face Token</strong>
                 <span style="font-size:11px; color:#64748b; margin-left:6px;">(Model weights)</span>
               </div>
               <a href="https://huggingface.co/settings/tokens" target="_blank" rel="noopener noreferrer" class="direct-link-badge">
@@ -514,12 +512,12 @@ export function getShunopsPortalHtml(): string {
           </div>
         </div>
 
-        <!-- GitHub Keys — shown only when GitHub Security is active -->
+        <!-- GitHub Keys -->
         <div id="section-github-keys" style="display:none;">
           <div class="key-input-group">
             <div class="key-label-row">
               <div>
-                <strong style="color:#fff; font-size:13px;">5. GitHub Personal Access Token</strong>
+                <strong style="color:#fff; font-size:13px;">5. GitHub Access Token</strong>
                 <span style="font-size:11px; color:#64748b; margin-left:6px;">(Repo Auto-Healing)</span>
               </div>
               <a href="https://github.com/settings/tokens/new?scopes=repo,security_events" target="_blank" rel="noopener noreferrer" class="direct-link-badge">
@@ -533,12 +531,12 @@ export function getShunopsPortalHtml(): string {
           </div>
         </div>
 
-        <!-- Sentinel Keys — shown only when Sentinel is active -->
+        <!-- Sentinel Keys -->
         <div id="section-sentinel-keys">
           <div class="key-input-group">
             <div class="key-label-row">
               <div>
-                <strong style="color:#fff; font-size:13px;">6. Target Website / Cloud URL to Monitor</strong>
+                <strong style="color:#fff; font-size:13px;">6. Website / Cloud URL to Monitor</strong>
                 <span style="font-size:11px; color:#64748b; margin-left:6px;">(Endpoint)</span>
               </div>
             </div>
@@ -546,28 +544,13 @@ export function getShunopsPortalHtml(): string {
           </div>
         </div>
 
-        <!-- Master Vault Passphrase (Optional extra layer of defense) -->
-        <div class="key-input-group" style="background:#090d16; border-color:rgba(56, 189, 248, 0.2);">
-          <div class="key-label-row">
-            <div>
-              <strong style="color:#38bdf8; font-size:13px;">🔒 Master Vault Passphrase (Optional Defense-in-Depth)</strong>
-              <span style="font-size:11px; color:#64748b; margin-left:6px;">Extra user PIN/Password to derive AES key</span>
-            </div>
-          </div>
-          <div class="password-input-wrapper">
-            <input type="password" id="input-vault-pass" class="chat-input" placeholder="Leave empty for auto hardware-bound key, or enter custom secret passphrase" />
-            <button type="button" class="eye-toggle-btn" onclick="toggleMask('input-vault-pass', this)" title="Show/Hide">👁️</button>
-          </div>
-        </div>
-
-        <!-- Controls & Shredder -->
+        <!-- Action Buttons -->
         <div style="display:flex; gap:10px; justify-content:space-between; align-items:center; margin-top:20px; flex-wrap:wrap;">
-          <button class="btn btn-secondary" onclick="purgeVault()" style="color:#ef4444; border-color:#7f1d1d;" title="Cryptographically shred all keys from memory & storage">
-            🚨 Purge &amp; Shred Vault
+          <button class="btn btn-secondary" onclick="clearAllKeys()" style="color:#ef4444; border-color:#7f1d1d;" title="Remove saved keys from this browser">
+            🗑️ Clear Saved Keys
           </button>
           <div style="display:flex; gap:10px;">
-            <button class="btn btn-secondary" onclick="loadSavedKeys()">↺ Reload Vault</button>
-            <button class="btn btn-success" onclick="saveAndTestKeys()">💾 Save &amp; Encrypt Vault</button>
+            <button class="btn btn-success" onclick="saveAndTestKeys()">💾 Save &amp; Connect Keys</button>
           </div>
         </div>
         <div id="save-status" style="margin-top:12px; font-size:12px; text-align:right;"></div>
@@ -577,58 +560,50 @@ export function getShunopsPortalHtml(): string {
 
   </div>
 
-  <!-- Security Protocol & Architecture Modal -->
+  <!-- Security Info Modal -->
   <div class="security-modal-overlay" id="security-modal" onclick="closeSecurityModalOnBackdrop(event)">
     <div class="security-modal-card">
-      <h3>🛡️ ShunopsAI Cryptographic &amp; Privacy Protocol</h3>
-      <p style="font-size:13px; color:#cbd5e1; line-height:1.6; margin-bottom:20px;">
-        Why your credentials are 100% secure with ShunopsAI Zero-Knowledge BYOK architecture:
+      <h3>🛡️ How Your API Keys Are Protected</h3>
+      <p style="font-size:13px; color:#cbd5e1; line-height:1.6; margin-bottom:18px;">
+        ShunopsAI is designed with a strict zero-knowledge model:
       </p>
 
       <div class="audit-point">
         <div class="audit-point-icon">🔐</div>
         <div class="audit-point-text">
-          <strong>1. Hardware-Accelerated AES-256-GCM Encryption</strong>
-          <p>Keys are encrypted locally in your browser using the official W3C <code>window.crypto.subtle</code> WebCrypto standard with PBKDF2 (100,000 iterations of SHA-256) and a 96-bit cryptographically unique IV per write. Even if an attacker inspects browser storage, they only see binary ciphertext.</p>
+          <strong>1. Encrypted on Your Device</strong>
+          <p>Keys are encrypted locally in your browser using W3C WebCrypto (AES-256-GCM). They remain on your device so you never have to re-enter them.</p>
         </div>
       </div>
 
       <div class="audit-point">
         <div class="audit-point-icon">🚫</div>
         <div class="audit-point-text">
-          <strong>2. Zero Server Persistence (Zero-Knowledge)</strong>
-          <p>ShunopsAI backend servers never persist, save, or database your API keys. Your raw credentials never touch hard disks or persistent database tables on our cloud.</p>
+          <strong>2. Never Saved on Our Servers</strong>
+          <p>ShunopsAI servers never store or database your API keys. Your keys belong only to you.</p>
         </div>
       </div>
 
       <div class="audit-point">
         <div class="audit-point-icon">🌐</div>
         <div class="audit-point-text">
-          <strong>3. Direct End-to-End TLS 1.3 Encryption</strong>
-          <p>When tasks execute, API requests go over verified TLS 1.3 / HTTPS connections directly to official provider endpoints (Groq API, Google AI Studio, Kaggle API). Packet sniffing and man-in-the-middle attacks are mathematically impossible.</p>
+          <strong>3. Direct Encrypted Connections</strong>
+          <p>When you generate a video or request an AI completion, requests go directly to official providers (Groq, Google AI Studio, Kaggle) via encrypted HTTPS.</p>
         </div>
       </div>
 
-      <div class="audit-point">
-        <div class="audit-point-icon">🚨</div>
-        <div class="audit-point-text">
-          <strong>4. Instant Cryptographic Shredder</strong>
-          <p>Clicking "Purge &amp; Shred Vault" immediately zeroizes all keys in JavaScript RAM memory and removes the encrypted vault package from local storage.</p>
-        </div>
-      </div>
-
-      <div style="text-align:right; margin-top:24px;">
-        <button class="btn btn-secondary" onclick="closeSecurityModal()">Close Audit Report</button>
+      <div style="text-align:right; margin-top:20px;">
+        <button class="btn btn-secondary" onclick="closeSecurityModal()">Got it</button>
       </div>
     </div>
   </div>
 
   <footer style="text-align:center; padding:24px; color:#64748b; font-size:12px; border-top:1px solid #1e293b; margin-top:40px;">
-    ShunopsAI Autonomous System • Zero-Knowledge Vault Protected by AES-256-GCM &amp; W3C WebCrypto
+    ShunopsAI Autonomous System • Protected with AES-256 Client-Side Encryption
   </footer>
 
   <script>
-    // Portal Client State
+    // State
     const activeServices = {
       video: true,
       sentinel: true,
@@ -640,11 +615,11 @@ export function getShunopsPortalHtml(): string {
     const VAULT_STORAGE_KEY = "shunops_secure_vault_v2";
 
     // -------------------------------------------------------------
-    // W3C WebCrypto Hardware-Accelerated AES-256-GCM Vault Engine
+    // Automatic AES-256-GCM Encryption Engine
     // -------------------------------------------------------------
-    async function deriveVaultKey(saltBytes, passphrase = "") {
+    async function deriveDeviceKey(saltBytes) {
       const enc = new TextEncoder();
-      const secret = passphrase || ("shunops-client-entropy-" + window.location.origin + navigator.userAgent.slice(0, 32));
+      const secret = "shunops-device-" + window.location.origin + navigator.userAgent.slice(0, 32);
       const keyMaterial = await crypto.subtle.importKey(
         "raw",
         enc.encode(secret),
@@ -666,12 +641,12 @@ export function getShunopsPortalHtml(): string {
       );
     }
 
-    async function encryptVaultPayload(dataObj, passphrase = "") {
+    async function encryptPayload(dataObj) {
       const enc = new TextEncoder();
       const rawBytes = enc.encode(JSON.stringify(dataObj));
       const salt = crypto.getRandomValues(new Uint8Array(16));
       const iv = crypto.getRandomValues(new Uint8Array(12));
-      const key = await deriveVaultKey(salt, passphrase);
+      const key = await deriveDeviceKey(salt);
       const cipherBuffer = await crypto.subtle.encrypt(
         { name: "AES-GCM", iv: iv },
         key,
@@ -679,20 +654,19 @@ export function getShunopsPortalHtml(): string {
       );
       return {
         vault: "AES-256-GCM",
-        kdf: "PBKDF2-SHA256-100K",
         iv: Array.from(iv).map(b => b.toString(16).padStart(2, '0')).join(''),
         salt: Array.from(salt).map(b => b.toString(16).padStart(2, '0')).join(''),
         ciphertext: Array.from(new Uint8Array(cipherBuffer)).map(b => b.toString(16).padStart(2, '0')).join(''),
-        encryptedAt: new Date().toISOString()
+        updatedAt: new Date().toISOString()
       };
     }
 
-    async function decryptVaultPayload(vaultPkg, passphrase = "") {
+    async function decryptPayload(vaultPkg) {
       const hexToBytes = (hex) => new Uint8Array(hex.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
       const salt = hexToBytes(vaultPkg.salt);
       const iv = hexToBytes(vaultPkg.iv);
       const cipherBytes = hexToBytes(vaultPkg.ciphertext);
-      const key = await deriveVaultKey(salt, passphrase);
+      const key = await deriveDeviceKey(salt);
       const decryptedBuffer = await crypto.subtle.decrypt(
         { name: "AES-GCM", iv: iv },
         key,
@@ -703,7 +677,7 @@ export function getShunopsPortalHtml(): string {
     }
 
     // -------------------------------------------------------------
-    // UI Helpers: Visibility, Masking, Modals
+    // UI Helpers
     // -------------------------------------------------------------
     function toggleMask(inputId, btn) {
       const el = document.getElementById(inputId);
@@ -761,14 +735,13 @@ export function getShunopsPortalHtml(): string {
     }
 
     // -------------------------------------------------------------
-    // Storage Operations (Save Encrypted, Load Decrypted, Shred)
+    // Storage Operations (Save Encrypted, Auto-Load, Clear)
     // -------------------------------------------------------------
     async function saveAndTestKeys() {
       const status = document.getElementById("save-status");
-      status.innerHTML = '<span style="color:#38bdf8;">🔄 Encrypting vault with AES-256-GCM...</span>';
+      status.innerHTML = '<span style="color:#38bdf8;">🔄 Encrypting & saving keys...</span>';
 
       try {
-        const pass = document.getElementById("input-vault-pass").value;
         const keys = {
           groq: document.getElementById("input-groq-key").value.trim(),
           gemini: document.getElementById("input-gemini-key").value.trim(),
@@ -780,16 +753,13 @@ export function getShunopsPortalHtml(): string {
           services: activeServices
         };
 
-        const encryptedPackage = await encryptVaultPayload(keys, pass);
+        const encryptedPackage = await encryptPayload(keys);
         localStorage.setItem(VAULT_STORAGE_KEY, JSON.stringify(encryptedPackage));
         
-        // Remove old plaintext legacy key if it existed
-        localStorage.removeItem("shunops_byok_keys");
-
-        status.innerHTML = '<span style="color:#10b981;font-weight:700;">🛡️ Vault successfully encrypted with AES-256-GCM! Zero plain-text traces on disk.</span>';
-        setTimeout(() => { status.innerHTML = ""; }, 6000);
+        status.innerHTML = '<span style="color:#10b981;font-weight:700;">✅ Keys saved &amp; encrypted! They will auto-load on your next visit.</span>';
+        setTimeout(() => { status.innerHTML = ""; }, 5000);
       } catch (err) {
-        status.innerHTML = '<span style="color:#ef4444;font-weight:700;">❌ Encryption failed: ' + (err.message || err) + '</span>';
+        status.innerHTML = '<span style="color:#ef4444;font-weight:700;">❌ Save failed: ' + (err.message || err) + '</span>';
       }
     }
 
@@ -797,23 +767,18 @@ export function getShunopsPortalHtml(): string {
       try {
         const raw = localStorage.getItem(VAULT_STORAGE_KEY);
         if (!raw) {
-          // Check for legacy migration
           const legacyRaw = localStorage.getItem("shunops_byok_keys");
           if (legacyRaw) {
-            const legacyKeys = JSON.parse(legacyRaw);
-            populateInputs(legacyKeys);
+            populateInputs(JSON.parse(legacyRaw));
           }
           return;
         }
 
         const vaultPkg = JSON.parse(raw);
-        const pass = document.getElementById("input-vault-pass").value;
-        const keys = await decryptVaultPayload(vaultPkg, pass);
+        const keys = await decryptPayload(vaultPkg);
         populateInputs(keys);
       } catch (e) {
-        // If decryption fails due to custom passphrase required
-        const status = document.getElementById("save-status");
-        status.innerHTML = '<span style="color:#f59e0b;">🔒 Vault is encrypted with a custom passphrase. Enter it above and click "Reload Vault".</span>';
+        console.warn("Could not decrypt saved keys:", e);
       }
     }
 
@@ -836,14 +801,13 @@ export function getShunopsPortalHtml(): string {
       }
     }
 
-    function purgeVault() {
-      if (!confirm("🚨 Are you sure you want to completely shred and purge all keys from this device? This action is irreversible.")) {
+    function clearAllKeys() {
+      if (!confirm("Are you sure you want to clear your saved keys from this browser?")) {
         return;
       }
       localStorage.removeItem(VAULT_STORAGE_KEY);
       localStorage.removeItem("shunops_byok_keys");
 
-      // Zeroize input fields
       document.getElementById("input-groq-key").value = "";
       document.getElementById("input-gemini-key").value = "";
       document.getElementById("input-kaggle-user").value = "";
@@ -851,24 +815,22 @@ export function getShunopsPortalHtml(): string {
       document.getElementById("input-hf-token").value = "";
       document.getElementById("input-github-token").value = "";
       document.getElementById("input-monitor-url").value = "";
-      document.getElementById("input-vault-pass").value = "";
 
       const status = document.getElementById("save-status");
-      status.innerHTML = '<span style="color:#ef4444;font-weight:700;">🗑️ Vault completely shredded & zeroized from memory.</span>';
-      setTimeout(() => { status.innerHTML = ""; }, 5000);
+      status.innerHTML = '<span style="color:#ef4444;font-weight:700;">🗑️ All saved keys cleared from this browser.</span>';
+      setTimeout(() => { status.innerHTML = ""; }, 4000);
     }
 
     // -------------------------------------------------------------
-    // Initialization: Detect Insecure HTTP & Load Vault
+    // Initialization
     // -------------------------------------------------------------
     window.addEventListener("DOMContentLoaded", () => {
-      // Check if accessing over insecure HTTP on public IP
+      // Check for unencrypted HTTP
       if (location.protocol === "http:" && location.hostname !== "localhost" && location.hostname !== "127.0.0.1") {
         const alertEl = document.getElementById("insecure-http-alert");
         const upgradeBtn = document.getElementById("upgrade-https-btn");
         if (alertEl) {
           alertEl.style.display = "flex";
-          // If a cloudflare tunnel or domain is available, point user to it
           upgradeBtn.href = "https://keeps-teaching-say-modes.trycloudflare.com/portal";
         }
       }
