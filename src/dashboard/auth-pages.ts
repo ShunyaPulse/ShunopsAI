@@ -11,13 +11,11 @@
 export function getAuthPageHtml(mode: "login" | "register"): string {
   const isLogin = mode === "login";
   const title = isLogin ? "Welcome back" : "Create verified private workspace";
-  const googleClientId =
-    process.env.GOOGLE_CLIENT_ID ||
-    "685823552970-olgdgfdgp3jdbugmjsnvseh763l0jdkl.apps.googleusercontent.com";
+  const googleClientId = process.env.GOOGLE_CLIENT_ID || "";
   const turnstileSiteKey =
     process.env.CLOUDFLARE_TURNSTILE_SITE_KEY ||
     process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ||
-    "0x4AAAAAAEzX2uxnJleXLpYL";
+    "";
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -231,7 +229,9 @@ export function getAuthPageHtml(mode: "login" | "register"): string {
       <div class="brand-subtitle">${title}</div>
     </div>
 
-    <!-- 1. Google OAuth Button -->
+    ${
+      googleClientId
+        ? `<!-- 1. Google OAuth Button -->
     <div class="google-btn-wrapper">
       <div id="g_id_onload"
            data-client_id="${googleClientId}"
@@ -251,7 +251,9 @@ export function getAuthPageHtml(mode: "login" | "register"): string {
 
     <div class="divider">
       <span>Or continue with email</span>
-    </div>
+    </div>`
+        : ""
+    }
 
     <div id="msg" class="msg-box"></div>
 
