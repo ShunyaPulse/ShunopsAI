@@ -183,20 +183,29 @@ export function getShunopsPortalHtml(): string {
     }
     .eye-toggle-btn {
       position: absolute;
-      right: 8px;
+      right: 10px;
+      top: 50%;
+      transform: translateY(-50%);
       background: transparent;
       border: none;
       color: #94a3b8;
       cursor: pointer;
-      padding: 6px;
-      font-size: 14px;
-      display: flex;
+      padding: 4px;
+      display: inline-flex;
       align-items: center;
       justify-content: center;
-      transition: color 0.2s;
+      line-height: 1;
+      border-radius: 4px;
+      transition: color 0.15s ease, background 0.15s ease;
     }
     .eye-toggle-btn:hover {
-      color: #00f0ff;
+      color: #38bdf8;
+      background: rgba(56, 189, 248, 0.1);
+    }
+    .eye-toggle-btn svg {
+      width: 17px;
+      height: 17px;
+      pointer-events: none;
     }
 
     /* Verification status badges */
@@ -426,8 +435,10 @@ export function getShunopsPortalHtml(): string {
               </a>
             </div>
             <div class="password-input-wrapper">
-              <input type="password" id="input-groq-key" class="chat-input" placeholder="gsk_..." autocomplete="new-password" />
-              <button type="button" class="eye-toggle-btn" onclick="toggleMask('input-groq-key', this)" title="Show/Hide">👁️</button>
+              <input type="text" id="input-groq-key" class="chat-input" placeholder="gsk_..." autocomplete="off" data-lpignore="true" data-1p-ignore="true" />
+              <button type="button" class="eye-toggle-btn" onclick="toggleMask('input-groq-key', this)" aria-label="Toggle key visibility" title="Show/Hide">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+              </button>
             </div>
             <div id="status-badge-groq"></div>
             <div style="font-size:11px; color:#64748b; margin-top:6px;">
@@ -447,8 +458,10 @@ export function getShunopsPortalHtml(): string {
               </a>
             </div>
             <div class="password-input-wrapper">
-              <input type="password" id="input-gemini-key" class="chat-input" placeholder="AIzaSy..." autocomplete="new-password" />
-              <button type="button" class="eye-toggle-btn" onclick="toggleMask('input-gemini-key', this)" title="Show/Hide">👁️</button>
+              <input type="text" id="input-gemini-key" class="chat-input" placeholder="AIzaSy..." autocomplete="off" data-lpignore="true" data-1p-ignore="true" />
+              <button type="button" class="eye-toggle-btn" onclick="toggleMask('input-gemini-key', this)" aria-label="Toggle key visibility" title="Show/Hide">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+              </button>
             </div>
             <div id="status-badge-gemini"></div>
             <div style="font-size:11px; color:#64748b; margin-top:6px;">
@@ -472,8 +485,10 @@ export function getShunopsPortalHtml(): string {
             <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px;">
               <input type="text" id="input-kaggle-user" class="chat-input" placeholder="Kaggle Username" autocomplete="off" />
               <div class="password-input-wrapper">
-                <input type="password" id="input-kaggle-key" class="chat-input" placeholder="Kaggle API Token" autocomplete="new-password" />
-                <button type="button" class="eye-toggle-btn" onclick="toggleMask('input-kaggle-key', this)" title="Show/Hide">👁️</button>
+                <input type="text" id="input-kaggle-key" class="chat-input" placeholder="Kaggle API Token" autocomplete="off" data-lpignore="true" data-1p-ignore="true" />
+                <button type="button" class="eye-toggle-btn" onclick="toggleMask('input-kaggle-key', this)" aria-label="Toggle key visibility" title="Show/Hide">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                </button>
               </div>
             </div>
             <div style="font-size:11px; color:#64748b; margin-top:6px;">
@@ -493,8 +508,10 @@ export function getShunopsPortalHtml(): string {
               </a>
             </div>
             <div class="password-input-wrapper">
-              <input type="password" id="input-hf-token" class="chat-input" placeholder="hf_..." autocomplete="new-password" />
-              <button type="button" class="eye-toggle-btn" onclick="toggleMask('input-hf-token', this)" title="Show/Hide">👁️</button>
+              <input type="text" id="input-hf-token" class="chat-input" placeholder="hf_..." autocomplete="off" data-lpignore="true" data-1p-ignore="true" />
+              <button type="button" class="eye-toggle-btn" onclick="toggleMask('input-hf-token', this)" aria-label="Toggle key visibility" title="Show/Hide">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+              </button>
             </div>
             <div id="status-badge-hf"></div>
           </div>
@@ -513,8 +530,10 @@ export function getShunopsPortalHtml(): string {
               </a>
             </div>
             <div class="password-input-wrapper">
-              <input type="password" id="input-github-token" class="chat-input" placeholder="github_pat_..." autocomplete="new-password" />
-              <button type="button" class="eye-toggle-btn" onclick="toggleMask('input-github-token', this)" title="Show/Hide">👁️</button>
+              <input type="text" id="input-github-token" class="chat-input" placeholder="github_pat_..." autocomplete="off" data-lpignore="true" data-1p-ignore="true" />
+              <button type="button" class="eye-toggle-btn" onclick="toggleMask('input-github-token', this)" aria-label="Toggle key visibility" title="Show/Hide">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+              </button>
             </div>
             <div id="status-badge-github"></div>
             <div style="font-size:11px; color:#64748b; margin-top:6px;">
@@ -727,19 +746,19 @@ export function getShunopsPortalHtml(): string {
       } catch (e) {}
     }
 
-    // -------------------------------------------------------------
-    // UI Helpers (Masking, Modals, Status)
-    // -------------------------------------------------------------
+    const SVG_EYE_OPEN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>';
+    const SVG_EYE_OFF = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>';
+
     function toggleMask(inputId, btn) {
       const el = document.getElementById(inputId);
       if (!el) return;
       if (el.type === "password") {
         el.type = "text";
-        btn.textContent = "🔒";
+        btn.innerHTML = SVG_EYE_OPEN;
         btn.title = "Hide";
       } else {
         el.type = "password";
-        btn.textContent = "👁️";
+        btn.innerHTML = SVG_EYE_OFF;
         btn.title = "Show";
       }
     }
