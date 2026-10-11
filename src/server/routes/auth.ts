@@ -358,7 +358,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
 
   // 5. GitHub OAuth: Initiate Authorization Redirect
   app.get("/api/auth/github", async (req: FastifyRequest, reply: FastifyReply) => {
-    const clientId = process.env.GITHUB_CLIENT_ID;
+    const clientId = process.env.GITHUB_CLIENT_ID || process.env.GH_CLIENT_ID;
     if (!clientId) {
       reply.status(503);
       return reply.type("text/html").send(`
@@ -407,8 +407,8 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       return reply.redirect("/login?error=" + encodeURIComponent("Missing authorization code from GitHub."));
     }
 
-    const clientId = process.env.GITHUB_CLIENT_ID;
-    const clientSecret = process.env.GITHUB_CLIENT_SECRET;
+    const clientId = process.env.GITHUB_CLIENT_ID || process.env.GH_CLIENT_ID;
+    const clientSecret = process.env.GITHUB_CLIENT_SECRET || process.env.GH_CLIENT_SECRET;
     if (!clientId || !clientSecret) {
       return reply.redirect("/login?error=" + encodeURIComponent("GitHub OAuth not fully configured on server."));
     }
