@@ -70,15 +70,23 @@ export interface ProviderKeyOverrides {
  */
 export function createClientForTarget(target: ModelTarget, overrides?: ProviderKeyOverrides): OpenAI {
   if (target.provider === "groq") {
+    // If overrides were passed with an explicit groqApiKey, use it strictly.
+    const apiKey = overrides
+      ? overrides.groqApiKey || "missing-byok-groq-key"
+      : process.env.GROQ_API_KEY || "dummy-groq-key";
     return new OpenAI({
       baseURL: GROQ_BASE_URL,
-      apiKey: overrides?.groqApiKey || process.env.GROQ_API_KEY || "dummy-groq-key",
+      apiKey,
     });
   }
   if (target.provider === "gemini") {
+    // If overrides were passed with an explicit geminiApiKey, use it strictly without dipping into pool.
+    const apiKey = overrides
+      ? overrides.geminiApiKey || "missing-byok-gemini-key"
+      : getGeminiKey();
     return new OpenAI({
       baseURL: GEMINI_OPENAI_BASE_URL,
-      apiKey: overrides?.geminiApiKey || getGeminiKey(),
+      apiKey,
     });
   }
   return new OpenAI({

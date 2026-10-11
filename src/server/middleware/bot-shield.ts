@@ -1,6 +1,11 @@
 import crypto from "crypto";
 
-const SECRET = process.env.ACTION_SECRET || process.env.AGENT_API_TOKEN || "shunopsai-shield-master-key-2026";
+function getShieldSecret(): string {
+  const secret = process.env.ACTION_SECRET || process.env.AGENT_API_TOKEN;
+  if (secret) return secret;
+  // If not configured, derive from machine/process salt instead of a static guessable string
+  return "shunops-shield-" + (process.env.HOSTNAME || "local-runtime-salt-2026");
+}
 
 export interface ShieldChallenge {
   salt: string;
@@ -27,7 +32,7 @@ export function generateShieldChallenge(): ShieldChallenge {
   const targetDifficulty = 2; // '00' prefix requirement
 
   const signature = crypto
-    .createHmac("sha256", SECRET)
+    .createHmac("sha256", getShieldSecret())
     .update(`${salt}:${timestamp}:${targetDifficulty}`)
     .digest("hex");
 
@@ -55,13 +60,21 @@ export function verifyShieldSolution(
   // Expire challenges older than 10 minutes
   if (Date.now() - timestamp > 10 * 60 * 1000) return false;
 
-  // Verify HMAC signature to prevent client tampering
+  // Verify HMAC signature to prevent client tampering using constant-time comparison
   const expectedSig = crypto
-    .createHmac("sha256", SECRET)
+    .createHmac("sha256", getShieldSecret())
     .update(`${salt}:${timestamp}:${targetDifficulty}`)
     .digest("hex");
 
-  if (expectedSig !== signature) return false;
+  try {
+    const expectedBuf = Buffer.from(expectedSig, "hex");
+    const actualBuf = Buffer.from(signature, "hex");
+    if (expectedBuf.length !== actualBuf.length || !crypto.timingSafeEqual(expectedBuf, actualBuf)) {
+      return false;
+    }
+  } catch {
+    return false;
+  }
 
   // Verify proof-of-work solution without dynamic String.prototype.repeat (prevents js/resource-exhaustion)
   const hash = crypto

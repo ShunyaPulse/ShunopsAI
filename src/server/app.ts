@@ -76,6 +76,35 @@ export async function createApp(config: AppConfig = loadAppConfig()): Promise<Fa
       reply.status(400).send({ error: "Bad Request: Security policy violation" });
       return reply;
     }
+
+    // CSRF Protection: For state-changing mutations under /api/ (login, register, chat, etc.)
+    // Ensure request origin matches host, or sec-fetch-site is 'same-origin'
+    if (["POST", "PUT", "DELETE", "PATCH"].includes(req.method) && req.url.startsWith("/api/")) {
+      // Exclude public webhooks (which use cryptographic HMAC signature validation)
+      if (!req.url.startsWith("/api/github-webhook")) {
+        const origin = req.headers.origin;
+        const host = req.headers.host;
+        const secFetchSite = req.headers["sec-fetch-site"];
+
+        if (secFetchSite === "cross-site") {
+          reply.status(403).send({ error: "Forbidden: Cross-site request rejected" });
+          return reply;
+        }
+
+        if (origin && host) {
+          try {
+            const originHost = new URL(origin).host;
+            if (originHost !== host && !config.corsOrigins.includes(origin)) {
+              reply.status(403).send({ error: "Forbidden: Cross-origin mutation rejected" });
+              return reply;
+            }
+          } catch {
+            reply.status(400).send({ error: "Bad Request: Invalid origin header" });
+            return reply;
+          }
+        }
+      }
+    }
   });
 
   // CORS protection: cross-origin access is DENIED by default. Only when the

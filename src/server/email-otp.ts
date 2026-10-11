@@ -150,7 +150,7 @@ export async function verifyEmailOTP(email: string, code: string): Promise<{ suc
 
     const record = res[0];
 
-    if (record.is_old_used) {
+    if (record.is_old_used || record.is_recently_used) {
       return { success: false, message: "OTP has already been used. Please request a new OTP." };
     }
 
@@ -162,19 +162,17 @@ export async function verifyEmailOTP(email: string, code: string): Promise<{ suc
       return { success: false, message: "Too many failed attempts. Please request a new OTP." };
     }
 
-    if (record.is_recently_used && record.otp === cleanCode) {
-      return { success: true, message: "OTP verified successfully." };
-    }
-
     if (record.otp !== cleanCode) {
+      const newAttempts = record.attempts + 1;
       await (sql as any).query(
-        `UPDATE shunops_email_otps SET attempts = attempts + 1 WHERE LOWER(TRIM(email)) = $1;`,
-        [cleanEmail]
+        `UPDATE shunops_email_otps SET attempts = $1 WHERE LOWER(TRIM(email)) = $2;`,
+        [newAttempts, cleanEmail]
       );
-      return { success: false, message: `Incorrect verification code. ${4 - record.attempts} attempt(s) remaining.` };
+      const remaining = Math.max(0, 5 - newAttempts);
+      return { success: false, message: `Incorrect verification code. ${remaining} attempt(s) remaining.` };
     }
 
-    // Mark as used
+    // Mark as used immediately to prevent replay
     await (sql as any).query(
       `UPDATE shunops_email_otps SET used_at = CURRENT_TIMESTAMP WHERE LOWER(TRIM(email)) = $1;`,
       [cleanEmail]

@@ -1,4 +1,5 @@
 import { neon } from "@neondatabase/serverless";
+import crypto from "crypto";
 
 function getSql() {
   const dbUrl = process.env.DATABASE_URL;
@@ -255,26 +256,33 @@ export async function markEmailAsVerified(email: string): Promise<void> {
   );
 }
 
+function hashToken(rawToken: string): string {
+  return crypto.createHash("sha256").update(rawToken).digest("hex");
+}
+
 export async function createSession(userId: number, token: string, expiresInDays = 7): Promise<void> {
   const sql = getSql();
   const expiresAt = new Date(Date.now() + expiresInDays * 24 * 60 * 60 * 1000);
+  const tokenHash = hashToken(token);
   await (sql as any).query(
     `INSERT INTO shunops_sessions (user_id, token, expires_at)
      VALUES ($1, $2, $3);`,
-    [userId, token, expiresAt.toISOString()]
+    [userId, tokenHash, expiresAt.toISOString()]
   );
 }
 
 export async function findUserBySessionToken(token: string): Promise<{ id: number; username: string; email: string | null; role: string } | null> {
   if (!token) return null;
   const sql = getSql();
+  const tokenHash = hashToken(token);
+  // Match either SHA-256 hash or legacy unhashed token
   const rows = await (sql as any).query(
     `SELECT u.id, u.username, u.email, u.role
      FROM shunops_sessions s
      JOIN shunops_users u ON s.user_id = u.id
-     WHERE s.token = $1 AND s.expires_at > CURRENT_TIMESTAMP
+     WHERE (s.token = $1 OR s.token = $2) AND s.expires_at > CURRENT_TIMESTAMP
      LIMIT 1;`,
-    [token]
+    [tokenHash, token]
   );
   return rows[0] || null;
 }
@@ -282,5 +290,6 @@ export async function findUserBySessionToken(token: string): Promise<{ id: numbe
 export async function deleteSession(token: string): Promise<void> {
   if (!token) return;
   const sql = getSql();
-  await (sql as any).query(`DELETE FROM shunops_sessions WHERE token = $1;`, [token]);
+  const tokenHash = hashToken(token);
+  await (sql as any).query(`DELETE FROM shunops_sessions WHERE token = $1 OR token = $2;`, [tokenHash, token]);
 }

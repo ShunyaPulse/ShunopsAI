@@ -200,6 +200,38 @@ export function getUserWorkspaceHtml(username: string): string {
       window.location.href = '/login';
     }
 
+    const DB_NAME = "shunops_secure_vault_v3";
+    const STORE_NAME = "keys_store";
+
+    async function loadVaultKeys() {
+      try {
+        const db = await new Promise((resolve, reject) => {
+          const req = indexedDB.open(DB_NAME, 1);
+          req.onsuccess = () => resolve(req.result);
+          req.onerror = () => reject(req.error);
+        });
+        const tx = db.transaction(STORE_NAME, "readonly");
+        const store = tx.objectStore(STORE_NAME);
+        const record = await new Promise((resolve, reject) => {
+          const req = store.get("encrypted_payload");
+          req.onsuccess = () => resolve(req.result);
+          req.onerror = () => reject(req.error);
+        });
+        const cryptoKey = await new Promise((resolve, reject) => {
+          const kTx = db.transaction(STORE_NAME, "readonly");
+          const kStore = kTx.objectStore(STORE_NAME);
+          const req = kStore.get("non_extractable_master_key");
+          req.onsuccess = () => resolve(req.result);
+          req.onerror = () => reject(req.error);
+        });
+        if (!record || !record.iv || !record.ciphertext || !cryptoKey) return null;
+        const decrypted = await crypto.subtle.decrypt({ name: "AES-GCM", iv: record.iv }, cryptoKey, record.ciphertext);
+        return JSON.parse(new TextDecoder().decode(decrypted));
+      } catch (e) {
+        return null;
+      }
+    }
+
     async function sendUserChat() {
       const input = document.getElementById('user-chat-input');
       const replyDiv = document.getElementById('user-chat-reply');
@@ -210,9 +242,17 @@ export function getUserWorkspaceHtml(username: string): string {
       input.value = '';
 
       try {
+        const headers = { 'Content-Type': 'application/json' };
+        // Wire BYOK Keys: read from local secure vault if present
+        const vault = await loadVaultKeys();
+        if (vault) {
+          if (vault.groq) headers['x-groq-key'] = vault.groq;
+          if (vault.gemini) headers['x-gemini-key'] = vault.gemini;
+        }
+
         const res = await fetch('/api/chat', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers,
           body: JSON.stringify({ message: msg })
         });
         const data = await res.json();

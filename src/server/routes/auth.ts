@@ -62,12 +62,12 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       }
     }
 
-    // If purpose is login, verify account exists
+    // If purpose is login, only send code if user exists, but return identical message to avoid enumeration
     if (purpose === "login") {
       const existing = await findUserByEmail(cleanEmail);
       if (!existing) {
-        reply.status(404);
-        return { error: "No account found with this email. Please sign up first." };
+        // Return uniform success response so attackers cannot probe valid accounts
+        return { success: true, message: "If an account exists with this email, a 6-digit code has been sent." };
       }
     }
 
@@ -77,7 +77,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       return { error: result.message };
     }
 
-    return { success: true, message: "6-digit verification code sent to your email." };
+    return { success: true, message: "If an account exists with this email, a 6-digit code has been sent." };
   });
 
   // 2. Register New User (Requires valid Email OTP code)
@@ -314,6 +314,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
 
       const googleData = (await googleRes.json()) as {
         sub: string;
+        aud?: string;
         email?: string;
         email_verified?: string | boolean;
         name?: string;
@@ -323,6 +324,24 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       if (!googleData.sub || !googleData.email) {
         reply.status(400);
         return { error: "Google account missing verified email." };
+      }
+
+      // Security Invariant (Item 2): Verify token audience matches our Google Client ID
+      const expectedClientId =
+        process.env.GOOGLE_CLIENT_ID ||
+        "685823552970-phqjqt3cc613h69kat0rljbaikf8k6kd.apps.googleusercontent.com";
+      if (googleData.aud !== expectedClientId) {
+        reply.status(401);
+        return { error: "Google token audience mismatch. Unauthorized OAuth client." };
+      }
+
+      // Verify email is verified by Google
+      const isEmailVerified =
+        googleData.email_verified === true ||
+        googleData.email_verified === "true";
+      if (!isEmailVerified) {
+        reply.status(403);
+        return { error: "Google email address is not verified. Please verify your email with Google first." };
       }
 
       // Upsert user in Neon Postgres

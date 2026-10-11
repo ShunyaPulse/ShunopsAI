@@ -50,11 +50,24 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
       const userGroqKey = (req.headers["x-groq-key"] as string | undefined)?.trim();
       const userGeminiKey = (req.headers["x-gemini-key"] as string | undefined)?.trim();
 
-      const isBYOK = Boolean(userGroqKey || userGeminiKey);
+      // Item 4 Fix: Strictly validate format before granting isBYOK bypass
+      // Groq keys start with 'gsk_' and are >= 30 chars. Gemini keys start with 'AIzaSy' and are >= 35 chars.
+      const isValidGroqFormat = Boolean(userGroqKey && /^gsk_[a-zA-Z0-9_-]{20,}$/.test(userGroqKey));
+      const isValidGeminiFormat = Boolean(userGeminiKey && /^AIzaSy[a-zA-Z0-9_-]{25,}$/.test(userGeminiKey));
+
+      if ((userGroqKey && !isValidGroqFormat) || (userGeminiKey && !isValidGeminiFormat)) {
+        reply.status(400);
+        return {
+          reply: "Invalid BYOK API key format provided in request headers. Please check your Groq or Gemini key.",
+          success: false,
+        };
+      }
+
+      const isBYOK = Boolean(isValidGroqFormat || isValidGeminiFormat);
       const keyOverrides = isBYOK
         ? {
-            groqApiKey: userGroqKey,
-            geminiApiKey: userGeminiKey,
+            groqApiKey: isValidGroqFormat ? userGroqKey : undefined,
+            geminiApiKey: isValidGeminiFormat ? userGeminiKey : undefined,
           }
         : undefined;
 
