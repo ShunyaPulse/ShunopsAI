@@ -415,7 +415,10 @@ export function getShunopsPortalHtml(): string {
           <h2 style="font-size:16px; color:#fff; display:flex; align-items:center; gap:8px; margin:0;">
             <span>2️⃣</span> Paste Free API Keys
           </h2>
-          <span style="font-size:11px; color:#38bdf8;">🔒 Click 👁️ to toggle visibility</span>
+          <span style="font-size:11px; color:#38bdf8; display:inline-flex; align-items:center; gap:5px;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:13px; height:13px;"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            Click icon to reveal keys
+          </span>
         </div>
         <p style="font-size:12px; color:#94a3b8; margin-bottom:18px;">
           Zero cost free tiers • No credit card needed. Keys for unselected services remain hidden.
