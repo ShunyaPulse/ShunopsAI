@@ -465,7 +465,7 @@ export async function markEmailAsVerified(email: string): Promise<void> {
 }
 
 function hashToken(rawToken: string): string {
-  return crypto.createHash("sha256").update(rawToken).digest("hex");
+  return crypto.scryptSync(rawToken, "shunops-token-salt", 32).toString("hex");
 }
 
 export async function createSession(userId: number, token: string, expiresInDays = 7): Promise<void> {
