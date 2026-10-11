@@ -2,6 +2,9 @@ import type { FastifyInstance, preHandlerHookHandler } from "fastify";
 import { PRIMARY_MODEL, FALLBACK_MODELS, toolRegistry } from "../../agent/index.js";
 import { getShunopsDashboardHtml } from "../../dashboard/html.js";
 import { getShunopsPortalHtml } from "../../dashboard/portal.js";
+import { getAuthPageHtml } from "../../dashboard/auth-pages.js";
+import { getUserWorkspaceHtml } from "../../dashboard/workspace.js";
+import { findUserBySessionToken } from "../db.js";
 
 export interface DashboardRouteOptions {
   requireDashboardAuth?: preHandlerHookHandler;
@@ -72,6 +75,33 @@ export async function dashboardRoutes(app: FastifyInstance, opts: DashboardRoute
     reply.header("Cache-Control", "no-store, no-cache, must-revalidate");
     reply.header("Pragma", "no-cache");
     return reply.type("text/html").send(renderPortal());
+  });
+
+  // User Authentication Pages (Login & Register)
+  app.get("/login", async (_req, reply) => {
+    reply.header("Cache-Control", "no-store, no-cache, must-revalidate");
+    return reply.type("text/html").send(getAuthPageHtml("login"));
+  });
+
+  app.get("/register", async (_req, reply) => {
+    reply.header("Cache-Control", "no-store, no-cache, must-revalidate");
+    return reply.type("text/html").send(getAuthPageHtml("register"));
+  });
+
+  // User Private Workspace Dashboard
+  app.get("/workspace", async (req, reply) => {
+    reply.header("Cache-Control", "no-store, no-cache, must-revalidate");
+    const token = (req.cookies as any)?.shunops_user_session;
+    if (!token) {
+      return reply.redirect("/login");
+    }
+
+    const user = await findUserBySessionToken(token);
+    if (!user) {
+      return reply.redirect("/login");
+    }
+
+    return reply.type("text/html").send(getUserWorkspaceHtml(user.username));
   });
 
   app.get("/health", async () => {

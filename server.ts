@@ -6,6 +6,7 @@
  */
 import * as dotenv from "dotenv";
 import { createApp, loadAppConfig } from "./src/server/app.js";
+import { initDatabaseSchema } from "./src/server/db.js";
 
 dotenv.config();
 
@@ -13,6 +14,13 @@ const config = loadAppConfig();
 const PORT = Number(process.env.PORT) || 4000;
 
 async function bootstrap() {
+  // Ensure multi-tenant Neon tables exist
+  try {
+    await initDatabaseSchema();
+  } catch (err) {
+    console.warn("Neon Database initialization warning:", err);
+  }
+
   const app = await createApp(config);
 
   try {
