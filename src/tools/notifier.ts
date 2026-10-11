@@ -21,9 +21,9 @@ export interface VideoNotificationDetails {
 export async function sendVideoReadyEmail(details: VideoNotificationDetails): Promise<boolean> {
   const host = process.env.SMTP_HOST || "smtp.gmail.com";
   const port = parseInt(process.env.SMTP_PORT || "465", 10);
-  const user = process.env.SMTP_USER || "techanics6174@gmail.com";
+  const user = process.env.SMTP_USER || "shunyapulse42@gmail.com";
   const pass = process.env.SMTP_PASS;
-  const to = process.env.EMAIL_FROM || process.env.SMTP_USER || "techanics6174@gmail.com";
+  const to = process.env.EMAIL_FROM || process.env.SMTP_USER || "shunyapulse42@gmail.com";
 
   if (!pass) {
     console.warn("[Notifier] Warning: SMTP_PASS is missing in .env. Skipping email notification.");
@@ -263,8 +263,8 @@ export async function sendIncidentAlert(alert: IncidentAlertDetails): Promise<{
     try {
       const host = process.env.SMTP_HOST || "smtp.gmail.com";
       const port = parseInt(process.env.SMTP_PORT || "465", 10);
-      const user = process.env.SMTP_USER || "techanics6174@gmail.com";
-      const to = process.env.EMAIL_TO || process.env.SMTP_USER || "techanics6174@gmail.com";
+      const user = process.env.SMTP_USER || "shunyapulse42@gmail.com";
+      const to = process.env.EMAIL_TO || process.env.SMTP_USER || "shunyapulse42@gmail.com";
 
       const transporter = nodemailer.createTransport({
         host,

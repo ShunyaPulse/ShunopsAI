@@ -56,6 +56,20 @@ export type TaskRequest = Static<typeof TaskRequestSchema>;
 export const ChatRequestSchema = Type.Object({
   message: Type.String({ minLength: 1, maxLength: 4000 }),
   history: Type.Optional(Type.String({ maxLength: 8000 })),
+  // Layer 1: Honeypot trap (Kanban-Cloud pattern: bots fill this, humans don't)
+  hp_website: Type.Optional(Type.String()),
+  // Layer 2: Cloudflare Turnstile token
+  turnstileToken: Type.Optional(Type.String({ maxLength: 2048 })),
+  // Layer 3: Anti-Bot Proof-of-Work Challenge
+  shield: Type.Optional(
+    Type.Object({
+      salt: Type.String(),
+      timestamp: Type.Number(),
+      targetDifficulty: Type.Number(),
+      signature: Type.String(),
+      solution: Type.String(),
+    })
+  ),
 });
 
 export type ChatRequest = Static<typeof ChatRequestSchema>;

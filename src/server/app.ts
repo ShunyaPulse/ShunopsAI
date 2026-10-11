@@ -2,6 +2,7 @@ import Fastify, { type FastifyInstance } from "fastify";
 import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
 import fastifyRawBody from "fastify-raw-body";
+import fastifyCookie from "@fastify/cookie";
 import fastifySwagger from "@fastify/swagger";
 import fastifySwaggerUi from "@fastify/swagger-ui";
 import { createRequireAuth, createRequireDashboardAuth } from "./middleware/auth.js";
@@ -56,6 +57,12 @@ export async function createApp(config: AppConfig = loadAppConfig()): Promise<Fa
     global: true,
     encoding: false, // returns Buffer
     runFirst: true,
+  });
+
+  // Secure HTTP-Only Cookie Support for User Authentication
+  await app.register(fastifyCookie, {
+    secret: config.apiToken || "shunops-cookie-signing-secret-2026",
+    parseOptions: {},
   });
 
   // Malicious URL probe filter (blocks vulnerability scanners, traversal, SQLi, and shell probes)

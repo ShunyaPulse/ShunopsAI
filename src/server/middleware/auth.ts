@@ -1,5 +1,6 @@
 import * as crypto from "node:crypto";
 import type { FastifyRequest, FastifyReply } from "fastify";
+import { findUserBySessionToken } from "../db.js";
 
 /** Constant-time string comparison that never throws on length mismatch. */
 export function timingSafeEqualStr(a: string, b: string): boolean {
@@ -82,7 +83,7 @@ export function createRequireDashboardAuth(config: AuthConfig) {
   return async function requireDashboardAuth(req: FastifyRequest, reply: FastifyReply): Promise<void> {
     const header = (req.headers.authorization as string) || "";
 
-    // 1. Basic Auth check
+    // 1. Basic Auth check (for automation/CLI with explicit credentials)
     if (dashboardUsername && dashboardPassword && verifyBasicAuth(header, dashboardUsername, dashboardPassword)) {
       return;
     }
@@ -94,7 +95,18 @@ export function createRequireDashboardAuth(config: AuthConfig) {
       return;
     }
 
-    // 3. Allow unauthenticated only for direct loopback connections when
+    // 3. Admin session cookie check
+    const sessionCookie = (req.cookies as any)?.shunops_user_session;
+    if (sessionCookie) {
+      try {
+        const user = await findUserBySessionToken(sessionCookie);
+        if (user && user.role === "admin") {
+          return;
+        }
+      } catch {}
+    }
+
+    // 4. Allow unauthenticated only for direct loopback connections when
     // no dashboard password AND no apiToken are configured (local dev convenience).
     if (!dashboardPassword && !apiToken && (host === "127.0.0.1" || host === "localhost")) {
       const remote = req.socket?.remoteAddress || "";
@@ -104,29 +116,12 @@ export function createRequireDashboardAuth(config: AuthConfig) {
       if (isLoopback && !isProxied) return;
     }
 
-    // Challenge with WWW-Authenticate header for native browser login popup
-    reply
-      .header("WWW-Authenticate", 'Basic realm="ShunopsAI Command Center"')
-      .status(401)
-      .type("text/html")
-      .send(`<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <title>401 Unauthorized • ShunopsAI</title>
-  <style>
-    body { background: #0b0f19; color: #e2e8f0; font-family: system-ui, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }
-    .box { text-align: center; padding: 40px 48px; background: #131c31; border-radius: 12px; border: 1px solid #1e293b; box-shadow: 0 8px 32px rgba(0,0,0,0.5); max-width: 420px; }
-    h2 { margin: 0 0 12px; color: #38bdf8; }
-    p { margin: 0; color: #94a3b8; font-size: 14px; line-height: 1.6; }
-  </style>
-</head>
-<body>
-  <div class="box">
-    <h2>🔒 Access Restricted</h2>
-    <p>ShunopsAI Command Center requires authentication.<br>Please sign in with your credentials.</p>
-  </div>
-</body>
-</html>`);
+    // For browser requests (HTML), redirect directly to /login (no native popup!)
+    if (req.headers.accept?.includes("text/html")) {
+      return reply.redirect("/login");
+    }
+
+    // For API requests, return 401 JSON
+    reply.status(401).send({ error: "Unauthorized. Admin privileges required." });
   };
 }

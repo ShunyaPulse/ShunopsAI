@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { findUserBySessionToken } from "../db.js";
 
 /**
  * Route plugin for the Public BYOK Self-Service Portal.
@@ -15,6 +16,17 @@ export async function portalRoutes(app: FastifyInstance): Promise<void> {
       hf?: string;
     };
   }>("/api/portal/verify", async (req, reply) => {
+    const token = (req.cookies as any)?.shunops_user_session;
+    if (!token) {
+      reply.status(401);
+      return { error: "Authentication required to verify keys. Please log in." };
+    }
+    const user = await findUserBySessionToken(token);
+    if (!user) {
+      reply.status(401);
+      return { error: "Session expired. Please log in again." };
+    }
+
     const body = req.body || {};
     const groq = typeof body.groq === "string" ? body.groq.trim() : "";
     const gemini = typeof body.gemini === "string" ? body.gemini.trim() : "";
