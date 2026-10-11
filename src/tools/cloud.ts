@@ -57,8 +57,27 @@ export async function executeNeonSql(query: string): Promise<string> {
 
 /**
  * 2. OCI Redis Tool
+ *
+ * Only data-access commands are permitted. Administrative / destructive
+ * commands (CONFIG, EVAL, SCRIPT, FLUSHALL, SHUTDOWN, ...) are rejected so
+ * model- or user-supplied input cannot reconfigure or wipe the instance.
  */
+const ALLOWED_REDIS_COMMANDS = new Set<string>([
+  "PING", "ECHO", "GET", "SET", "SETEX", "SETNX", "GETSET", "APPEND", "STRLEN",
+  "MGET", "MSET", "DEL", "UNLINK", "EXISTS", "TYPE", "TTL", "PTTL", "EXPIRE",
+  "PEXPIRE", "PERSIST", "KEYS", "SCAN", "INCR", "DECR", "INCRBY", "DECRBY",
+  "HSET", "HGET", "HGETALL", "HDEL", "HEXISTS", "HKEYS", "HVALS", "HLEN", "HINCRBY",
+  "LPUSH", "RPUSH", "LPOP", "RPOP", "LRANGE", "LLEN", "LINDEX", "SADD", "SREM",
+  "SMEMBERS", "SISMEMBER", "SCARD", "ZADD", "ZREM", "ZRANGE", "ZRANGEBYSCORE",
+  "ZCARD", "ZSCORE", "DBSIZE", "INFO", "MEMORY", "COMMAND",
+]);
+
 export async function executeRedisCommand(command: string, args: string[] = []): Promise<string> {
+  const normalizedCommand = command.trim().toUpperCase();
+  if (!ALLOWED_REDIS_COMMANDS.has(normalizedCommand)) {
+    return `Error: Redis command '${command}' is not permitted. Allowed commands: ${[...ALLOWED_REDIS_COMMANDS].join(", ")}.`;
+  }
+
   const redis = getRedisInstance();
   if (!redis) {
     return "Error: REDIS_URL or REDIS_HOST is not set in .env. Please configure your OCI Redis connection.";
@@ -70,7 +89,7 @@ export async function executeRedisCommand(command: string, args: string[] = []):
     if (redis.status === "wait" || redis.status === "close") {
       await redis.connect();
     }
-    const result = await redis.call(command, ...args);
+    const result = await redis.call(normalizedCommand, ...args);
     return `Redis Result for '${fullCmd}':\n${JSON.stringify(result, null, 2)}`;
   } catch (error: any) {
     return `Redis Error: ${error.message}`;
@@ -191,8 +210,43 @@ export async function manageCloudflare(command: string): Promise<string> {
 /**
  * 6. Website Inspection & Error Diagnostic Tool
  */
+const BLOCKED_SSRF_HOSTS = new Set([
+  "169.254.169.254", // AWS / Azure / GCP instance metadata
+  "metadata.google.internal",
+  "100.100.100.200", // Alibaba Cloud metadata
+  "::ffff:169.254.169.254",
+  "localhost",
+  "127.0.0.1",
+  "0.0.0.0",
+  "::1",
+  "::ffff:127.0.0.1",
+]);
+
+/** Returns true when the hostname resolves to a private / loopback / link-local IP. */
+function isPrivateHost(hostname: string): boolean {
+  if (BLOCKED_SSRF_HOSTS.has(hostname.toLowerCase())) return true;
+  // IPv4 private ranges (RFC 1918) + loopback + link-local
+  if (/^(10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|127\.\d{1,3}\.\d{1,3}\.\d{1,3}|0\.0\.0\.0|169\.254\.\d{1,3}\.\d{1,3})$/.test(hostname)) return true;
+  return false;
+}
+
 export async function inspectWebsite(url: string): Promise<string> {
   const targetUrl = url.startsWith("http") ? url : `https://${url}`;
+
+  // SSRF guard: the agent must never be steered to cloud metadata services
+  // or internal network hosts.
+  try {
+    const parsed = new URL(targetUrl);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return `Website Inspection blocked: only http(s) URLs are permitted.`;
+    }
+    if (isPrivateHost(parsed.hostname)) {
+      return `Website Inspection blocked: requests to internal or cloud metadata endpoints are not permitted.`;
+    }
+  } catch {
+    return `Website Inspection Failed: the provided URL is not valid.`;
+  }
+
   const start = Date.now();
   try {
     const res = await fetch(targetUrl, {
@@ -213,7 +267,8 @@ export async function inspectWebsite(url: string): Promise<string> {
       htmlPreview: snippet,
     }, null, 2);
   } catch (err: any) {
-    return `Website Inspection Failed for ${targetUrl}: ${err.message}`;
+    const safeMsg = (err.message || "Unknown error").replace(/[\n\r]/g, " ").slice(0, 200);
+    return `Website Inspection Failed: ${safeMsg}`;
   }
 }
 

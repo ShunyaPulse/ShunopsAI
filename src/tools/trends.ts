@@ -10,6 +10,7 @@ export interface TrendingItem {
 
 export interface CuratedTopicResult {
   selected_trend: string;
+  trend_reason: string;
   documentary_topic: string;
   category: string;
   value_hook: string;
@@ -80,16 +81,21 @@ export async function curateBestTrendTopic(items: TrendingItem[]): Promise<Curat
 
   const topItems = items.slice(0, 20);
   const itemsListFormatted = topItems
-    .map((item, idx) => `${idx + 1}. [Trend: "${item.title}"] (Traffic: ${item.approx_traffic}) - News: "${item.news_title}"`)
-    .join("\n");
+    .map(
+      (item, idx) =>
+        `${idx + 1}. [Trend: "${item.title}"] (Traffic: ${item.approx_traffic})\n` +
+        `   Event Headline: "${item.news_title}"\n` +
+        `   Event Context: "${item.news_snippet || "N/A"}"`
+    )
+    .join("\n\n");
 
-  const prompt = `You are an elite editorial director for a high-retention educational and curiosity documentary channel.
-Below is the live list of currently active Google Trends in India:
+  const prompt = `You are an elite editorial director and investigative journalist for a high-retention documentary channel.
+Below is the live list of currently active Google Trends in India with their breaking news events:
 
 ${itemsListFormatted}
 
 YOUR MISSION:
-Select the SINGLE best topic from this list that delivers the HIGHEST KNOWLEDGE VALUE and INTELLECTUAL CURIOSITY to the viewer.
+Select the SINGLE best topic from this list that delivers the HIGHEST KNOWLEDGE VALUE, TIMELINESS, and INTELLECTUAL CURIOSITY.
 
 CRITICAL EDITORIAL RULES:
 1. STRICTLY REJECT Frivolous / Zero-Value Topics:
@@ -99,18 +105,27 @@ CRITICAL EDITORIAL RULES:
    - NO ephemeral internet memes or silly viral clickbait.
    - NO toxic partisan political mudslinging or unverified outrage.
 
-2. STRONGLY PRIORITIZE Genuine Value-Addition & Curiosity:
+2. STRONGLY PRIORITIZE Genuine Value-Addition & Real-World Impact:
    - Science, Space, Nature, Astronomy, and Deep Ocean phenomena.
    - Geopolitics, Global Strategy, Defense tech, and National infrastructure milestones.
    - Emerging technology, AI breakthroughs, and Energy/Engineering marvels.
    - Historical mysteries, archaeological discoveries, and unexplored historical events.
-   - Inspiring Sports Breakthroughs (e.g. World Records, Historic sporting milestones, incredible underdog victories).
+   - Inspiring Sports Breakthroughs (e.g. Historic victories, records, sports science).
 
-3. OUTPUT FORMAT (OPTION A - HYBRID RULES):
+3. MANDATORY RULE - COVER THE EXACT REASON WHY IT IS TRENDING:
+   - The video MUST directly address the EXACT EVENT, match, breakthrough, policy, or incident that caused this trend today.
+   - DO NOT make an abstract or disconnected theoretical lecture.
+   - The video must explain:
+     a) What exactly happened today that triggered this massive search spike?
+     b) The deep background, mechanics, science, or strategy behind this specific event.
+     c) What is the larger takeaway or impact for the viewer?
+
+4. OUTPUT FORMAT (OPTION A - HYBRID RULES):
 Return ONLY valid JSON matching this exact structure:
 {
   "selected_trend": "<exact trend keyword from the list>",
-  "documentary_topic": "<High-CTR topic strictly in English (Roman) alphabet. Hybrid format: [English Topic Keyword] : [Hinglish Curiosity Hook], NEVER Devanagari script>",
+  "trend_reason": "<1-2 clear sentences explaining the EXACT event/news that caused this trend today>",
+  "documentary_topic": "<High-CTR topic strictly in English (Roman) alphabet. Hybrid format: [English Topic Keyword] : [Hinglish Curiosity Hook about this specific event], NEVER Devanagari script>",
   "category": "<Science | Space | Geopolitics | Technology | Nature | History | Sports Milestone>",
   "value_hook": "<1-2 sentences explaining educational/curiosity value in pure English>",
   "language": "Hindi",

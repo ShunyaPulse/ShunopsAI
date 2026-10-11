@@ -13,7 +13,9 @@ import {
   manageKaggle,
   publishJobToYouTube,
 } from "../tools/video.js";
-import { sendVideoReadyEmail } from "../tools/notifier.js";
+import { sendVideoReadyEmail, sendIncidentAlert } from "../tools/notifier.js";
+
+import { isAutonomyPaused, getAutonomyStatus } from "../tools/autonomy-state.js";
 
 interface AutopilotRunResult {
   ok: boolean;
@@ -42,16 +44,24 @@ async function waitForKaggleKernel(
         `[Autopilot] ${new Date().toLocaleTimeString()} - Status: [REDACTED]`,
       );
 
-      if (statusOutput.includes("COMPLETE")) {
+      // Transient CLI errors (e.g. Kaggle CLI network dropouts, 502/503) should retry, not abort
+      if (statusOutput.includes("Kaggle CLI Error")) {
+        console.warn(
+          `[Autopilot] Transient Kaggle CLI error encountered, retrying...`,
+        );
+      } else if (statusOutput.toUpperCase().includes("COMPLETE")) {
         console.log(`[Autopilot] ✅ Kaggle kernel finished successfully!`);
         return true;
-      }
-      if (statusOutput.includes("ERROR") || statusOutput.includes("FAILED")) {
+      } else if (
+        statusOutput.includes("KernelWorkerStatus.ERROR") ||
+        statusOutput.toUpperCase().includes("FAILED") ||
+        /has status ["']?error["']?/i.test(statusOutput)
+      ) {
         console.error(`[Autopilot] ❌ Kaggle kernel failed with status: [REDACTED]`);
         return false;
       }
-    } catch (e: any) {
-      console.warn(`[Autopilot] Status check warning: ${e.message}`);
+    } catch {
+      console.warn("[Autopilot] Status check warning: transient polling exception encountered");
     }
 
     // Wait 60 seconds between polling checks
@@ -69,6 +79,15 @@ async function waitForKaggleKernel(
  * Trend -> Curation -> Kaggle Render -> YouTube Upload (Private) -> Email Review Alert.
  */
 export async function runAutonomousCycle(): Promise<AutopilotRunResult> {
+  const autonomy = await getAutonomyStatus();
+  if (autonomy.paused) {
+    console.log("\n=======================================================");
+    console.log("⏸️ [Autopilot] Daily video cycle skipped: Autonomy & AI generation is currently PAUSED by user killswitch.");
+    console.log(`Paused At: ${autonomy.pausedAt || "Unknown"} | Reason: ${autonomy.reason || "Killswitch activated"}`);
+    console.log("=======================================================\n");
+    return { ok: false, error: "Autonomy is paused by user killswitch." };
+  }
+
   console.log("\n=======================================================");
   console.log(`🚀 [Autopilot] Starting Autonomous Daily Video Cycle`);
   console.log(
@@ -93,6 +112,7 @@ export async function runAutonomousCycle(): Promise<AutopilotRunResult> {
     const curated = await curateBestTrendTopic(trends);
     console.log(`[Autopilot] 🎯 Curated Topic: "${curated.documentary_topic}"`);
     console.log(`[Autopilot] 🏷️ Category: ${curated.category}`);
+    console.log(`[Autopilot] ⚡ Trend Catalyst Event: "${curated.trend_reason}"`);
     console.log(`[Autopilot] 💡 Value Hook: ${curated.value_hook}`);
 
     // 3. Launch Video Job on Kaggle GPU
@@ -103,6 +123,7 @@ export async function runAutonomousCycle(): Promise<AutopilotRunResult> {
       curated.documentary_topic,
       curated.target_duration_minutes || 3,
       "Hindi",
+      curated.trend_reason,
     );
 
     let parsedLaunch: any;
@@ -206,8 +227,67 @@ export async function runAutonomousCycle(): Promise<AutopilotRunResult> {
       emailSent,
     };
   } catch (err: any) {
-    console.error('[Autopilot] ❌ Autonomous cycle encountered an error');
-    return { ok: false, error: err.message };
+    console.error("[Autopilot] ❌ Autonomous cycle encountered an error");
+    // If error is fixable (e.g. YouTube OAuth expired, Kaggle credentials/quota, or SMTP), send alert email
+    const errMsg = String(err?.message || err).toLowerCase();
+    const isFixable =
+      errMsg.includes("token") ||
+      errMsg.includes("auth") ||
+      errMsg.includes("quota") ||
+      errMsg.includes("credential") ||
+      errMsg.includes("unauthorized") ||
+      errMsg.includes("401");
+
+    if (isFixable) {
+      try {
+        await sendIncidentAlert({
+          title: "Video Autopilot Action Required (Credentials / Quota)",
+          service: "Daily Video Autopilot",
+          status: "DEGRADED",
+          actionTaken: "Cycle skipped for today. Please update credentials when convenient.",
+          details: "Authentication or quota limitation encountered during daily cycle.",
+        });
+      } catch {}
+    }
+    return { ok: false, error: "Autonomous cycle encountered an error" };
+  } finally {
+    // Retain only the most recent 2 video jobs to preserve VM disk space
+    await cleanupOldVideoJobs(2);
+  }
+}
+
+/**
+ * Prunes historical job output directories to keep VM disk usage strictly bounded.
+ */
+async function cleanupOldVideoJobs(maxKeep = 2): Promise<void> {
+  const jobsDir = path.resolve(process.cwd(), "jobs");
+  try {
+    if (!fsSync.existsSync(jobsDir)) return;
+    const entries = await fs.readdir(jobsDir, { withFileTypes: true });
+    const jobDirs = entries.filter((e) => e.isDirectory());
+    if (jobDirs.length <= maxKeep) return;
+
+    const dirsWithTime = await Promise.all(
+      jobDirs.map(async (d) => {
+        const full = path.join(jobsDir, d.name);
+        const stat = await fs.stat(full);
+        return { name: d.name, full, mtimeMs: stat.mtimeMs };
+      })
+    );
+
+    dirsWithTime.sort((a, b) => b.mtimeMs - a.mtimeMs);
+    const toRemove = dirsWithTime.slice(maxKeep);
+
+    for (const dir of toRemove) {
+      try {
+        await fs.rm(dir.full, { recursive: true, force: true });
+        console.log(`[Autopilot] Cleaned up historical video job directory: ${dir.name}`);
+      } catch (e: any) {
+        console.warn(`[Autopilot] Could not remove old job ${dir.name}: ${e.message}`);
+      }
+    }
+  } catch (err: any) {
+    console.warn(`[Autopilot] Job cleanup notice: ${err.message}`);
   }
 }
 
@@ -215,21 +295,21 @@ export async function runAutonomousCycle(): Promise<AutopilotRunResult> {
  * Calculates ms until the next 03:30 PM IST (15:30 IST / 10:00 UTC).
  */
 function msUntilNextRun(targetHourIST = 15, targetMinuteIST = 30): number {
-  const now = new Date();
-  // IST offset is UTC + 5h30m = +330 minutes
-  const nowUTC = now.getTime() + now.getTimezoneOffset() * 60000;
-  const nowIST = new Date(nowUTC + 330 * 60000);
+  const IST_OFFSET_MS = 330 * 60 * 1000; // UTC + 5h30m
+  const DAY_MS = 24 * 60 * 60 * 1000;
 
-  const target = new Date(nowIST);
-  target.setHours(targetHourIST, targetMinuteIST, 0, 0);
+  // Work purely in UTC arithmetic so the result is independent of the host
+  // timezone: shift "now" into IST wall-clock epoch milliseconds first.
+  const nowIstMs = Date.now() + IST_OFFSET_MS;
+  const startOfIstDay = Math.floor(nowIstMs / DAY_MS) * DAY_MS;
 
-  if (target.getTime() <= nowIST.getTime()) {
-    // Already passed today, schedule for tomorrow
-    target.setDate(target.getDate() + 1);
+  let targetIstMs = startOfIstDay + (targetHourIST * 60 + targetMinuteIST) * 60 * 1000;
+  if (targetIstMs <= nowIstMs) {
+    // Already passed today in IST, schedule for tomorrow
+    targetIstMs += DAY_MS;
   }
 
-  const diffMs = target.getTime() - nowIST.getTime();
-  return diffMs;
+  return targetIstMs - nowIstMs;
 }
 
 /**

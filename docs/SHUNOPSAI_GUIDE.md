@@ -22,6 +22,24 @@
 
 ---
 
+### 1.1 Module Layout
+
+The codebase is organized into focused, single-responsibility modules:
+
+```
+agent.ts                     # CLI entrypoint + public re-exports
+server.ts                    # HTTP entrypoint
+src/agent/                   # agent core: models, prompts, sandbox, tools, loop
+src/server/                  # Express app: app.ts, middleware/, routes/
+src/core/                    # cross-cutting helpers (colors, github, llm)
+src/tools/                   # cloud, media, GitHub, sentinel, notifier, safety
+src/ai/                      # dual-model consensus engine
+src/cron/                    # scheduled autopilot & sentinel jobs
+src/dashboard/               # dashboard HTML, stylesheet, client script
+```
+
+---
+
 ## 2. Core Pillars & Capabilities
 
 ### 🛡️ Pillar 1: DevOps Sentinel & Auto-Healing
@@ -34,10 +52,8 @@ Monitors, benchmarks, and maintains 100% error-free operation across all service
 - **Auto-Healing**: Reconnects hung pools, verifies service recovery, and triggers alerts.
 
 ### 🚀 Pillar 2: GitHub Actions Zero-Cost Automation
-- **`.github/workflows/sentinel-healthcheck.yml`**: Scheduled 6-hour health check & incident creator.
-- **`.github/workflows/shunops-dispatch.yml`**: Targeted cloud dispatch for Cloud Run, OCI Redis, Neon, Cloudflare, and Kaggle.
-- **`.github/workflows/agent-auto-resolver.yml`**: Auto-resolves Dependabot PRs, Code Scanning Alerts, and CI failures.
-- **`.github/workflows/ci-deploy.yml`**: Runs Semgrep, Trivy, Gitleaks, CodeQL, and Promptfoo.
+- **`.github/workflows/ops.yml`**: Scheduled 6-hour sentinel health check & incident creator, plus manual cloud dispatch (`workflow_dispatch`) and issue-triggered tasks for Cloud Run, OCI Redis, Neon, Cloudflare, and Kaggle.
+- **`.github/workflows/ci-deploy.yml`**: Runs Semgrep, Trivy, Gitleaks, CodeQL, and Promptfoo, then auto-remediates CI/security failures and resolves Code Scanning alerts.
 
 ### 🌐 Pillar 3: Web Dashboard & Website Bot
 - **Interactive Control Center (`http://localhost:4000/`)**:

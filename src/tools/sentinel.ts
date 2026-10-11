@@ -3,6 +3,7 @@ import { Redis } from "ioredis";
 import { pingCloudflareAi } from "./cloudflare-ai.js";
 import { inspectWebsite, manageComputeEngine } from "./cloud.js";
 import { manageKaggle } from "./video.js";
+import { sendIncidentAlert } from "./notifier.js";
 import * as os from "node:os";
 
 export interface ServiceHealthReport {
@@ -236,18 +237,19 @@ export async function checkKaggleHealth(): Promise<ServiceHealthReport> {
   }
 
   const start = Date.now();
-  const username = process.env.VIDEO_KAGGLE_USERNAME || process.env.KAGGLE_USERNAME;
-  const key = process.env.VIDEO_TOKEN || process.env.KAGGLE_KEY || process.env.KAGGLE_API_TOKEN;
 
   try {
     const listResult = await manageKaggle("list");
     const latencyMs = Date.now() - start;
 
-    if (listResult.startsWith("Kaggle CLI Error") && listResult.includes("ENOENT")) {
+    // manageKaggle reports failures as text instead of throwing. Any CLI error
+    // (missing binary, bad credentials, quota) means the pipeline is unusable,
+    // so it must never be scored as healthy.
+    if (/Kaggle CLI Error/i.test(listResult)) {
       return {
         service: "Kaggle GPU Pipeline",
         category: "pipeline",
-        status: "down",
+        status: listResult.includes("ENOENT") ? "down" : "degraded",
         latencyMs,
         error: listResult.slice(0, 200),
         lastChecked: now,
@@ -284,26 +286,21 @@ export async function checkKaggleHealth(): Promise<ServiceHealthReport> {
 export async function checkSystemHealth(): Promise<ServiceHealthReport> {
   const now = new Date().toISOString();
   const start = Date.now();
-  try {
-    const rawMetrics = await manageComputeEngine("metrics");
-    const totalMem = os.totalmem();
-    const freeMem = os.freemem();
-    const memUsagePct = Math.round(((totalMem - freeMem) / totalMem) * 100);
 
-    return {
-      service: "Compute Host / OS",
-      category: "compute",
-      status: memUsagePct > 95 ? "degraded" : "healthy",
-      latencyMs: Date.now() - start,
-      details: {
-        memoryUsagePercent: `${memUsagePct}%`,
-        freeMemoryMb: Math.round(freeMem / 1024 / 1024),
-        totalMemoryMb: Math.round(totalMem / 1024 / 1024),
-        platform: `${os.platform()} (${os.arch()})`,
-        uptimeMinutes: Math.round(os.uptime() / 60),
-      },
-      lastChecked: now,
-    };
+  const totalMem = os.totalmem();
+  const freeMem = os.freemem();
+  const memUsagePct = Math.round(((totalMem - freeMem) / totalMem) * 100);
+  const details: Record<string, any> = {
+    memoryUsagePercent: `${memUsagePct}%`,
+    freeMemoryMb: Math.round(freeMem / 1024 / 1024),
+    totalMemoryMb: Math.round(totalMem / 1024 / 1024),
+    platform: `${os.platform()} (${os.arch()})`,
+    uptimeMinutes: Math.round(os.uptime() / 60),
+  };
+
+  let probeOutput: string;
+  try {
+    probeOutput = await manageComputeEngine("metrics");
   } catch (err: any) {
     return {
       service: "Compute Host / OS",
@@ -313,35 +310,71 @@ export async function checkSystemHealth(): Promise<ServiceHealthReport> {
       lastChecked: now,
     };
   }
+
+  // manageComputeEngine returns diagnostics (and errors) as text rather than
+  // throwing, so a failed GCE SSH probe must be detected from the output —
+  // otherwise this check would keep reporting "healthy" for an unreachable VM.
+  const probeHead = probeOutput.split("\n")[0]?.trim() ?? "";
+  const gceProbeFailed = /^GCE SSH Error/i.test(probeHead);
+  details.computeProbe = probeHead;
+
+  return {
+    service: "Compute Host / OS",
+    category: "compute",
+    status: gceProbeFailed || memUsagePct > 95 ? "degraded" : "healthy",
+    latencyMs: Date.now() - start,
+    details,
+    error: gceProbeFailed ? probeHead : undefined,
+    lastChecked: now,
+  };
+}
+
+/**
+ * Run a single health probe, converting an unexpected throw into an explicit
+ * `down` report. Without this, a crashing probe would silently disappear from
+ * the summary and the fleet could still be reported as fully operational.
+ */
+async function probe(
+  service: string,
+  category: ServiceHealthReport["category"],
+  run: () => Promise<ServiceHealthReport>
+): Promise<ServiceHealthReport> {
+  try {
+    return await run();
+  } catch (err: any) {
+    return {
+      service,
+      category,
+      status: "down",
+      error: `Health probe threw: ${err?.message || String(err)}`,
+      lastChecked: new Date().toISOString(),
+    };
+  }
 }
 
 /**
  * Master Comprehensive Sentinel Scan: Checks all registered cloud services concurrently.
  */
 export async function runComprehensiveSentinelScan(): Promise<SentinelStatusSummary> {
-  const checks = await Promise.allSettled([
-    checkNeonHealth(process.env.DATABASE_URL, "Neon Primary DB"),
-    process.env.SARALGATI_DATABASE_URL
-      ? checkNeonHealth(process.env.SARALGATI_DATABASE_URL, "Neon Saralgati DB")
-      : null,
-    process.env.KANBAN_DATABASE_URL
-      ? checkNeonHealth(process.env.KANBAN_DATABASE_URL, "Neon Kanban DB")
-      : null,
-    checkRedisHealth(),
-    checkCloudflareAiHealth(),
-    checkAppHealth(process.env.SARALGATI_APP_URL || "", "Saralgati Cloud Run App"),
-    checkAppHealth(process.env.KANBAN_APP_URL || "", "Kanban Cloud Run App"),
-    checkKaggleHealth(),
-    checkSystemHealth(),
-  ]);
+  // Every entry is wrapped in `probe`, which never rejects, so a failing check
+  // is always represented in the report instead of being dropped.
+  const checks: Array<Promise<ServiceHealthReport>> = [
+    probe("Neon Primary DB", "database", () => checkNeonHealth(process.env.DATABASE_URL, "Neon Primary DB")),
+    ...(process.env.SARALGATI_DATABASE_URL
+      ? [probe("Neon Saralgati DB", "database", () => checkNeonHealth(process.env.SARALGATI_DATABASE_URL, "Neon Saralgati DB"))]
+      : []),
+    ...(process.env.KANBAN_DATABASE_URL
+      ? [probe("Neon Kanban DB", "database", () => checkNeonHealth(process.env.KANBAN_DATABASE_URL, "Neon Kanban DB"))]
+      : []),
+    probe("OCI Redis", "cache", checkRedisHealth),
+    probe("Cloudflare Workers AI", "ai", checkCloudflareAiHealth),
+    probe("Saralgati Cloud Run App", "web", () => checkAppHealth(process.env.SARALGATI_APP_URL || "", "Saralgati Cloud Run App")),
+    probe("Kanban Cloud Run App", "web", () => checkAppHealth(process.env.KANBAN_APP_URL || "", "Kanban Cloud Run App")),
+    probe("Kaggle GPU Pipeline", "pipeline", checkKaggleHealth),
+    probe("Compute Host / OS", "compute", checkSystemHealth),
+  ];
 
-  const reports: ServiceHealthReport[] = [];
-
-  for (const c of checks) {
-    if (c.status === "fulfilled" && c.value) {
-      reports.push(c.value);
-    }
-  }
+  const reports: ServiceHealthReport[] = await Promise.all(checks);
 
   const healthyCount = reports.filter((r) => r.status === "healthy").length;
   const degradedCount = reports.filter((r) => r.status === "degraded").length;
@@ -408,71 +441,236 @@ export function formatSentinelReportMarkdown(summary: SentinelStatusSummary): st
   return lines.join("\n");
 }
 
+/** Outcome of a self-healing attempt against a single service. */
+interface HealReport {
+  success: boolean;
+  actionTaken: string;
+  result: string;
+}
+
+/** Reconnect to OCI Redis and verify the connection. */
+async function healRedis(): Promise<HealReport> {
+  try {
+    const client = process.env.REDIS_URL
+      ? new Redis(process.env.REDIS_URL, { connectTimeout: 5000 })
+      : new Redis({
+          host: process.env.REDIS_HOST || "127.0.0.1",
+          port: Number(process.env.REDIS_PORT) || 6379,
+          password: process.env.REDIS_PASSWORD || undefined,
+          connectTimeout: 5000,
+        });
+    await client.ping();
+    await client.quit();
+    return {
+      success: true,
+      actionTaken: "Tested OCI Redis reconnect and ping",
+      result: "Connection re-established successfully.",
+    };
+  } catch (e: any) {
+    return {
+      success: false,
+      actionTaken: "Attempted Redis reconnect",
+      result: `Failed to reconnect: ${e.message}. Suggest checking OCI security list port 6379 or VM iptables.`,
+    };
+  }
+}
+
+/** Probe the Cloudflare Workers AI endpoint. */
+async function healCloudflareAi(): Promise<HealReport> {
+  const probe = await pingCloudflareAi();
+  return {
+    success: probe.ok,
+    actionTaken: "Probed Cloudflare Workers AI endpoint",
+    result: probe.ok
+      ? `Cloudflare AI responded in ${probe.latencyMs}ms on model ${probe.model}`
+      : `Cloudflare AI returned error: ${probe.error}`,
+  };
+}
+
 /**
- * Self-healing automated remediation logic
+ * Probe the Neon database that is actually failing.
+ *
+ * `norm` is the lower-cased service name, used to select the connection string
+ * belonging to the failing service rather than always the primary database.
+ */
+async function healNeonDatabase(serviceName: string, norm: string): Promise<HealReport> {
+  const connectionUrl = norm.includes("saralgati")
+    ? process.env.SARALGATI_DATABASE_URL
+    : norm.includes("kanban")
+    ? process.env.KANBAN_DATABASE_URL
+    : undefined;
+  const rep = await checkNeonHealth(connectionUrl, serviceName);
+  return {
+    success: rep.status === "healthy",
+    actionTaken: "Probed Neon connection pool and query executor",
+    result: rep.status === "healthy"
+      ? `Neon database responded in ${rep.latencyMs}ms.`
+      : `Neon database error: ${rep.error}`,
+  };
+}
+
+/** Probe the Cloud Run container behind a web service. */
+async function healCloudRun(serviceName: string, norm: string): Promise<HealReport> {
+  const isKanban = norm.includes("kanban");
+  const targetUrl = isKanban ? process.env.KANBAN_APP_URL || "" : process.env.SARALGATI_APP_URL || "";
+
+  if (!targetUrl) {
+    return {
+      success: false,
+      actionTaken: `Inspected Cloud Run configuration for ${serviceName}`,
+      result: "Target Cloud Run URL not configured in environment.",
+    };
+  }
+
+  const probe = await checkAppHealth(targetUrl, isKanban ? "Kanban Cloud Run" : "Saralgati Cloud Run");
+  return {
+    success: probe.status === "healthy",
+    actionTaken: `Probed Cloud Run HTTPS container at ${targetUrl}`,
+    result: probe.status === "healthy"
+      ? `Container responded with HTTP OK in ${probe.latencyMs ?? 0}ms.`
+      : `Container degraded: ${probe.error || "Non-200 response"}. Revision diagnostics active.`,
+  };
+}
+
+/** Probe every configured web endpoint. */
+async function healWebEndpoints(): Promise<HealReport> {
+  const urls = [process.env.SARALGATI_APP_URL, process.env.KANBAN_APP_URL].filter(Boolean) as string[];
+  const probeResults: string[] = [];
+  let allOk = true;
+
+  for (const u of urls) {
+    const p = await checkAppHealth(u, "Website Monitor");
+    if (p.status !== "healthy") allOk = false;
+    probeResults.push(`${u}: ${p.status} (${p.latencyMs ?? 0}ms)`);
+  }
+
+  return {
+    success: allOk,
+    actionTaken: `Tested live web endpoints: ${urls.join(", ")}`,
+    result: probeResults.join(" | "),
+  };
+}
+
+/** Sweep active Kaggle kernels and verify GPU quota access. */
+async function healKagglePipeline(): Promise<HealReport> {
+  try {
+    const kaggleCheck = await manageKaggle("list");
+    // The CLI reports failures as text, so a hard error must not be reported
+    // as a successful heal.
+    return {
+      success: !/Kaggle CLI Error/i.test(kaggleCheck),
+      actionTaken: "Swept active Kaggle kernels and checked GPU quotas",
+      result: kaggleCheck.slice(0, 300),
+    };
+  } catch (kErr: any) {
+    return {
+      success: false,
+      actionTaken: "Attempted Kaggle kernel sweeper",
+      result: `Kaggle CLI check failed: ${kErr.message}`,
+    };
+  }
+}
+
+/** Report a service with no mapped self-healing script. */
+function unmappedServiceReport(serviceName: string, reason?: string): HealReport {
+  return {
+    success: false,
+    actionTaken: `Analyzed service '${serviceName}'`,
+    result: `No automated self-healing script mapped for '${serviceName}'. Reason: ${reason || "None"}. Manual intervention or diagnostic script recommended.`,
+  };
+}
+
+/** Broadcast incident & self-healing status to Discord / Telegram / Slack / Email. */
+function broadcastHealOutcome(serviceName: string, reason: string | undefined, healReport: HealReport): void {
+  sendIncidentAlert({
+    title: healReport.success ? `Service Self-Healed: ${serviceName}` : `Service Degraded/Failed: ${serviceName}`,
+    service: serviceName,
+    status: healReport.success ? "HEALED" : "DEGRADED",
+    actionTaken: healReport.actionTaken,
+    details: `${healReport.result} (Trigger Reason: ${reason || "Autonomous Sentinel"})`,
+  }).catch(() => {});
+}
+
+/**
+ * Self-healing remediation for a single named service.
+ */
+async function healSingleService(serviceName: string, reason?: string): Promise<HealReport> {
+  const norm = serviceName.toLowerCase();
+  let healReport: HealReport;
+
+  if (norm.includes("redis")) {
+    healReport = await healRedis();
+  } else if (norm.includes("cloudflare")) {
+    healReport = await healCloudflareAi();
+  } else if (norm.includes("neon") || norm.includes("postgres") || norm.includes("database")) {
+    healReport = await healNeonDatabase(serviceName, norm);
+  } else if (norm.includes("cloud_run") || norm.includes("cloud run") || norm.includes("saralgati") || norm.includes("kanban")) {
+    healReport = await healCloudRun(serviceName, norm);
+  } else if (norm.includes("web") || norm.includes("site") || norm.includes("uptime")) {
+    healReport = await healWebEndpoints();
+  } else if (norm.includes("kaggle") || norm.includes("gpu") || norm.includes("pipeline")) {
+    healReport = await healKagglePipeline();
+  } else {
+    healReport = unmappedServiceReport(serviceName, reason);
+  }
+
+  broadcastHealOutcome(serviceName, reason, healReport);
+  return healReport;
+}
+
+/**
+ * Self-healing entrypoint.
+ *
+ * Accepts either a single service name or the fleet-wide selector "all" — what
+ * the dashboard Auto-Heal button and the default /api/sentinel/heal request
+ * send. The selector scans the fleet and heals every degraded or down service;
+ * previously "all" matched no branch and always returned a failure.
  */
 export async function autoHealService(serviceName: string, reason?: string): Promise<{
   success: boolean;
   actionTaken: string;
   result: string;
 }> {
-  const norm = serviceName.toLowerCase();
+  const selector = (serviceName || "all").trim().toLowerCase();
 
-  // 1. Redis Self-Healing
-  if (norm.includes("redis")) {
-    try {
-      const client = process.env.REDIS_URL
-        ? new Redis(process.env.REDIS_URL, { connectTimeout: 5000 })
-        : new Redis({
-            host: process.env.REDIS_HOST || "127.0.0.1",
-            port: Number(process.env.REDIS_PORT) || 6379,
-            password: process.env.REDIS_PASSWORD || undefined,
-            connectTimeout: 5000,
-          });
-      await client.ping();
-      await client.quit();
-      return {
-        success: true,
-        actionTaken: "Tested OCI Redis reconnect and ping",
-        result: "Connection re-established successfully.",
-      };
-    } catch (e: any) {
-      return {
-        success: false,
-        actionTaken: "Attempted Redis reconnect",
-        result: `Failed to reconnect: ${e.message}. Suggest checking OCI security list port 6379 or VM iptables.`,
-      };
-    }
+  if (selector !== "all" && selector !== "*") {
+    return healSingleService(serviceName, reason);
   }
 
-  // 2. Cloudflare AI Self-Healing
-  if (norm.includes("cloudflare")) {
-    const probe = await pingCloudflareAi();
+  const summary = await runComprehensiveSentinelScan();
+  const failing = summary.services.filter(
+    (s) => s.status === "degraded" || s.status === "down"
+  );
+
+  if (failing.length === 0) {
     return {
-      success: probe.ok,
-      actionTaken: "Probed Cloudflare Workers AI endpoint",
-      result: probe.ok
-        ? `Cloudflare AI responded in ${probe.latencyMs}ms on model ${probe.model}`
-        : `Cloudflare AI returned error: ${probe.error}`,
+      success: true,
+      actionTaken: "Scanned the fleet for self-healing",
+      result: `No degraded or down services detected (${summary.healthyCount}/${summary.totalServices} healthy).`,
     };
   }
 
-  // 3. Neon Postgres Self-Healing
-  if (norm.includes("neon") || norm.includes("postgres") || norm.includes("database")) {
-    const rep = await checkNeonHealth();
-    return {
-      success: rep.status === "healthy",
-      actionTaken: "Probed Neon connection pool and query executor",
-      result: rep.status === "healthy"
-        ? `Neon database responded in ${rep.latencyMs}ms.`
-        : `Neon database error: ${rep.error}`,
-    };
+  const outcomes: string[] = [];
+  let healed = 0;
+  for (const svc of failing) {
+    const outcome = await healSingleService(svc.service, svc.error || reason);
+    if (outcome.success) healed++;
+    outcomes.push(`${outcome.success ? "✅" : "❌"} ${svc.service}: ${outcome.result}`);
   }
 
-  // Default fallback
-  return {
-    success: false,
-    actionTaken: `Analyzed service '${serviceName}'`,
-    result: `No automated self-healing script mapped for '${serviceName}'. Reason: ${reason || "None"}. Manual intervention or diagnostic script recommended.`,
+  const report = {
+    success: healed === failing.length,
+    actionTaken: `Healed ${healed}/${failing.length} failing service(s) across the fleet`,
+    result: outcomes.join("\n"),
   };
+
+  sendIncidentAlert({
+    title: `Fleet Self-Healing Sweep: ${healed}/${failing.length} recovered`,
+    service: "all",
+    status: report.success ? "HEALED" : "DEGRADED",
+    actionTaken: report.actionTaken,
+    details: outcomes.join(" | ").slice(0, 1500),
+  }).catch(() => {});
+
+  return report;
 }

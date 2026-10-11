@@ -14,28 +14,35 @@ const RENDER_SRC = path.resolve(process.cwd(), "video", "kernel", "render.py");
 function kaggleEnv(): NodeJS.ProcessEnv {
   const user = process.env.VIDEO_KAGGLE_USERNAME || process.env.KAGGLE_USERNAME || "shunyapulse";
   const key = process.env.VIDEO_TOKEN || process.env.KAGGLE_KEY || process.env.KAGGLE_API_TOKEN;
+  const pathSep = os.platform() === "win32" ? ";" : ":";
   return {
     ...process.env,
+    PYTHONIOENCODING: "utf-8",
+    PYTHONUTF8: "1",
     KAGGLE_USERNAME: user,
     KAGGLE_KEY: key,
     KAGGLE_API_TOKEN: key,
-    PATH: `${process.env.PATH}:${path.join(os.homedir(), ".local", "bin")}`,
+    PATH: `${process.env.PATH}${pathSep}${path.join(os.homedir(), ".local", "bin")}`,
   };
 }
 
-async function kaggle(args: string[], timeout = 120000): Promise<string> {
+export async function kaggle(args: string[], timeout = 120000): Promise<string> {
   const env = kaggleEnv();
+  const isWin = os.platform() === "win32";
+  const cmd = isWin ? "python" : "kaggle";
+  const finalArgs = isWin ? ["-X", "utf8", "-m", "kaggle", ...args] : args;
+
   try {
-    const { stdout, stderr } = await execFileAsync("kaggle", args, {
+    const { stdout, stderr } = await execFileAsync(cmd, finalArgs, {
       env,
       timeout,
       maxBuffer: 1024 * 1024 * 5,
     });
     return (stdout + (stderr ? `\n${stderr}` : "")).trim();
   } catch (e: any) {
-    if (e.code === "ENOENT") {
+    if (!isWin) {
       try {
-        const { stdout, stderr } = await execFileAsync("python", ["-m", "kaggle", ...args], {
+        const { stdout, stderr } = await execFileAsync("python", ["-X", "utf8", "-m", "kaggle", ...args], {
           env,
           timeout,
           maxBuffer: 1024 * 1024 * 5,
@@ -57,13 +64,22 @@ export interface VideoScript {
   language?: string;
   chapters: { title: string; start_scene: number }[];
   scenes: { narration: string; caption?: string; visual_prompt: string }[];
+  thumbnail?: {
+    headline: string;
+    subheadline?: string;
+    visual_prompt: string;
+  };
 }
 
 /**
  * Parse the comma-separated GEMINI_API_KEY pool and return an array of trimmed keys.
  */
 function geminiKeyPool(): string[] {
-  const raw = process.env.GEMINI_API_KEY ?? "";
+  const raw =
+    process.env.GEMINI_KEYS ??
+    process.env.GEMINI_API_KEYS ??
+    process.env.GEMINI_API_KEY ??
+    "";
   return raw
     .split(",")
     .map((k) => k.trim())
@@ -77,13 +93,11 @@ function geminiKeyPool(): string[] {
  * quality is degraded to the next model in this order.
  */
 export const GEMINI_MODELS_QUALITY_ORDER = [
-  "gemini-3.8-flash",        // Latest stable, Best Quality (5 RPM / 20 RPD free)
-  "gemini-3.7-flash",        // High capability fallback   (5 RPM / 20 RPD free)
-  "gemini-3.6-flash",        // Solid stable fallback      (5 RPM / 20 RPD free)
-  "gemini-3.5-flash",        // Widely available           (10 RPM / 20 RPD free)
-  "gemini-3-flash-preview",  // AI Studio Flash Preview    (5 RPM / 20 RPD free)
-  "gemini-3.5-flash-lite",   // High-throughput Lite       (30 RPM / 1500 RPD free)
-  "gemini-3.1-flash-lite",   // Last-resort Ultra-Lite     (30 RPM / 1500 RPD free)
+  "gemini-3.8-flash",        // Active verified quota (1 / 5)
+  "gemini-3.7-flash",        // High capability fallback
+  "gemini-3.6-flash",        // Active verified quota (1 / 5)
+  "gemini-3.5-flash",        // Active verified quota (1 / 5)
+  "gemini-3-flash-preview",  // Active verified quota (1 / 5)
 ];
 
 const KEYS_PER_MODEL_ATTEMPT = 6;
@@ -120,7 +134,8 @@ export async function geminiGenerate(prompt: string, preferredModel?: string): P
   for (let mIdx = 0; mIdx < modelsToTry.length; mIdx++) {
     const model = modelsToTry[mIdx];
     const candidateKeys = pickKeySubset(pool, Math.min(KEYS_PER_MODEL_ATTEMPT, pool.length));
-    console.log(`[Video] Trying model [${mIdx + 1}/${modelsToTry.length}]: "${model}" with ${candidateKeys.length} keys...`);
+    const candidateCount = candidateKeys.length;
+    console.log(`[Video] Trying model [${mIdx + 1}/${modelsToTry.length}]: "${model}" with ${candidateCount} attempts...`);
 
     for (let kIdx = 0; kIdx < candidateKeys.length; kIdx++) {
       const key = candidateKeys[kIdx];
@@ -213,54 +228,129 @@ export async function geminiGenerate(prompt: string, preferredModel?: string): P
     }
   }
 
-  throw new Error(`All models in GEMINI_MODELS_QUALITY_ORDER and Groq fallback failed. Last error: ${globalLastErr}`);
+  // Cross-provider backup Tier 3: OpenRouter High-Capability Models
+  const openrouterKey = process.env.OPENROUTER_API_KEY;
+  if (openrouterKey) {
+    console.warn(`[Video] ⚠️ Attempting cross-provider fallback to OpenRouter...`);
+    const openrouterModels = [
+      "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "nvidia/nemotron-3.5-lightning:free",
+      "meta-llama/llama-3.3-70b-instruct:free",
+      "google/gemma-4-31b-it:free",
+      "cohere/north-mini-code:free",
+      "openrouter/free",
+    ];
+    for (const oModel of openrouterModels) {
+      try {
+        const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${openrouterKey}`,
+            "HTTP-Referer": "https://github.com/ShunyaPulse/ShunopsAI",
+            "X-Title": "ShunopsAI Video Script Generation",
+          },
+          body: JSON.stringify({
+            model: oModel,
+            messages: [{ role: "user", content: prompt }],
+            temperature: 0.7,
+            response_format: { type: "json_object" },
+          }),
+        });
+        if (res.ok) {
+          const data: any = await res.json();
+          const text = data?.choices?.[0]?.message?.content ?? "";
+          if (text) {
+            console.log(`[Video] Success with OpenRouter fallback model: "${oModel}"`);
+            return { text, modelUsed: `openrouter:${oModel}` };
+          }
+        }
+      } catch (err: any) {
+        console.warn(`[Video] OpenRouter fallback ${oModel} failed: ${err.message}`);
+      }
+    }
+  }
+
+  throw new Error(`All models in GEMINI_MODELS_QUALITY_ORDER, Groq fallback, and OpenRouter fallback failed. Last error: ${globalLastErr}`);
 }
 
 /**
  * Stage 1-2: Brainstorm-to-script using the Gemini key pool and quality degradation.
  */
-export async function generateScript(topic: string, minutes = 5, language = "English"): Promise<VideoScript> {
+export async function generateScript(
+  topic: string,
+  minutes = 5,
+  language = "English",
+  trendReason?: string
+): Promise<VideoScript> {
   const preferredModel = process.env.GEMINI_MODEL;
   const targetWords = Math.round(minutes * 150);
   const sceneCount = Math.round(targetWords / 16);
   const voice = /hindi/i.test(language) ? "hi-IN-MadhurNeural" : "en-US-AndrewNeural";
 
-  const prompt = `You are an elite documentary filmmaker and YouTube director (Vox, National Geographic, BBC Earth style).
+  const prompt = `You are an elite investigative documentary filmmaker and YouTube director (Vox, Johnny Harris, Think School style).
 Write a gripping, 100% factual, highly engaging video script with hard synchronization between spoken narration and cinematic footage.
 
 Topic: ${topic}
+${trendReason ? `BREAKING EVENT / EXACT REASON WHY IT IS TRENDING TODAY: "${trendReason}"` : ""}
 Language: ${language}
 Target Length: about ${targetWords} spoken words (${minutes} minutes) divided into about ${sceneCount} tightly-paced scenes (12-20 words each).
 
 CRITICAL DIRECTIVES:
-1. SCRIPT & SCRIPT-LANGUAGE RULES (MANDATORY - OPTION A HYBRID FORMULA):
-   - TITLE (THE HYBRID FORMULA): Must be strictly in English (Roman) alphabet. Format: "[English Topic Keyword] : [Hinglish Curiosity Question/Hook]".
+1. MANDATORY - COVER THE ACTUAL BREAKING EVENT (WHY IT IS TRENDING):
+   - The video MUST directly explain the EXACT EVENT, match, breakthrough, policy, or incident that made this topic trend today: ${trendReason || topic}.
+   - DO NOT make a detached abstract lecture or generic essay.
+   - Act 1 (Scene 1-4): Hook the viewer immediately with the breaking event that happened today and why everyone is talking about it.
+   - Act 2 (Middle Scenes): Deep dive into the mechanics, science, history, or engineering behind this specific event.
+   - Act 3 (Final Scenes - Conclusive Ending & Outro):
+     * Do NOT end abruptly on technical facts or body content.
+     * The final scenes must synthesize what this discovery or event means for humanity and the future.
+     * The very last scene MUST feature a memorable, conclusive closing statement and sign-off so the viewer experiences complete, satisfying narrative closure.
+2. SCRIPT & SCRIPT-LANGUAGE RULES (MANDATORY - OPTION A HYBRID FORMULA):
+   - TITLE (THE HYBRID FORMULA): Must be strictly in English (Roman) alphabet. Format: "[English Topic Keyword] : [Hinglish Curiosity Question/Hook about this specific event]".
      Example: "Aadhaar Super-Engine : 140 Crore Logo Ka Data Kaise Safe Rehta Hai?"
-     Example: "James Webb Telescope : Space Mein Scientists Ko Kya Ajeeb Mila?"
+     Example: "Cristiano Ronaldo 900 Goals : 40 Ki Umar Mein Aisa Record Kaise Banaya?"
      Example: "Semiconductor Fab : India Mein Microchips Banana Itna Mushkil Kyu Hai?"
      NEVER use Devanagari script. Maximum 70 characters.
-   - DESCRIPTION (PURE ENGLISH): Must be written in 100% PURE ENGLISH (English language & Roman letters). Include detailed SEO overview, key technical keywords, and timestamps/chapters. No Devanagari script.
+   - DESCRIPTION (PURE ENGLISH): Must be written in 100% PURE ENGLISH (English language & Roman letters). Include detailed SEO overview of the event, key technical keywords, and timestamps/chapters. No Devanagari script.
    - CHAPTER TITLES & TAGS: Must be strictly in English (Roman) alphabet.
    - NARRATION (Spoken Audio): Natural, engaging Hindi dialogue spoken by voice hi-IN-MadhurNeural.
    - CAPTIONS (On-Screen Subtitles): Must be in 100% PURE ENGLISH (both English letters AND English language words). For every single scene, provide the exact English translation in "caption" to be displayed on-screen.
-2. Visual Prompt Engineering for True Continuous Video:
+3. Visual Prompt Engineering for True Continuous Video & Flaw-Free Execution:
    - For EVERY scene, write a "visual_prompt" that describes a real, continuous cinematic video shot — NOT a static photo or generic concept.
-   - Specify:
-     a) Camera movement & lens: e.g. "Slow cinematic dolly-in shot on ARRI Alexa Mini LF, 35mm anamorphic lens, shallow depth of field, 24fps" or "Steadicam low-angle tracking shot", "Macro telephoto rack-focus".
-     b) Physical dynamic action matching the narration: e.g. if the narration discusses a cyber heist, show "A dimly lit cybersecurity operations center with glowing curved telemetry monitors, analysts in focus typing rapidly, camera slowly pushing through server racks".
-     c) Modern Digital Lighting & Clarity: "Crisp natural 4K digital cinematography, modern high-end documentary lighting, vivid realistic colors, sharp clean focus, absolutely NO vintage/retro/sepia/8mm/grainy aesthetics."
-     d) Realism enforcement: Clean, authentic physical textures (modern architectural glass, polished materials, real skin, crisp telemetry). Avoid retro filters, heavy grain, sepia tones, plastic CGI, or still-photo aesthetics.
-3. Return ONLY valid JSON in this exact structure:
+   - ZERO AI UI / TEXT HALLUCINATIONS (CRITICAL):
+     * NEVER instruct the AI model to render legible text, words, labels, graphs, line charts, or alphanumeric dashboards inside the shot.
+     * When screens, monitors, or control rooms are depicted, explicitly specify: "unlabeled glowing telemetry monitors, abstract clean data visualization, ambient blue HUD glow with zero text, zero letters, zero numbers, zero pseudocode".
+     * Any data charts or maps will be composited as clean motion graphics templates in post-production.
+   - RIGID BACKGROUND GEOMETRY & LOW-MOTION STABILITY (PREVENT BREATHING/SURFACE WARPING):
+     * For indoor, laboratory, server room, and character shots: Specify steady camera control: "Subtle character breathing and gentle eye movement, locked solid background geometry, rigid non-morphing walls, stable monitor frames in 3D space".
+     * Ban rapid boiling, shifting surfaces, and inconsistent morphing.
+   - CONTROLLED DOLLY SPEEDS (ELIMINATE MOTION BLUR & FRAME SMEAR):
+     * Ban whip-pans, fast zooms, or aggressive camera tracks.
+     * Specify slow, controlled, steady camera work: "Slow cinematic dolly forward on track", "Smooth steadicam glidecam push-in", "Gentle cinematic tripod pan".
+   - Modern Digital Lighting & Clarity:
+     * "Crisp natural 4K digital cinematography, modern high-end documentary lighting, balanced realistic color grade, sharp clean focus, absolutely NO vintage/retro/sepia/8mm/grainy aesthetics."
+   - Realism enforcement: Clean, authentic physical textures (modern architectural glass, polished materials, real skin, crisp telemetry). Avoid retro filters, heavy grain, sepia tones, plastic CGI, or still-photo aesthetics.
+4. HIGH-CLICKTHROUGH (CTR) TRUTHFUL THUMBNAIL CONCEPT (OPTION A):
+   - Design a dedicated hero concept thumbnail that creates irresistible psychological curiosity ("Ask Studio" style) without deception or clickbait lies.
+   - It must authentically depict the central subject, revelation, or event of the video with cinematic drama, rim lighting, atmospheric depth, and deep contrast.
+   - Include a short, bold 2-4 word headline (e.g. "GHOST PARTICLES", "SECRET DEEP ICE", "THE IMPOSSIBLE ENGINE") and a complementary subheadline.
+5. Return ONLY valid JSON in this exact structure:
 {
   "title": "<Hybrid Title: [English Topic] : [Hinglish Curiosity Hook], Roman alphabet only, <=70 chars, NO Devanagari>",
-  "description": "<Comprehensive Pure English SEO description, 150-250 words with timestamps & keywords, NO Devanagari>",
+  "description": "<Comprehensive Pure English SEO description of the event, 150-250 words with timestamps & keywords, NO Devanagari>",
   "tags": ["<8-15 high volume relevant tags in English alphabet>"],
   "chapters": [{"title": "<Chapter Title in English>", "start_scene": 0}],
+  "thumbnail": {
+    "headline": "<Punchy 2-4 word high-impact text hook, e.g. 'GHOST PARTICLES'>",
+    "subheadline": "<Sub-hook or curiosity teaser, e.g. 'ANTARCTICA DEEP ICE SECRET'>",
+    "visual_prompt": "<Extremely vivid, cinematic hero poster prompt in pure English: dramatic subject, intense rim lighting, atmospheric glow, high dynamic range, clean composition leaving lower space for text, 8k cinematic masterpiece, zero text in image>"
+  },
   "scenes": [
     {
       "narration": "<Exact words spoken in Hindi by voice hi-IN-MadhurNeural>",
       "caption": "<Exact English translation in pure English language and Roman alphabet for on-screen subtitles>",
-      "visual_prompt": "<Ultra-detailed cinematic video prompt in English: camera move, lens, subject action matching narration, lighting, natural atmosphere>"
+      "visual_prompt": "<Ultra-detailed cinematic video prompt in English: camera move (slow dolly/steadicam), lens, subject action matching narration, lighting, locked rigid background geometry, clean text-free screens>"
     }
   ]
 }`;
@@ -292,11 +382,16 @@ CRITICAL DIRECTIVES:
 /**
  * Stage 3: package script + renderer and launch it on a Kaggle GPU kernel.
  */
-export async function startVideoJob(topic: string, minutes = 5, language = "English"): Promise<string> {
+export async function startVideoJob(
+  topic: string,
+  minutes = 5,
+  language = "English",
+  trendReason?: string
+): Promise<string> {
   const user = process.env.VIDEO_KAGGLE_USERNAME || process.env.KAGGLE_USERNAME || "shunyapulse";
   if (!user) return "Error: KAGGLE_USERNAME not set.";
 
-  const script = await generateScript(topic, minutes, language);
+  const script = await generateScript(topic, minutes, language, trendReason);
   const id = Date.now().toString(36);
   const jobDir = path.join(JOBS_DIR, id);
   const dsDir = path.join(jobDir, "dataset");
@@ -358,14 +453,68 @@ export async function startVideoJob(topic: string, minutes = 5, language = "Engl
 }
 
 /**
+ * Reruns an existing video job on Kaggle with the latest patched renderer.
+ */
+export async function rerunVideoJob(jobId: string): Promise<string> {
+  const user = process.env.VIDEO_KAGGLE_USERNAME || process.env.KAGGLE_USERNAME || "shunyapulse";
+  if (!user) return "Error: KAGGLE_USERNAME not set.";
+
+  const cleanId = jobId.replace(/^video-render-/, "").replace(/^shunyapulse\//, "");
+  const jobDir = path.join(JOBS_DIR, cleanId);
+  const kDir = path.join(jobDir, "kernel");
+  await fs.mkdir(kDir, { recursive: true });
+
+  // Copy latest patched render.py into the job kernel directory
+  await fs.copyFile(RENDER_SRC, path.join(kDir, "render.py"));
+
+  // Ensure kernel-metadata.json is present and correctly mounts the dataset
+  await fs.writeFile(
+    path.join(kDir, "kernel-metadata.json"),
+    JSON.stringify(
+      {
+        id: `${user}/video-render-${cleanId}`,
+        title: `video render ${cleanId}`,
+        code_file: "render.py",
+        language: "python",
+        kernel_type: "script",
+        is_private: true,
+        enable_gpu: true,
+        enable_internet: true,
+        dataset_sources: [`${user}/video-job-${cleanId}`],
+      },
+      null,
+      2
+    )
+  );
+
+  console.log("[Video] Pushing updated kernel to Kaggle...");
+  const pushRes = await kaggle(["kernels", "push", "-p", kDir]);
+  console.log("[Video] Kernel push completed.");
+
+  const statusRes = await kaggle(["kernels", "status", `${user}/video-render-${cleanId}`]);
+
+  return JSON.stringify(
+    {
+      jobId: cleanId,
+      kernel: `${user}/video-render-${cleanId}`,
+      push: pushRes,
+      status: statusRes,
+    },
+    null,
+    2
+  );
+}
+
+/**
  * Observe Kaggle training / rendering kernels.
  */
-export async function manageKaggle(action: "list" | "status" | "output", ref?: string): Promise<string> {
+export async function manageKaggle(action: "list" | "status" | "output" | "rerun", ref?: string): Promise<string> {
   const user = process.env.VIDEO_KAGGLE_USERNAME || process.env.KAGGLE_USERNAME || "shunyapulse";
   if (action === "list") return await kaggle(["kernels", "list", "--mine", "--page-size", "15"]);
-  if (!ref) return "Error: 'ref' (owner/kernel-slug) is required for status/output.";
+  if (!ref) return "Error: 'ref' (owner/kernel-slug) is required for status/output/rerun.";
   const full = ref.includes("/") ? ref : `${user}/${ref}`;
   if (action === "status") return await kaggle(["kernels", "status", full]);
+  if (action === "rerun") return await rerunVideoJob(ref);
 
   // output: download files + execution log
   const slug = full.split("/")[1] ?? full;
@@ -389,19 +538,48 @@ import * as fsSync from "node:fs";
  * Automatically publishes a rendered video job to YouTube with private visibility.
  */
 export async function publishJobToYouTube(jobDirOrId: string, privacy: "private" | "unlisted" | "public" = "private"): Promise<string> {
-  const directPath = path.resolve(process.cwd(), jobDirOrId);
-  const targetDir = fsSync.existsSync(directPath)
-    ? directPath
+  const isDirect = path.isAbsolute(jobDirOrId) || jobDirOrId.includes("/") || jobDirOrId.includes("\\");
+  const targetDir = isDirect
+    ? path.resolve(process.cwd(), jobDirOrId)
     : path.join(JOBS_DIR, jobDirOrId, "output");
 
   const videoPath = path.join(targetDir, "video.mp4");
   const metaPath = path.join(targetDir, "meta.json");
-  const thumbnailPath = ["frame_30s.jpg", "frame_15s.jpg", "frame_03s.jpg", "frame_45s.jpg"]
+  let thumbnailPath = ["thumbnail.jpg", "thumbnail.png", "frame_30s.jpg", "frame_15s.jpg", "frame_03s.jpg", "frame_45s.jpg"]
     .map((f) => path.join(targetDir, f))
     .find((f) => fsSync.existsSync(f));
 
-  if (!fsSync.existsSync(videoPath)) {
-    return `Error: video.mp4 not found in ${targetDir}`;
+  // Fail-safe: If no thumbnail exists locally, generate one from video.mp4 via Python cv2/PIL
+  if (!thumbnailPath && fsSync.existsSync(videoPath)) {
+    try {
+      const genScript = `
+import cv2, os
+from PIL import Image, ImageDraw, ImageFont
+cap = cv2.VideoCapture(r'${videoPath.replace(/\\/g, "/")}')
+fps = cap.get(cv2.CAP_PROP_FPS) or 24.0
+cap.set(cv2.CAP_PROP_POS_FRAMES, int(fps * 15))
+ret, frame = cap.read()
+cap.release()
+if ret:
+    img = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)).resize((1280, 720), Image.Resampling.LANCZOS)
+    overlay = Image.new('RGBA', (1280, 720), (0, 0, 0, 0))
+    odraw = ImageDraw.Draw(overlay)
+    for y in range(480, 720):
+        odraw.line([(0, y), (1280, y)], fill=(0, 0, 0, int((y - 480) / 240 * 185)))
+    img = Image.alpha_composite(img.convert('RGBA'), overlay).convert('RGB')
+    out_p = r'${path.join(targetDir, "thumbnail.jpg").replace(/\\/g, "/")}'
+    img.save(out_p, quality=95)
+    print('Generated fallback thumbnail:', out_p)
+`;
+      const { execFileSync } = await import("node:child_process");
+      execFileSync("python", ["-c", genScript]);
+      const genPath = path.join(targetDir, "thumbnail.jpg");
+      if (fsSync.existsSync(genPath)) {
+        thumbnailPath = genPath;
+      }
+    } catch (e: any) {
+      console.warn(`[Video] Fallback thumbnail generation warning: ${e.message}`);
+    }
   }
 
   const result = await uploadToYouTube({

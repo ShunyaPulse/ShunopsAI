@@ -1,22 +1,9 @@
 import OpenAI from "openai";
 import * as dotenv from "dotenv";
 import { randomInt } from "node:crypto";
+import { colors } from "../core/colors.js";
 
 dotenv.config();
-
-// ANSI color helpers for terminal readability
-const colors = {
-  reset: "\x1b[0m",
-  bold: "\x1b[1m",
-  dim: "\x1b[2m",
-  cyan: "\x1b[36m",
-  green: "\x1b[32m",
-  yellow: "\x1b[33m",
-  blue: "\x1b[34m",
-  magenta: "\x1b[35m",
-  red: "\x1b[31m",
-  gray: "\x1b[90m",
-};
 
 export interface ModelEndpoint {
   provider: "groq" | "gemini" | "openrouter";
@@ -51,32 +38,60 @@ export interface ConsensusResult {
   transcript: DebateTurn[];
 }
 
-// Fallback Model Targets
-const DEFAULT_PROPOSER: ModelEndpoint = {
-  provider: "gemini",
-  model: "gemini-2.5-flash",
-  name: "Gemini 2.5 Flash",
-};
+// ==========================================
+// Comprehensive Multi-Provider Fallback Chains
+// ==========================================
 
-const DEFAULT_AUDITOR: ModelEndpoint = {
-  provider: "groq",
-  model: "llama-3.3-70b-versatile",
-  name: "Groq LLaMA 3.3 70B",
-};
+export const PROPOSER_MODELS_CHAIN: ModelEndpoint[] = [
+  // 1. Google AI Studio (Active Non-Lite Models with Verified 1/5 Quota)
+  { provider: "gemini", model: "gemini-3.8-flash", name: "Gemini 3.8 Flash (Active 1/5)" },
+  { provider: "gemini", model: "gemini-3.7-flash", name: "Gemini 3.7 Flash" },
+  { provider: "gemini", model: "gemini-3.6-flash", name: "Gemini 3.6 Flash (Active 1/5)" },
+  { provider: "gemini", model: "gemini-3.5-flash", name: "Gemini 3.5 Flash (Active 1/5)" },
+  { provider: "gemini", model: "gemini-3-flash-preview", name: "Gemini 3 Flash (Active 1/5)" },
 
-const BACKUP_OPENROUTER_PROPOSER: ModelEndpoint = {
-  provider: "openrouter",
-  model: "meta-llama/llama-3.3-70b-instruct:free",
-  name: "OpenRouter LLaMA 3.3 70B (Free)",
-};
+  // 2. Groq High-Speed LPU Execution (Ultra-Fast Zero-Lag Reasoning)
+  { provider: "groq", model: "openai/gpt-oss-120b", name: "Groq GPT-OSS 120B (High Reasoning 120B)" },
+  { provider: "groq", model: "qwen/qwen3.8-27b", name: "Groq Qwen 3.8 27B (LPU Fast Tool Calling)" },
 
-const BACKUP_GROQ_AUDITOR: ModelEndpoint = {
-  provider: "groq",
-  model: "openai/gpt-oss-120b",
-  name: "Groq GPT-OSS 120B",
-};
+  // 3. OpenRouter High-Capability Free Models (550B, 120B, 70B Heavyweights)
+  { provider: "openrouter", model: "nvidia/nemotron-3-ultra-550b-a55b:free", name: "Nemotron 3 Ultra 550B (Primary #1)" },
+  { provider: "openrouter", model: "nvidia/nemotron-3.5-lightning:free", name: "Nemotron 3.5 Lightning (1M Context)" },
+  { provider: "openrouter", model: "meta-llama/llama-3.3-70b-instruct:free", name: "Llama 3.3 70B Instruct" },
+  { provider: "openrouter", model: "google/gemma-4-31b-it:free", name: "Gemma 4 31B IT" },
+  { provider: "openrouter", model: "cohere/north-mini-code:free", name: "Cohere North Mini Code" },
+  { provider: "openrouter", model: "nvidia/nemotron-3-super-120b-a12b:free", name: "Nemotron 3 Super 120B" },
+  { provider: "openrouter", model: "qwen/qwen3.8-27b:free", name: "Qwen 3.8 27B (OpenRouter)" },
+  { provider: "openrouter", model: "openrouter/free", name: "OpenRouter Free Router Fallback" },
+];
 
-function createClient(target: ModelEndpoint): OpenAI {
+export const AUDITOR_MODELS_CHAIN: ModelEndpoint[] = [
+  // 1. Groq Ultra-Fast LPUs (Specialized 120B AST Reasoning & Deep Debugging)
+  { provider: "groq", model: "openai/gpt-oss-120b", name: "Groq GPT-OSS 120B (Lead 120B Auditor)" },
+  { provider: "groq", model: "qwen/qwen3.8-27b", name: "Groq Qwen 3.8 27B (Fast Audit)" },
+
+  // 2. Google AI Studio (Active Non-Lite Models with Verified 1/5 Quota)
+  { provider: "gemini", model: "gemini-3.8-flash", name: "Gemini 3.8 Flash (Audit Backup)" },
+  { provider: "gemini", model: "gemini-3.7-flash", name: "Gemini 3.7 Flash" },
+  { provider: "gemini", model: "gemini-3.6-flash", name: "Gemini 3.6 Flash" },
+  { provider: "gemini", model: "gemini-3.5-flash", name: "Gemini 3.5 Flash" },
+  { provider: "gemini", model: "gemini-3-flash-preview", name: "Gemini 3 Flash" },
+
+  // 3. OpenRouter High-Capability Free Models (Specialized Code & Reasoning)
+  { provider: "openrouter", model: "cohere/north-mini-code:free", name: "Cohere North Mini Code (Audit)" },
+  { provider: "openrouter", model: "nvidia/nemotron-3-super-120b-a12b:free", name: "Nemotron 3 Super 120B" },
+  { provider: "openrouter", model: "meta-llama/llama-3.3-70b-instruct:free", name: "Llama 3.3 70B Instruct" },
+  { provider: "openrouter", model: "nvidia/nemotron-3-ultra-550b-a55b:free", name: "Nemotron 3 Ultra 550B" },
+  { provider: "openrouter", model: "openrouter/free", name: "OpenRouter Free Router Fallback" },
+];
+
+export const DEFAULT_PROPOSER = PROPOSER_MODELS_CHAIN[0]!;
+export const DEFAULT_AUDITOR = AUDITOR_MODELS_CHAIN[0]!;
+export const BACKUP_PROPOSER = PROPOSER_MODELS_CHAIN[4]!;
+export const BACKUP_OPENROUTER_PROPOSER = BACKUP_PROPOSER;
+export const BACKUP_GROQ_AUDITOR = AUDITOR_MODELS_CHAIN[1]!;
+
+export function createClient(target: ModelEndpoint): OpenAI {
   if (target.provider === "groq") {
     return new OpenAI({
       baseURL: "https://api.groq.com/openai/v1",
@@ -85,11 +100,8 @@ function createClient(target: ModelEndpoint): OpenAI {
   }
 
   if (target.provider === "gemini") {
-    // Pick from GEMINI_KEYS or fallback to GEMINI_API_KEY
-    const keys = (process.env.GEMINI_KEYS || process.env.GEMINI_API_KEY || "")
-      .split(",")
-      .map((k) => k.trim())
-      .filter(Boolean);
+    const raw = process.env.GEMINI_KEYS || process.env.GEMINI_API_KEY || "";
+    const keys = raw.split(",").map((k) => k.trim()).filter(Boolean);
     const key = keys.length > 0 ? keys[randomInt(0, keys.length)] : "dummy-gemini-key";
     return new OpenAI({
       baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/",
@@ -108,42 +120,73 @@ function createClient(target: ModelEndpoint): OpenAI {
 }
 
 /**
- * Execute chat completion with single failover target
+ * Execute chat completion iterating across an ordered multi-provider fallback chain
  */
-async function callModel(
-  target: ModelEndpoint,
+export async function callModelWithChain(
+  chain: ModelEndpoint[],
   messages: OpenAI.ChatCompletionMessageParam[],
-  backupTarget: ModelEndpoint,
   temperature = 0.2
 ): Promise<{ text: string; modelName: string }> {
-  try {
-    const client = createClient(target);
-    const res = await client.chat.completions.create({
-      model: target.model,
-      messages,
-      temperature,
-    });
-    const text = res.choices[0]?.message?.content?.trim() || "";
-    if (text) {
-      return { text, modelName: `${target.provider.toUpperCase()}:${target.model}` };
+  let lastErr: any = null;
+
+  for (let i = 0; i < chain.length; i++) {
+    const target = chain[i]!;
+    // For Gemini, attempt with up to 3 different keys from the pool before moving to next model
+    const attempts = target.provider === "gemini" ? 3 : 1;
+
+    for (let att = 0; att < attempts; att++) {
+      try {
+        const client = createClient(target);
+        const res = await client.chat.completions.create({
+          model: target.model,
+          messages,
+          temperature,
+        });
+        const text = res.choices[0]?.message?.content?.trim() || "";
+        if (text) {
+          return { text, modelName: `${target.provider.toUpperCase()}:${target.model}` };
+        }
+      } catch (err: any) {
+        lastErr = err;
+        const status = err?.status || err?.statusCode || "err";
+        console.warn(
+          `${colors.yellow}[Fallback Chain]${colors.reset} [${target.provider}] ${target.model} attempt ${att + 1}/${attempts} failed (${status}: ${err.message}). Trying next fallback...`
+        );
+        if (err?.status === 404) break; // Model does not exist, advance to next model in chain immediately
+        await new Promise((r) => setTimeout(r, 250));
+      }
     }
-  } catch (err: any) {
-    console.warn(
-      `${colors.yellow}[Consensus Failover]${colors.reset} ${target.provider}:${target.model} failed (${err.message}). Using backup ${backupTarget.provider}:${backupTarget.model}...`
-    );
   }
 
-  // Backup fallback
-  const backupClient = createClient(backupTarget);
-  const backupRes = await backupClient.chat.completions.create({
-    model: backupTarget.model,
-    messages,
-    temperature,
-  });
-  return {
-    text: backupRes.choices[0]?.message?.content?.trim() || "",
-    modelName: `${backupTarget.provider.toUpperCase()}:${backupTarget.model}`,
-  };
+  throw new Error(`All models in fallback chain failed. Last error: ${lastErr?.message || lastErr}`);
+}
+
+/**
+ * Execute chat completion with primary target and automatic fallback cascade
+ */
+export async function callModel(
+  target: ModelEndpoint,
+  messages: OpenAI.ChatCompletionMessageParam[],
+  backupTarget?: ModelEndpoint,
+  temperature = 0.2
+): Promise<{ text: string; modelName: string }> {
+  const chain: ModelEndpoint[] = [target];
+  if (backupTarget && (backupTarget.provider !== target.provider || backupTarget.model !== target.model)) {
+    chain.push(backupTarget);
+  }
+
+  // Determine whether this target behaves more like a proposer or auditor and load its chain
+  const isAuditor = target.provider === "groq" || target.model.includes("oss");
+  const preferredChain = isAuditor ? AUDITOR_MODELS_CHAIN : PROPOSER_MODELS_CHAIN;
+  const secondaryChain = isAuditor ? PROPOSER_MODELS_CHAIN : AUDITOR_MODELS_CHAIN;
+
+  for (const m of [...preferredChain, ...secondaryChain]) {
+    if (!chain.some((c) => c.provider === m.provider && c.model === m.model)) {
+      chain.push(m);
+    }
+  }
+
+  return callModelWithChain(chain, messages, temperature);
 }
 
 /**
