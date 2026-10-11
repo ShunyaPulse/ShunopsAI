@@ -364,18 +364,7 @@ export function getShunopsPortalHtml(): string {
             </p>
           </div>
 
-          <!-- Service 4: Fast AI Router -->
-          <div class="service-choice-card selected" id="card-ai" onclick="toggleService('ai')">
-            <div class="service-choice-header">
-              <div class="custom-checkbox" id="chk-ai">✓</div>
-              <strong style="font-size:14px; color:#fff;">🧠 Multi-Cloud AI Router (Ultra-Fast)</strong>
-            </div>
-            <p style="font-size:12px; color:#94a3b8; line-height:1.4; margin-left:30px;">
-              Sub-second LLM completions with auto failover between Groq LPUs and Gemini 3.8 Flash.
-            </p>
-          </div>
-
-          <!-- Service 5: Web Widget -->
+          <!-- Service 4: Web Widget -->
           <div class="service-choice-card" id="card-widget" onclick="toggleService('widget')">
             <div class="service-choice-header">
               <div class="custom-checkbox" id="chk-widget"></div>
@@ -413,19 +402,49 @@ export function getShunopsPortalHtml(): string {
 
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
           <h2 style="font-size:16px; color:#fff; display:flex; align-items:center; gap:8px; margin:0;">
-            <span>2️⃣</span> Paste Free API Keys
+            <span>2️⃣</span> Configure AI Engine &amp; Service Keys
           </h2>
           <span style="font-size:11px; color:#38bdf8; display:inline-flex; align-items:center; gap:5px;">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:13px; height:13px;"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
             Click icon to reveal keys
           </span>
         </div>
-        <p style="font-size:12px; color:#94a3b8; margin-bottom:18px;">
-          Zero cost free tiers • No credit card needed. Keys for unselected services remain hidden.
+        <p style="font-size:12px; color:#94a3b8; margin-bottom:16px;">
+          Choose whether to run on ShunopsAI's shared infrastructure or bring your own free keys for dedicated rate limits.
         </p>
 
-        <!-- AI Keys (Groq + Gemini) -->
-        <div id="section-ai-keys">
+        <!-- AI Engine Mode Selector -->
+        <div style="background:#0f172a; border:1px solid #1e293b; border-radius:12px; padding:14px; margin-bottom:18px;">
+          <div style="font-size:13px; font-weight:700; color:#fff; margin-bottom:10px; display:flex; align-items:center; gap:8px;">
+            <span>🧠</span> Multi-Cloud AI Router &amp; Inference Engine
+          </div>
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+            <div id="mode-shared" onclick="setAiMode('shared')" style="cursor:pointer; padding:12px; border-radius:8px; border:2px solid #1e293b; background:#0b1120; transition:all 0.2s;">
+              <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px;">
+                <input type="radio" name="ai-mode" id="radio-shared" style="accent-color:#00f0ff;" checked />
+                <strong style="font-size:12px; color:#fff;">Shared Cloud Engine</strong>
+              </div>
+              <p style="font-size:11px; color:#94a3b8; margin:0; line-height:1.3;">
+                Zero setup. Uses server key pool &amp; pooled quotas at no cost.
+              </p>
+            </div>
+            <div id="mode-byok" onclick="setAiMode('byok')" style="cursor:pointer; padding:12px; border-radius:8px; border:2px solid #1e293b; background:#0b1120; transition:all 0.2s;">
+              <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px;">
+                <input type="radio" name="ai-mode" id="radio-byok" style="accent-color:#00f0ff;" />
+                <strong style="font-size:12px; color:#fff;">Dedicated BYOK Keys</strong>
+              </div>
+              <p style="font-size:11px; color:#94a3b8; margin:0; line-height:1.3;">
+                Sub-second Groq LPUs &amp; personal Gemini quotas. Saved in browser vault.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <!-- AI Keys (Groq + Gemini) - Shown only when BYOK Mode is selected -->
+        <div id="section-ai-keys" style="display:none;">
+          <div style="font-size:12px; font-weight:700; color:#38bdf8; margin-bottom:10px; display:flex; align-items:center; gap:6px;">
+            <span>🔑</span> Your Personal AI Model Keys (Ultra-Fast)
+          </div>
           <!-- Groq Key -->
           <div class="key-input-group">
             <div class="key-label-row">
@@ -628,13 +647,46 @@ export function getShunopsPortalHtml(): string {
 
   <script>
     // State
+    let aiMode = "shared"; // "shared" | "byok"
     const activeServices = {
       video: true,
       sentinel: true,
       github: false,
-      ai: true,
       widget: false
     };
+
+    function setAiMode(mode) {
+      aiMode = mode;
+      const radioShared = document.getElementById("radio-shared");
+      const radioByok = document.getElementById("radio-byok");
+      const modeShared = document.getElementById("mode-shared");
+      const modeByok = document.getElementById("mode-byok");
+
+      if (mode === "byok") {
+        if (radioByok) radioByok.checked = true;
+        if (radioShared) radioShared.checked = false;
+        if (modeByok) {
+          modeByok.style.borderColor = "#00f0ff";
+          modeByok.style.boxShadow = "0 0 12px rgba(0, 240, 255, 0.2)";
+        }
+        if (modeShared) {
+          modeShared.style.borderColor = "#1e293b";
+          modeShared.style.boxShadow = "none";
+        }
+      } else {
+        if (radioShared) radioShared.checked = true;
+        if (radioByok) radioByok.checked = false;
+        if (modeShared) {
+          modeShared.style.borderColor = "#00f0ff";
+          modeShared.style.boxShadow = "0 0 12px rgba(0, 240, 255, 0.2)";
+        }
+        if (modeByok) {
+          modeByok.style.borderColor = "#1e293b";
+          modeByok.style.boxShadow = "none";
+        }
+      }
+      applySectionVisibility();
+    }
 
     // -------------------------------------------------------------
     // Option B: IndexedDB + Non-Extractable CryptoKey Vault
@@ -809,7 +861,7 @@ export function getShunopsPortalHtml(): string {
 
     function applySectionVisibility() {
       document.getElementById("section-ai-keys").style.display =
-        (activeServices.ai || activeServices.video) ? "block" : "none";
+        (aiMode === "byok") ? "block" : "none";
       document.getElementById("section-video-keys").style.display =
         activeServices.video ? "block" : "none";
       document.getElementById("section-github-keys").style.display =
@@ -819,16 +871,19 @@ export function getShunopsPortalHtml(): string {
     }
 
     function toggleService(key) {
+      if (!(key in activeServices)) return;
       activeServices[key] = !activeServices[key];
       const card = document.getElementById("card-" + key);
       const chk = document.getElementById("chk-" + key);
       
-      if (activeServices[key]) {
-        card.classList.add("selected");
-        chk.textContent = "✓";
-      } else {
-        card.classList.remove("selected");
-        chk.textContent = "";
+      if (card && chk) {
+        if (activeServices[key]) {
+          card.classList.add("selected");
+          chk.textContent = "✓";
+        } else {
+          card.classList.remove("selected");
+          chk.textContent = "";
+        }
       }
 
       applySectionVisibility();
@@ -854,6 +909,7 @@ export function getShunopsPortalHtml(): string {
       const monitorUrl = document.getElementById("input-monitor-url").value.trim();
 
       const keys = {
+        aiMode,
         groq,
         gemini,
         kaggleUser,
@@ -948,10 +1004,18 @@ export function getShunopsPortalHtml(): string {
         
         if (keys.services) {
           for (const s of Object.keys(keys.services)) {
-            if (activeServices[s] !== keys.services[s]) {
+            if (s in activeServices && activeServices[s] !== keys.services[s]) {
               toggleService(s);
             }
           }
+        }
+
+        if (keys.aiMode) {
+          setAiMode(keys.aiMode);
+        } else if (keys.groq || keys.gemini) {
+          setAiMode("byok");
+        } else {
+          setAiMode("shared");
         }
       } catch (e) {
         // Silently ignore load errors
