@@ -106,7 +106,7 @@ export function createClientForTarget(target: ModelTarget, overrides?: ProviderK
     });
   }
   if (target.provider === "gemini") {
-    const apiKey = overrides?.geminiApiKey || getNextGeminiKey();
+    const apiKey = overrides?.geminiApiKey || process.env.GEMINI_API_KEY;
     if (!apiKey) throw new Error("No Gemini API key available");
     return new OpenAI({
       baseURL: GEMINI_OPENAI_BASE_URL,
