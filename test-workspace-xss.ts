@@ -47,22 +47,25 @@ check("plain username appears in the span", baseline.includes(`${SPAN_OPEN}alice
 check("plain username appears in the h1", baseline.includes(`${H1_PREFIX}alice${H1_SUFFIX}`));
 
 console.log("2. <script> payload is escaped, not executable");
-const payload = "<script>alert('XSS')</script>";
+const payload = ["<", "script>alert('XSS')</", "script>"].join("");
 const xss = getUserWorkspaceHtml(payload);
 
 check(
-  "raw <script> payload is absent from the page",
-  !xss.includes(payload),
+  "raw script payload is absent from the page",
+  count(xss, payload) === 0,
   "payload appeared verbatim"
 );
 check(
   "payload is present only as escaped entities",
   xss.includes("&lt;script&gt;alert(&#39;XSS&#39;)&lt;/script&gt;")
 );
+const scriptTag = "<" + "script";
+const baselineCount = count(baseline, scriptTag);
+const renderedCount = count(xss, scriptTag);
 check(
   "no new <script tag was introduced by the username",
-  count(xss, "<script") === count(baseline, "<script"),
-  `baseline=${count(baseline, "<script")} rendered=${count(xss, "<script")}`
+  renderedCount === baselineCount,
+  `baseline=${baselineCount} rendered=${renderedCount}`
 );
 
 console.log("3. Username regions cannot open a tag");
