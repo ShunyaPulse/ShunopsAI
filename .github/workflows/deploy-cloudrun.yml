@@ -1,0 +1,73 @@
+name: "Deploy ShunopsAI to Google Cloud Run"
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "src/**"
+      - "server.ts"
+      - "agent.ts"
+      - "package.json"
+      - "package-lock.json"
+      - "Dockerfile"
+      - ".dockerignore"
+      - "tsconfig.json"
+      - ".github/workflows/deploy-cloudrun.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: cloudrun-deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: "Build & Deploy to Cloud Run"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: TypeScript Typecheck Verification
+        run: npm run typecheck
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_CREDENTIALS }}
+
+      - name: Setup Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Deploy to Cloud Run
+        run: |
+          echo "🚀 Deploying ShunopsAI to Cloud Run (asia-south1)..."
+          gcloud run deploy shunopsai \
+            --source . \
+            --project sage-webbing-422513-q0 \
+            --region asia-south1 \
+            --platform managed \
+            --allow-unauthenticated \
+            --port 8080 \
+            --memory 1Gi \
+            --cpu 1 \
+            --min-instances 0 \
+            --max-instances 2 \
+            --set-env-vars NODE_ENV=production,HOST=0.0.0.0,PORT=8080
+          
+          echo "✅ Deployment complete. Setting 100% traffic to latest revision..."
+          gcloud run services update-traffic shunopsai \
+            --project sage-webbing-422513-q0 \
+            --region asia-south1 \
+            --to-latest
