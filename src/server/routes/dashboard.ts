@@ -1,13 +1,14 @@
 import type { FastifyInstance, preHandlerHookHandler } from "fastify";
 import { PRIMARY_MODEL, FALLBACK_MODELS, toolRegistry } from "../../agent/index.js";
 import { getShunopsDashboardHtml } from "../../dashboard/html.js";
+import { getShunopsPortalHtml } from "../../dashboard/portal.js";
 
 export interface DashboardRouteOptions {
   requireDashboardAuth?: preHandlerHookHandler;
 }
 
 /**
- * Public landing routes: browser dashboard, JSON service index, and /dashboard.
+ * Public landing routes: browser dashboard, JSON service index, /dashboard, and /portal.
  */
 export async function dashboardRoutes(app: FastifyInstance, opts: DashboardRouteOptions = {}): Promise<void> {
   const preHandler = opts.requireDashboardAuth ? [opts.requireDashboardAuth] : [];
@@ -18,6 +19,8 @@ export async function dashboardRoutes(app: FastifyInstance, opts: DashboardRoute
       tools: Object.keys(toolRegistry),
       uptimeSeconds: Math.floor(process.uptime()),
     });
+
+  const renderPortal = () => getShunopsPortalHtml();
 
   app.get("/", { preHandler }, async (req, reply) => {
     // If visited from a web browser, render the ShunopsAI Command Center UI
@@ -33,6 +36,7 @@ export async function dashboardRoutes(app: FastifyInstance, opts: DashboardRoute
       availableTools: Object.keys(toolRegistry),
       endpoints: {
         dashboard: "GET / (in browser)",
+        portal: "GET /portal (Public BYOK & Monetization Portal)",
         health: "GET /health",
         sentinelStatus: "GET /api/sentinel/status",
         sentinelHeal: "POST /api/sentinel/heal",
@@ -53,6 +57,15 @@ export async function dashboardRoutes(app: FastifyInstance, opts: DashboardRoute
 
   app.get("/dashboard", { preHandler }, async (_req, reply) => {
     return reply.type("text/html").send(renderDashboard());
+  });
+
+  // Public Self-Service BYOK & Monetization Portal
+  app.get("/portal", async (_req, reply) => {
+    return reply.type("text/html").send(renderPortal());
+  });
+
+  app.get("/connect", async (_req, reply) => {
+    return reply.type("text/html").send(renderPortal());
   });
 
   app.get("/health", async () => {

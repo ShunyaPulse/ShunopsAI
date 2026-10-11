@@ -43,6 +43,7 @@ export function getShunopsDashboardHtml(initialData: {
       <div class="pill">
         <span>Uptime: <strong id="uptime">${Math.floor(initialData.uptimeSeconds / 60)}m</strong></span>
       </div>
+      <a href="/portal" class="btn" style="background: linear-gradient(135deg, #00f0ff, #3b82f6); color: #000; font-weight: 700; border: none; padding: 6px 14px; font-size: 11px; text-decoration: none; border-radius: 20px; box-shadow: 0 0 12px rgba(0, 240, 255, 0.4);">✨ Public BYOK & Monetization Portal</a>
       <button id="btn-toggle-autonomy" class="btn btn-danger" style="border-radius:20px;font-size:11px;padding:6px 14px;" onclick="toggleAutonomyPause()">
         <span id="autonomy-btn-icon">⏸️</span>
         <span id="autonomy-btn-text">Pause Autonomy</span>
@@ -79,11 +80,12 @@ export function getShunopsDashboardHtml(initialData: {
 
       <!-- Out-of-the-Box Capabilities Banner -->
       <div class="panel" style="padding: 20px; background: linear-gradient(135deg, #0e172a, #132240);">
-        <h3 style="font-size: 15px; margin-bottom: 8px; color: #67e8f9;">🤖 ShunopsAI Multi-Agent Architecture</h3>
+        <h3 style="font-size: 15px; margin-bottom: 8px; color: #67e8f9;">🤖 ShunopsAI Multi-Agent Architecture & Monetization</h3>
         <p style="font-size: 13px; color: #cbd5e1; line-height: 1.6;">
-          Equipped with <strong>${initialData.tools.length} real tools</strong> across <strong>DevOps Sentinel</strong>, <strong>Neon SQL</strong>, <strong>OCI Redis</strong>, <strong>Cloudflare Workers AI</strong>, <strong>Video Automation Engine</strong>, <strong>GitHub Actions GitOps</strong>, and <strong>Interactive Web Bot</strong>. Ready to achieve any out-of-the-box goal.
+          Equipped with <strong>${initialData.tools.length} real tools</strong> across <strong>DevOps Sentinel</strong>, <strong>Neon SQL</strong>, <strong>OCI Redis</strong>, <strong>Cloudflare Workers AI</strong>, <strong>Video Automation Engine</strong>, <strong>GitHub Actions GitOps</strong>, and <strong>Interactive Web Bot</strong>.
         </p>
         <div style="display: flex; gap: 12px; margin-top: 14px; flex-wrap: wrap;">
+          <a href="/portal" class="btn" style="text-decoration: none; background: #00f0ff; color: #000; font-weight: 700;">🌐 Connect Services (BYOK Keys)</a>
           <a href="/widget.js" target="_blank" class="btn btn-secondary" style="text-decoration: none;">📦 Embed Web Widget</a>
           <button class="btn btn-secondary" onclick="insertPrompt('Generate a complete 5-minute autonomous trending video script and launch Kaggle GPU kernel')">🎬 Launch Video Agent</button>
           <button class="btn btn-secondary" onclick="insertPrompt('Inspect Neon SQL, count tables, and check OCI Redis memory usage')">🔍 Full Stack Audit</button>
