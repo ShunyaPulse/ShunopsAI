@@ -494,6 +494,93 @@
       transform: none;
     }
 
+    /* Smart Mode Selector Pill */
+    .cf-mode-pill {
+      background: rgba(56, 189, 248, 0.12);
+      border: 1px solid rgba(56, 189, 248, 0.28);
+      color: #38bdf8;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 3px 6px;
+      border-radius: 12px;
+      cursor: pointer;
+      outline: none;
+      transition: all 0.2s;
+    }
+    .cf-mode-pill:hover {
+      background: rgba(56, 189, 248, 0.22);
+      border-color: #38bdf8;
+    }
+    .cf-mode-pill option {
+      background: #0f172a;
+      color: #f8fafc;
+    }
+
+    /* Model Attribution Tag */
+    .cf-model-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 10px;
+      color: #94a3b8;
+      margin-top: 6px;
+      padding-top: 4px;
+      border-top: 1px solid rgba(255, 255, 255, 0.06);
+      width: 100%;
+      font-family: ui-monospace, SFMono-Regular, monospace;
+    }
+
+    /* Code Block with Copy Button */
+    .cf-code-wrap {
+      background: #020617;
+      border-radius: 8px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      margin: 8px 0;
+      overflow: hidden;
+    }
+    .cf-code-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 4px 10px;
+      background: rgba(255, 255, 255, 0.05);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      font-size: 11px;
+      color: #94a3b8;
+      font-family: ui-monospace, SFMono-Regular, monospace;
+    }
+    .cf-copy-code-btn {
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      color: #cbd5e1;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 10px;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s;
+    }
+    .cf-copy-code-btn:hover {
+      background: rgba(59, 130, 246, 0.3);
+      color: #fff;
+    }
+    .cf-code-wrap pre {
+      margin: 0 !important;
+      border: none !important;
+      border-radius: 0 !important;
+      background: transparent !important;
+    }
+
+    /* Dynamic Smart Chips */
+    .cf-chip-dynamic {
+      border-color: rgba(56, 189, 248, 0.35);
+      background: rgba(56, 189, 248, 0.1);
+      color: #7dd3fc;
+    }
+    .cf-chip-dynamic:hover {
+      background: rgba(56, 189, 248, 0.25);
+      color: #fff;
+    }
+
     /* Typing Cursor */
     .cf-cursor {
       display: inline-block;
@@ -522,9 +609,11 @@
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
-      // Code blocks
+      // Code blocks with one-click copy button
       .replace(/```([a-z0-9_-]*)\n([\s\S]*?)```/gi, (_, lang, code) => {
-        return `<pre><code class="language-${lang}">${code.trim()}</code></pre>`;
+        const cleanCode = code.trim();
+        const encoded = encodeURIComponent(cleanCode);
+        return `<div class="cf-code-wrap"><div class="cf-code-header"><span>${lang || 'code'}</span><button class="cf-copy-code-btn" type="button" data-code="${encoded}">Copy</button></div><pre><code class="language-${lang}">${cleanCode}</code></pre></div>`;
       })
       // Inline code
       .replace(/`([^`]+)`/g, '<code>$1</code>')
@@ -570,10 +659,15 @@
           <div class="cf-status-dot"></div>
           <div>
             <h3>${escapeHtml(widgetTitle)}</h3>
-            <small style="color:#94a3b8;font-size:11px;">Cloudflare Edge AI • <span id="cf-active-model">Online</span></small>
+            <small style="color:#94a3b8;font-size:11px;">Edge AI • <span id="cf-active-model">⚡ Auto-Routing</span></small>
           </div>
         </div>
         <div class="cf-header-actions">
+          <select id="cf-mode-select" class="cf-mode-pill" title="Intelligence Routing Mode">
+            <option value="auto">✨ Smart Auto</option>
+            <option value="fast">⚡ Fast Flash</option>
+            <option value="deep-reasoning">🧠 Deep Reasoning</option>
+          </select>
           <button class="cf-icon-btn" id="cf-clear-btn" title="Reset Conversation">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18m-2 0v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6m3 0V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
           </button>
@@ -624,6 +718,10 @@
   const inputEl = document.getElementById('cf-input');
   const sendBtn = document.getElementById('cf-send-btn');
   const activeModelLabel = document.getElementById('cf-active-model');
+  const modeSelect = document.getElementById('cf-mode-select');
+
+  // Rolling Multi-Turn Context Memory
+  const conversationHistory = [];
 
   let isChatOpen = false;
   let isStreaming = false;
@@ -643,7 +741,104 @@
   launcherBtn.addEventListener('click', () => toggleChat());
   closeBtn.addEventListener('click', () => toggleChat(false));
 
+  // Dynamic Chip Management
+  function bindChipEvents() {
+    document.querySelectorAll('.cf-chip').forEach((chip) => {
+      chip.addEventListener('click', () => {
+        const prompt = chip.getAttribute('data-prompt');
+        if (prompt && !isStreaming) {
+          inputEl.value = prompt;
+          sendMessage();
+        }
+      });
+    });
+  }
+
+  function renderDefaultChips() {
+    const chipsBox = document.querySelector('.cf-chips');
+    if (!chipsBox) return;
+    chipsBox.innerHTML = activeChips
+      .map((c) => `<div class="cf-chip" data-prompt="${escapeHtml(c.prompt)}" title="${escapeHtml(c.prompt)}">${escapeHtml(c.label)}</div>`)
+      .join('');
+    bindChipEvents();
+  }
+
+  function updateFollowUpChips(replyText) {
+    const chipsBox = document.querySelector('.cf-chips');
+    if (!chipsBox) return;
+    chipsBox.innerHTML = '';
+    const dynamicPrompts = [];
+    const textLower = (replyText || '').toLowerCase();
+
+    if (textLower.includes('```')) {
+      dynamicPrompts.push(
+        { label: '🔍 Explain Code', prompt: 'Could you explain step-by-step how that code works?' },
+        { label: '⚡ Optimize', prompt: 'How can we optimize this for better performance and lower latency?' },
+        { label: '🧪 Add Tests', prompt: 'Can you provide test cases or unit tests for this?' }
+      );
+    } else if (textLower.includes('error') || textLower.includes('failed') || textLower.includes('issue') || textLower.includes('warning')) {
+      dynamicPrompts.push(
+        { label: '🛠️ How to Fix?', prompt: 'What is the recommended fix or patch for this issue?' },
+        { label: '🔍 Root Cause', prompt: 'What could be the underlying root cause of this?' },
+        { label: '🛡️ Prevention', prompt: 'How can we prevent this issue in production?' }
+      );
+    } else if (textLower.includes('api') || textLower.includes('endpoint') || textLower.includes('token') || textLower.includes('quota')) {
+      dynamicPrompts.push(
+        { label: '📋 Example Request', prompt: 'Show me an example cURL or fetch request.' },
+        { label: '🛡️ Security Best Practices', prompt: 'What security best practices apply here?' },
+        { label: '⚡ Quota Guardrails', prompt: 'How do rate limits and quota guardrails work here?' }
+      );
+    } else if (conversationHistory.length >= 4) {
+      dynamicPrompts.push(
+        { label: '📝 Summarize', prompt: 'Can you summarize what we have covered so far?' },
+        { label: '🚀 Next Steps', prompt: 'What are the recommended next steps?' },
+        { label: '💡 Alternatives', prompt: 'Are there any alternative approaches?' }
+      );
+    } else {
+      dynamicPrompts.push(
+        { label: '💡 Practical Example', prompt: 'Can you give me a practical, real-world example?' },
+        { label: '🔍 Deep Dive', prompt: 'Can you explain the deeper technical architecture?' },
+        { label: '⚡ Performance Tips', prompt: 'What are the performance optimizations for this?' }
+      );
+    }
+
+    chipsBox.innerHTML = dynamicPrompts
+      .map((c) => `<div class="cf-chip cf-chip-dynamic" data-prompt="${escapeHtml(c.prompt)}" title="${escapeHtml(c.prompt)}">${escapeHtml(c.label)}</div>`)
+      .join('');
+    bindChipEvents();
+  }
+
+  function formatHistory() {
+    if (!conversationHistory || conversationHistory.length === 0) return '';
+    const recent = conversationHistory.slice(-6);
+    return recent
+      .map((entry) => `${entry.role === 'user' ? 'User' : 'Assistant'}: ${entry.content}`)
+      .join('\n');
+  }
+
+  bindChipEvents();
+
+  // One-click Code Copy Delegator
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest('.cf-copy-code-btn');
+    if (btn) {
+      const code = decodeURIComponent(btn.getAttribute('data-code') || '');
+      if (code && navigator.clipboard) {
+        navigator.clipboard.writeText(code).then(() => {
+          const orig = btn.textContent;
+          btn.textContent = 'Copied!';
+          btn.style.color = '#34d399';
+          setTimeout(() => {
+            btn.textContent = orig;
+            btn.style.color = '';
+          }, 2000);
+        });
+      }
+    }
+  });
+
   clearBtn.addEventListener('click', () => {
+    conversationHistory.length = 0;
     sessionId = generateSessionId();
     localStorage.setItem(STORAGE_KEY, sessionId);
     messagesBox.innerHTML = `
@@ -653,17 +848,8 @@
         </div>
       </div>
     `;
-  });
-
-  // Chip quick prompts
-  document.querySelectorAll('.cf-chip').forEach((chip) => {
-    chip.addEventListener('click', () => {
-      const prompt = chip.getAttribute('data-prompt');
-      if (prompt && !isStreaming) {
-        inputEl.value = prompt;
-        sendMessage();
-      }
-    });
+    if (activeModelLabel) activeModelLabel.textContent = '⚡ Auto-Routing';
+    renderDefaultChips();
   });
 
   function scrollToBottom() {
@@ -817,12 +1003,27 @@
         } catch {}
       }
 
+      // Step 3: Model preference & Page context awareness
+      const modelPreference = (modeSelect && modeSelect.value) ? modeSelect.value : 'auto';
+
+      let contextualMessage = text;
+      if (typeof window !== 'undefined' && window.getSelection) {
+        try {
+          const selection = window.getSelection().toString().trim();
+          if (selection && selection.length > 0 && selection.length < 600) {
+            contextualMessage = `[Referenced page text: "${selection}"]\n${text}`;
+          }
+        } catch {}
+      }
+
       const response = await fetch(`${apiUrl}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           sessionId,
-          message: text,
+          message: contextualMessage,
+          history: formatHistory(),
+          modelPreference,
           shield: shieldSolution || undefined,
           turnstileToken,
         }),
@@ -844,7 +1045,33 @@
       if (contentType.includes('application/json')) {
         const data = await response.json();
         cursor.remove();
-        assistantBubble.innerHTML = renderMarkdown(data.reply || data.error || 'Message received.');
+        const replyText = data.reply || data.error || 'Message received.';
+        assistantBubble.innerHTML = renderMarkdown(replyText);
+
+        // Record into multi-turn conversational memory
+        conversationHistory.push({ role: 'user', content: text });
+        conversationHistory.push({ role: 'assistant', content: replyText });
+
+        // Update active model indicator in header
+        if (activeModelLabel) {
+          const isDeep = data.routedComplexity === 'complex' || modelPreference === 'deep-reasoning';
+          const modelClean = (data.usedModel || (isDeep ? 'Deep Reasoning' : 'Fast Flash'))
+            .replace('openai/', '')
+            .replace('meta-llama/', '');
+          activeModelLabel.textContent = `${isDeep ? '🧠' : '⚡'} ${modelClean}`;
+        }
+
+        // Add model signature pill to bubble
+        const modelTag = document.createElement('div');
+        modelTag.className = 'cf-model-tag';
+        const modelName = data.usedModel || (data.routedComplexity === 'complex' ? 'Reasoning Core' : 'Flash Edge');
+        const compLabel = data.routedComplexity === 'complex' ? 'Deep Reasoning' : 'Fast Edge';
+        modelTag.innerHTML = `<span>${compLabel}</span> • <span>${escapeHtml(modelName)}</span>`;
+        assistantBubble.appendChild(modelTag);
+
+        // Update contextual follow-up chips
+        updateFollowUpChips(replyText);
+
         scrollToBottom();
         return;
       }
@@ -921,6 +1148,11 @@
                 }
               } else if (currentEvent === 'done') {
                 cursor.remove();
+                if (accumulatedText) {
+                  conversationHistory.push({ role: 'user', content: text });
+                  conversationHistory.push({ role: 'assistant', content: accumulatedText });
+                  updateFollowUpChips(accumulatedText);
+                }
               }
             } catch {
               // Ignore non-json lines
