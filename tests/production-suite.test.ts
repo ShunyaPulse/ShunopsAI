@@ -49,7 +49,17 @@ import {
   getTiersHealthStatus,
   classifyHeuristic,
   getRoutingTargets,
+  buildRollingMemory,
 } from "../src/agent/index.js";
+import {
+  indexKnowledgeDocument,
+  searchKnowledgeHybrid,
+  deleteKnowledgeDocument,
+} from "../src/server/db.js";
+import {
+  isKokoroAvailable,
+  resolveKokoroVoice,
+} from "../src/tools/kokoro-tts.js";
 
 async function runSuite() {
   console.log("=================================================");
@@ -431,6 +441,60 @@ async function runSuite() {
     assert.equal(statusData.tiers.length, 4);
 
     await app.close();
+  });
+
+  // 16. Hierarchical Rolling Memory
+  await test("Hierarchical Rolling Memory: Compresses older turns while keeping recent verbatim", async () => {
+    const turns = [
+      { role: "user", content: "Let's set up the Neon connection pool with Lakebase." },
+      { role: "assistant", content: "I will configure the DATABASE_URL and pooled connection." },
+      { role: "user", content: "Also make sure we use Redis on OCI Ampere VM." },
+      { role: "assistant", content: "Configured Redis client with offline fallback." },
+      { role: "user", content: "Can we add pgvector for document search?" },
+      { role: "assistant", content: "Added migration 007 for hybrid knowledge search." },
+      { role: "user", content: "Now how do we test this?" },
+      { role: "assistant", content: "Run npm test to verify." },
+      { role: "user", content: "What was the first thing we set up?" },
+    ];
+
+    const memory = buildRollingMemory(turns, { maxRecentTurns: 4 });
+    assert.ok(memory.includes("Prior Session Context & Key Decisions (Rolling Memory)"));
+    assert.ok(memory.includes("Neon connection pool"));
+    assert.ok(memory.includes("Recent Active Conversation Turns"));
+    assert.ok(memory.includes("What was the first thing we set up?"));
+  });
+
+  // 17. Neon Lakebase Hybrid Knowledge Search
+  await test("Hybrid Knowledge Search: Index document and retrieve via BM25 matching", async () => {
+    const doc1 = await indexKnowledgeDocument(
+      "Neon Postgres Autoscaling Guide",
+      "Neon Lakebase Postgres automatically scales down to zero when idle and activates on connection.",
+      "database",
+      { version: "1.0" }
+    );
+    assert.ok(doc1.id > 0);
+    assert.equal(doc1.title, "Neon Postgres Autoscaling Guide");
+
+    const searchResults = await searchKnowledgeHybrid("Postgres autoscaling");
+    assert.ok(searchResults.length > 0);
+    assert.ok(searchResults.some((r) => r.document.title.includes("Autoscaling")));
+
+    await deleteKnowledgeDocument(doc1.id);
+  });
+
+  // 18. Kokoro-82M Voice Synthesis Architecture & Multi-Tier Cascade
+  await test("TTS Architecture: Kokoro-82M voice resolver and multi-tier synthesis cascade", async () => {
+    const femaleVoice = resolveKokoroVoice("female", "English");
+    assert.equal(femaleVoice, "af_heart");
+
+    const maleVoice = resolveKokoroVoice("male", "English");
+    assert.equal(maleVoice, "am_adam");
+
+    const hindiVoice = resolveKokoroVoice("hindi_male", "Hindi");
+    assert.equal(hindiVoice, "hm_omega");
+
+    const isKokoro = await isKokoroAvailable();
+    assert.equal(typeof isKokoro, "boolean");
   });
 
   console.log("\n=================================================");

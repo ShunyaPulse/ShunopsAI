@@ -15,3 +15,4 @@ export * from "./db/tasks.js";
 export * from "./db/apiKeys.js";
 export * from "./db/billing.js";
 export * from "./db/admin.js";
+export * from "./db/knowledge.js";

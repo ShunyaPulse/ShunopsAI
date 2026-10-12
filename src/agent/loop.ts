@@ -161,18 +161,17 @@ export async function runAutonomousAgent(
         };
       }
 
-      // Execute tool calls sequentially or in parallel
-      for (const toolCall of toolCalls) {
+      // Execute tool calls in parallel (Concurrent SOTA Execution)
+      const toolPromises = toolCalls.map(async (toolCall) => {
         if (toolCall.type !== "function") {
           // Every tool_call in the assistant message must be answered by a
           // matching `tool` message, otherwise the next API request is
           // rejected with "must be followed by tool messages".
-          messages.push({
-            role: "tool",
+          return {
+            role: "tool" as const,
             tool_call_id: toolCall.id,
             content: "Error: Unsupported non-function tool call. Skipped.",
-          });
-          continue;
+          };
         }
 
         const toolName = toolCall.function.name;
@@ -207,15 +206,19 @@ export async function runAutonomousAgent(
         } else {
           // Centralized safety gate: EVERY tool (including shell/git) is checked here,
           // so individual wrappers can no longer bypass the human-in-the-loop guard.
-          const payload = sensitivityPayload(toolName, parsedArgs);
-          const sensitivity = isActionSensitive(payload);
-          if (sensitivity.isSensitive) {
-            const approval = await requestHumanApproval(`Tool: ${toolName}`, payload, sensitivity.reason);
-            executionResult = approval.approved
-              ? await toolHandler.execute(parsedArgs).catch((e: any) => `Error executing tool ${toolName}: ${e.message}`)
-              : `Aborted by safety gate: ${approval.message}`;
-          } else {
-            executionResult = await toolHandler.execute(parsedArgs).catch((e: any) => `Error executing tool ${toolName}: ${e.message}`);
+          try {
+            const payload = sensitivityPayload(toolName, parsedArgs);
+            const sensitivity = isActionSensitive(payload);
+            if (sensitivity.isSensitive) {
+              const approval = await requestHumanApproval(`Tool: ${toolName}`, payload, sensitivity.reason);
+              executionResult = approval.approved
+                ? await toolHandler.execute(parsedArgs).catch((e: any) => `Error executing tool ${toolName}: ${e.message}`)
+                : `Aborted by safety gate: ${approval.message}`;
+            } else {
+              executionResult = await toolHandler.execute(parsedArgs).catch((e: any) => `Error executing tool ${toolName}: ${e.message}`);
+            }
+          } catch (execErr: any) {
+            executionResult = `Error executing tool ${toolName}: ${execErr?.message || String(execErr)}`;
           }
         }
 
@@ -225,14 +228,18 @@ export async function runAutonomousAgent(
             ? executionResult.slice(0, 500) + `\n... [${executionResult.length - 500} more chars]`
             : executionResult;
 
-        console.log(`${colors.blue}[Tool Result]${colors.reset}\n${resultPreview}`);
+        console.log(`${colors.blue}[Tool Result] [${toolName}]${colors.reset}\n${resultPreview}`);
 
-        // Append tool result message for the next iteration
-        messages.push({
-          role: "tool",
+        return {
+          role: "tool" as const,
           tool_call_id: toolCall.id,
           content: executionResult,
-        });
+        };
+      });
+
+      const toolResults = await Promise.all(toolPromises);
+      for (const res of toolResults) {
+        messages.push(res);
       }
     } catch (loopError: any) {
       console.error(

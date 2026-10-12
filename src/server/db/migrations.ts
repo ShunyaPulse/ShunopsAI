@@ -140,6 +140,50 @@ export const MIGRATIONS: SchemaMigration[] = [
       await (sql as any).query(`ALTER TABLE shunops_users ADD COLUMN IF NOT EXISTS total_tokens BIGINT DEFAULT 0;`);
     },
   },
+  {
+    version: 7,
+    name: "007_hybrid_knowledge_search",
+    up: async (sql) => {
+      // 1. Attempt to enable pgvector extension (Neon natively supports it)
+      try {
+        await (sql as any).query(`CREATE EXTENSION IF NOT EXISTS vector;`);
+      } catch {}
+
+      // 2. Knowledge documents table
+      await (sql as any).query(`
+        CREATE TABLE IF NOT EXISTS shunops_knowledge_documents (
+          id SERIAL PRIMARY KEY,
+          title VARCHAR(255) NOT NULL,
+          content TEXT NOT NULL,
+          category VARCHAR(64) DEFAULT 'general',
+          metadata JSONB DEFAULT '{}',
+          created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
+
+      // 3. Add full-text TSVECTOR column and GIN index
+      try {
+        await (sql as any).query(`
+          ALTER TABLE shunops_knowledge_documents 
+          ADD COLUMN IF NOT EXISTS tsv TSVECTOR 
+          GENERATED ALWAYS AS (to_tsvector('english', title || ' ' || content)) STORED;
+        `);
+        await (sql as any).query(`
+          CREATE INDEX IF NOT EXISTS idx_shunops_knowledge_tsv 
+          ON shunops_knowledge_documents USING GIN(tsv);
+        `);
+      } catch {}
+
+      // 4. Try adding vector embedding column if vector extension is active
+      try {
+        await (sql as any).query(`
+          ALTER TABLE shunops_knowledge_documents 
+          ADD COLUMN IF NOT EXISTS embedding vector(768);
+        `);
+      } catch {}
+    },
+  },
 ];
 
 /**

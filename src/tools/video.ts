@@ -9,6 +9,10 @@ import {
   synthesizeGoogleCloudTTS,
   resolveGCPVoice,
 } from "./gcp-tts.js";
+import {
+  isKokoroAvailable,
+  synthesizeKokoroTTS,
+} from "./kokoro-tts.js";
 dotenv.config({ path: path.resolve(process.cwd(), ".env"), override: true });
 
 const execFileAsync = promisify(execFile);
@@ -483,9 +487,17 @@ export async function startVideoJob(
     if (!sc) continue;
     const outMp3 = path.join(audioDir, `a${String(i).padStart(3, "0")}.mp3`);
 
-    // Tier 1 (Best): Google Cloud Text-to-Speech (DeepMind Neural2)
+    // Tier 1: Kokoro-82M SOTA Engine (ElevenLabs quality, $0 cost)
     let synthesized = false;
-    if (gcpAvailable && gcpVoice) {
+    if (await isKokoroAvailable()) {
+      synthesized = await synthesizeKokoroTTS(sc.narration, outMp3, {
+        language,
+        speed: 1.0,
+      });
+    }
+
+    // Tier 2: Google Cloud Text-to-Speech (DeepMind Neural2)
+    if (!synthesized && gcpAvailable && gcpVoice) {
       synthesized = await synthesizeGoogleCloudTTS(sc.narration, outMp3, {
         voiceName: gcpVoice.name,
         language,
@@ -495,11 +507,11 @@ export async function startVideoJob(
       if (synthesized) {
         gcpSuccessCount++;
       } else {
-        console.warn(`[Video] ⚠️ Scene ${i + 1} Google Cloud TTS failed. Falling back to Tier 2 (Edge-TTS)...`);
+        console.warn(`[Video] ⚠️ Scene ${i + 1} Google Cloud TTS failed. Falling back to Tier 3 (Edge-TTS)...`);
       }
     }
 
-    // Tier 2 (High Quality Fallback): Microsoft Edge-TTS with up to 3 retries
+    // Tier 3 (High Quality Cloud Fallback): Microsoft Edge-TTS with up to 3 retries
     if (!synthesized) {
       for (let attempt = 1; attempt <= 3; attempt++) {
         synthesized = await synthesizeLocalEdgeTTS(sc.narration, outMp3, edgeVoice.name, edgeVoice.pitch);

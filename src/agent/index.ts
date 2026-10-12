@@ -59,3 +59,9 @@ export {
   type ComplexityLevel,
 } from "./router.js";
 
+export {
+  buildRollingMemory,
+  type ChatTurn,
+  type MemorySummaryOptions,
+} from "./memory.js";
+

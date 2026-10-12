@@ -1075,9 +1075,17 @@ export function getUserWorkspaceHtml(username: string): string {
         historyItems.push('Custom Workspace Notes/Instructions:\\n' + customContext);
       }
       if (conversationHistory.length > 0) {
-        const recent = conversationHistory.slice(-8);
-        const turnsText = recent.map(t => (t.role === 'user' ? 'User: ' : 'Assistant: ') + t.content).join('\\n');
-        historyItems.push('Previous Conversation History:\\n' + turnsText);
+        if (conversationHistory.length <= 6) {
+          const turnsText = conversationHistory.map(t => (t.role === 'user' ? 'User: ' : 'Assistant: ') + t.content).join('\\n');
+          historyItems.push('Previous Conversation History:\\n' + turnsText);
+        } else {
+          // Hierarchical Rolling Memory: condense older background turns into bulleted key points
+          const older = conversationHistory.slice(0, -6);
+          const recent = conversationHistory.slice(-6);
+          const olderDistilled = older.map(t => '• ' + (t.role === 'user' ? 'User' : 'Assistant') + ': ' + (t.content.length > 140 ? t.content.slice(0, 137) + '...' : t.content)).join('\\n');
+          const recentText = recent.map(t => (t.role === 'user' ? 'User: ' : 'Assistant: ') + t.content).join('\\n');
+          historyItems.push('=== Prior Session Context & Key Decisions (Rolling Memory) ===\\n' + olderDistilled + '\\n\\n=== Recent Active Conversation Turns ===\\n' + recentText);
+        }
       }
       const historyPayload = historyItems.length > 0 ? historyItems.join('\\n\\n') : undefined;
 

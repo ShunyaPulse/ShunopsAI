@@ -30,9 +30,11 @@ export const memStore = {
   tasks: new Map<string, any>(),
   chatMessages: [] as Array<{ id: number; userId: number; role: string; message: string; createdAt: string }>,
   apiKeys: new Map<string, { id: number; userId: number; prefix: string; name: string; createdAt: string; lastUsedAt: string | null }>(),
+  knowledgeDocs: new Map<number, any>(),
   nextUserId: 1,
   nextMsgId: 1,
   nextKeyId: 1,
+  nextDocId: 1,
 };
 
 /** Session and API-key tokens are persisted as scrypt hashes, never in plaintext. */
