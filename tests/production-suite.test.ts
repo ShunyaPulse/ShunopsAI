@@ -42,6 +42,14 @@ import {
 } from "../src/server/middleware/bot-shield.js";
 import { getRedisClient, checkRedisHealth } from "../src/server/redis.js";
 import { createApp, loadAppConfig } from "../src/server/app.js";
+import {
+  recordCircuitBreakerFailure,
+  recordCircuitBreakerSuccess,
+  isModelDegraded,
+  getTiersHealthStatus,
+  classifyHeuristic,
+  getRoutingTargets,
+} from "../src/agent/index.js";
 
 async function runSuite() {
   console.log("=================================================");
@@ -340,6 +348,87 @@ async function runSuite() {
     });
     // Should NOT be 403 (it passes the bot gate)
     assert.notEqual(allowedRes.statusCode, 403, "Valid PoW shield must not be rejected with 403");
+
+    await app.close();
+  });
+
+  await test("Circuit Breaker: Passive recording and zero-probe health checking", async () => {
+    // 1. Initial state is healthy
+    const initialDegraded = await isModelDegraded("mock_provider", "mock_model");
+    assert.equal(initialDegraded, false, "Model should initially not be degraded");
+
+    // 2. Record 429 failure passively
+    await recordCircuitBreakerFailure("mock_provider", "mock_model", 429, "Rate limit reached");
+    const degraded = await isModelDegraded("mock_provider", "mock_model");
+    assert.equal(degraded, true, "Model should be in degraded cooldown after 429");
+
+    // 3. Record success clears degraded state immediately
+    await recordCircuitBreakerSuccess("mock_provider", "mock_model");
+    const cleared = await isModelDegraded("mock_provider", "mock_model");
+    assert.equal(cleared, false, "Model should be cleared from degraded cooldown on success");
+
+    // 4. Zero-probe tier health inspection (0 synthetic requests)
+    const tiers = await getTiersHealthStatus();
+    assert.ok(Array.isArray(tiers), "getTiersHealthStatus must return array of tiers");
+    assert.equal(tiers.length, 4, "Must cover auto, gemini-flash, groq-120b, and openrouter-heavy tiers");
+    const autoTier = tiers.find((t) => t.tierId === "auto");
+    assert.ok(autoTier, "Auto tier must be present in health status");
+  });
+
+  await test("Task Complexity Routing: Heuristics and circuit-breaker-aware prioritizing", async () => {
+    // 1. Heuristic classifications
+    const simple1 = classifyHeuristic("hi there");
+    assert.equal(simple1, "simple", "Greetings should be classified as simple");
+
+    const simple2 = classifyHeuristic("what is docker?");
+    assert.equal(simple2, "simple", "Short questions should be classified as simple");
+
+    const complex1 = classifyHeuristic("Debug this AST visitor and fix the memory leak in the parser");
+    assert.equal(complex1, "complex", "AST and memory leak prompts should be complex");
+
+    const complex2 = classifyHeuristic("Write an SQL injection security filter for this user table");
+    assert.equal(complex2, "complex", "Security and SQL injection prompts should be complex");
+
+    // 2. Simple task routes to fast Flash model
+    const simpleRouting = await getRoutingTargets("auto", "hello, how are you?");
+    assert.equal(simpleRouting.routedComplexity, "simple");
+    assert.equal(simpleRouting.targets[0]?.provider, "gemini");
+
+    // 3. Complex task routes to heavy reasoning model
+    const complexRouting = await getRoutingTargets("auto", "Solve this concurrency deadlock in the transaction manager");
+    assert.equal(complexRouting.routedComplexity, "complex");
+    assert.equal(complexRouting.targets[0]?.provider, "groq");
+    assert.ok(complexRouting.targets[0]?.model.includes("120b"));
+
+    // 4. User preference override
+    const manualPref = await getRoutingTargets("openrouter-heavy", "hello");
+    assert.equal(manualPref.targets[0]?.provider, "openrouter");
+
+    // 5. Circuit Breaker Skipping: If primary model is degraded, it is deprioritized
+    await recordCircuitBreakerFailure("gemini", "gemini-3.8-flash", 429, "Rate limit");
+    const skippedRouting = await getRoutingTargets("auto", "hello, how are you?");
+    assert.notEqual(
+      skippedRouting.targets[0]?.model,
+      "gemini-3.8-flash",
+      "Degraded model must not be first in the target chain"
+    );
+    // Cleanup
+    await recordCircuitBreakerSuccess("gemini", "gemini-3.8-flash");
+  });
+
+  await test("API Endpoints: /api/models/status returns live tier health without probes", async () => {
+    const config = loadAppConfig();
+    const app = await createApp(config);
+
+    const statusRes = await app.inject({
+      method: "GET",
+      url: "/api/models/status",
+    });
+    assert.equal(statusRes.statusCode, 200);
+    const statusData = JSON.parse(statusRes.payload);
+    assert.equal(statusData.success, true);
+    assert.ok(Array.isArray(statusData.tiers));
+    assert.equal(statusData.tiers.length, 4);
 
     await app.close();
   });

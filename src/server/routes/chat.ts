@@ -1,5 +1,11 @@
 import type { FastifyInstance } from "fastify";
-import { runAutonomousAgent, toolRegistry, type ToolName } from "../../agent/index.js";
+import {
+  runAutonomousAgent,
+  toolRegistry,
+  type ToolName,
+  getTiersHealthStatus,
+  getRoutingTargets,
+} from "../../agent/index.js";
 import { ChatRequestSchema, type ChatRequest } from "../schemas/alert.js";
 import {
   verifyCloudflareTurnstile,
@@ -32,6 +38,15 @@ const ANON_MAX_REQUESTS = 5; // 5 requests per 10 minutes per Subnet
  * Layer 5: Token & Quota Guardrail (maxSteps: 1 for anonymous, 3 for authenticated / BYOK).
  */
 export async function chatRoutes(app: FastifyInstance): Promise<void> {
+  // Live Model Circuit Breaker Status Endpoint (Zero-Ping / Zero Quota Drain)
+  app.get("/api/models/status", async (_req, reply) => {
+    const tiers = await getTiersHealthStatus();
+    return {
+      success: true,
+      tiers,
+    };
+  });
+
   app.post<{ Body: ChatRequest }>(
     "/api/chat",
     {
@@ -40,7 +55,7 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
       },
     },
     async (req, reply) => {
-      const { message, history, hp_website, turnstileToken, shield } = req.body;
+      const { message, history, modelPreference, hp_website, turnstileToken, shield } = req.body;
       const clientIp = getClientIp(req);
       const clientSubnet = getClientSubnet(clientIp);
 
@@ -162,6 +177,12 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
       }
 
       try {
+        const { targets, routedComplexity } = await getRoutingTargets(
+          modelPreference || "auto",
+          message,
+          keyOverrides
+        );
+
         // Client-supplied history is untrusted, so it is folded into the user
         // turn (delimited) rather than passed as `initialContext`, which the
         // agent loop injects as a privileged system message and would let an
@@ -174,11 +195,15 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
           maxSteps: isBYOK || authenticatedUser ? 3 : 1, // Elevated steps for authenticated users
           disabledTools: Object.keys(toolRegistry) as ToolName[],
           keyOverrides,
+          targets,
         });
 
         const replyAnswer = result.finalAnswer || "I'm here to help! Could you please clarify your question?";
         const inTokens = result.usage?.promptTokens || Math.ceil(goal.length / 4);
         const outTokens = result.usage?.completionTokens || Math.ceil(replyAnswer.length / 4);
+
+        reply.header("X-Routed-Complexity", routedComplexity);
+        reply.header("X-Model-Preference", modelPreference || "auto");
 
         // Record modern token consumption for authenticated non-BYOK users
         if (authenticatedUser && !isBYOK) {
@@ -202,6 +227,8 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
             completionTokens: outTokens,
             totalTokens: inTokens + outTokens,
           },
+          routedComplexity,
+          modelPreference: modelPreference || "auto",
         };
       } catch (error: any) {
         req.log.warn("Chat completion error: [REDACTED]");

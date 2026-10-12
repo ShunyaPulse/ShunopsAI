@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 import { colors } from "../core/colors.js";
+import { recordCircuitBreakerSuccess, recordCircuitBreakerFailure } from "./circuitBreaker.js";
 
 // ==========================================
 // Multi-Provider Model Configuration & Fallback Chain
@@ -194,12 +195,14 @@ export async function callChatCompletionWithFailover(
         const response = await client.chat.completions.create(params);
 
         if (response.choices && response.choices.length > 0 && response.choices[0]) {
+          recordCircuitBreakerSuccess(target.provider, target.model).catch(() => {});
           return { response, usedModel: `${target.provider.toUpperCase()}:${target.model}` };
         }
         throw new Error(`Model ${target.model} returned empty choices array.`);
       } catch (err: any) {
         lastError = err;
         const statusCode = err?.status || err?.statusCode || "Unknown";
+        recordCircuitBreakerFailure(target.provider, target.model, statusCode, err?.message).catch(() => {});
         console.warn(
           `${colors.yellow}[Failover Notice]${colors.reset} [${target.provider}] ${target.model} attempt ${att + 1}/${attempts} failed (${statusCode}: ${err.message}). Trying fallback...`
         );

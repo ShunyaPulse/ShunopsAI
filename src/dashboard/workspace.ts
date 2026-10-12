@@ -632,6 +632,23 @@ export function getUserWorkspaceHtml(username: string): string {
         </div>
         <p>Your conversation history is securely saved in your database account and restored across reloads.</p>
 
+        <!-- Model Selection Dropdown & Live Circuit Breaker Status -->
+        <div style="display:flex; justify-content:space-between; align-items:center; background:#070a12; border:1px solid #1e293b; border-radius:10px; padding:8px 12px; margin:10px 0 14px; gap:10px; flex-wrap:wrap;">
+          <div style="display:flex; align-items:center; gap:8px;">
+            <label for="chat-model-select" style="font-size:12px; font-weight:600; color:#94a3b8; cursor:pointer;">🎯 Model Backbone:</label>
+            <select id="chat-model-select" onchange="onModelPreferenceChange()" style="background:#0f172a; color:#fff; border:1px solid #334155; border-radius:6px; padding:5px 10px; font-size:12px; font-weight:500; outline:none; cursor:pointer; transition:border 0.2s;">
+              <option value="auto">⚡ Auto (Smart Complexity Router)</option>
+              <option value="gemini-flash">🚀 Fast: Gemini 3.8 Flash</option>
+              <option value="groq-120b">🧠 Deep Reasoning: Groq GPT-OSS 120B</option>
+              <option value="openrouter-heavy">🌌 Heavyweight: OpenRouter 550B / 70B</option>
+            </select>
+          </div>
+          <div id="model-status-badge" style="font-size:11px; color:#10b981; display:flex; align-items:center; gap:6px;">
+            <span style="width:6px; height:6px; border-radius:50%; background:#10b981; display:inline-block;"></span>
+            <span>All Models Healthy</span>
+          </div>
+        </div>
+
         <!-- Message Thread -->
         <div id="chat-thread" class="chat-thread-container">
           <div id="empty-state" style="margin:auto; text-align:center; color:#64748b; font-size:13px; padding:20px;">
@@ -825,6 +842,67 @@ export function getUserWorkspaceHtml(username: string): string {
       const badge = document.getElementById('context-badge');
       const count = conversationHistory.length;
       badge.textContent = '🧠 Persistent Memory (' + count + ' messages)';
+    }
+
+    function onModelPreferenceChange() {
+      const select = document.getElementById('chat-model-select');
+      const badge = document.getElementById('model-status-badge');
+      if (select && badge) {
+        if (select.value === 'auto') {
+          badge.innerHTML = '<span style="width:6px; height:6px; border-radius:50%; background:#38bdf8; display:inline-block;"></span><span style="color:#38bdf8;">Smart Auto-Router Active</span>';
+        } else {
+          badge.innerHTML = '<span style="width:6px; height:6px; border-radius:50%; background:#10b981; display:inline-block;"></span><span style="color:#10b981;">Manual Model Locked</span>';
+        }
+      }
+    }
+
+    async function fetchModelStatus() {
+      try {
+        const res = await fetch('/api/models/status');
+        const data = await res.json();
+        if (!data.success || !Array.isArray(data.tiers)) return;
+
+        const select = document.getElementById('chat-model-select');
+        const badge = document.getElementById('model-status-badge');
+        if (!select) return;
+
+        let degradedCount = 0;
+
+        data.tiers.forEach(tier => {
+          const opt = select.querySelector('option[value="' + tier.tierId + '"]');
+          if (!opt) return;
+
+          if (tier.degraded) {
+            degradedCount++;
+            opt.disabled = true;
+            const remaining = tier.cooldownRemainingSeconds ? (' (' + tier.cooldownRemainingSeconds + 's cooldown)') : '';
+            opt.textContent = '⚠️ [Degraded] ' + tier.name + remaining;
+            if (select.value === tier.tierId) {
+              select.value = 'auto';
+            }
+          } else {
+            opt.disabled = false;
+            if (tier.tierId === 'auto') opt.textContent = '⚡ Auto (Smart Complexity Router)';
+            if (tier.tierId === 'gemini-flash') opt.textContent = '🚀 Fast: Gemini 3.8 Flash';
+            if (tier.tierId === 'groq-120b') opt.textContent = '🧠 Deep Reasoning: Groq GPT-OSS 120B';
+            if (tier.tierId === 'openrouter-heavy') opt.textContent = '🌌 Heavyweight: OpenRouter 550B / 70B';
+          }
+        });
+
+        if (badge && select.value !== 'auto') {
+          return;
+        }
+
+        if (badge) {
+          if (degradedCount > 0) {
+            badge.innerHTML = '<span style="width:6px; height:6px; border-radius:50%; background:#f59e0b; display:inline-block;"></span><span style="color:#f59e0b;">' + degradedCount + ' Model(s) in Cooldown (Zero Ping)</span>';
+          } else {
+            badge.innerHTML = '<span style="width:6px; height:6px; border-radius:50%; background:#10b981; display:inline-block;"></span><span style="color:#10b981;">All Models Healthy</span>';
+          }
+        }
+      } catch (e) {
+        // Silent fail
+      }
     }
 
     // 1. Persistent Chat History: Load from DB on startup
@@ -1021,6 +1099,8 @@ export function getUserWorkspaceHtml(username: string): string {
           }
         } catch (e) {}
 
+        const modelPreference = document.getElementById('chat-model-select')?.value || 'auto';
+
         const res = await fetch('/api/chat', {
           method: 'POST',
           headers,
@@ -1028,6 +1108,7 @@ export function getUserWorkspaceHtml(username: string): string {
           body: JSON.stringify({
             message: msg,
             history: historyPayload,
+            modelPreference,
             shield: shieldSolution || undefined,
           })
         });
@@ -1042,6 +1123,15 @@ export function getUserWorkspaceHtml(username: string): string {
         conversationHistory.push({ role: 'assistant', content: reply });
         updateContextBadge();
         fetchBillingUsage();
+
+        if (data.routedComplexity && modelPreference === 'auto') {
+          const badge = document.getElementById('model-status-badge');
+          if (badge) {
+            const compLabel = data.routedComplexity === 'complex' ? '🧠 Deep Reasoning' : '🚀 Fast Flash';
+            badge.innerHTML = '<span style="width:6px; height:6px; border-radius:50%; background:#38bdf8; display:inline-block;"></span><span style="color:#38bdf8;">Auto-routed: ' + compLabel + '</span>';
+          }
+        }
+        fetchModelStatus();
 
       } catch (err) {
         removeThinkingIndicator();
@@ -1311,6 +1401,7 @@ export function getUserWorkspaceHtml(username: string): string {
       fetchWorkspaceApprovals();
       fetchBillingUsage();
       loadApiKeys();
+      fetchModelStatus();
       setInterval(fetchWorkspaceApprovals, 4000); // Live approvals polling
     });
   </script>

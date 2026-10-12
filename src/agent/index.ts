@@ -41,3 +41,21 @@ export {
   type AgentOptions,
   type AgentRunResult,
 } from "./loop.js";
+
+export {
+  recordCircuitBreakerFailure,
+  recordCircuitBreakerSuccess,
+  isModelDegraded,
+  getModelDegradedInfo,
+  getTiersHealthStatus,
+  type TierHealthStatus,
+  type DegradedState,
+} from "./circuitBreaker.js";
+
+export {
+  classifyHeuristic,
+  analyzeTaskComplexity,
+  getRoutingTargets,
+  type ComplexityLevel,
+} from "./router.js";
+
