@@ -84,7 +84,17 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
           }
         : undefined;
 
-      // Layer 2: Cloudflare Turnstile Verification (if token provided or secret configured)
+      // Layer 2 & 3: Anti-Bot Verification (Turnstile or Cryptographic PoW Shield)
+      // Anonymous callers must clear a bot challenge (Turnstile or PoW shield) to prevent open LLM proxy abuse
+      if (!authenticatedUser && !isBYOK && !turnstileToken && !shield) {
+        reply.status(403);
+        return {
+          reply: "Proof-of-work bot shield required. Fetch /api/shield/challenge, solve it, and resend with the 'shield' field.",
+          success: false,
+        };
+      }
+
+      // Cloudflare Turnstile Verification (if token provided)
       if (turnstileToken) {
         const isHuman = await verifyCloudflareTurnstile(turnstileToken, clientIp);
         if (!isHuman) {
@@ -94,10 +104,8 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
             success: false,
           };
         }
-      }
-
-      // Layer 3: Anti-Bot Proof-of-Work Challenge (Stops Python, Curl, Headless scripts)
-      if (shield) {
+      } else if (shield) {
+        // Anti-Bot Proof-of-Work Challenge (Stops Python, Curl, Headless scrapers)
         const isValidShield = verifyShieldSolution(
           shield.salt,
           shield.timestamp,

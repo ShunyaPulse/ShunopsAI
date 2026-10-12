@@ -290,6 +290,56 @@ async function runSuite() {
     await app.close();
   });
 
+  // 12. Chat Endpoint Bot-Shield Hardening
+  await test("Chat Bot-Shield: /api/chat rejects anonymous callers without shield with 403, accepts valid PoW", async () => {
+    process.env.NODE_ENV = "test";
+    const app = await createApp();
+
+    // Anonymous request without shield should be blocked with 403
+    const blockedRes = await app.inject({
+      method: "POST",
+      url: "/api/chat",
+      payload: { message: "Hello without shield" },
+    });
+    assert.equal(blockedRes.statusCode, 403);
+    const blockedBody = JSON.parse(blockedRes.payload);
+    assert.equal(blockedBody.success, false);
+    assert.ok(blockedBody.reply.includes("Proof-of-work bot shield required"));
+
+    // Solve valid PoW challenge
+    const challenge = generateShieldChallenge();
+    const crypto = await import("node:crypto");
+    let solution = 0;
+    while (true) {
+      const hash = crypto
+        .createHash("sha256")
+        .update(`${challenge.salt}:${solution}`)
+        .digest("hex");
+      if (hash.startsWith("00")) break;
+      solution++;
+    }
+
+    // Call /api/chat with solved shield
+    const allowedRes = await app.inject({
+      method: "POST",
+      url: "/api/chat",
+      payload: {
+        message: "Hello with valid shield",
+        shield: {
+          salt: challenge.salt,
+          timestamp: challenge.timestamp,
+          targetDifficulty: challenge.targetDifficulty,
+          signature: challenge.signature,
+          solution: String(solution),
+        },
+      },
+    });
+    // Should NOT be 403 (it passes the bot gate)
+    assert.notEqual(allowedRes.statusCode, 403, "Valid PoW shield must not be rejected with 403");
+
+    await app.close();
+  });
+
   console.log("\n=================================================");
   console.log(`TEST SUMMARY: ${testsPassed} Passed, ${testsFailed} Failed.`);
   console.log("=================================================");
