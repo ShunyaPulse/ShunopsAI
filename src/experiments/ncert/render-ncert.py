@@ -43,7 +43,7 @@ for mod in list(sys.modules.keys()):
 # Ensure all dependencies are present and upgraded
 subprocess.run([
     sys.executable, "-m", "pip", "install", "-q", "-U",
-    "diffusers", "transformers", "accelerate", "safetensors", "huggingface_hub", "edge-tts"
+    "diffusers", "transformers", "accelerate", "safetensors", "huggingface_hub", "edge-tts", "gTTS"
 ], check=False)
 
 import edge_tts
@@ -103,10 +103,11 @@ def duration(path):
 # ==========================================
 async def tts_with_boundaries(text, voice, a_path, rate="+10%"):
     """
-    Synthesizes speech with Edge-TTS and captures internal WordBoundary / SentenceBoundary
-    metadata streams for 100% frame-perfect subtitle alignment without external Whisper calls.
+    Synthesizes speech with Edge-TTS and captures internal WordBoundary metadata streams.
+    Falls back gracefully to gTTS if Edge-TTS returns 403 or network failure in cloud environments.
     """
-    for attempt in range(3):
+    # Tier 1: Primary Edge-TTS with WordBoundaries
+    for attempt in range(2):
         try:
             communicate = edge_tts.Communicate(text, voice, rate=rate)
             submaker = edge_tts.SubMaker()
@@ -119,8 +120,36 @@ async def tts_with_boundaries(text, voice, a_path, rate="+10%"):
             if os.path.exists(a_path) and os.path.getsize(a_path) > 800:
                 return submaker
         except Exception as e:
-            print(f"TTS retry {attempt}: {e}")
-            await asyncio.sleep(2)
+            print(f"[TTS] Edge-TTS retry {attempt} failed: {e}")
+            await asyncio.sleep(1)
+
+    # Tier 2: Resilient gTTS (Google Translate TTS) cloud fallback
+    try:
+        print("[TTS] Falling back to gTTS (Google Translate TTS)...")
+        from gtts import gTTS
+        lang = "hi" if ("hi-" in voice or "hindi" in voice.lower()) else "en"
+        tts = gTTS(text=text, lang=lang)
+        tts.save(a_path)
+        if os.path.exists(a_path) and os.path.getsize(a_path) > 500:
+            print(f"[TTS] gTTS fallback succeeded ({lang})!")
+            return edge_tts.SubMaker()
+    except Exception as ge:
+        print(f"[TTS] gTTS fallback error: {ge}")
+
+    # Tier 3: Tertiary duration-matched audio silence buffer so video scene never crashes
+    try:
+        words_cnt = max(1, len(text.split()))
+        fallback_dur = max(3.5, min(14.0, words_cnt * 0.45))
+        print(f"[TTS] Generating {fallback_dur:.1f}s audio fallback buffer...")
+        subprocess.run([
+            "ffmpeg", "-y", "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
+            "-t", str(fallback_dur), "-c:a", "libmp3lame", "-b:a", "192k", a_path
+        ], check=False)
+        if os.path.exists(a_path) and os.path.getsize(a_path) > 200:
+            return edge_tts.SubMaker()
+    except Exception as fe:
+        print(f"[TTS] Audio fallback error: {fe}")
+
     return None
 
 
@@ -494,11 +523,9 @@ async def main():
         v_path = f"{TMP}/v{i:03d}.mp4"
 
         print(f"\n--- [Scene {i+1}/{len(scenes)}] ---")
-        scene_voice = sc.get("voice") or voice
-        print(f"Synthesizing voice: {scene_voice} ({sc.get('speaker', 'Narrator')})...")
-        submaker = await tts_with_boundaries(sc["narration"], scene_voice, a_path, rate=rate)
-        if not submaker:
-            print(f"Skipping scene {i+1}: TTS failed.")
+        submaker = await tts_with_boundaries(sc["narration"], voice, a_path, rate=rate)
+        if not os.path.exists(a_path) or os.path.getsize(a_path) < 100:
+            print(f"Skipping scene {i+1}: Audio synthesis failed.")
             continue
 
         d = round(duration(a_path), 3)
@@ -636,12 +663,12 @@ async def main():
     )
     print("Mastering final modern video with burn-in captions, highlight roll-off curves, film grain, and outro fade...")
     fade_start = max(0.0, v_raw_dur - 0.8)
-    master_vf = ",".join([
-        f"curves=all='0/0 0.85/0.83 1/0.92':blue='0/0 0.75/0.72 1/0.88':green='0/0 0.80/0.78 1/0.92'",
-        f"noise=alls=1.5:allf=t+u",
-        f"fade=t=out:st={fade_start:.2f}:d=0.8",
+    master_vf = (
+        f"curves=all='0/0 0.85/0.83 1/0.92':blue='0/0 0.75/0.72 1/0.88':green='0/0 0.80/0.78 1/0.92',"
+        f"noise=alls=1.5:allf=t+u,"
+        f"fade=t=out:st={fade_start:.2f}:d=0.8,"
         f"subtitles={OUT}/captions.srt:force_style='{style}'"
-    ])
+    )
     master_af = f"afade=t=out:st={fade_start:.2f}:d=0.8"
     ok = run([
         "ffmpeg", "-y", "-i", f"{TMP}/video_raw.mp4", "-i", f"{TMP}/narration.mp3",

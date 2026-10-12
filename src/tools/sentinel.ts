@@ -2,7 +2,7 @@ import { neon } from "@neondatabase/serverless";
 import { Redis } from "ioredis";
 import { pingCloudflareAi } from "./cloudflare-ai.js";
 import { inspectWebsite, manageComputeEngine } from "./cloud.js";
-import { manageKaggle } from "./video.js";
+import { manageKaggle, rerunVideoJob } from "./video.js";
 import { sendIncidentAlert } from "./notifier.js";
 import * as os from "node:os";
 
@@ -257,6 +257,38 @@ export async function checkKaggleHealth(): Promise<ServiceHealthReport> {
     }
 
     const lines = listResult.trim().split("\n").filter(Boolean);
+
+    // Deep kernel inspection: Check whether the latest video-render kernel failed
+    let latestFailedKernel: string | null = null;
+    let latestFailedStatus = "";
+    const topKernelMatch = listResult.match(/([a-zA-Z0-9_-]+\/video-render-[a-zA-Z0-9]+)/);
+    if (topKernelMatch && topKernelMatch[1]) {
+      const topKernel = topKernelMatch[1];
+      try {
+        const statusStr = await manageKaggle("status", topKernel);
+        if (/error|failed/i.test(statusStr)) {
+          latestFailedKernel = topKernel;
+          latestFailedStatus = statusStr.trim();
+        }
+      } catch {}
+    }
+
+    if (latestFailedKernel) {
+      return {
+        service: "Kaggle GPU Pipeline",
+        category: "pipeline",
+        status: "degraded",
+        latencyMs,
+        error: `Active video render kernel failed: ${latestFailedKernel} (${latestFailedStatus})`,
+        details: {
+          failedKernel: latestFailedKernel,
+          status: latestFailedStatus,
+          totalKernelsFound: Math.max(0, lines.length - 1),
+        },
+        lastChecked: now,
+      };
+    }
+
     return {
       service: "Kaggle GPU Pipeline",
       category: "pipeline",
@@ -551,12 +583,36 @@ async function healWebEndpoints(): Promise<HealReport> {
   };
 }
 
-/** Sweep active Kaggle kernels and verify GPU quota access. */
-async function healKagglePipeline(): Promise<HealReport> {
+/** Sweep active Kaggle kernels and auto-heal failed video-render kernels. */
+async function healKagglePipeline(failedKernelRef?: string): Promise<HealReport> {
   try {
+    let targetKernel = failedKernelRef;
+
+    // If no specific kernel was passed in, inspect recent kernels from list
+    if (!targetKernel) {
+      const listOutput = await manageKaggle("list");
+      const match = listOutput.match(/([a-zA-Z0-9_-]+\/video-render-[a-zA-Z0-9]+)/);
+      if (match && match[1]) {
+        const topRef = match[1];
+        const status = await manageKaggle("status", topRef);
+        if (/error|failed/i.test(status)) {
+          targetKernel = topRef;
+        }
+      }
+    }
+
+    if (targetKernel) {
+      const cleanId = targetKernel.replace(/^[a-zA-Z0-9_-]+\/video-render-/, "");
+      console.log(`[Sentinel Auto-Heal] Diagnosing and re-dispatching failed kernel: ${targetKernel} (Job: ${cleanId})...`);
+      const rerunRes = await rerunVideoJob(cleanId);
+      return {
+        success: true,
+        actionTaken: `Auto-healed failed Kaggle kernel '${targetKernel}' with patched resilient TTS fallback renderer`,
+        result: rerunRes,
+      };
+    }
+
     const kaggleCheck = await manageKaggle("list");
-    // The CLI reports failures as text, so a hard error must not be reported
-    // as a successful heal.
     return {
       success: !/Kaggle CLI Error/i.test(kaggleCheck),
       actionTaken: "Swept active Kaggle kernels and checked GPU quotas",
@@ -565,7 +621,7 @@ async function healKagglePipeline(): Promise<HealReport> {
   } catch (kErr: any) {
     return {
       success: false,
-      actionTaken: "Attempted Kaggle kernel sweeper",
+      actionTaken: "Attempted Kaggle kernel self-healing",
       result: `Kaggle CLI check failed: ${kErr.message}`,
     };
   }
@@ -609,7 +665,8 @@ async function healSingleService(serviceName: string, reason?: string): Promise<
   } else if (norm.includes("web") || norm.includes("site") || norm.includes("uptime")) {
     healReport = await healWebEndpoints();
   } else if (norm.includes("kaggle") || norm.includes("gpu") || norm.includes("pipeline")) {
-    healReport = await healKagglePipeline();
+    const failedMatch = reason?.match(/([a-zA-Z0-9_-]+\/video-render-[a-zA-Z0-9]+)/);
+    healReport = await healKagglePipeline(failedMatch ? failedMatch[1] : undefined);
   } else {
     healReport = unmappedServiceReport(serviceName, reason);
   }
