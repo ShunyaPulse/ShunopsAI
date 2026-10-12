@@ -48,6 +48,46 @@ let cachedKeys: string[] = [];
 let lastRawKeyString = "";
 let roundRobinIndex = 0;
 
+let cachedGroqKeys: string[] = [];
+let lastRawGroqString = "";
+let groqRoundRobinIndex = 0;
+
+export function getGroqKeysPool(): string[] {
+  const raw =
+    process.env.GROQ_KEYS ||
+    process.env.GROQ_API_KEYS ||
+    process.env.GROQ_API_KEY ||
+    "";
+  if (raw !== lastRawGroqString) {
+    lastRawGroqString = raw;
+    cachedGroqKeys = raw
+      .split(",")
+      .map((k) => k.trim())
+      .filter(Boolean);
+    if (cachedGroqKeys.length > 1) {
+      groqRoundRobinIndex = Math.floor(Math.random() * cachedGroqKeys.length);
+    } else {
+      groqRoundRobinIndex = 0;
+    }
+  }
+  return cachedGroqKeys;
+}
+
+export function getNextGroqKey(): string | null {
+  const keys = getGroqKeysPool();
+  if (keys.length === 0) return null;
+  const key = keys[groqRoundRobinIndex];
+  groqRoundRobinIndex = (groqRoundRobinIndex + 1) % keys.length;
+  return key ?? null;
+}
+
+export function advanceGroqKeyOnRateLimit(): void {
+  const keys = getGroqKeysPool();
+  if (keys.length > 0) {
+    groqRoundRobinIndex = (groqRoundRobinIndex + 1) % keys.length;
+  }
+}
+
 export function getApiKeysPool(): string[] {
   const raw =
     process.env.GEMINI_KEYS ||
@@ -96,7 +136,7 @@ export interface ProviderKeyOverrides {
  */
 export function createClientForTarget(target: ModelTarget, overrides?: ProviderKeyOverrides): OpenAI {
   if (target.provider === "groq") {
-    const apiKey = overrides?.groqApiKey || process.env.GROQ_API_KEY;
+    const apiKey = overrides?.groqApiKey || getNextGroqKey() || process.env.GROQ_API_KEY;
     if (!apiKey) throw new Error("No Groq API key available");
     return new OpenAI({
       baseURL: GROQ_BASE_URL,
@@ -135,8 +175,9 @@ export async function callChatCompletionWithFailover(
   overrides?: ProviderKeyOverrides
 ): Promise<{ response: OpenAI.ChatCompletion; usedModel: string }> {
   const geminiPool = getApiKeysPool();
+  const groqPool = getGroqKeysPool();
   const hasServerGemini = geminiPool.length > 0;
-  const hasServerGroq = Boolean(process.env.GROQ_API_KEY);
+  const hasServerGroq = groqPool.length > 0 || Boolean(process.env.GROQ_API_KEY);
   const hasServerOpenRouter = Boolean(process.env.OPENROUTER_API_KEY);
 
   const isBYOK = Boolean(overrides?.groqApiKey || overrides?.geminiApiKey || overrides?.openrouterApiKey);
@@ -169,8 +210,13 @@ export async function callChatCompletionWithFailover(
   let lastError: any = null;
 
   for (const target of eligibleTargets) {
-    // If Gemini target using server pool, bounded retries on 429 across pool keys before model fallback (Rule 6)
-    const attempts = target.provider === "gemini" && !overrides?.geminiApiKey ? Math.min(2, geminiPool.length) : 1;
+    // If Gemini/Groq target using server pool, bounded retries across pool keys before model fallback (Rule 6)
+    let attempts = 1;
+    if (!overrides?.geminiApiKey && target.provider === "gemini") {
+      attempts = Math.min(2, geminiPool.length);
+    } else if (!overrides?.groqApiKey && target.provider === "groq") {
+      attempts = Math.min(2, groqPool.length);
+    }
 
     for (let att = 0; att < attempts; att++) {
       try {
@@ -206,8 +252,12 @@ export async function callChatCompletionWithFailover(
         console.warn(
           `${colors.yellow}[Failover Notice]${colors.reset} [${target.provider}] ${target.model} attempt ${att + 1}/${attempts} failed (${statusCode}: ${err.message}). Trying fallback...`
         );
-        if (statusCode === 429 && target.provider === "gemini") {
-          advanceGeminiKeyOnRateLimit();
+        if (statusCode === 429) {
+          if (target.provider === "gemini") {
+            advanceGeminiKeyOnRateLimit();
+          } else if (target.provider === "groq") {
+            advanceGroqKeyOnRateLimit();
+          }
         }
         if (err?.status === 404) break; // Model does not exist, move to next model
         await new Promise((r) => setTimeout(r, 200));
