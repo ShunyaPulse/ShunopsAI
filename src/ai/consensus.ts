@@ -91,6 +91,30 @@ export const BACKUP_PROPOSER = PROPOSER_MODELS_CHAIN[4]!;
 export const BACKUP_OPENROUTER_PROPOSER = BACKUP_PROPOSER;
 export const BACKUP_GROQ_AUDITOR = AUDITOR_MODELS_CHAIN[1]!;
 
+/** Gemini keys configured for this process (pool first, then the single-key var). */
+export function getGeminiKeys(): string[] {
+  const raw =
+    process.env.GEMINI_KEYS ||
+    process.env.GEMINI_API_KEYS ||
+    process.env.GEMINI_API_KEY ||
+    "";
+  return raw.split(",").map((k) => k.trim()).filter(Boolean);
+}
+
+/**
+ * Whether usable credentials exist for a provider.
+ *
+ * Without this guard a chain containing an unconfigured provider is attempted
+ * with a placeholder key, and each attempt costs a round trip that can only
+ * return 400 Bad Request before the next model is tried (GEMINI.md Rule 3 keeps
+ * the chain ordered, so skipping is strictly faster and equally correct).
+ */
+export function hasProviderCredentials(provider: ModelEndpoint["provider"]): boolean {
+  if (provider === "gemini") return getGeminiKeys().length > 0;
+  if (provider === "groq") return Boolean(process.env.GROQ_API_KEY);
+  return Boolean(process.env.OPENROUTER_API_KEY);
+}
+
 export function createClient(target: ModelEndpoint): OpenAI {
   if (target.provider === "groq") {
     return new OpenAI({
@@ -100,12 +124,7 @@ export function createClient(target: ModelEndpoint): OpenAI {
   }
 
   if (target.provider === "gemini") {
-    const raw =
-      process.env.GEMINI_KEYS ||
-      process.env.GEMINI_API_KEYS ||
-      process.env.GEMINI_API_KEY ||
-      "";
-    const keys = raw.split(",").map((k) => k.trim()).filter(Boolean);
+    const keys = getGeminiKeys();
     const key = keys.length > 0 ? keys[randomInt(0, keys.length)] : "dummy-gemini-key";
     return new OpenAI({
       baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/",
@@ -135,6 +154,16 @@ export async function callModelWithChain(
 
   for (let i = 0; i < chain.length; i++) {
     const target = chain[i]!;
+
+    // Skip providers with no credentials instead of burning attempts on a dummy key.
+    if (!hasProviderCredentials(target.provider)) {
+      lastErr = new Error(`${target.provider} credentials are not configured`);
+      console.warn(
+        `${colors.yellow}[Fallback Chain]${colors.reset} Skipping [${target.provider}] ${target.model}: no credentials configured.`
+      );
+      continue;
+    }
+
     // For Gemini, attempt with up to 3 different keys from the pool before moving to next model
     const attempts = target.provider === "gemini" ? 3 : 1;
 

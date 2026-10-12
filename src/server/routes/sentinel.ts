@@ -13,13 +13,17 @@ export async function sentinelRoutes(app: FastifyInstance, opts: SentinelRouteOp
   const statusPreHandler = opts.requireDashboardAuth ? [opts.requireDashboardAuth] : [];
   const healPreHandler = opts.requireAuth ? [opts.requireAuth] : [];
 
-  app.get("/api/sentinel/status", { preHandler: statusPreHandler }, async (_req, reply) => {
+  app.get("/api/sentinel/status", { preHandler: statusPreHandler }, async (req, reply) => {
     try {
       const summary = await runComprehensiveSentinelScan();
       return summary;
     } catch (err: any) {
+      // Raw driver/cloud errors can carry internal hostnames, ports, or
+      // connection-string fragments. Keep them server-side and return a
+      // generic message to the caller.
+      req.log.error({ err }, "[Sentinel] Infrastructure scan failed");
       reply.status(500);
-      return { error: "Failed to scan infrastructure: " + err.message };
+      return { error: "Failed to scan infrastructure. See server logs for details." };
     }
   });
 
@@ -31,8 +35,10 @@ export async function sentinelRoutes(app: FastifyInstance, opts: SentinelRouteOp
       const healResult = await autoHealService(serviceName, reason);
       return healResult;
     } catch (err: any) {
+      // Same rule as the scan endpoint: never echo provider/driver internals.
+      req.log.error({ err, serviceName }, "[Sentinel] Self-healing failed");
       reply.status(500);
-      return { error: "Self-healing failed: " + err.message };
+      return { error: "Self-healing failed. See server logs for details." };
     }
   });
 }

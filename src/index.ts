@@ -33,9 +33,14 @@ app.use('*', async (c, next) => {
   return corsMiddleware(c, next);
 });
 
-// Helper: Derive Shield Secret on Edge
-function getEdgeShieldSecret(env: Env): string {
-  return env.ACTION_SECRET || 'shunops-edge-shield-salt-2026';
+/**
+ * Salt used to sign edge proof-of-work challenges.
+ *
+ * Returns null when unconfigured: a hardcoded default salt is public, which
+ * would make the puzzle forgeable and turn the shield into security theatre.
+ */
+function getEdgeShieldSecret(env: Env): string | null {
+  return env.ACTION_SECRET || null;
 }
 
 // Helper: Generate Cryptographic Proof-of-Work Challenge on Edge
@@ -157,7 +162,14 @@ app.get('/api/health', (c) => {
 
 // 3. Cryptographic Bot Shield Challenge Endpoint
 app.get('/api/shield/challenge', async (c) => {
-  const challenge = await generateEdgeShieldChallenge(getEdgeShieldSecret(c.env));
+  const secret = getEdgeShieldSecret(c.env);
+  if (!secret) {
+    return c.json(
+      { error: 'Bot shield is not configured on this server (ACTION_SECRET missing).' },
+      503
+    );
+  }
+  const challenge = await generateEdgeShieldChallenge(secret);
   return c.json(challenge);
 });
 
@@ -201,7 +213,11 @@ app.post('/api/chat', async (c) => {
     } catch {}
   }
 
-  // Turnstile Bot Verification Guardrail
+  // Bot gate. This endpoint proxies paid model APIs, and the KV limiter above
+  // only bounds volume per IP — a bot can stay under it forever. So every
+  // request must clear a challenge: Turnstile when configured, otherwise a
+  // mandatory proof-of-work shield. With neither configured the endpoint fails
+  // closed instead of behaving as an open LLM proxy.
   if (c.env.TURNSTILE_SECRET_KEY) {
     if (!body.turnstileToken) {
       return c.json(
@@ -217,12 +233,27 @@ app.post('/api/chat', async (c) => {
     if (!isValid) {
       return c.json({ error: 'Turnstile bot challenge failed. Access denied.' }, 403);
     }
-  } else if (body.shield) {
-    // Proof-of-Work Challenge Verification
-    const isShieldValid = await verifyEdgeShieldSolution(
-      getEdgeShieldSecret(c.env),
-      body.shield
-    );
+  } else {
+    const shieldSecret = getEdgeShieldSecret(c.env);
+    if (!shieldSecret) {
+      return c.json(
+        {
+          error:
+            'Chat is unavailable: no bot gate is configured. Set TURNSTILE_SECRET_KEY or ACTION_SECRET.',
+        },
+        503
+      );
+    }
+    if (!body.shield) {
+      return c.json(
+        {
+          error:
+            'Proof-of-work bot shield required. Fetch /api/shield/challenge, solve it, and resend with the "shield" field.',
+        },
+        403
+      );
+    }
+    const isShieldValid = await verifyEdgeShieldSolution(shieldSecret, body.shield);
     if (!isShieldValid) {
       return c.json({ error: 'Proof-of-Work bot shield challenge failed. Access denied.' }, 403);
     }
@@ -286,25 +317,44 @@ app.post('/api/action/confirm', async (c) => {
     );
   }
 
-  // Eliminate action replay: verify actionId has not been previously consumed
-  if (c.env.CHAT_SESSIONS) {
-    const consumedKey = `action_consumed:${actionId}`;
-    try {
-      const alreadyConsumed = await c.env.CHAT_SESSIONS.get(consumedKey);
-      if (alreadyConsumed) {
-        return c.json(
-          {
-            success: false,
-            actionId,
-            status: 'failed',
-            message: 'Security validation error: Action token has already been consumed (replay prevention).',
-          },
-          409
-        );
-      }
-      // Burn token immediately with 24-hour expiration TTL
-      await c.env.CHAT_SESSIONS.put(consumedKey, '1', { expirationTtl: 86400 });
-    } catch {}
+  // Eliminate action replay: verify actionId has not been previously consumed.
+  // Fails closed: a reusable confirmation token is exactly the replay window
+  // this guard exists to close, so it must not silently no-op when the binding
+  // is missing or the store is unreachable.
+  const kv = c.env.CHAT_SESSIONS;
+  if (!kv) {
+    return c.json(
+      {
+        success: false,
+        message: 'Action confirmation is unavailable: replay protection is not configured.',
+      },
+      503
+    );
+  }
+  const consumedKey = `action_consumed:${actionId}`;
+  try {
+    const alreadyConsumed = await kv.get(consumedKey);
+    if (alreadyConsumed) {
+      return c.json(
+        {
+          success: false,
+          actionId,
+          status: 'failed',
+          message: 'Security validation error: Action token has already been consumed (replay prevention).',
+        },
+        409
+      );
+    }
+    // Burn token immediately with 24-hour expiration TTL
+    await kv.put(consumedKey, '1', { expirationTtl: 86400 });
+  } catch {
+    return c.json(
+      {
+        success: false,
+        message: 'Action confirmation is unavailable: replay protection check failed.',
+      },
+      503
+    );
   }
 
   // If user declined the action

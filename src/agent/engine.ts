@@ -485,8 +485,13 @@ async function* cascadeStream(
 
   let lastError: Error | null = null;
 
-  // 1. Try Gemini Key Pool with rotation
-  for (const key of geminiKeys) {
+  // 1. Try Gemini Key Pool with rotation.
+  // Bounded deliberately (GEMINI.md Rule 6): during a regional 503 or a global
+  // 429 a large pool would otherwise serialize dozens of edge subrequests before
+  // the Groq LPU fallback runs, surfacing as a client-side timeout. Two attempts
+  // keep the key rotation benefit without paying that latency.
+  const maxGeminiAttempts = Math.min(2, geminiKeys.length);
+  for (const key of geminiKeys.slice(0, maxGeminiAttempts)) {
     try {
       for await (const chunk of streamGemini(history, systemPrompt, key, primaryModel)) {
         yield { ...chunk, provider: 'Google Gemini', model: primaryModel };

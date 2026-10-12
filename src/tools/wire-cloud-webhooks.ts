@@ -1,6 +1,32 @@
 import { execSync } from "node:child_process";
 
-const PROJECT_ID = process.env.GCP_PROJECT_ID || "sage-webbing-422513-q0";
+/**
+ * Resolve the GCP project for Monitoring API calls.
+ *
+ * Deliberately has no hardcoded fallback: defaulting to a baked-in project id
+ * would silently point a foreign instance at another team's production alerts.
+ * Explicit env var wins, otherwise the active gcloud configuration is used, and
+ * if neither exists we fail loudly.
+ */
+function resolveGcpProjectId(): string {
+  const configured = process.env.GCP_PROJECT_ID?.trim();
+  if (configured) return configured;
+
+  try {
+    const detected = execSync("gcloud config get-value project", {
+      stdio: ["ignore", "pipe", "ignore"],
+    })
+      .toString()
+      .trim();
+    if (detected && detected !== "(unset)") return detected;
+  } catch {
+    // gcloud CLI unavailable — fall through to the explicit error below.
+  }
+
+  throw new Error(
+    "GCP_PROJECT_ID is not set and no active gcloud project could be detected. Set GCP_PROJECT_ID before wiring cloud webhooks."
+  );
+}
 // Endpoints and the shared webhook secret MUST come from the environment.
 // Never hardcode credentials or internal endpoints in Git-tracked files.
 const N8N_WEBHOOK_URL = process.env.N8N_WEBHOOK_URL || "";
@@ -48,6 +74,8 @@ export async function wireGcpMonitoring(): Promise<{
       "wireGcpMonitoring requires N8N_WEBHOOK_URL, SHUNOPS_BASE_URL and WEBHOOK_SECRET (or API_SECRET) to be set."
     );
   }
+  const PROJECT_ID = resolveGcpProjectId();
+
   const token = getGcpAccessToken();
   const headers = {
     Authorization: `Bearer ${token}`,

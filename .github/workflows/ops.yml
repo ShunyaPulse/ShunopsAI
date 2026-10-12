@@ -39,6 +39,10 @@ jobs:
     name: "Cloud Operations Execution"
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # Issue-triggered runs give a shell-capable agent the full production secret
+    # set, and anyone can open an issue on a public repo. Only a maintainer-authored
+    # issue, or one carrying an explicitly approved label, may start a run.
+    if: ${{ github.event_name != 'issues' || (github.event.action == 'opened' && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.issue.author_association)) || (github.event.action == 'labeled' && contains(fromJSON('["auto-fix","approved-task"]'), github.event.label.name)) }}
 
     steps:
       - name: Checkout Code

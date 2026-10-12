@@ -84,7 +84,21 @@ export async function createApp(config: AppConfig = loadAppConfig()): Promise<Fa
 
   // Malicious URL probe filter (blocks vulnerability scanners, traversal, SQLi, and shell probes)
   // Directly mirrors the security baseline from Kanban Cloud middleware.ts
-  const MALICIOUS_PROBE_REGEX =
+  // (the CSRF exemptions used by the mutation check below are declared next to it)
+  /**
+ * Mutation endpoints exempt from the ambient-credential CSRF check, because they
+ * authenticate per request: HMAC (GitHub/cloud webhooks), a shared secret
+ * header, or the bot-shield challenge that guards anonymous chat.
+ */
+const CSRF_EXEMPT_MUTATION_PREFIXES = [
+  "/api/github-webhook",
+  "/api/webhook/",
+  "/api/chat",
+  "/api/shield/",
+  "/api/widget",
+];
+
+const MALICIOUS_PROBE_REGEX =
     /(?:\.env|\.git|wp-admin|wp-login|xmlrpc|phpinfo|eval\(|<script|\.\.[\/\\]|etc\/passwd|union\s+select|sleep\(\d+\)|benchmark\(|drop\s+table|exec\s*\(|cmd\.exe|\/bin\/sh)/i;
 
   app.addHook("onRequest", async (req, reply) => {
@@ -97,8 +111,14 @@ export async function createApp(config: AppConfig = loadAppConfig()): Promise<Fa
     // CSRF Protection: For state-changing mutations under /api/ (login, register, chat, etc.)
     // Ensure request origin matches host, or sec-fetch-site is 'same-origin'
     if (["POST", "PUT", "DELETE", "PATCH"].includes(req.method) && req.url.startsWith("/api/")) {
-      // Exclude public webhooks (which use cryptographic HMAC signature validation)
-      if (!req.url.startsWith("/api/github-webhook")) {
+      // Endpoints that authenticate with a per-request header, signature or
+      // challenge rather than ambient browser credentials. A cross-site marker
+      // is not evidence of CSRF for them, and blocking it breaks the two
+      // integrations that are cross-site by design: the embeddable widget posts
+      // to /api/chat from customer domains, and monitoring services (GCP Cloud
+      // Monitoring, UptimeRobot, BetterStack) post to the alert webhook from
+      // outside the browser.
+      if (!CSRF_EXEMPT_MUTATION_PREFIXES.some((prefix) => req.url.startsWith(prefix))) {
         const origin = req.headers.origin;
         const host = req.headers.host;
         const secFetchSite = req.headers["sec-fetch-site"];
