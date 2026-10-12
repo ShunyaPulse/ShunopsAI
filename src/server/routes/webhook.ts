@@ -60,10 +60,13 @@ export async function webhookRoutes(app: FastifyInstance): Promise<void> {
     },
     async (req, reply) => {
       // Fail closed. Secrets are only read from headers (never the URL query
-      // string, which leaks into access logs and browser history).
-      const configuredSecret = process.env.API_SECRET || process.env.AUTH_SECRET;
+      // string, which leaks into access logs and browser history). Prefer a
+      // dedicated CLOUD_ALERT_WEBHOOK_SECRET so this inbound secret is not the
+      // same full-privilege bearer token that guards /api/task and friends.
+      const configuredSecret =
+        process.env.CLOUD_ALERT_WEBHOOK_SECRET || process.env.API_SECRET || process.env.AUTH_SECRET;
       if (!configuredSecret) {
-        req.log.error("[Cloud Alert Webhook] API_SECRET/AUTH_SECRET is not set; refusing alert.");
+        req.log.error("[Cloud Alert Webhook] CLOUD_ALERT_WEBHOOK_SECRET/API_SECRET/AUTH_SECRET is not set; refusing alert.");
         reply.status(503);
         return { error: "Webhook secret is not configured." };
       }

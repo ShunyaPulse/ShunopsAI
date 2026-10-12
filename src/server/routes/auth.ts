@@ -19,8 +19,15 @@ import {
 import { sendEmailOTP, verifyEmailOTP } from "../email-otp.js";
 import { verifyCloudflareTurnstile } from "../middleware/bot-shield.js";
 import { getClientIp, getClientSubnet, checkDistributedSubnetQuota } from "../middleware/ratelimit.js";
+import { timingSafeEqualStr } from "../middleware/auth.js";
 
 const COOKIE_NAME = "shunops_user_session";
+
+// Precomputed bcrypt hash (of a fixed throwaway string) compared against when
+// the account does not exist, so a failed lookup costs the same ~bcrypt time as
+// a real password check. Without this, response timing distinguishes valid
+// usernames from invalid ones (user enumeration).
+const DUMMY_PASSWORD_HASH = "$2b$10$sbIeNL5deM6SmD5nEZ7fyO0TlKQisoqXmtE/Iuos5bpJNtotMK3SG";
 
 export async function authRoutes(app: FastifyInstance): Promise<void> {
   // 1. Send OTP to Email (for registration verification or OTP login)
@@ -265,13 +272,11 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       return { error: "Password is required." };
     }
 
-    if (!user || !user.password_hash) {
-      reply.status(401);
-      return { error: "Invalid credentials." };
-    }
-
-    const match = await bcrypt.compare(password, user.password_hash);
-    if (!match) {
+    // Always run bcrypt (against a dummy hash when the account is missing or has
+    // no password) so timing does not reveal whether a username/email exists.
+    const storedHash = user?.password_hash || DUMMY_PASSWORD_HASH;
+    const match = await bcrypt.compare(password, storedHash);
+    if (!user || !user.password_hash || !match) {
       reply.status(401);
       return { error: "Invalid credentials." };
     }
@@ -421,7 +426,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const savedState = (req.cookies as any)?.gh_oauth_state;
-    if (!state || !savedState || state !== savedState) {
+    if (!state || !savedState || !timingSafeEqualStr(String(state), String(savedState))) {
       return reply.redirect("/login?error=" + encodeURIComponent("Invalid GitHub OAuth state. Possible CSRF."));
     }
     reply.clearCookie("gh_oauth_state", { path: "/" });
