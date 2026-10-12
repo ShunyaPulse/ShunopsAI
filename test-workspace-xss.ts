@@ -36,7 +36,7 @@ function between(html: string, start: string, end: string): string | null {
 }
 
 const SPAN_OPEN = '<span id="display-username">';
-const H1_PREFIX = "Welcome to your Private Dashboard, ";
+const H1_PREFIX = "Welcome, ";
 const H1_SUFFIX = "!</h1>";
 
 // Baseline: how many <script tags the page legitimately contains (its own JS).
