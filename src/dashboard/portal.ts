@@ -274,6 +274,87 @@ export function getShunopsPortalHtml(): string {
       line-height: 1.5;
       margin: 0;
     }
+
+    /* Standard Code Snippet Component */
+    .code-snippet-box {
+      background: #050811;
+      border: 1px solid #1e293b;
+      border-radius: 10px;
+      overflow: hidden;
+      margin-bottom: 10px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+    }
+    .code-snippet-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: #0b1120;
+      padding: 7px 12px;
+      border-bottom: 1px solid #1e293b;
+    }
+    .code-snippet-lang {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      font-size: 11px;
+      font-weight: 600;
+      color: #94a3b8;
+      letter-spacing: 0.5px;
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .code-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #38bdf8;
+      box-shadow: 0 0 6px rgba(56, 189, 248, 0.6);
+    }
+    .copy-code-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      color: #cbd5e1;
+      font-size: 11px;
+      font-weight: 500;
+      padding: 4px 10px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      user-select: none;
+    }
+    .copy-code-btn:hover {
+      background: rgba(56, 189, 248, 0.12);
+      border-color: rgba(56, 189, 248, 0.35);
+      color: #38bdf8;
+    }
+    .copy-code-btn.copied {
+      background: rgba(16, 185, 129, 0.15);
+      border-color: #10b981;
+      color: #10b981;
+    }
+    .code-snippet-content {
+      margin: 0;
+      padding: 12px 14px;
+      overflow-x: auto;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11.5px;
+      line-height: 1.6;
+      color: #38bdf8;
+      background: #030712;
+      white-space: nowrap;
+    }
+    .code-snippet-content::-webkit-scrollbar {
+      height: 5px;
+    }
+    .code-snippet-content::-webkit-scrollbar-thumb {
+      background: #1e293b;
+      border-radius: 3px;
+    }
+    .code-snippet-content code {
+      font-family: inherit;
+    }
   </style>
 </head>
 <body>
@@ -568,11 +649,21 @@ export function getShunopsPortalHtml(): string {
             <p style="font-size:12px; color:#94a3b8; line-height:1.5; margin-bottom:12px;">
               Copy this 1 line of HTML code and paste it right before the closing <code>&lt;/body&gt;</code> tag on any website to enable the 24/7 AI chat widget:
             </p>
-            <div style="position:relative; background:#020617; border:1px solid #1e293b; border-radius:8px; padding:12px; font-family:'JetBrains Mono', monospace; font-size:12px; color:#38bdf8; overflow-x:auto;">
-              <code id="portal-widget-snippet">&lt;script src="https://edge-agent-widget.shunopsai.workers.dev/widget.js" defer&gt;&lt;/script&gt;</code>
-              <button type="button" onclick="copyWidgetSnippet(this)" style="position:absolute; top:8px; right:8px; background:#1e293b; hover:#334155; border:1px solid #38bdf8; color:#fff; font-size:11px; padding:4px 10px; border-radius:6px; cursor:pointer; font-weight:600; transition:all 0.15s;">
-                📋 Copy Code
-              </button>
+            <div class="code-snippet-box">
+              <div class="code-snippet-header">
+                <div class="code-snippet-lang">
+                  <span class="code-dot"></span>
+                  <span>HTML</span>
+                </div>
+                <button type="button" class="copy-code-btn" onclick="copyWidgetSnippet(this)">
+                  <svg class="copy-svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                  </svg>
+                  <span class="btn-label">Copy code</span>
+                </button>
+              </div>
+              <pre class="code-snippet-content"><code id="portal-widget-snippet">&lt;script src="https://edge-agent-widget.shunopsai.workers.dev/widget.js" defer&gt;&lt;/script&gt;</code></pre>
             </div>
           </div>
         </div>
@@ -856,18 +947,26 @@ export function getShunopsPortalHtml(): string {
     
     function copyWidgetSnippet(btn) {
       const code = '<' + 'script src="https://edge-agent-widget.shunopsai.workers.dev/widget.js" defer><' + '/script>';
+      if (!code) return;
       navigator.clipboard.writeText(code).then(() => {
-        const orig = btn.textContent;
-        btn.textContent = "✅ Copied!";
-        btn.style.borderColor = "#10b981";
-        btn.style.color = "#10b981";
+        const label = btn.querySelector('.btn-label');
+        const origHtml = btn.innerHTML;
+        btn.classList.add('copied');
+        if (label) {
+          label.textContent = 'Copied!';
+          const svg = btn.querySelector('svg');
+          if (svg) {
+            svg.outerHTML = '<svg class="copy-svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>';
+          }
+        } else {
+          btn.textContent = '✓ Copied!';
+        }
         setTimeout(() => {
-          btn.textContent = orig;
-          btn.style.borderColor = "#38bdf8";
-          btn.style.color = "#fff";
+          btn.classList.remove('copied');
+          btn.innerHTML = origHtml;
         }, 2000);
       }).catch(() => {
-        prompt("Copy this embed code:", code);
+        prompt('Copy this embed code:', code);
       });
     }
 

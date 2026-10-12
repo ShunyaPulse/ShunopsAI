@@ -476,6 +476,87 @@ export function getUserWorkspaceHtml(username: string): string {
       padding: 16px;
     }
 
+    /* Standard Code Snippet Component */
+    .code-snippet-box {
+      background: #050811;
+      border: 1px solid #1e293b;
+      border-radius: 10px;
+      overflow: hidden;
+      margin-bottom: 10px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+    }
+    .code-snippet-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: #0b1120;
+      padding: 7px 12px;
+      border-bottom: 1px solid #1e293b;
+    }
+    .code-snippet-lang {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      font-size: 11px;
+      font-weight: 600;
+      color: #94a3b8;
+      letter-spacing: 0.5px;
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .code-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #38bdf8;
+      box-shadow: 0 0 6px rgba(56, 189, 248, 0.6);
+    }
+    .copy-code-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      color: #cbd5e1;
+      font-size: 11px;
+      font-weight: 500;
+      padding: 4px 10px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      user-select: none;
+    }
+    .copy-code-btn:hover {
+      background: rgba(56, 189, 248, 0.12);
+      border-color: rgba(56, 189, 248, 0.35);
+      color: #38bdf8;
+    }
+    .copy-code-btn.copied {
+      background: rgba(16, 185, 129, 0.15);
+      border-color: #10b981;
+      color: #10b981;
+    }
+    .code-snippet-content {
+      margin: 0;
+      padding: 12px 14px;
+      overflow-x: auto;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11.5px;
+      line-height: 1.6;
+      color: #38bdf8;
+      background: #030712;
+      white-space: nowrap;
+    }
+    .code-snippet-content::-webkit-scrollbar {
+      height: 5px;
+    }
+    .code-snippet-content::-webkit-scrollbar-thumb {
+      background: #1e293b;
+      border-radius: 3px;
+    }
+    .code-snippet-content code {
+      font-family: inherit;
+    }
+
     .footer {
       max-width: 1140px;
       margin: 0 auto;
@@ -610,12 +691,21 @@ export function getUserWorkspaceHtml(username: string): string {
               Edge CDN
             </span>
           </div>
-          <p>Embed this 1 line of HTML code into any website to add your AI assistant without setting up separate servers.</p>
-          <div style="position:relative; background:#070a12; border:1px solid #1e293b; border-radius:8px; padding:12px; margin-bottom:8px;">
-            <code style="font-family:'JetBrains Mono', monospace; font-size:11px; color:#38bdf8; word-break:break-all; display:block; padding-right:75px;">&lt;script src="https://edge-agent-widget.shunopsai.workers.dev/widget.js" defer&gt;&lt;/script&gt;</code>
-            <button type="button" onclick="copyWorkspaceWidgetSnippet(this)" style="position:absolute; top:8px; right:8px; background:#1e293b; border:1px solid #38bdf8; color:#fff; font-size:11px; padding:4px 8px; border-radius:6px; cursor:pointer; font-weight:600; transition:all 0.15s;">
-              📋 Copy
-            </button>
+          <div class="code-snippet-box">
+            <div class="code-snippet-header">
+              <div class="code-snippet-lang">
+                <span class="code-dot"></span>
+                <span>HTML</span>
+              </div>
+              <button type="button" class="copy-code-btn" onclick="copyWorkspaceWidgetSnippet(this)">
+                <svg class="copy-svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                </svg>
+                <span class="btn-label">Copy code</span>
+              </button>
+            </div>
+            <pre class="code-snippet-content"><code>&lt;script src="https://edge-agent-widget.shunopsai.workers.dev/widget.js" defer&gt;&lt;/script&gt;</code></pre>
           </div>
           <div style="font-size:11px; color:#64748b;">
             💡 Paste right before <code>&lt;/body&gt;</code> in your HTML or web builder (WordPress, Webflow, Shopify).
@@ -654,7 +744,13 @@ export function getUserWorkspaceHtml(username: string): string {
             <div style="font-weight:600; color:#10b981; margin-bottom:6px;">New Key Generated (Save it now — cannot be displayed again):</div>
             <div style="display:flex; gap:8px; align-items:center; background:#050811; border:1px solid rgba(16,185,129,0.3); border-radius:6px; padding:6px 10px;">
               <code id="new-key-value" style="font-family:'JetBrains Mono', monospace; word-break:break-all; color:#fff; font-size:12px; flex:1;"></code>
-              <button class="btn-sub" style="padding:4px 8px; font-size:11px;" onclick="copyNewApiKey(this)">📋 Copy</button>
+              <button type="button" class="copy-code-btn" onclick="copyNewApiKey(this)">
+                <svg class="copy-svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                </svg>
+                <span class="btn-label">Copy</span>
+              </button>
             </div>
           </div>
           <div id="user-keys-list" style="font-size:12px; color:#94a3b8; font-family:'JetBrains Mono', monospace;">
@@ -1148,40 +1244,39 @@ export function getUserWorkspaceHtml(username: string): string {
       }
     });
 
+    function copyToClipboardStandard(btn, textToCopy, copiedLabel) {
+      if (!textToCopy) return;
+      navigator.clipboard.writeText(textToCopy).then(() => {
+        const label = btn.querySelector('.btn-label');
+        const origHtml = btn.innerHTML;
+        btn.classList.add('copied');
+        if (label) {
+          label.textContent = copiedLabel || 'Copied!';
+          const svg = btn.querySelector('svg');
+          if (svg) {
+            svg.outerHTML = '<svg class="copy-svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>';
+          }
+        } else {
+          btn.textContent = '✓ Copied!';
+        }
+        setTimeout(() => {
+          btn.classList.remove('copied');
+          btn.innerHTML = origHtml;
+        }, 2000);
+      }).catch(() => {
+        prompt('Copy:', textToCopy);
+      });
+    }
+
     function copyNewApiKey(btn) {
       const el = document.getElementById('new-key-value');
       const key = el ? el.textContent : '';
-      if (!key) return;
-      navigator.clipboard.writeText(key).then(() => {
-        const orig = btn.textContent;
-        btn.textContent = '✅ Copied!';
-        btn.style.borderColor = '#10b981';
-        btn.style.color = '#10b981';
-        setTimeout(() => {
-          btn.textContent = orig;
-          btn.style.borderColor = '';
-          btn.style.color = '';
-        }, 2000);
-      }).catch(() => {
-        prompt('Copy API Key:', key);
-      });
+      copyToClipboardStandard(btn, key, 'Copied!');
     }
 
     function copyWorkspaceWidgetSnippet(btn) {
       const code = '<' + 'script src="https://edge-agent-widget.shunopsai.workers.dev/widget.js" defer><' + '/script>';
-      navigator.clipboard.writeText(code).then(() => {
-        const orig = btn.textContent;
-        btn.textContent = "✅ Copied!";
-        btn.style.borderColor = "#10b981";
-        btn.style.color = "#10b981";
-        setTimeout(() => {
-          btn.textContent = orig;
-          btn.style.borderColor = "#38bdf8";
-          btn.style.color = "#fff";
-        }, 2000);
-      }).catch(() => {
-        prompt("Copy this code:", code);
-      });
+      copyToClipboardStandard(btn, code, 'Copied!');
     }
 
     window.addEventListener('DOMContentLoaded', () => {
