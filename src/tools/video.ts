@@ -497,14 +497,23 @@ export async function startVideoJob(
       }
     }
 
-    // Tier 2 (High Quality Fallback): Microsoft Edge-TTS
+    // Tier 2 (High Quality Fallback): Microsoft Edge-TTS with up to 3 retries
     if (!synthesized) {
-      synthesized = await synthesizeLocalEdgeTTS(sc.narration, outMp3, edgeVoice.name, edgeVoice.pitch);
-      if (synthesized) {
-        edgeSuccessCount++;
-      } else {
-        console.warn(`[Video] ⚠️ Scene ${i + 1} Edge-TTS pre-synthesis failed. Will rely on Kaggle GPU kernel fallback.`);
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        synthesized = await synthesizeLocalEdgeTTS(sc.narration, outMp3, edgeVoice.name, edgeVoice.pitch);
+        if (synthesized) {
+          edgeSuccessCount++;
+          break;
+        }
+        console.warn(`[Video] ⚠️ Scene ${i + 1} Edge-TTS attempt ${attempt}/3 failed.`);
+        if (attempt < 3) {
+          await new Promise((r) => setTimeout(r, 1500 * attempt));
+        }
       }
+    }
+
+    if (!synthesized) {
+      throw new Error(`[Video] Fatal: Audio synthesis failed for scene ${i + 1} after 3 attempts. Aborting job immediately to prevent launching a GPU kernel on a mute video.`);
     }
   }
 

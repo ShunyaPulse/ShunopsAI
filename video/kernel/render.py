@@ -103,38 +103,39 @@ def duration(path):
 # ==========================================
 EDGE_TTS_AVAILABLE = True
 
-async def probe_edge_tts(voice, rate="+0%"):
+async def probe_edge_tts(voice, rate="+0%", max_retries=3):
     """
-    Performs a lightweight pre-flight probe at startup.
-    If Edge-TTS is blocked or unreachable in the environment,
-    trips the circuit breaker immediately so individual scenes never waste time checking.
+    Performs a lightweight pre-flight probe at startup with up to 3 retries.
+    If Microsoft Edge-TTS is blocked or unreachable after 3 attempts, raises RuntimeError immediately.
+    Halts the job before expensive GPU models are loaded to avoid wasting GPU quota on a mute video.
     """
-    global EDGE_TTS_AVAILABLE
-    try:
-        communicate = edge_tts.Communicate("test probe", voice, rate=rate)
-        async for chunk in communicate.stream():
-            if chunk["type"] == "audio":
-                break
-        EDGE_TTS_AVAILABLE = True
-        print("[TTS] ✅ Edge-TTS pre-flight probe succeeded. Primary engine: Edge-TTS.")
-        return True
-    except Exception as e:
-        EDGE_TTS_AVAILABLE = False
-        print(f"[TTS] ⚠️ Edge-TTS pre-flight probe failed: {e}")
-        print("[TTS] ⚡ Circuit breaker TRIPPED -> Edge-TTS disabled for all scenes.")
-        return False
+    for attempt in range(1, max_retries + 1):
+        try:
+            communicate = edge_tts.Communicate("test probe", voice, rate=rate)
+            async for chunk in communicate.stream():
+                if chunk["type"] == "audio":
+                    break
+            print("[TTS] ✅ Edge-TTS pre-flight probe succeeded. Primary engine: Edge-TTS.")
+            return True
+        except Exception as e:
+            print(f"[TTS] ⚠️ Edge-TTS pre-flight probe attempt {attempt}/{max_retries} failed: {e}")
+            if attempt < max_retries:
+                await asyncio.sleep(2 * attempt)
+
+    raise RuntimeError(
+        f"[TTS] ❌ Fatal: Edge-TTS connection failed after {max_retries} attempts. "
+        "Halting job immediately to prevent rendering a mute video and wasting GPU quota."
+    )
 
 
-async def tts_with_boundaries(text, voice, a_path, rate="+0%"):
+async def tts_with_boundaries(text, voice, a_path, rate="+0%", max_retries=3):
     """
     Synthesizes speech with Edge-TTS and captures internal WordBoundary metadata streams.
-    Implements a fail-fast circuit breaker: if Edge-TTS fails or is blocked,
-    subsequent scenes bypass Edge-TTS completely and route directly to audio fallback buffer.
+    Retries up to 3 times with exponential backoff.
+    If Microsoft endpoints fail after 3 retries, raises RuntimeError to prevent rendering a mute video.
     """
-    global EDGE_TTS_AVAILABLE
-
-    # Tier 1: Primary Edge-TTS (only attempted if circuit breaker is intact)
-    if EDGE_TTS_AVAILABLE:
+    last_err = None
+    for attempt in range(1, max_retries + 1):
         try:
             communicate = edge_tts.Communicate(text, voice, rate=rate)
             submaker = edge_tts.SubMaker()
@@ -149,25 +150,15 @@ async def tts_with_boundaries(text, voice, a_path, rate="+0%"):
             else:
                 raise RuntimeError("Edge-TTS generated empty or incomplete audio file.")
         except Exception as e:
-            print(f"[TTS] ⚠️ Edge-TTS error on current scene: {e}")
-            EDGE_TTS_AVAILABLE = False
-            print("[TTS] ⚡ Circuit breaker TRIPPED -> Edge-TTS disabled for all remaining scenes.")
+            last_err = e
+            print(f"[TTS] ⚠️ Edge-TTS scene synthesis attempt {attempt}/{max_retries} failed: {e}")
+            if attempt < max_retries:
+                await asyncio.sleep(2 * attempt)
 
-    # Tier 2: Resilient duration-matched audio silence buffer so video scene never crashes
-    try:
-        words_cnt = max(1, len(text.split()))
-        fallback_dur = max(3.5, min(14.0, words_cnt * 0.45))
-        print(f"[TTS] Generating {fallback_dur:.1f}s audio fallback buffer...")
-        subprocess.run([
-            "ffmpeg", "-y", "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
-            "-t", str(fallback_dur), "-c:a", "libmp3lame", "-b:a", "192k", a_path
-        ], check=False)
-        if os.path.exists(a_path) and os.path.getsize(a_path) > 200:
-            return edge_tts.SubMaker()
-    except Exception as fe:
-        print(f"[TTS] Audio fallback error: {fe}")
-
-    return None
+    raise RuntimeError(
+        f"[TTS] ❌ Fatal: Scene audio synthesis failed after {max_retries} attempts: {last_err}. "
+        "Halting job immediately to prevent rendering a mute video."
+    )
 
 
 def parse_srt_cues(srt_text, time_offset_sec):
@@ -525,8 +516,17 @@ async def main():
     scenes = script["scenes"]
     print(f"Loaded script: '{script.get('title')}' with {len(scenes)} scenes. Voice: {voice}, Rate: {rate}")
 
-    # Pre-flight probe on Edge-TTS to trip circuit breaker before rendering scenes
-    await probe_edge_tts(voice, rate=rate)
+    # Check if all scenes already have pre-packaged audio
+    audio_dir = os.path.join(os.path.dirname(script_path), "audio")
+    all_packaged = all(
+        os.path.exists(os.path.join(audio_dir, f"a{i:03d}.mp3")) and os.path.getsize(os.path.join(audio_dir, f"a{i:03d}.mp3")) > 500
+        for i in range(len(scenes))
+    )
+    if all_packaged:
+        print("[TTS] ✅ All scenes have pre-packaged audio in dataset. Bypassing Edge-TTS network probe.")
+    else:
+        # Pre-flight probe with up to 3 retries. Fails immediately if Microsoft is unreachable!
+        await probe_edge_tts(voice, rate=rate)
 
     cfg = find_config()
     hf_token = cfg.get("hf_token", "").strip()
@@ -543,18 +543,17 @@ async def main():
         v_path = f"{TMP}/v{i:03d}.mp4"
 
         print(f"\n--- [Scene {i+1}/{len(scenes)}] ---")
-        # Check if studio-grade Google Cloud Text-to-Speech audio was packaged in dataset
+        # Check if pre-packaged audio exists in dataset
         dataset_audio = os.path.join(os.path.dirname(script_path), "audio", f"a{i:03d}.mp3")
         if os.path.exists(dataset_audio) and os.path.getsize(dataset_audio) > 500:
             shutil.copyfile(dataset_audio, a_path)
-            print(f"[TTS] Using packaged Google Cloud Text-to-Speech audio ({os.path.getsize(a_path)} bytes).")
+            print(f"[TTS] Using pre-packaged audio ({os.path.getsize(a_path)} bytes).")
             submaker = edge_tts.SubMaker()
         else:
             submaker = await tts_with_boundaries(sc["narration"], voice, a_path, rate=rate)
 
         if not os.path.exists(a_path) or os.path.getsize(a_path) < 100:
-            print(f"Skipping scene {i+1}: Audio synthesis failed.")
-            continue
+            raise RuntimeError(f"[TTS] Critical: Audio missing for scene {i+1}. Halting pipeline to prevent rendering a mute video.")
 
         d = round(duration(a_path), 3)
 
