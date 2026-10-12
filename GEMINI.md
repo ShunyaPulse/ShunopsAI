@@ -91,5 +91,16 @@
   3. **Equip Sentinel & Auto-Healer:** Upgrade ShunopsAI's Sentinel to detect degraded sub-statuses (`KernelWorkerStatus.ERROR`) and empower `autoHealService` / `heal*` to inspect logs, apply patches, and re-dispatch failed tasks autonomously.
   4. **Execute Through ShunopsAI:** Trigger the remediation through ShunopsAI's own autonomous tools (`npm run agent`, `sentinel-cron.ts`, or `autoHealService`) so the platform self-heals and validates its own autonomous loop.
 
+## 11. Constructive Editorial Governance & Non-Partisan Content Invariant
+- **Strictly Banned Content (Zero Aggressive Politics & Zero Bashing):**
+  - NEVER generate topics, scripts, or videos centered on controversial politics, election fights, party clashes, or communal debates.
+  - STRICTLY ZERO condemnation ("ninda"), fault-finding ("kamiyan"), accusations, corruption exposes, roasts, or attacks on any politician, political party, leader, or government.
+- **Constructive Governance & Good Work Permitted:**
+  - Videos MAY cover positive news and genuine achievements of politicians, ministries, or governments (e.g., mega infrastructure projects, successful welfare schemes, economic milestones, public health access, clean energy transitions, space missions, semiconductor fabs).
+  - When covering such achievements, focus strictly on the engineering facts, implementation scale, and tangible public benefits in an objective, inspiring documentary tone. NEVER attack critics, rivals, or opposition parties.
+- **Core Priority Domains:**
+  - High-value knowledge domains must remain primary: Science, Space exploration, Deep Ocean / Nature, Technology / AI breakthroughs, Engineering marvels, History, and Inspiring Sports achievements.
+
+
 
 

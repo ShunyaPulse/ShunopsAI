@@ -71,6 +71,22 @@ export async function fetchGoogleTrendsIndia(): Promise<TrendingItem[]> {
 }
 
 /**
+ * Filters out controversial, negative, or sensationalist trends (scandals, arrests, crimes, political mudslinging).
+ */
+export function isBannedControversialTrend(item: TrendingItem): boolean {
+  const combined = `${item.title} ${item.news_title} ${item.news_snippet || ""}`.toLowerCase();
+  const bannedKeywords = [
+    "arrest", "arrested", "cbi", "ed raid", "custody", "scam", "bribe", "corruption",
+    "murder", "rape", "assault", "suicide", "crime", "violence", "riot", "clash",
+    "scandal", "expose", "controversy", "allegation", "fir filed", "court case",
+    "resignation", "defamation", "protest", "strike", "dharna", "hate speech",
+    "blame", "slams", "hits out", "attacks", "row over", "dispute", "boycott",
+    "jail", "chargesheet", "extortion", "fraud", "interrogation",
+  ];
+  return bannedKeywords.some((kw) => combined.includes(kw));
+}
+
+/**
  * Uses Gemini to evaluate the top trending items and pick the single best
  * documentary topic that provides genuine value addition to the viewer.
  */
@@ -79,7 +95,10 @@ export async function curateBestTrendTopic(items: TrendingItem[]): Promise<Curat
     throw new Error("No trending items provided for curation.");
   }
 
-  const topItems = items.slice(0, 20);
+  // 1. Filter out banned sensationalist & negative controversial items
+  const cleanItems = items.filter((item) => !isBannedControversialTrend(item));
+  const candidateItems = cleanItems.length >= 3 ? cleanItems : items;
+  const topItems = candidateItems.slice(0, 20);
   const itemsListFormatted = topItems
     .map(
       (item, idx) =>
@@ -98,21 +117,23 @@ YOUR MISSION:
 Select the SINGLE best topic from this list that delivers the HIGHEST KNOWLEDGE VALUE, TIMELINESS, and INTELLECTUAL CURIOSITY.
 
 CRITICAL EDITORIAL RULES:
-1. STRICTLY REJECT Frivolous / Zero-Value Topics:
-   - NO beauty, makeup, fashion, or celebrity outfit trends.
-   - NO celebrity gossip, dating rumors, or Bollywood scandal drama.
-   - NO esports streamer drama or gaming leaks.
-   - NO ephemeral internet memes or silly viral clickbait.
-   - NO toxic partisan political mudslinging or unverified outrage.
+1. STRICT NON-PARTISAN & CONSTRUCTIVE POLICY (ZERO CONTROVERSIAL / AGGRESSIVE POLITICS):
+   - ABSOLUTELY NO aggressive, controversial, or polarizing political fights, party rivalry, or election mudslinging.
+   - STRICTLY ZERO condemnation ("ninda"), criticism, finger-pointing, highlighting flaws ("kamiyan"), scams, or failures of any politician, leader, party, or government.
+   - NO crime, violence, arrests, court disputes, communal conflict, or scandal drama.
+   - NO beauty, makeup, fashion, celebrity gossip, dating rumors, or frivolous viral memes.
 
-2. STRONGLY PRIORITIZE Genuine Value-Addition & Real-World Impact:
+2. CONSTRUCTIVE GOVERNANCE & GENUINE GOOD WORK IS ENCOURAGED:
+   - If a politician, ministry, party, or government has achieved something genuinely positive, constructive, or beneficial for people/country (e.g., mega infrastructure projects, high-speed rail, expressways, public welfare schemes, healthcare access, clean water initiatives, green energy transitions, semiconductor fabs, space missions), that CAN be chosen and covered.
+   - When covering good work: Focus 100% on the positive achievement, engineering marvel, scale of execution, and tangible public benefit—NEVER attack political rivals, critics, or opposition. Maintain a completely objective, uplifting, documentary style.
+
+3. STRONGLY PRIORITIZE High-Value Knowledge & Inspiring Progress:
    - Science, Space, Nature, Astronomy, and Deep Ocean phenomena.
-   - Geopolitics, Global Strategy, Defense tech, and National infrastructure milestones.
-   - Emerging technology, AI breakthroughs, and Energy/Engineering marvels.
-   - Historical mysteries, archaeological discoveries, and unexplored historical events.
-   - Inspiring Sports Breakthroughs (e.g. Historic victories, records, sports science).
+   - Emerging technology, AI breakthroughs, Energy & Engineering marvels.
+   - Inspiring Sports Breakthroughs (historic victories, world records, athlete comeback stories).
+   - Historical mysteries, archaeological discoveries, and cultural heritage.
 
-3. MANDATORY RULE - COVER THE EXACT REASON WHY IT IS TRENDING:
+4. MANDATORY RULE - COVER THE EXACT REASON WHY IT IS TRENDING:
    - The video MUST directly address the EXACT EVENT, match, breakthrough, policy, or incident that caused this trend today.
    - DO NOT make an abstract or disconnected theoretical lecture.
    - The video must explain:
@@ -120,13 +141,13 @@ CRITICAL EDITORIAL RULES:
      b) The deep background, mechanics, science, or strategy behind this specific event.
      c) What is the larger takeaway or impact for the viewer?
 
-4. OUTPUT FORMAT (OPTION A - HYBRID RULES):
+5. OUTPUT FORMAT (OPTION A - HYBRID RULES):
 Return ONLY valid JSON matching this exact structure:
 {
   "selected_trend": "<exact trend keyword from the list>",
   "trend_reason": "<1-2 clear sentences explaining the EXACT event/news that caused this trend today>",
   "documentary_topic": "<High-CTR topic strictly in English (Roman) alphabet. Hybrid format: [English Topic Keyword] : [Hinglish Curiosity Hook about this specific event], NEVER Devanagari script>",
-  "category": "<Science | Space | Geopolitics | Technology | Nature | History | Sports Milestone>",
+  "category": "<Science | Space | Infrastructure & Development | Technology | Nature | History | Sports Milestone>",
   "value_hook": "<1-2 sentences explaining educational/curiosity value in pure English>",
   "language": "Hindi",
   "target_duration_minutes": 3

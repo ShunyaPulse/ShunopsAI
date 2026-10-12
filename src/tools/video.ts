@@ -307,7 +307,14 @@ CRITICAL DIRECTIVES:
      * Do NOT end abruptly on technical facts or body content.
      * The final scenes must synthesize what this discovery or event means for humanity and the future.
      * The very last scene MUST feature a memorable, conclusive closing statement and sign-off so the viewer experiences complete, satisfying narrative closure.
-2. SCRIPT & SCRIPT-LANGUAGE RULES (MANDATORY - OPTION A HYBRID FORMULA):
+2. STRICT NON-PARTISAN & CONSTRUCTIVE POLICY (ZERO CONTROVERSIAL/AGGRESSIVE POLITICS):
+   - STRICTLY ZERO aggressive politics, party warfare, communal tension, or controversial blame-games.
+   - ABSOLUTELY ZERO condemnation ("ninda"), fault-finding ("kamiyan"), criticism, roasting, or exposing any politician, party, leader, or government.
+   - IF COVERING GOVERNANCE, PUBLIC POLICY, OR A LEADER'S WORK:
+     * Focus 100% on the CONSTRUCTIVE WORK, positive achievements, engineering scale, and tangible public welfare (e.g. how a bridge/expressway was engineered, how a welfare scheme reached millions, how renewable energy was deployed, how a space/defense milestone succeeded).
+     * Maintain an objective, educational, inspiring, documentary tone.
+     * NEVER indulge in partisan bias, NEVER mock opponents, and NEVER engage in political controversy.
+3. SCRIPT & SCRIPT-LANGUAGE RULES (MANDATORY - OPTION A HYBRID FORMULA):
    - TITLE (THE HYBRID FORMULA): Must be strictly in English (Roman) alphabet. Format: "[English Topic Keyword] : [Hinglish Curiosity Question/Hook about this specific event]".
      Example: "Aadhaar Super-Engine : 140 Crore Logo Ka Data Kaise Safe Rehta Hai?"
      Example: "Cristiano Ronaldo 900 Goals : 40 Ki Umar Mein Aisa Record Kaise Banaya?"
@@ -317,7 +324,7 @@ CRITICAL DIRECTIVES:
    - CHAPTER TITLES & TAGS: Must be strictly in English (Roman) alphabet.
    - NARRATION (Spoken Audio): Natural, engaging Hindi dialogue spoken by voice hi-IN-MadhurNeural.
    - CAPTIONS (On-Screen Subtitles): Must be in 100% PURE ENGLISH (both English letters AND English language words). For every single scene, provide the exact English translation in "caption" to be displayed on-screen.
-3. Visual Prompt Engineering for True Continuous Video & Flaw-Free Execution:
+4. Visual Prompt Engineering for True Continuous Video & Flaw-Free Execution:
    - For EVERY scene, write a "visual_prompt" that describes a real, continuous cinematic video shot — NOT a static photo or generic concept.
    - ZERO AI UI / TEXT HALLUCINATIONS (CRITICAL):
      * NEVER instruct the AI model to render legible text, words, labels, graphs, line charts, or alphanumeric dashboards inside the shot.
@@ -332,11 +339,11 @@ CRITICAL DIRECTIVES:
    - Modern Digital Lighting & Clarity:
      * "Crisp natural 4K digital cinematography, modern high-end documentary lighting, balanced realistic color grade, sharp clean focus, absolutely NO vintage/retro/sepia/8mm/grainy aesthetics."
    - Realism enforcement: Clean, authentic physical textures (modern architectural glass, polished materials, real skin, crisp telemetry). Avoid retro filters, heavy grain, sepia tones, plastic CGI, or still-photo aesthetics.
-4. HIGH-CLICKTHROUGH (CTR) TRUTHFUL THUMBNAIL CONCEPT (OPTION A):
+5. HIGH-CLICKTHROUGH (CTR) TRUTHFUL THUMBNAIL CONCEPT (OPTION A):
    - Design a dedicated hero concept thumbnail that creates irresistible psychological curiosity ("Ask Studio" style) without deception or clickbait lies.
    - It must authentically depict the central subject, revelation, or event of the video with cinematic drama, rim lighting, atmospheric depth, and deep contrast.
    - Include a short, bold 2-4 word headline (e.g. "GHOST PARTICLES", "SECRET DEEP ICE", "THE IMPOSSIBLE ENGINE") and a complementary subheadline.
-5. Return ONLY valid JSON in this exact structure:
+6. Return ONLY valid JSON in this exact structure:
 {
   "title": "<Hybrid Title: [English Topic] : [Hinglish Curiosity Hook], Roman alphabet only, <=70 chars, NO Devanagari>",
   "description": "<Comprehensive Pure English SEO description of the event, 150-250 words with timestamps & keywords, NO Devanagari>",
