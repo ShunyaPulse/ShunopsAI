@@ -665,20 +665,25 @@ export function getUserWorkspaceHtml(username: string): string {
 
       <!-- Right Column: Quota & Metering + Account Lifecycle -->
       <div>
-        <!-- Plan & Usage Meter -->
+        <!-- Plan & Token Usage Meter -->
         <div class="box">
-          <h2>📊 My Plan & Quota Usage</h2>
-          <p>Multi-tenant resource metering and query limits.</p>
+          <h2>📊 My Plan & Token Usage</h2>
+          <p>Industry-grade token metering (Input + Output token quotas).</p>
           <div style="background:#090d16; border:1px solid #1e293b; border-radius:10px; padding:14px; margin-bottom:12px;">
             <div style="display:flex; justify-content:space-between; margin-bottom:8px; font-size:13px;">
               <span>Plan: <strong id="user-plan-badge" style="color:#38bdf8;">Community</strong></span>
-              <span>Used: <strong id="user-usage-count">0</strong> / <span id="user-usage-limit">100</span></span>
+              <span>Tokens: <strong id="user-usage-count" style="color:#fff;">0</strong> / <span id="user-usage-limit">500k</span></span>
             </div>
-            <div style="background:#1e293b; border-radius:6px; height:8px; overflow:hidden;">
+            <div style="background:#1e293b; border-radius:6px; height:8px; overflow:hidden; margin-bottom:10px;">
               <div id="user-usage-bar" style="background:linear-gradient(90deg, #38bdf8, #2563eb); height:100%; width:0%; transition:width 0.4s;"></div>
             </div>
-            <div style="font-size:11px; color:#94a3b8; margin-top:8px;">
-              Need unlimited queries? Connect your free Groq or Gemini key in the <a href="/portal" style="color:#38bdf8;">BYOK Portal</a>.
+            <div id="token-breakdown-row" style="display:flex; justify-content:space-between; align-items:center; font-size:11px; color:#94a3b8; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); border-radius:6px; padding:6px 10px; margin-bottom:8px;">
+              <span>📥 In: <strong id="user-in-tokens" style="color:#cbd5e1;">0</strong></span>
+              <span>📤 Out: <strong id="user-out-tokens" style="color:#cbd5e1;">0</strong></span>
+              <span>⚡ <strong id="user-query-calls" style="color:#cbd5e1;">0</strong> Calls</span>
+            </div>
+            <div style="font-size:11px; color:#94a3b8;">
+              Need unlimited tokens? Connect your free Groq or Gemini key in the <a href="/portal" style="color:#38bdf8;">BYOK Portal</a>.
             </div>
           </div>
         </div>
@@ -1096,6 +1101,14 @@ export function getUserWorkspaceHtml(username: string): string {
     }
 
     // 4. Billing Usage & Meter
+    function formatTokens(num) {
+      if (!num || isNaN(num)) return '0';
+      if (num >= 999999999) return 'Unlimited';
+      if (num >= 1000000) return (num / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
+      if (num >= 1000) return (num / 1000).toFixed(1).replace(/\.0$/, '') + 'k';
+      return String(num);
+    }
+
     async function fetchBillingUsage() {
       try {
         const res = await fetch('/api/billing/usage');
@@ -1103,9 +1116,23 @@ export function getUserWorkspaceHtml(username: string): string {
         const data = await res.json();
         if (data.success) {
           document.getElementById('user-plan-badge').textContent = (data.plan || 'community').toUpperCase();
-          document.getElementById('user-usage-count').textContent = data.queryCount || 0;
-          document.getElementById('user-usage-limit').textContent = data.limit >= 999999 ? 'Unlimited' : data.limit;
-          const pct = Math.min(100, Math.round(((data.queryCount || 0) / (data.limit || 100)) * 100));
+          const totalTok = data.totalTokens !== undefined ? data.totalTokens : (data.queryCount || 0);
+          const limitTok = data.tokenLimit || data.limit || 500000;
+          document.getElementById('user-usage-count').textContent = formatTokens(totalTok);
+          document.getElementById('user-usage-limit').textContent = formatTokens(limitTok);
+
+          const inEl = document.getElementById('user-in-tokens');
+          if (inEl) inEl.textContent = formatTokens(data.inputTokens || 0);
+
+          const outEl = document.getElementById('user-out-tokens');
+          if (outEl) outEl.textContent = formatTokens(data.outputTokens || 0);
+
+          const callsEl = document.getElementById('user-query-calls');
+          if (callsEl) callsEl.textContent = data.queryCount || 0;
+
+          const pct = limitTok >= 999999999 
+            ? 0 
+            : Math.min(100, Math.round((totalTok / limitTok) * 100));
           document.getElementById('user-usage-bar').style.width = pct + '%';
         }
       } catch (e) {}

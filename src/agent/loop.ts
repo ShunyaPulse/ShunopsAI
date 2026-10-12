@@ -22,11 +22,18 @@ export interface AgentOptions {
   keyOverrides?: ProviderKeyOverrides | undefined;
 }
 
+export interface AgentTokenUsage {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+}
+
 export interface AgentRunResult {
   success: boolean;
   finalAnswer?: string;
   stepsTaken: number;
   history: OpenAI.ChatCompletionMessageParam[];
+  usage?: AgentTokenUsage;
 }
 
 /**
@@ -89,6 +96,8 @@ export async function runAutonomousAgent(
   console.log(`${colors.green}${colors.bold}========================================${colors.reset}\n`);
 
   let stepsTaken = 0;
+  let totalPromptTokens = 0;
+  let totalCompletionTokens = 0;
 
   for (let step = 1; step <= maxSteps; step++) {
     stepsTaken = step;
@@ -104,6 +113,17 @@ export async function runAutonomousAgent(
         temperature,
         options.keyOverrides
       );
+
+      // Accumulate industry-grade token metrics
+      if (response.usage) {
+        totalPromptTokens += response.usage.prompt_tokens || 0;
+        totalCompletionTokens += response.usage.completion_tokens || 0;
+      } else {
+        const inChars = messages.reduce((acc, m) => acc + (typeof m.content === "string" ? m.content.length : 0), 0);
+        const outChars = response.choices?.[0]?.message?.content?.length || 0;
+        totalPromptTokens += Math.ceil(inChars / 4);
+        totalCompletionTokens += Math.ceil(outChars / 4);
+      }
 
       const choice = response.choices?.[0];
       if (!choice || !choice.message) {
@@ -133,6 +153,11 @@ export async function runAutonomousAgent(
           finalAnswer: choice.message.content || "",
           stepsTaken,
           history: messages,
+          usage: {
+            promptTokens: totalPromptTokens,
+            completionTokens: totalCompletionTokens,
+            totalTokens: totalPromptTokens + totalCompletionTokens,
+          },
         };
       }
 
@@ -218,6 +243,11 @@ export async function runAutonomousAgent(
         finalAnswer: `Error during execution: ${loopError.message}`,
         stepsTaken,
         history: messages,
+        usage: {
+          promptTokens: totalPromptTokens,
+          completionTokens: totalCompletionTokens,
+          totalTokens: totalPromptTokens + totalCompletionTokens,
+        },
       };
     }
   }
@@ -231,5 +261,10 @@ export async function runAutonomousAgent(
     finalAnswer: "Max steps reached without explicit task completion.",
     stepsTaken,
     history: messages,
+    usage: {
+      promptTokens: totalPromptTokens,
+      completionTokens: totalCompletionTokens,
+      totalTokens: totalPromptTokens + totalCompletionTokens,
+    },
   };
 }

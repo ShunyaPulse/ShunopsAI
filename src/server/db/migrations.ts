@@ -23,6 +23,9 @@ export const MIGRATIONS: SchemaMigration[] = [
           role VARCHAR(32) DEFAULT 'user',
           plan VARCHAR(32) DEFAULT 'community',
           query_count INTEGER DEFAULT 0,
+          input_tokens BIGINT DEFAULT 0,
+          output_tokens BIGINT DEFAULT 0,
+          total_tokens BIGINT DEFAULT 0,
           created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
           updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
         );
@@ -126,6 +129,15 @@ export const MIGRATIONS: SchemaMigration[] = [
       await (sql as any).query(`ALTER TABLE shunops_users ADD COLUMN IF NOT EXISTS plan VARCHAR(32) DEFAULT 'community';`);
       await (sql as any).query(`ALTER TABLE shunops_users ADD COLUMN IF NOT EXISTS query_count INTEGER DEFAULT 0;`);
       await (sql as any).query(`ALTER TABLE shunops_users ADD COLUMN IF NOT EXISTS last_reset_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;`);
+    },
+  },
+  {
+    version: 6,
+    name: "006_token_metering",
+    up: async (sql) => {
+      await (sql as any).query(`ALTER TABLE shunops_users ADD COLUMN IF NOT EXISTS input_tokens BIGINT DEFAULT 0;`);
+      await (sql as any).query(`ALTER TABLE shunops_users ADD COLUMN IF NOT EXISTS output_tokens BIGINT DEFAULT 0;`);
+      await (sql as any).query(`ALTER TABLE shunops_users ADD COLUMN IF NOT EXISTS total_tokens BIGINT DEFAULT 0;`);
     },
   },
 ];

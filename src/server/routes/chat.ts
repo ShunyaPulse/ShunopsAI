@@ -12,6 +12,8 @@ import {
 } from "../middleware/ratelimit.js";
 import {
   findUserBySessionToken,
+  checkUserTokenQuota,
+  recordUserTokenUsage,
   incrementUserQueryCount,
   saveChatMessage,
 } from "../db.js";
@@ -125,16 +127,18 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
       // Layer 4 & 5: Metering for Authenticated Accounts vs Subnet Rate-Limiting for Anonymous
       if (authenticatedUser) {
         if (!isBYOK) {
-          const usage = await incrementUserQueryCount(authenticatedUser.id);
-          if (!usage.allowed) {
+          const quotaCheck = await checkUserTokenQuota(authenticatedUser.id);
+          if (!quotaCheck.allowed) {
             reply.status(429);
+            const usedK = Math.round(quotaCheck.usage.totalTokens / 1000);
+            const limitK = Math.round(quotaCheck.usage.tokenLimit / 1000);
             return {
-              reply: `Monthly query quota limit reached (${usage.queryCount}/${usage.limit}) for your Community Plan. Please upgrade to Pro or configure your free Groq/Gemini key in the BYOK Portal to continue without restrictions!`,
+              reply: `Monthly token quota reached (${usedK}k / ${limitK}k tokens consumed) for your Community Plan. Please upgrade to Pro or configure your free Groq/Gemini key in the BYOK Portal to continue without restrictions!`,
               success: false,
             };
           }
-          reply.header("X-Account-Plan", usage.plan);
-          reply.header("X-Account-Usage", `${usage.queryCount}/${usage.limit}`);
+          reply.header("X-Account-Plan", quotaCheck.usage.plan);
+          reply.header("X-Account-Tokens", `${quotaCheck.usage.totalTokens}/${quotaCheck.usage.tokenLimit}`);
         }
       } else if (!isBYOK) {
         // Anonymous visitor: Rate limit by Subnet
@@ -173,6 +177,16 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
         });
 
         const replyAnswer = result.finalAnswer || "I'm here to help! Could you please clarify your question?";
+        const inTokens = result.usage?.promptTokens || Math.ceil(goal.length / 4);
+        const outTokens = result.usage?.completionTokens || Math.ceil(replyAnswer.length / 4);
+
+        // Record modern token consumption for authenticated non-BYOK users
+        if (authenticatedUser && !isBYOK) {
+          const meter = await recordUserTokenUsage(authenticatedUser.id, inTokens, outTokens);
+          reply.header("X-Account-Tokens", `${meter.totalTokens}/${meter.tokenLimit}`);
+          reply.header("X-Prompt-Tokens", String(inTokens));
+          reply.header("X-Completion-Tokens", String(outTokens));
+        }
 
         // Automatically persist conversation for logged-in users
         if (authenticatedUser) {
@@ -183,6 +197,11 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
         return {
           reply: replyAnswer,
           success: result.success,
+          usage: {
+            promptTokens: inTokens,
+            completionTokens: outTokens,
+            totalTokens: inTokens + outTokens,
+          },
         };
       } catch (error: any) {
         req.log.warn("Chat completion error: [REDACTED]");

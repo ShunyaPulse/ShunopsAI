@@ -11,11 +11,14 @@ export interface UserRecord {
   role: string;
   plan?: string;
   query_count?: number;
+  input_tokens?: number;
+  output_tokens?: number;
+  total_tokens?: number;
   created_at: string;
 }
 
 const USER_COLUMNS =
-  "id, username, email, password_hash, google_id, github_id, email_verified, role, plan, query_count, created_at";
+  "id, username, email, password_hash, google_id, github_id, email_verified, role, plan, query_count, input_tokens, output_tokens, total_tokens, created_at";
 
 export async function findUserByUsername(username: string): Promise<UserRecord | null> {
   const sql = getSql();
@@ -120,6 +123,9 @@ export async function createUser(
       role: "user",
       plan: "community",
       query_count: 0,
+      input_tokens: 0,
+      output_tokens: 0,
+      total_tokens: 0,
       created_at: new Date().toISOString(),
     });
   }
@@ -174,6 +180,9 @@ export async function upsertGoogleUser(googleId: string, email: string, name?: s
       role: "user",
       plan: "community",
       query_count: 0,
+      input_tokens: 0,
+      output_tokens: 0,
+      total_tokens: 0,
       created_at: new Date().toISOString(),
     });
   }
@@ -228,6 +237,9 @@ export async function upsertGithubUser(githubId: string, email: string, login: s
       role: "user",
       plan: "community",
       query_count: 0,
+      input_tokens: 0,
+      output_tokens: 0,
+      total_tokens: 0,
       created_at: new Date().toISOString(),
     });
   }

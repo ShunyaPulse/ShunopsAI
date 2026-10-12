@@ -26,6 +26,7 @@ import {
   revokeAllUserSessions,
   getSystemUserStats,
   getUserUsageAndPlan,
+  recordUserTokenUsage,
   incrementUserQueryCount,
   checkDbHealth,
 } from "../src/server/db.js";
@@ -203,16 +204,19 @@ async function runSuite() {
     assert.equal(result.approved, true, "Promise must resolve as approved");
   });
 
-  // 7. Metering & Billing Quotas
-  await test("Billing & Metering: Track query limits and increment usage counts", async () => {
+  // 7. Modern Token Metering & Quotas
+  await test("Billing & Metering: Track token quotas and record input/output token usage", async () => {
     const user = await createUser(`billing_user_${Date.now()}`, null);
     const usage = await getUserUsageAndPlan(user.id);
     assert.equal(usage.plan, "community");
-    assert.equal(usage.limit, 100);
+    assert.equal(usage.tokenLimit, 500000);
 
-    const inc = await incrementUserQueryCount(user.id);
-    assert.equal(inc.allowed, true);
-    assert.equal(inc.queryCount, 1);
+    const tokenRecord = await recordUserTokenUsage(user.id, 120, 80);
+    assert.equal(tokenRecord.allowed, true);
+    assert.equal(tokenRecord.inputTokens, 120);
+    assert.equal(tokenRecord.outputTokens, 80);
+    assert.equal(tokenRecord.totalTokens, 200);
+    assert.equal(tokenRecord.queryCount, 1);
 
     await deleteUserAccount(user.id);
   });
