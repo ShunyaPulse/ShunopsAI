@@ -103,7 +103,7 @@ def duration(path):
 # ==========================================
 EDGE_TTS_AVAILABLE = True
 
-async def probe_edge_tts(voice, rate="+10%"):
+async def probe_edge_tts(voice, rate="+0%"):
     """
     Performs a lightweight pre-flight probe at startup.
     If Edge-TTS is blocked or unreachable in the environment,
@@ -125,7 +125,7 @@ async def probe_edge_tts(voice, rate="+10%"):
         return False
 
 
-async def tts_with_boundaries(text, voice, a_path, rate="+10%"):
+async def tts_with_boundaries(text, voice, a_path, rate="+0%"):
     """
     Synthesizes speech with Edge-TTS and captures internal WordBoundary metadata streams.
     Implements a fail-fast circuit breaker: if Edge-TTS fails or is blocked,
@@ -533,8 +533,8 @@ class WanT4OptimizedEngine:
 async def main():
     script_path = find_script()
     script = json.load(open(script_path, encoding="utf-8"))
-    voice = script.get("voice", "en-US-AndrewNeural")
-    rate = script.get("rate", "+10%")
+    voice = script.get("voice", "hi-IN-SwaraNeural" if "hi" in script.get("language", "English").lower() else "en-IN-PrabhatNeural")
+    rate = script.get("rate", "+0%")
     scenes = script["scenes"]
     print(f"Loaded script: '{script.get('title')}' with {len(scenes)} scenes. Voice: {voice}, Rate: {rate}")
 
@@ -694,11 +694,9 @@ async def main():
         "OutlineColour=&H00000000,BackColour=&H80000000,"
         "BorderStyle=1,Outline=2,Shadow=1,Alignment=2,MarginV=42"
     )
-    print("Mastering final modern video with burn-in captions, highlight roll-off curves, film grain, and outro fade...")
+    print("Mastering final crisp modern video with burn-in captions and cinematic outro fade...")
     fade_start = max(0.0, v_raw_dur - 0.8)
     master_vf = (
-        f"curves=all='0/0 0.85/0.83 1/0.92':blue='0/0 0.75/0.72 1/0.88':green='0/0 0.80/0.78 1/0.92',"
-        f"noise=alls=1.5:allf=t+u,"
         f"fade=t=out:st={fade_start:.2f}:d=0.8,"
         f"subtitles={OUT}/captions.srt:force_style='{style}'"
     )

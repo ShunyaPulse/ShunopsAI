@@ -284,7 +284,10 @@ export async function generateScript(
   const preferredModel = process.env.GEMINI_MODEL;
   const targetWords = Math.round(minutes * 150);
   const sceneCount = Math.round(targetWords / 16);
-  const voice = /hindi/i.test(language) ? "hi-IN-MadhurNeural" : "en-US-AndrewNeural";
+  // Curated, fresh voices to avoid the overused generic AI bot voices:
+  // hi-IN-SwaraNeural: mature, articulate television documentary anchor (avoids cliché Madhur bot)
+  // en-IN-PrabhatNeural: natural, authentic Indian intellectual documentary narrator
+  const voice = /hindi/i.test(language) ? "hi-IN-SwaraNeural" : "en-IN-PrabhatNeural";
 
   const prompt = `You are an elite investigative documentary filmmaker and YouTube director (Vox, Johnny Harris, Think School style).
 Write a gripping, 100% factual, highly engaging video script with hard synchronization between spoken narration and cinematic footage.
@@ -319,7 +322,7 @@ CRITICAL DIRECTIVES:
      NEVER use Devanagari script. Maximum 70 characters.
    - DESCRIPTION (PURE ENGLISH): Must be written in 100% PURE ENGLISH (English language & Roman letters). Include detailed SEO overview of the event, key technical keywords, and timestamps/chapters. No Devanagari script.
    - CHAPTER TITLES & TAGS: Must be strictly in English (Roman) alphabet.
-   - NARRATION (Spoken Audio): Natural, engaging Hindi dialogue spoken by voice hi-IN-MadhurNeural.
+   - NARRATION (Spoken Audio): Natural, engaging Hindi dialogue spoken by voice hi-IN-SwaraNeural.
    - CAPTIONS (On-Screen Subtitles): Must be in 100% PURE ENGLISH (both English letters AND English language words). For every single scene, provide the exact English translation in "caption" to be displayed on-screen.
 4. Visual Prompt Engineering for True Continuous Video & Flaw-Free Execution:
    - For EVERY scene, write a "visual_prompt" that describes a real, continuous cinematic video shot — NOT a static photo or generic concept.
@@ -380,7 +383,7 @@ CRITICAL DIRECTIVES:
   if (!script.scenes?.length) throw new Error("Gemini returned a script with no scenes");
   script.voice = voice;
   script.language = language;
-  script.rate = script.rate || "+10%";
+  script.rate = script.rate || "+0%";
   console.log(`[Video] Script generated with model "${modelUsed}" via Gemini key pool (${pool.length} keys). Title: ${script.title}`);
   return script;
 }
