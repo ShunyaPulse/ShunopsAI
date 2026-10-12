@@ -659,7 +659,23 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
 
     const newHash = await bcrypt.hash(newPassword, 10);
     await updateUserPassword(user.id, newHash);
-    return { success: true, message: "Password updated successfully." };
+
+    // A password change must invalidate every existing session: otherwise a
+    // cookie stolen before the change stays valid for its full 7-day lifetime.
+    // The device performing the change immediately gets a fresh session so the
+    // legitimate user is not signed out of the page they are on.
+    await revokeAllUserSessions(user.id);
+    const sessionToken = crypto.randomBytes(32).toString("hex");
+    await createSession(user.id, sessionToken, 7);
+    reply.setCookie(COOKIE_NAME, sessionToken, {
+      path: "/",
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      maxAge: 7 * 24 * 60 * 60,
+    });
+
+    return { success: true, message: "Password updated successfully. All other sessions were signed out." };
   });
 
   // 9. Export Account Data (GDPR compliance)
