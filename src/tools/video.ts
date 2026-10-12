@@ -447,7 +447,8 @@ export async function startVideoJob(
   topic: string,
   minutes = 5,
   language = "English",
-  trendReason?: string
+  trendReason?: string,
+  options?: { gcpKey?: string }
 ): Promise<string> {
   const user = process.env.VIDEO_KAGGLE_USERNAME || process.env.KAGGLE_USERNAME || "shunyapulse";
   if (!user) return "Error: KAGGLE_USERNAME not set.";
@@ -464,7 +465,7 @@ export async function startVideoJob(
   const audioDir = path.join(dsDir, "audio");
   await fs.mkdir(audioDir, { recursive: true });
 
-  const gcpAvailable = isGoogleCloudTTSAvailable();
+  const gcpAvailable = isGoogleCloudTTSAvailable(options?.gcpKey);
   const gcpVoice = gcpAvailable ? resolveGCPVoice(script.voice, language) : null;
   const edgeVoice = resolveEdgeVoice(script.voice, language);
 
@@ -489,6 +490,7 @@ export async function startVideoJob(
         voiceName: gcpVoice.name,
         language,
         speakingRate: 1.0,
+        gcpKey: options?.gcpKey,
       });
       if (synthesized) {
         gcpSuccessCount++;

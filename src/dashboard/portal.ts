@@ -598,6 +598,42 @@ export function getShunopsPortalHtml(): string {
             </div>
             <div id="status-badge-hf"></div>
           </div>
+
+          <!-- Google Cloud Text-to-Speech (Optional) -->
+          <div class="key-input-group">
+            <div class="key-label-row">
+              <div>
+                <strong style="color:#fff; font-size:13px;">5. Google Cloud Text-to-Speech (Optional)</strong>
+                <span style="font-size:11px; color:#10b981; margin-left:6px; font-weight:600;">(Studio Voices • Always Free)</span>
+              </div>
+              <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener noreferrer" class="direct-link-badge">
+                🔗 Google Cloud Console &rarr;
+              </a>
+            </div>
+
+            <!-- Benefits Box in Simple, Short Language -->
+            <div style="background:rgba(56,189,248,0.06); border:1px solid rgba(56,189,248,0.2); border-radius:8px; padding:10px 12px; margin-bottom:10px; font-size:11px; color:#94a3b8; line-height:1.5;">
+              <div style="color:#38bdf8; font-weight:700; margin-bottom:4px; font-size:12px;">
+                ✨ Why Add This? (Benefits)
+              </div>
+              <ul style="margin:0; padding-left:16px; color:#cbd5e1;">
+                <li><strong>Studio-Grade Voice:</strong> Unlocks DeepMind Neural2 (hi-IN-Neural2-B), an authentic documentary baritone with natural human breathing.</li>
+                <li><strong>100% Always Free:</strong> Google gives 1,000,000 characters every month for free ($0.00).</li>
+                <li><strong>Zero Risk if Skipped:</strong> If left empty, Video Maker automatically uses free Microsoft Edge-TTS without needing any Google Cloud account!</li>
+              </ul>
+            </div>
+
+            <div class="password-input-wrapper">
+              <input type="text" id="input-gcp-key" class="chat-input" placeholder='Paste GCP Service Account JSON or API Key (Optional)' autocomplete="off" data-lpignore="true" data-1p-ignore="true" />
+              <button type="button" class="eye-toggle-btn" onclick="toggleMask('input-gcp-key', this)" aria-label="Toggle key visibility" title="Show/Hide">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+              </button>
+            </div>
+            <div id="status-badge-gcp"></div>
+            <div style="font-size:11px; color:#64748b; margin-top:6px;">
+              📌 <em>Easy step: Paste your Google Service Account JSON or API Key. If left empty, standard free Edge-TTS is used automatically.</em>
+            </div>
+          </div>
         </div>
 
         <!-- GitHub Keys -->
@@ -605,7 +641,7 @@ export function getShunopsPortalHtml(): string {
           <div class="key-input-group">
             <div class="key-label-row">
               <div>
-                <strong style="color:#fff; font-size:13px;">5. GitHub Token (Optional)</strong>
+                <strong style="color:#fff; font-size:13px;">6. GitHub Token (Optional)</strong>
                 <span style="font-size:11px; color:#64748b; margin-left:6px;">(For checking your repositories)</span>
               </div>
               <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener noreferrer" class="direct-link-badge">
@@ -627,7 +663,7 @@ export function getShunopsPortalHtml(): string {
           <div class="key-input-group">
             <div class="key-label-row">
               <div>
-                <strong style="color:#fff; font-size:13px;">6. Your Website URL to Monitor</strong>
+                <strong style="color:#fff; font-size:13px;">7. Your Website URL to Monitor</strong>
                 <span style="font-size:11px; color:#64748b; margin-left:6px;">(Link)</span>
               </div>
             </div>
@@ -938,7 +974,7 @@ export function getShunopsPortalHtml(): string {
     }
 
     function clearAllBadges() {
-      ["status-badge-groq", "status-badge-gemini", "status-badge-github", "status-badge-hf"].forEach(id => {
+      ["status-badge-groq", "status-badge-gemini", "status-badge-github", "status-badge-hf", "status-badge-gcp"].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.textContent = "";
       });
@@ -1015,6 +1051,7 @@ export function getShunopsPortalHtml(): string {
       const kaggleUser = document.getElementById("input-kaggle-user").value.trim();
       const kaggleKey = document.getElementById("input-kaggle-key").value.trim();
       const hf = document.getElementById("input-hf-token").value.trim();
+      const gcp = (document.getElementById("input-gcp-key")?.value || "").trim();
       const github = document.getElementById("input-github-token").value.trim();
       const monitorUrl = document.getElementById("input-monitor-url").value.trim();
 
@@ -1025,6 +1062,7 @@ export function getShunopsPortalHtml(): string {
         kaggleUser,
         kaggleKey,
         hf,
+        gcp,
         github,
         monitorUrl,
         services: activeServices
@@ -1034,7 +1072,7 @@ export function getShunopsPortalHtml(): string {
         const res = await fetch("/api/portal/verify", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ groq, gemini, github, hf }),
+          body: JSON.stringify({ groq, gemini, github, hf, gcp }),
         });
 
         if (res.ok) {
@@ -1057,6 +1095,10 @@ export function getShunopsPortalHtml(): string {
           if (hf && results.hf) {
             setBadge("status-badge-hf", results.hf.valid, results.hf.message);
             if (!results.hf.valid) allPassed = false;
+          }
+          if (gcp && results.gcp) {
+            setBadge("status-badge-gcp", results.gcp.valid, results.gcp.message);
+            if (!results.gcp.valid) allPassed = false;
           }
 
           await storeEncryptedInIndexedDB(keys);
@@ -1101,6 +1143,7 @@ export function getShunopsPortalHtml(): string {
         if (keys.kaggleUser) document.getElementById("input-kaggle-user").value = keys.kaggleUser;
         if (keys.kaggleKey) document.getElementById("input-kaggle-key").value = keys.kaggleKey;
         if (keys.hf) document.getElementById("input-hf-token").value = keys.hf;
+        if (keys.gcp && document.getElementById("input-gcp-key")) document.getElementById("input-gcp-key").value = keys.gcp;
         if (keys.github) document.getElementById("input-github-token").value = keys.github;
         if (keys.monitorUrl) document.getElementById("input-monitor-url").value = keys.monitorUrl;
         
@@ -1137,6 +1180,7 @@ export function getShunopsPortalHtml(): string {
       document.getElementById("input-kaggle-user").value = "";
       document.getElementById("input-kaggle-key").value = "";
       document.getElementById("input-hf-token").value = "";
+      if (document.getElementById("input-gcp-key")) document.getElementById("input-gcp-key").value = "";
       document.getElementById("input-github-token").value = "";
       document.getElementById("input-monitor-url").value = "";
 

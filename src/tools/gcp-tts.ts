@@ -46,12 +46,14 @@ function getAuthClient(): GoogleAuth | null {
 }
 
 /**
- * Checks if Google Cloud Text-to-Speech credentials exist in the environment.
+ * Checks if Google Cloud Text-to-Speech credentials exist in the environment or custom override.
  */
-export function isGoogleCloudTTSAvailable(): boolean {
+export function isGoogleCloudTTSAvailable(customKey?: string): boolean {
+  if (customKey && customKey.trim().length > 0) return true;
+  const apiKey = process.env.GCP_TTS_API_KEY || process.env.GOOGLE_TTS_API_KEY;
   const credsJson = process.env.GCP_CREDENTIALS || process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON;
   const keyPath = process.env.GCP_SA_KEY_PATH || process.env.GOOGLE_APPLICATION_CREDENTIALS;
-  return Boolean(credsJson || (keyPath && fsSync.existsSync(keyPath)));
+  return Boolean(apiKey || credsJson || (keyPath && fsSync.existsSync(keyPath)));
 }
 
 /**
@@ -104,18 +106,62 @@ export function resolveGCPVoice(requestedVoice?: string, language = "Hindi"): { 
 export async function synthesizeGoogleCloudTTS(
   text: string,
   outPath: string,
-  options?: { voiceName?: string; language?: string; speakingRate?: number }
+  options?: { voiceName?: string | undefined; language?: string | undefined; speakingRate?: number | undefined; gcpKey?: string | undefined }
 ): Promise<boolean> {
-  const auth = getAuthClient();
-  if (!auth) {
-    console.warn("[GCP TTS] GoogleAuth not configured.");
-    return false;
-  }
-
+  const customKey = options?.gcpKey?.trim() || process.env.GCP_TTS_API_KEY || process.env.GOOGLE_TTS_API_KEY;
   const voiceMeta = resolveGCPVoice(options?.voiceName, options?.language);
   const speakingRate = options?.speakingRate ?? 1.0;
 
+  const payload = {
+    input: { text },
+    voice: {
+      languageCode: voiceMeta.languageCode,
+      name: voiceMeta.name,
+    },
+    audioConfig: {
+      audioEncoding: "MP3",
+      speakingRate,
+      sampleRateHertz: 44100,
+    },
+  };
+
   try {
+    // Mode A: Direct API Key
+    if (customKey && !customKey.startsWith("{")) {
+      const res = await fetch(`https://texttospeech.googleapis.com/v1/text:synthesize?key=${encodeURIComponent(customKey)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        const errBody = await res.text();
+        console.warn(`[GCP TTS] API Key HTTP ${res.status} Error: ${errBody.slice(0, 300)}`);
+        return false;
+      }
+
+      const data: any = await res.json();
+      if (!data.audioContent) return false;
+      const audioBuffer = Buffer.from(data.audioContent, "base64");
+      await fs.mkdir(path.dirname(outPath), { recursive: true });
+      await fs.writeFile(outPath, audioBuffer);
+      console.log(`[GCP TTS] ✅ Synthesized ${audioBuffer.length} bytes (API Key) using "${voiceMeta.name}" -> ${path.basename(outPath)}`);
+      return true;
+    }
+
+    // Mode B: Service Account OAuth Token
+    const auth = customKey && customKey.startsWith("{")
+      ? new GoogleAuth({
+          credentials: JSON.parse(customKey),
+          scopes: ["https://www.googleapis.com/auth/cloud-platform"],
+        })
+      : getAuthClient();
+
+    if (!auth) {
+      console.warn("[GCP TTS] GoogleAuth not configured.");
+      return false;
+    }
+
     const client = await auth.getClient();
     const tokenResponse = await client.getAccessToken();
     const accessToken = tokenResponse?.token;
@@ -124,19 +170,6 @@ export async function synthesizeGoogleCloudTTS(
       console.warn("[GCP TTS] Could not obtain GCP access token.");
       return false;
     }
-
-    const payload = {
-      input: { text },
-      voice: {
-        languageCode: voiceMeta.languageCode,
-        name: voiceMeta.name,
-      },
-      audioConfig: {
-        audioEncoding: "MP3",
-        speakingRate,
-        sampleRateHertz: 44100,
-      },
-    };
 
     const res = await fetch("https://texttospeech.googleapis.com/v1/text:synthesize", {
       method: "POST",

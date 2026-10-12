@@ -14,6 +14,7 @@ export async function portalRoutes(app: FastifyInstance): Promise<void> {
       gemini?: string;
       github?: string;
       hf?: string;
+      gcp?: string;
     };
   }>("/api/portal/verify", async (req, reply) => {
     const token = (req.cookies as any)?.shunops_user_session;
@@ -32,6 +33,7 @@ export async function portalRoutes(app: FastifyInstance): Promise<void> {
     const gemini = typeof body.gemini === "string" ? body.gemini.trim() : "";
     const github = typeof body.github === "string" ? body.github.trim() : "";
     const hf = typeof body.hf === "string" ? body.hf.trim() : "";
+    const gcp = typeof body.gcp === "string" ? body.gcp.trim() : "";
 
     const results: Record<string, { valid: boolean; message: string }> = {};
 
@@ -111,6 +113,48 @@ export async function portalRoutes(app: FastifyInstance): Promise<void> {
         }
       } catch {
         results.hf = { valid: false, message: "Hugging Face connection timed out" };
+      }
+    }
+
+    // 5. Verify Google Cloud TTS (Service Account JSON or API Key)
+    if (gcp) {
+      try {
+        if (gcp.startsWith("{") && gcp.includes("private_key")) {
+          try {
+            const parsed = JSON.parse(gcp);
+            if (parsed.client_email && parsed.private_key) {
+              results.gcp = {
+                valid: true,
+                message: `Connected (Service Account: ${parsed.client_email})`,
+              };
+            } else {
+              results.gcp = {
+                valid: false,
+                message: "Invalid Service Account JSON (missing client_email or private_key)",
+              };
+            }
+          } catch {
+            results.gcp = { valid: false, message: "Invalid JSON format for Service Account" };
+          }
+        } else {
+          const res = await fetch(
+            `https://texttospeech.googleapis.com/v1/voices?key=${encodeURIComponent(gcp)}`,
+            { signal: AbortSignal.timeout(6000) }
+          );
+          if (res.ok) {
+            results.gcp = {
+              valid: true,
+              message: "Connected (Cloud Text-to-Speech API active)",
+            };
+          } else {
+            results.gcp = {
+              valid: false,
+              message: `Invalid Key (HTTP ${res.status} from Google Cloud)`,
+            };
+          }
+        }
+      } catch {
+        results.gcp = { valid: false, message: "Google Cloud connection timed out" };
       }
     }
 
