@@ -111,7 +111,8 @@ async def probe_edge_tts(voice, rate="+0%"):
     """
     global EDGE_TTS_AVAILABLE
     try:
-        communicate = edge_tts.Communicate("test probe", voice, rate=rate)
+        pitch = "-3Hz" if "madhur" in voice.lower() else "+0Hz"
+        communicate = edge_tts.Communicate("test probe", voice, rate=rate, pitch=pitch)
         async for chunk in communicate.stream():
             if chunk["type"] == "audio":
                 break
@@ -136,7 +137,8 @@ async def tts_with_boundaries(text, voice, a_path, rate="+0%"):
     # Tier 1: Primary Edge-TTS (only attempted if circuit breaker is intact)
     if EDGE_TTS_AVAILABLE:
         try:
-            communicate = edge_tts.Communicate(text, voice, rate=rate)
+            pitch = "-3Hz" if "madhur" in voice.lower() else "+0Hz"
+            communicate = edge_tts.Communicate(text, voice, rate=rate, pitch=pitch)
             submaker = edge_tts.SubMaker()
             with open(a_path, "wb") as f:
                 async for chunk in communicate.stream():

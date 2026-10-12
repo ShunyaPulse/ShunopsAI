@@ -394,6 +394,53 @@ CRITICAL DIRECTIVES:
 }
 
 /**
+ * Curated Microsoft Edge-TTS voices and pitch calibrations for non-GCP users.
+ */
+export function resolveEdgeVoice(
+  requestedVoice?: string,
+  language = "Hindi"
+): { name: string; pitch: string } {
+  const isHindi = /hindi/i.test(language) || (requestedVoice && requestedVoice.toLowerCase().includes("hi"));
+  if (isHindi) {
+    if (requestedVoice && (requestedVoice.toLowerCase().includes("swara") || requestedVoice.toLowerCase().includes("female"))) {
+      return { name: "hi-IN-SwaraNeural", pitch: "+0Hz" };
+    }
+    // Default male Hindi: apply -3Hz pitch calibration for natural documentary depth (eliminates generic AI reel tone)
+    return { name: "hi-IN-MadhurNeural", pitch: "-3Hz" };
+  }
+
+  // English
+  if (requestedVoice && (requestedVoice.toLowerCase().includes("neerja") || requestedVoice.toLowerCase().includes("female"))) {
+    return { name: "en-IN-NeerjaExpressiveNeural", pitch: "+0Hz" };
+  }
+  return { name: "en-IN-PrabhatNeural", pitch: "+0Hz" };
+}
+
+/**
+ * Pre-synthesizes narration locally using Microsoft Edge-TTS via python -m edge_tts.
+ * Packages ready audio into the Kaggle dataset to bypass Kaggle datacenter IP 403 Forbidden blocks.
+ */
+export async function synthesizeLocalEdgeTTS(
+  text: string,
+  outPath: string,
+  voice = "hi-IN-MadhurNeural",
+  pitch = "-3Hz"
+): Promise<boolean> {
+  const tmpTxt = path.join(os.tmpdir(), `edge_tts_${Date.now()}_${Math.random().toString(36).slice(2)}.txt`);
+  try {
+    await fs.writeFile(tmpTxt, text, "utf-8");
+    const args = ["-m", "edge_tts", "-f", tmpTxt, "-v", voice, "--pitch", pitch, "--write-media", outPath];
+    await execFileAsync("python", args, { timeout: 30000 });
+    const stat = await fs.stat(outPath);
+    return stat.size > 500;
+  } catch (err: any) {
+    return false;
+  } finally {
+    await fs.unlink(tmpTxt).catch(() => {});
+  }
+}
+
+/**
  * Stage 3: package script + renderer and launch it on a Kaggle GPU kernel.
  */
 export async function startVideoJob(
@@ -413,11 +460,12 @@ export async function startVideoJob(
   await fs.mkdir(dsDir, { recursive: true });
   await fs.mkdir(kDir, { recursive: true });
 
-  // Pre-synthesize studio-grade narration with Google Cloud Text-to-Speech (Neural2 Always Free Tier: 1M chars/mo)
+  // Pre-synthesize studio-grade narration (Tier 1: Google Cloud Neural2, Tier 2: Calibrated Edge-TTS)
   const audioDir = path.join(dsDir, "audio");
+  await fs.mkdir(audioDir, { recursive: true });
+
   if (isGoogleCloudTTSAvailable()) {
-    console.log(`[Video] 🎙️ Synthesizing narration with Google Cloud Text-to-Speech (Neural2 Always Free Tier)...`);
-    await fs.mkdir(audioDir, { recursive: true });
+    console.log(`[Video] 🎙️ Google Cloud account detected. Synthesizing with Neural2 (Always Free Tier: 1M chars/mo)...`);
     const gcpVoice = resolveGCPVoice(script.voice, language);
     let allOk = true;
     for (let i = 0; i < script.scenes.length; i++) {
@@ -436,7 +484,25 @@ export async function startVideoJob(
       console.log(`[Video] ✅ All ${script.scenes.length} scenes synthesized with Google Cloud TTS "${gcpVoice.name}"!`);
     }
   } else {
-    console.log(`[Video] Google Cloud TTS credentials not found in env. Kernel will fallback to Edge-TTS.`);
+    console.log(`[Video] 🎙️ No Google Cloud credentials detected. Pre-synthesizing locally with calibrated Edge-TTS (Zero Setup / Free)...`);
+    const edgeVoice = resolveEdgeVoice(script.voice, language);
+    let allOk = true;
+    for (let i = 0; i < script.scenes.length; i++) {
+      const sc = script.scenes[i];
+      if (!sc) continue;
+      const outMp3 = path.join(audioDir, `a${String(i).padStart(3, "0")}.mp3`);
+      const ok = await synthesizeLocalEdgeTTS(sc.narration, outMp3, edgeVoice.name, edgeVoice.pitch);
+      if (!ok) {
+        allOk = false;
+        break;
+      }
+    }
+    if (allOk) {
+      script.voice = edgeVoice.name;
+      console.log(`[Video] ✅ All ${script.scenes.length} scenes pre-synthesized with calibrated Edge-TTS "${edgeVoice.name}" (Pitch: ${edgeVoice.pitch})!`);
+    } else {
+      console.log(`[Video] ℹ️ Local Edge-TTS synthesizer unavailable. Kaggle GPU kernel will synthesize directly on the fly.`);
+    }
   }
 
   await fs.writeFile(path.join(dsDir, "script.json"), JSON.stringify(script, null, 2));
