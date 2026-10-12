@@ -134,12 +134,31 @@ export async function verifyEmailOTP(email: string, code: string): Promise<{ suc
   const sql = getSql();
 
   try {
+    // Atomically consume the OTP: this succeeds only when the code matches, has
+    // not been used, and is unexpired. Doing the compare-and-mark in a single
+    // UPDATE closes the race where two concurrent requests both passed a
+    // preceding SELECT and each minted a session from the same code.
+    const consumed = await (sql as any).query(
+      `UPDATE shunops_email_otps
+       SET used_at = CURRENT_TIMESTAMP
+       WHERE LOWER(TRIM(email)) = $1
+         AND otp = $2
+         AND used_at IS NULL
+         AND expires_at > NOW()
+       RETURNING email;`,
+      [cleanEmail, cleanCode]
+    );
+
+    if (consumed.length > 0) {
+      return { success: true, message: "OTP verified successfully." };
+    }
+
+    // Failure path: read the record only to produce an accurate diagnostic.
     const res = await (sql as any).query(
-      `SELECT otp, attempts, 
+      `SELECT otp, attempts,
               (expires_at < NOW()) AS is_expired,
-              (used_at IS NOT NULL AND used_at > NOW() - INTERVAL '60 seconds') AS is_recently_used,
-              (used_at IS NOT NULL AND used_at <= NOW() - INTERVAL '60 seconds') AS is_old_used
-       FROM shunops_email_otps 
+              (used_at IS NOT NULL) AS is_used
+       FROM shunops_email_otps
        WHERE LOWER(TRIM(email)) = $1;`,
       [cleanEmail]
     );
@@ -150,7 +169,7 @@ export async function verifyEmailOTP(email: string, code: string): Promise<{ suc
 
     const record = res[0];
 
-    if (record.is_old_used || record.is_recently_used) {
+    if (record.is_used) {
       return { success: false, message: "OTP has already been used. Please request a new OTP." };
     }
 
@@ -162,23 +181,13 @@ export async function verifyEmailOTP(email: string, code: string): Promise<{ suc
       return { success: false, message: "Too many failed attempts. Please request a new OTP." };
     }
 
-    if (record.otp !== cleanCode) {
-      const newAttempts = record.attempts + 1;
-      await (sql as any).query(
-        `UPDATE shunops_email_otps SET attempts = $1 WHERE LOWER(TRIM(email)) = $2;`,
-        [newAttempts, cleanEmail]
-      );
-      const remaining = Math.max(0, 5 - newAttempts);
-      return { success: false, message: `Incorrect verification code. ${remaining} attempt(s) remaining.` };
-    }
-
-    // Mark as used immediately to prevent replay
-    await (sql as any).query(
-      `UPDATE shunops_email_otps SET used_at = CURRENT_TIMESTAMP WHERE LOWER(TRIM(email)) = $1;`,
+    const bumped = await (sql as any).query(
+      `UPDATE shunops_email_otps SET attempts = attempts + 1 WHERE LOWER(TRIM(email)) = $1 RETURNING attempts;`,
       [cleanEmail]
     );
-
-    return { success: true, message: "OTP verified successfully." };
+    const newAttempts = bumped[0]?.attempts ?? record.attempts + 1;
+    const remaining = Math.max(0, 5 - newAttempts);
+    return { success: false, message: `Incorrect verification code. ${remaining} attempt(s) remaining.` };
   } catch (err: any) {
     console.error("[Email OTP Verify Error]: [REDACTED]");
     return { success: false, message: "Verification failed due to a server error." };
