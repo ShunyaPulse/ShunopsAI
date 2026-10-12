@@ -528,6 +528,26 @@ export function getUserWorkspaceHtml(username: string): string {
           </div>
         </div>
 
+        <!-- Website Chatbot Widget Embed Snippet Box -->
+        <div class="box">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+            <h2>🤖 Website Customer Chatbot</h2>
+            <span style="font-size:11px; background:rgba(56,189,248,0.12); color:#38bdf8; border:1px solid rgba(56,189,248,0.25); padding:2px 8px; border-radius:12px; font-weight:600;">
+              Edge CDN
+            </span>
+          </div>
+          <p>Embed this 1 line of HTML code into any website to add your AI assistant without setting up separate servers.</p>
+          <div style="position:relative; background:#070a12; border:1px solid #1e293b; border-radius:8px; padding:12px; margin-bottom:8px;">
+            <code style="font-family:'JetBrains Mono', monospace; font-size:11px; color:#38bdf8; word-break:break-all; display:block; padding-right:75px;">&lt;script src="https://edge-agent-widget.shunopsai.workers.dev/widget.js" defer&gt;&lt;/script&gt;</code>
+            <button type="button" onclick="copyWorkspaceWidgetSnippet(this)" style="position:absolute; top:8px; right:8px; background:#1e293b; border:1px solid #38bdf8; color:#fff; font-size:11px; padding:4px 8px; border-radius:6px; cursor:pointer; font-weight:600; transition:all 0.15s;">
+              📋 Copy
+            </button>
+          </div>
+          <div style="font-size:11px; color:#64748b;">
+            💡 Paste right before <code>&lt;/body&gt;</code> in your HTML or web builder (WordPress, Webflow, Shopify).
+          </div>
+        </div>
+
         <!-- Account Security & Lifecycle Box -->
         <div class="box">
           <h2>🔒 Account Privacy & Security</h2>
@@ -987,6 +1007,24 @@ export function getUserWorkspaceHtml(username: string): string {
       } catch (e) {
         alert('Error: ' + e.message);
       }
+    }
+
+    
+    function copyWorkspaceWidgetSnippet(btn) {
+      const code = '<script src="https://edge-agent-widget.shunopsai.workers.dev/widget.js" defer><\/script>';
+      navigator.clipboard.writeText(code).then(() => {
+        const orig = btn.textContent;
+        btn.textContent = "✅ Copied!";
+        btn.style.borderColor = "#10b981";
+        btn.style.color = "#10b981";
+        setTimeout(() => {
+          btn.textContent = orig;
+          btn.style.borderColor = "#38bdf8";
+          btn.style.color = "#fff";
+        }, 2000);
+      }).catch(() => {
+        prompt("Copy this code:", code);
+      });
     }
 
     window.addEventListener('DOMContentLoaded', () => {

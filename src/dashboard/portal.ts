@@ -358,9 +358,9 @@ export function getShunopsPortalHtml(): string {
           </div>
 
           <!-- Service 4: Web Widget -->
-          <div class="service-choice-card" id="card-widget" onclick="toggleService('widget')">
+          <div class="service-choice-card selected" id="card-widget" onclick="toggleService('widget')">
             <div class="service-choice-header">
-              <div class="custom-checkbox" id="chk-widget"></div>
+              <div class="custom-checkbox" id="chk-widget">✓</div>
               <strong style="font-size:14px; color:#fff;">🤖 Website Customer Chatbot</strong>
             </div>
             <p style="font-size:12px; color:#94a3b8; line-height:1.4; margin-left:30px;">
@@ -554,6 +554,29 @@ export function getShunopsPortalHtml(): string {
           </div>
         </div>
 
+        <!-- Website Chat Widget Integration Snippet -->
+        <div id="section-widget-keys" style="margin-bottom:18px;">
+          <div style="background:#0f172a; border:1px solid #1e293b; border-radius:12px; padding:16px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+              <strong style="color:#fff; font-size:13px; display:flex; align-items:center; gap:6px;">
+                <span>🤖</span> Embed Chat Widget on Your Website
+              </strong>
+              <span style="font-size:11px; background:rgba(56,189,248,0.12); color:#38bdf8; border:1px solid rgba(56,189,248,0.3); padding:2px 8px; border-radius:12px; font-weight:600;">
+                Edge CDN Live
+              </span>
+            </div>
+            <p style="font-size:12px; color:#94a3b8; line-height:1.5; margin-bottom:12px;">
+              Copy this 1 line of HTML code and paste it right before the closing <code>&lt;/body&gt;</code> tag on any website to enable the 24/7 AI chat widget:
+            </p>
+            <div style="position:relative; background:#020617; border:1px solid #1e293b; border-radius:8px; padding:12px; font-family:'JetBrains Mono', monospace; font-size:12px; color:#38bdf8; overflow-x:auto;">
+              <code id="portal-widget-snippet">&lt;script src="https://edge-agent-widget.shunopsai.workers.dev/widget.js" defer&gt;&lt;/script&gt;</code>
+              <button type="button" onclick="copyWidgetSnippet(this)" style="position:absolute; top:8px; right:8px; background:#1e293b; hover:#334155; border:1px solid #38bdf8; color:#fff; font-size:11px; padding:4px 10px; border-radius:6px; cursor:pointer; font-weight:600; transition:all 0.15s;">
+                📋 Copy Code
+              </button>
+            </div>
+          </div>
+        </div>
+
         <!-- Action Buttons -->
         <div style="display:flex; gap:10px; justify-content:space-between; align-items:center; margin-top:20px; flex-wrap:wrap;">
           <button type="button" class="btn btn-secondary" onclick="clearAllKeys()" style="color:#ef4444; border-color:#7f1d1d;" title="Remove saved keys from this browser">
@@ -628,7 +651,7 @@ export function getShunopsPortalHtml(): string {
       video: true,
       sentinel: true,
       github: false,
-      widget: false
+      widget: true
     };
 
     function setAiMode(mode) {
@@ -830,6 +853,24 @@ export function getShunopsPortalHtml(): string {
       });
     }
 
+    
+    function copyWidgetSnippet(btn) {
+      const code = '<script src="https://edge-agent-widget.shunopsai.workers.dev/widget.js" defer><\/script>';
+      navigator.clipboard.writeText(code).then(() => {
+        const orig = btn.textContent;
+        btn.textContent = "✅ Copied!";
+        btn.style.borderColor = "#10b981";
+        btn.style.color = "#10b981";
+        setTimeout(() => {
+          btn.textContent = orig;
+          btn.style.borderColor = "#38bdf8";
+          btn.style.color = "#fff";
+        }, 2000);
+      }).catch(() => {
+        prompt("Copy this embed code:", code);
+      });
+    }
+
     function applySectionVisibility() {
       document.getElementById("section-ai-keys").style.display =
         (aiMode === "byok") ? "block" : "none";
@@ -839,6 +880,8 @@ export function getShunopsPortalHtml(): string {
         activeServices.github ? "block" : "none";
       document.getElementById("section-sentinel-keys").style.display =
         activeServices.sentinel ? "block" : "none";
+      const widgetSection = document.getElementById("section-widget-keys");
+      if (widgetSection) widgetSection.style.display = activeServices.widget ? "block" : "none";
     }
 
     function toggleService(key) {
