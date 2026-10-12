@@ -385,6 +385,97 @@ export function getUserWorkspaceHtml(username: string): string {
       background: rgba(255,255,255,0.12);
       color: #fff;
     }
+    /* Modal styles */
+    .modal-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(3, 7, 18, 0.75);
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+      opacity: 0;
+      visibility: hidden;
+      transition: opacity 0.2s ease, visibility 0.2s ease;
+      padding: 16px;
+    }
+    .modal-overlay.active {
+      opacity: 1;
+      visibility: visible;
+    }
+    .modal-dialog {
+      background: #0b1120;
+      border: 1px solid #1e293b;
+      border-radius: 18px;
+      max-width: 580px;
+      width: 100%;
+      max-height: 90vh;
+      overflow-y: auto;
+      box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.8), 0 0 30px rgba(56, 189, 248, 0.1);
+      transform: translateY(15px) scale(0.98);
+      transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .modal-overlay.active .modal-dialog {
+      transform: translateY(0) scale(1);
+    }
+    .modal-header {
+      padding: 18px 22px;
+      border-bottom: 1px solid #1e293b;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      position: sticky;
+      top: 0;
+      background: #0b1120;
+      z-index: 2;
+    }
+    .modal-header h2 {
+      font-size: 17px;
+      font-weight: 700;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin: 0;
+    }
+    .modal-close-btn {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      color: #94a3b8;
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      font-size: 18px;
+      line-height: 1;
+      transition: all 0.15s;
+    }
+    .modal-close-btn:hover {
+      background: rgba(239, 68, 68, 0.15);
+      border-color: rgba(239, 68, 68, 0.4);
+      color: #f87171;
+    }
+    .modal-body {
+      padding: 22px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+    .modal-section-card {
+      background: #070a12;
+      border: 1px solid #1e293b;
+      border-radius: 12px;
+      padding: 16px;
+    }
+
     .footer {
       max-width: 1140px;
       margin: 0 auto;
@@ -511,23 +602,6 @@ export function getUserWorkspaceHtml(username: string): string {
           </div>
         </div>
 
-        <!-- Personal API Keys Box -->
-        <div class="box">
-          <h2>🔑 Personal API Keys</h2>
-          <p>Generate isolated keys to invoke tasks from external scripts or n8n.</p>
-          <div style="display:flex; gap:8px; margin-bottom:12px;">
-            <input type="text" id="api-key-name-input" placeholder="Key description (e.g. n8n runner)" style="flex:1; background:#070a12; border:1px solid #1e293b; border-radius:8px; padding:6px 10px; color:#fff; font-size:12px; outline:none;" />
-            <button class="btn-sub" onclick="generateApiKey()">+ Create</button>
-          </div>
-          <div id="new-key-display" style="display:none; background:rgba(16,185,129,0.15); border:1px solid #10b981; border-radius:8px; padding:10px; margin-bottom:12px; font-size:12px;">
-            <div style="font-weight:600; color:#10b981; margin-bottom:4px;">New Key Generated (Save it now):</div>
-            <code id="new-key-value" style="font-family:'JetBrains Mono', monospace; word-break:break-all; color:#fff;"></code>
-          </div>
-          <div id="user-keys-list" style="font-size:12px; color:#94a3b8; font-family:'JetBrains Mono', monospace;">
-            Loading active keys...
-          </div>
-        </div>
-
         <!-- Website Chatbot Widget Embed Snippet Box -->
         <div class="box">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
@@ -547,17 +621,61 @@ export function getUserWorkspaceHtml(username: string): string {
             💡 Paste right before <code>&lt;/body&gt;</code> in your HTML or web builder (WordPress, Webflow, Shopify).
           </div>
         </div>
+      </div>
+    </div>
+  </div>
 
-        <!-- Account Security & Lifecycle Box -->
-        <div class="box">
-          <h2>🔒 Account Privacy & Security</h2>
-          <p>GDPR data controls, password changes, and account deletion.</p>
+  <!-- Account Settings & Security Modal -->
+  <div id="account-settings-modal" class="modal-overlay" onclick="if(event.target === this) toggleAccountModal(false)">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h2>⚙️ Account &amp; Security Settings</h2>
+        <button class="modal-close-btn" onclick="toggleAccountModal(false)" title="Close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <!-- Personal API Keys Section -->
+        <div class="modal-section-card">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+            <h3 style="font-size:15px; font-weight:700; color:#fff; display:flex; align-items:center; gap:8px; margin:0;">
+              🔑 Personal API Keys
+            </h3>
+            <span style="font-size:11px; background:rgba(16,185,129,0.12); color:#10b981; border:1px solid rgba(16,185,129,0.25); padding:2px 8px; border-radius:12px; font-weight:600;">
+              Active &amp; Functional
+            </span>
+          </div>
+          <p style="font-size:12px; color:var(--muted); line-height:1.5; margin-bottom:12px;">
+            Generate isolated <code>shun_*</code> secret keys to invoke tasks from external scripts, webhooks, or n8n workflows.
+          </p>
+          <div style="display:flex; gap:8px; margin-bottom:12px;">
+            <input type="text" id="api-key-name-input" placeholder="Key description (e.g. n8n runner)" style="flex:1; background:#090d16; border:1px solid #1e293b; border-radius:8px; padding:7px 10px; color:#fff; font-size:12px; outline:none;" />
+            <button class="btn-sub" onclick="generateApiKey()">+ Create Key</button>
+          </div>
+          <div id="new-key-display" style="display:none; background:rgba(16,185,129,0.12); border:1px solid #10b981; border-radius:8px; padding:12px; margin-bottom:12px; font-size:12px;">
+            <div style="font-weight:600; color:#10b981; margin-bottom:6px;">New Key Generated (Save it now — cannot be displayed again):</div>
+            <div style="display:flex; gap:8px; align-items:center; background:#050811; border:1px solid rgba(16,185,129,0.3); border-radius:6px; padding:6px 10px;">
+              <code id="new-key-value" style="font-family:'JetBrains Mono', monospace; word-break:break-all; color:#fff; font-size:12px; flex:1;"></code>
+              <button class="btn-sub" style="padding:4px 8px; font-size:11px;" onclick="copyNewApiKey(this)">📋 Copy</button>
+            </div>
+          </div>
+          <div id="user-keys-list" style="font-size:12px; color:#94a3b8; font-family:'JetBrains Mono', monospace;">
+            Loading active keys...
+          </div>
+        </div>
+
+        <!-- Account Security & Lifecycle Section -->
+        <div class="modal-section-card">
+          <h3 style="font-size:15px; font-weight:700; color:#fff; display:flex; align-items:center; gap:8px; margin-bottom:6px;">
+            🔒 Account Privacy &amp; Security
+          </h3>
+          <p style="font-size:12px; color:var(--muted); line-height:1.5; margin-bottom:12px;">
+            Manage your password, export your complete workspace activity (GDPR), or permanently close your account.
+          </p>
           <div style="display:flex; flex-direction:column; gap:10px;">
             <button class="btn-sub" onclick="togglePasswordChangeDrawer()">🔑 Change Password</button>
-            <div id="password-change-drawer" style="display:none; background:#070a12; border:1px solid #1e293b; border-radius:8px; padding:12px;">
-              <input type="password" id="pw-current" placeholder="Current Password" style="width:100%; background:#090d16; border:1px solid #1e293b; border-radius:6px; padding:6px 10px; color:#fff; font-size:12px; margin-bottom:8px; outline:none;" />
-              <input type="password" id="pw-new" placeholder="New Password (min 8 chars)" style="width:100%; background:#090d16; border:1px solid #1e293b; border-radius:6px; padding:6px 10px; color:#fff; font-size:12px; margin-bottom:8px; outline:none;" />
-              <button class="btn-sub" style="background:#2563eb; color:#fff; border:none; width:100%;" onclick="submitPasswordChange()">Update Password</button>
+            <div id="password-change-drawer" style="display:none; background:#090d16; border:1px solid #1e293b; border-radius:8px; padding:12px;">
+              <input type="password" id="pw-current" placeholder="Current Password" style="width:100%; background:#070a12; border:1px solid #1e293b; border-radius:6px; padding:8px 10px; color:#fff; font-size:12px; margin-bottom:8px; outline:none;" />
+              <input type="password" id="pw-new" placeholder="New Password (min 8 chars)" style="width:100%; background:#070a12; border:1px solid #1e293b; border-radius:6px; padding:8px 10px; color:#fff; font-size:12px; margin-bottom:8px; outline:none;" />
+              <button class="btn-sub" style="background:#2563eb; color:#fff; border:none; width:100%; padding:8px;" onclick="submitPasswordChange()">Update Password</button>
             </div>
             <button class="btn-sub" onclick="exportMyData()">📥 Export My Data (JSON)</button>
             <button class="btn-sub" style="border-color:rgba(239,68,68,0.4); color:#ef4444;" onclick="deleteMyAccount()">🗑️ Delete My Account Permanently</button>
@@ -1010,14 +1128,43 @@ export function getUserWorkspaceHtml(username: string): string {
     }
 
     
-    function toggleAccountModal() {
-      const drawer = document.getElementById('password-change-drawer');
-      if (drawer) {
-        drawer.style.display = 'block';
-        drawer.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        const input = document.getElementById('pw-current');
-        if (input) input.focus();
+    function toggleAccountModal(show) {
+      const modal = document.getElementById('account-settings-modal');
+      if (!modal) return;
+      const shouldOpen = show !== undefined ? show : !modal.classList.contains('active');
+      if (shouldOpen) {
+        modal.classList.add('active');
+        document.body.style.overflow = 'hidden';
+        loadApiKeys();
+      } else {
+        modal.classList.remove('active');
+        document.body.style.overflow = '';
       }
+    }
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        toggleAccountModal(false);
+      }
+    });
+
+    function copyNewApiKey(btn) {
+      const el = document.getElementById('new-key-value');
+      const key = el ? el.textContent : '';
+      if (!key) return;
+      navigator.clipboard.writeText(key).then(() => {
+        const orig = btn.textContent;
+        btn.textContent = '✅ Copied!';
+        btn.style.borderColor = '#10b981';
+        btn.style.color = '#10b981';
+        setTimeout(() => {
+          btn.textContent = orig;
+          btn.style.borderColor = '';
+          btn.style.color = '';
+        }, 2000);
+      }).catch(() => {
+        prompt('Copy API Key:', key);
+      });
     }
 
     function copyWorkspaceWidgetSnippet(btn) {
