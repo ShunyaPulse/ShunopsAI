@@ -11,8 +11,8 @@
     "test": "tsx tests/production-suite.test.ts",
     "typecheck": "tsc --noEmit",
     "resolve-alerts": "tsx src/tools/code-scanner-resolver.ts",
-    "worker:dev": "wrangler dev",
-    "worker:deploy": "wrangler deploy"
+    "worker:dev": "npx wrangler dev",
+    "worker:deploy": "npx wrangler deploy"
   },
   "keywords": [
     "agent",
