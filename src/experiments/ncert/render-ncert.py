@@ -43,7 +43,7 @@ for mod in list(sys.modules.keys()):
 # Ensure all dependencies are present and upgraded
 subprocess.run([
     sys.executable, "-m", "pip", "install", "-q", "-U",
-    "diffusers", "transformers", "accelerate", "safetensors", "huggingface_hub", "edge-tts", "gTTS"
+    "diffusers", "transformers", "accelerate", "safetensors", "huggingface_hub", "edge-tts"
 ], check=False)
 
 import edge_tts
@@ -121,7 +121,7 @@ async def probe_edge_tts(voice, rate="+0%"):
     except Exception as e:
         EDGE_TTS_AVAILABLE = False
         print(f"[TTS] ⚠️ Edge-TTS pre-flight probe failed: {e}")
-        print("[TTS] ⚡ Circuit breaker TRIPPED -> Edge-TTS disabled for all scenes. Using gTTS directly.")
+        print("[TTS] ⚡ Circuit breaker TRIPPED -> Edge-TTS disabled for all scenes.")
         return False
 
 
@@ -129,7 +129,7 @@ async def tts_with_boundaries(text, voice, a_path, rate="+0%"):
     """
     Synthesizes speech with Edge-TTS and captures internal WordBoundary metadata streams.
     Implements a fail-fast circuit breaker: if Edge-TTS fails or is blocked,
-    subsequent scenes bypass Edge-TTS completely and route directly to gTTS.
+    subsequent scenes bypass Edge-TTS completely and route directly to audio fallback buffer.
     """
     global EDGE_TTS_AVAILABLE
 
@@ -151,22 +151,9 @@ async def tts_with_boundaries(text, voice, a_path, rate="+0%"):
         except Exception as e:
             print(f"[TTS] ⚠️ Edge-TTS error on current scene: {e}")
             EDGE_TTS_AVAILABLE = False
-            print("[TTS] ⚡ Circuit breaker TRIPPED -> Edge-TTS disabled for all remaining scenes. Routing to gTTS.")
+            print("[TTS] ⚡ Circuit breaker TRIPPED -> Edge-TTS disabled for all remaining scenes.")
 
-    # Tier 2: Resilient gTTS (Google Translate TTS) cloud fallback
-    try:
-        print("[TTS] Routing to gTTS (Google Translate TTS)...")
-        from gtts import gTTS
-        lang = "hi" if ("hi-" in voice or "hindi" in voice.lower()) else "en"
-        tts = gTTS(text=text, lang=lang)
-        tts.save(a_path)
-        if os.path.exists(a_path) and os.path.getsize(a_path) > 500:
-            print(f"[TTS] gTTS fallback succeeded ({lang})!")
-            return edge_tts.SubMaker()
-    except Exception as ge:
-        print(f"[TTS] gTTS fallback error: {ge}")
-
-    # Tier 3: Tertiary duration-matched audio silence buffer so video scene never crashes
+    # Tier 2: Resilient duration-matched audio silence buffer so video scene never crashes
     try:
         words_cnt = max(1, len(text.split()))
         fallback_dur = max(3.5, min(14.0, words_cnt * 0.45))

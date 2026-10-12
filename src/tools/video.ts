@@ -436,7 +436,7 @@ export async function startVideoJob(
       console.log(`[Video] ✅ All ${script.scenes.length} scenes synthesized with Google Cloud TTS "${gcpVoice.name}"!`);
     }
   } else {
-    console.log(`[Video] Google Cloud TTS credentials not found in env. Kernel will use Edge-TTS / gTTS.`);
+    console.log(`[Video] Google Cloud TTS credentials not found in env. Kernel will fallback to Edge-TTS.`);
   }
 
   await fs.writeFile(path.join(dsDir, "script.json"), JSON.stringify(script, null, 2));
