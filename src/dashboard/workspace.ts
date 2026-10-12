@@ -689,7 +689,7 @@ export function getUserWorkspaceHtml(username: string): string {
           <div style="background:#090d16; border:1px solid #1e293b; border-radius:10px; padding:14px; margin-bottom:12px;">
             <div style="display:flex; justify-content:space-between; margin-bottom:8px; font-size:13px;">
               <span>Plan: <strong id="user-plan-badge" style="color:#38bdf8;">Community</strong></span>
-              <span>Tokens: <strong id="user-usage-count" style="color:#fff;">0</strong> / <span id="user-usage-limit">500k</span></span>
+              <span>Tokens: <strong id="user-usage-count" style="color:#fff;">0</strong> / <span id="user-usage-limit">1.5M</span></span>
             </div>
             <div style="background:#1e293b; border-radius:6px; height:8px; overflow:hidden; margin-bottom:10px;">
               <div id="user-usage-bar" style="background:linear-gradient(90deg, #38bdf8, #2563eb); height:100%; width:0%; transition:width 0.4s;"></div>

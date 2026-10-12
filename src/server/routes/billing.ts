@@ -40,9 +40,9 @@ export async function billingRoutes(app: FastifyInstance, options: BillingRouteO
           name: "Community Free",
           price: "$0 / month",
           tokenLimit: PLAN_LIMITS.community,
-          queryLimit: "500k Tokens / Mo",
+          queryLimit: "1.5M Tokens / Mo",
           features: [
-            "500,000 Total Tokens / Month",
+            "1,500,000 Total Tokens / Month (Free Tier)",
             "Full input & output token metering",
             "Single-step ReAct fast answers",
             "Neon Postgres multi-tenancy",

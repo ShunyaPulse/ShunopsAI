@@ -6,16 +6,16 @@ import { getSql, memStore } from "./store.js";
 // ==========================================
 
 export const TOKEN_PLAN_LIMITS: Record<string, number> = {
-  community: 500_000,    // 500,000 Total Monthly Tokens (Free Community Tier)
-  byok: 999_999_999,     // Unlimited with Bring-Your-Own-Key
-  pro: 10_000_000,       // 10,000,000 Total Monthly Tokens (Pro Tier)
+  community: 1_500_000,    // 1,500,000 Total Monthly Tokens (Free Community Tier - Generous zero-cost quota)
+  byok: 999_999_999,       // Unlimited with Bring-Your-Own-Key
+  pro: 25_000_000,         // 25,000,000 Total Monthly Tokens (Pro Tier)
 };
 
 // Maintained for backward compatibility; points to modern token allocations
 export const PLAN_LIMITS: Record<string, number> = {
-  community: 500_000,
+  community: 1_500_000,
   byok: 999_999_999,
-  pro: 10_000_000,
+  pro: 25_000_000,
 };
 
 const DEFAULT_PLAN = "community";
@@ -52,7 +52,7 @@ export async function getUserUsageAndPlan(userId: number): Promise<UserUsage> {
     const inputTokens = Number(u?.input_tokens || 0);
     const outputTokens = Number(u?.output_tokens || 0);
     const totalTokens = Number(u?.total_tokens || inputTokens + outputTokens);
-    const tokenLimit = TOKEN_PLAN_LIMITS[plan] ?? 500_000;
+    const tokenLimit = TOKEN_PLAN_LIMITS[plan] ?? 1_500_000;
     return {
       plan,
       queryCount,
@@ -75,7 +75,7 @@ export async function getUserUsageAndPlan(userId: number): Promise<UserUsage> {
   const inputTokens = Number(row?.input_tokens || 0);
   const outputTokens = Number(row?.output_tokens || 0);
   const totalTokens = Number(row?.total_tokens || inputTokens + outputTokens);
-  const tokenLimit = TOKEN_PLAN_LIMITS[plan] ?? 500_000;
+  const tokenLimit = TOKEN_PLAN_LIMITS[plan] ?? 1_500_000;
 
   return {
     plan,
@@ -150,7 +150,7 @@ export async function recordUserTokenUsage(
 
   const row = rows[0];
   const plan = row?.plan || DEFAULT_PLAN;
-  const tokenLimit: number = TOKEN_PLAN_LIMITS[plan] ?? 500_000;
+  const tokenLimit: number = TOKEN_PLAN_LIMITS[plan] ?? 1_500_000;
   const totalTokens = Number(row?.total_tokens || 0);
 
   return {

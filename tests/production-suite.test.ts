@@ -217,7 +217,7 @@ async function runSuite() {
     const user = await createUser(`billing_user_${Date.now()}`, null);
     const usage = await getUserUsageAndPlan(user.id);
     assert.equal(usage.plan, "community");
-    assert.equal(usage.tokenLimit, 500000);
+    assert.equal(usage.tokenLimit, 1500000);
 
     const tokenRecord = await recordUserTokenUsage(user.id, 120, 80);
     assert.equal(tokenRecord.allowed, true);
