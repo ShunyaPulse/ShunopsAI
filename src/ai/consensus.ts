@@ -43,11 +43,8 @@ export interface ConsensusResult {
 // ==========================================
 
 export const PROPOSER_MODELS_CHAIN: ModelEndpoint[] = [
-  // 1. Google AI Studio (Active Non-Lite Models with Verified 1/5 Quota)
+  // 1. Google AI Studio (Active Gemini 3.8 Flash; 3.5/3.6/3.7 deprecated & routed to 3.8)
   { provider: "gemini", model: "gemini-3.8-flash", name: "Gemini 3.8 Flash (Active 1/5)" },
-  { provider: "gemini", model: "gemini-3.7-flash", name: "Gemini 3.7 Flash" },
-  { provider: "gemini", model: "gemini-3.6-flash", name: "Gemini 3.6 Flash (Active 1/5)" },
-  { provider: "gemini", model: "gemini-3.5-flash", name: "Gemini 3.5 Flash (Active 1/5)" },
   { provider: "gemini", model: "gemini-3-flash-preview", name: "Gemini 3 Flash (Active 1/5)" },
 
   // 2. Groq High-Speed LPU Execution (Ultra-Fast Zero-Lag Reasoning)
@@ -70,11 +67,8 @@ export const AUDITOR_MODELS_CHAIN: ModelEndpoint[] = [
   { provider: "groq", model: "openai/gpt-oss-120b", name: "Groq GPT-OSS 120B (Lead 120B Auditor)" },
   { provider: "groq", model: "qwen/qwen3.8-27b", name: "Groq Qwen 3.8 27B (Fast Audit)" },
 
-  // 2. Google AI Studio (Active Non-Lite Models with Verified 1/5 Quota)
+  // 2. Google AI Studio (Active Gemini 3.8 Flash; 3.5/3.6/3.7 deprecated & routed to 3.8)
   { provider: "gemini", model: "gemini-3.8-flash", name: "Gemini 3.8 Flash (Audit Backup)" },
-  { provider: "gemini", model: "gemini-3.7-flash", name: "Gemini 3.7 Flash" },
-  { provider: "gemini", model: "gemini-3.6-flash", name: "Gemini 3.6 Flash" },
-  { provider: "gemini", model: "gemini-3.5-flash", name: "Gemini 3.5 Flash" },
   { provider: "gemini", model: "gemini-3-flash-preview", name: "Gemini 3 Flash" },
 
   // 3. OpenRouter High-Capability Free Models (Specialized Code & Reasoning)

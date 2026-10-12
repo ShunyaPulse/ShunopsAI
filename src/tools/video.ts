@@ -94,10 +94,7 @@ function geminiKeyPool(): string[] {
  * quality is degraded to the next model in this order.
  */
 export const GEMINI_MODELS_QUALITY_ORDER = [
-  "gemini-3.8-flash",        // Active verified quota (1 / 5)
-  "gemini-3.7-flash",        // High capability fallback
-  "gemini-3.6-flash",        // Active verified quota (1 / 5)
-  "gemini-3.5-flash",        // Active verified quota (1 / 5)
+  "gemini-3.8-flash",        // Active verified primary (3.5/3.6/3.7 deprecated & routed to 3.8)
   "gemini-3-flash-preview",  // Active verified quota (1 / 5)
 ];
 
