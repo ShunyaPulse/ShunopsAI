@@ -9,7 +9,7 @@ import { recordCircuitBreakerSuccess, recordCircuitBreakerFailure } from "./circ
 // ==========================================
 
 export interface ModelTarget {
-  provider: "groq" | "gemini" | "openrouter";
+  provider: "groq" | "gemini" | "openrouter" | "github" | "cloudflare";
   model: string;
   name: string;
 }
@@ -23,7 +23,18 @@ export const AGENT_MODELS_CHAIN: ModelTarget[] = [
   { provider: "groq", model: "openai/gpt-oss-120b", name: "Groq GPT-OSS 120B (High Reasoning Fallback)" },
   { provider: "groq", model: "qwen/qwen3.8-27b", name: "Groq Qwen 3.8 27B (Fast Tool Calling)" },
 
-  // 3. OpenRouter High-Capability Heavyweights
+  // 3. GitHub Models (Direct Azure OpenAI Gateway via GITHUB_PAT)
+  { provider: "github", model: "gpt-4o", name: "OpenAI GPT-4o (GitHub Models)" },
+  { provider: "github", model: "gpt-4o-mini", name: "OpenAI GPT-4o Mini (GitHub Models)" },
+  { provider: "github", model: "o1-mini", name: "OpenAI o1-mini (GitHub Reasoning)" },
+  { provider: "github", model: "meta-llama-3.3-70b-instruct", name: "Llama 3.3 70B (GitHub Models)" },
+
+  // 4. Cloudflare Workers AI (Serverless Edge Inference)
+  { provider: "cloudflare", model: "@cf/meta/llama-3.3-70b-instruct-fp8-fast", name: "Llama 3.3 70B Fast (Cloudflare Workers AI)" },
+  { provider: "cloudflare", model: "@cf/meta/llama-3.1-8b-instruct", name: "Llama 3.1 8B (Cloudflare Workers AI)" },
+  { provider: "cloudflare", model: "@cf/qwen/qwen1.5-7b-chat-awq", name: "Qwen 1.5 7B Chat (Cloudflare Workers AI)" },
+
+  // 5. OpenRouter High-Capability Heavyweights
   { provider: "openrouter", model: "nvidia/nemotron-3-ultra-550b-a55b:free", name: "Nemotron 3 Ultra 550B (OpenRouter)" },
   { provider: "openrouter", model: "nvidia/nemotron-3.5-lightning:free", name: "Nemotron 3.5 Lightning (1M Context)" },
   { provider: "openrouter", model: "meta-llama/llama-3.3-70b-instruct:free", name: "Llama 3.3 70B Instruct" },
@@ -40,6 +51,7 @@ export const FALLBACK_MODELS = AGENT_MODELS_CHAIN.slice(1).map((t) => t.model);
 const GROQ_BASE_URL = "https://api.groq.com/openai/v1";
 const GEMINI_OPENAI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/";
 const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
+const GITHUB_MODELS_BASE_URL = "https://models.inference.ai.azure.com";
 
 // ==========================================
 // Multi-Service API Key Pool Anti-Contention Invariant (GEMINI.md Rule 6)
@@ -151,6 +163,23 @@ export function createClientForTarget(target: ModelTarget, overrides?: ProviderK
       apiKey,
     });
   }
+  if (target.provider === "github") {
+    const apiKey = process.env.GITHUB_PAT || process.env.GITHUB_TOKEN;
+    if (!apiKey) throw new Error("No GITHUB_PAT available");
+    return new OpenAI({
+      baseURL: GITHUB_MODELS_BASE_URL,
+      apiKey,
+    });
+  }
+  if (target.provider === "cloudflare") {
+    const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
+    const apiKey = process.env.CLOUDFLARE_API_TOKEN;
+    if (!accountId || !apiKey) throw new Error("Missing CLOUDFLARE_ACCOUNT_ID or CLOUDFLARE_API_TOKEN");
+    return new OpenAI({
+      baseURL: `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/v1`,
+      apiKey,
+    });
+  }
   const apiKey = overrides?.openrouterApiKey || process.env.OPENROUTER_API_KEY;
   if (!apiKey) throw new Error("No OpenRouter API key available");
   return new OpenAI({
@@ -165,7 +194,7 @@ export function createClientForTarget(target: ModelTarget, overrides?: ProviderK
 
 /**
  * Call the completion API with multi-provider automatic failover across models
- * and providers (Active Gemini -> Groq -> OpenRouter).
+ * and providers (Active Gemini -> Groq -> GitHub Models -> Cloudflare Workers AI -> OpenRouter).
  */
 export async function callChatCompletionWithFailover(
   messages: OpenAI.ChatCompletionMessageParam[],
@@ -178,6 +207,8 @@ export async function callChatCompletionWithFailover(
   const groqPool = getGroqKeysPool();
   const hasServerGemini = geminiPool.length > 0;
   const hasServerGroq = groqPool.length > 0 || Boolean(process.env.GROQ_API_KEY);
+  const hasServerGitHub = Boolean(process.env.GITHUB_PAT || process.env.GITHUB_TOKEN);
+  const hasServerCloudflare = Boolean(process.env.CLOUDFLARE_ACCOUNT_ID && process.env.CLOUDFLARE_API_TOKEN);
   const hasServerOpenRouter = Boolean(process.env.OPENROUTER_API_KEY);
 
   const isBYOK = Boolean(overrides?.groqApiKey || overrides?.geminiApiKey || overrides?.openrouterApiKey);
@@ -194,6 +225,8 @@ export async function callChatCompletionWithFailover(
     // Shared Server Mode: only attempt providers that have configured server keys
     if (target.provider === "gemini") return hasServerGemini;
     if (target.provider === "groq") return hasServerGroq;
+    if (target.provider === "github") return hasServerGitHub;
+    if (target.provider === "cloudflare") return hasServerCloudflare;
     if (target.provider === "openrouter") return hasServerOpenRouter;
     return false;
   });

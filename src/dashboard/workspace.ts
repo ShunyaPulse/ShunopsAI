@@ -697,6 +697,17 @@ export function getUserWorkspaceHtml(username: string): string {
                 <option value="groq:openai/gpt-oss-120b">Groq GPT-OSS 120B (High Reasoning)</option>
                 <option value="groq:qwen/qwen3.8-27b">Groq Qwen 3.8 27B (Fast Tool Calling)</option>
               </optgroup>
+              <optgroup label="─── GitHub Models (OpenAI Frontier via PAT) ───">
+                <option value="github:gpt-4o">OpenAI GPT-4o (GitHub)</option>
+                <option value="github:gpt-4o-mini">OpenAI GPT-4o Mini (GitHub)</option>
+                <option value="github:o1-mini">OpenAI o1-mini Reasoning (GitHub)</option>
+                <option value="github:meta-llama-3.3-70b-instruct">Meta Llama 3.3 70B (GitHub)</option>
+              </optgroup>
+              <optgroup label="─── Cloudflare Workers AI (Serverless Edge) ───">
+                <option value="cloudflare:@cf/meta/llama-3.3-70b-instruct-fp8-fast">Llama 3.3 70B Fast (Cloudflare)</option>
+                <option value="cloudflare:@cf/meta/llama-3.1-8b-instruct">Llama 3.1 8B (Cloudflare)</option>
+                <option value="cloudflare:@cf/qwen/qwen1.5-7b-chat-awq">Qwen 1.5 7B Chat (Cloudflare)</option>
+              </optgroup>
               <optgroup label="─── Open Models (OpenRouter Pool) ───">
                 <option value="openrouter:nvidia/nemotron-3-ultra-550b-a55b:free">Nemotron 3 Ultra 550B</option>
                 <option value="openrouter:nvidia/nemotron-3.5-lightning:free">Nemotron 3.5 Lightning (1M Context)</option>

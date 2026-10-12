@@ -189,7 +189,7 @@ function buildCandidateChain(
  */
 export interface IndividualModelStatus {
   id: string; // "provider:model"
-  provider: "groq" | "gemini" | "openrouter";
+  provider: "groq" | "gemini" | "openrouter" | "github" | "cloudflare";
   model: string;
   name: string;
   healthy: boolean;
