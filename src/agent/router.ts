@@ -4,7 +4,7 @@ import {
   type ModelTarget,
   type ProviderKeyOverrides,
 } from "./models.js";
-import { isModelDegraded } from "./circuitBreaker.js";
+import { isModelDegraded, getModelDegradedInfo } from "./circuitBreaker.js";
 
 export type ComplexityLevel = "simple" | "complex";
 
@@ -156,6 +156,22 @@ function buildCandidateChain(
     return [...openRouterHeavy, ...groq120b, ...geminiFlash, ...groq27b];
   }
 
+  // Handle specific model selection: "provider:model" (e.g. "openrouter:meta-llama/llama-3.3-70b-instruct:free")
+  if (preference.includes(":")) {
+    const colonIndex = preference.indexOf(":");
+    const prefProvider = preference.slice(0, colonIndex);
+    const prefModel = preference.slice(colonIndex + 1);
+    const chosen = AGENT_MODELS_CHAIN.find(
+      (m) => m.provider === prefProvider && m.model === prefModel
+    );
+    if (chosen) {
+      const remaining = AGENT_MODELS_CHAIN.filter(
+        (m) => !(m.provider === prefProvider && m.model === prefModel)
+      );
+      return [chosen, ...remaining];
+    }
+  }
+
   // 'auto' mode: Smart Complexity-Based Priority
   if (complexity === "complex") {
     // GEMINI.md Rule 1: Heavyweight Reasoning & AST Debugging Backbones:
@@ -166,6 +182,41 @@ function buildCandidateChain(
   // Simple tasks: Fast zero-latency models first:
   // Gemini 3.8 Flash -> Groq 27B -> Groq 120B -> OpenRouter Heavyweights
   return [...geminiFlash, ...groq27b, ...groq120b, ...openRouterHeavy];
+}
+
+/**
+ * Health status descriptor for each individual model registered in AGENT_MODELS_CHAIN.
+ */
+export interface IndividualModelStatus {
+  id: string; // "provider:model"
+  provider: "groq" | "gemini" | "openrouter";
+  model: string;
+  name: string;
+  healthy: boolean;
+  degraded: boolean;
+  cooldownRemainingSeconds?: number | undefined;
+  reason?: string | undefined;
+}
+
+/**
+ * Get live circuit-breaker health for each individual model without sending any outbound pings.
+ */
+export async function getModelsHealthStatus(): Promise<IndividualModelStatus[]> {
+  const list: IndividualModelStatus[] = [];
+  for (const m of AGENT_MODELS_CHAIN) {
+    const info = await getModelDegradedInfo(m.provider, m.model);
+    list.push({
+      id: `${m.provider}:${m.model}`,
+      provider: m.provider,
+      model: m.model,
+      name: m.name,
+      healthy: !info.degraded,
+      degraded: Boolean(info.degraded),
+      cooldownRemainingSeconds: info.remainingSeconds,
+      reason: info.reason,
+    });
+  }
+  return list;
 }
 
 /**

@@ -4,6 +4,7 @@ import {
   toolRegistry,
   type ToolName,
   getTiersHealthStatus,
+  getModelsHealthStatus,
   getRoutingTargets,
   buildRollingMemory,
 } from "../../agent/index.js";
@@ -43,9 +44,11 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
   // Live Model Circuit Breaker Status Endpoint (Zero-Ping / Zero Quota Drain)
   app.get("/api/models/status", async (_req, reply) => {
     const tiers = await getTiersHealthStatus();
+    const models = await getModelsHealthStatus();
     return {
       success: true,
       tiers,
+      models,
     };
   });
 

@@ -683,11 +683,30 @@ export function getUserWorkspaceHtml(username: string): string {
         <div style="display:flex; justify-content:space-between; align-items:center; background:#070a12; border:1px solid #1e293b; border-radius:10px; padding:8px 12px; margin:10px 0 14px; gap:10px; flex-wrap:wrap;">
           <div style="display:flex; align-items:center; gap:8px;">
             <label for="chat-model-select" style="font-size:12px; font-weight:600; color:#94a3b8; cursor:pointer;">🎯 Model Backbone:</label>
-            <select id="chat-model-select" onchange="onModelPreferenceChange()" style="background:#0f172a; color:#fff; border:1px solid #334155; border-radius:6px; padding:5px 10px; font-size:12px; font-weight:500; outline:none; cursor:pointer; transition:border 0.2s;">
-              <option value="auto">⚡ Auto (Smart Complexity Router)</option>
-              <option value="gemini-flash">🚀 Fast: Gemini 3.8 Flash</option>
-              <option value="groq-120b">🧠 Deep Reasoning: Groq GPT-OSS 120B</option>
-              <option value="openrouter-heavy">🌌 Heavyweight: OpenRouter 550B / 70B</option>
+            <select id="chat-model-select" onchange="onModelPreferenceChange()" style="background:#0f172a; color:#fff; border:1px solid #334155; border-radius:6px; padding:5px 10px; font-size:12px; font-weight:500; outline:none; cursor:pointer; transition:border 0.2s; max-width:100%;">
+              <optgroup label="─── Smart Modes (Top 3) ───">
+                <option value="auto">⚡ Auto (Smart Complexity Router)</option>
+                <option value="gemini-flash">🚀 Fast: Gemini 3.8 Flash</option>
+                <option value="groq-120b">🧠 Deep Reasoning: Groq GPT-OSS 120B</option>
+              </optgroup>
+              <optgroup label="─── Google Gemini (Active Pool) ───">
+                <option value="gemini:gemini-3.8-flash">Gemini 3.8 Flash (Active 1/5)</option>
+                <option value="gemini:gemini-3-flash-preview">Gemini 3 Flash Preview</option>
+              </optgroup>
+              <optgroup label="─── Groq Ultra-Fast LPUs ───">
+                <option value="groq:openai/gpt-oss-120b">Groq GPT-OSS 120B (High Reasoning)</option>
+                <option value="groq:qwen/qwen3.8-27b">Groq Qwen 3.8 27B (Fast Tool Calling)</option>
+              </optgroup>
+              <optgroup label="─── Open Models (OpenRouter Pool) ───">
+                <option value="openrouter:nvidia/nemotron-3-ultra-550b-a55b:free">Nemotron 3 Ultra 550B</option>
+                <option value="openrouter:nvidia/nemotron-3.5-lightning:free">Nemotron 3.5 Lightning (1M Context)</option>
+                <option value="openrouter:meta-llama/llama-3.3-70b-instruct:free">Meta Llama 3.3 70B Instruct</option>
+                <option value="openrouter:google/gemma-4-31b-it:free">Google Gemma 4 31B IT</option>
+                <option value="openrouter:cohere/north-mini-code:free">Cohere North Mini Code</option>
+                <option value="openrouter:nvidia/nemotron-3-super-120b-a12b:free">Nemotron 3 Super 120B</option>
+                <option value="openrouter:qwen/qwen3.8-27b:free">Qwen 3.8 27B (OpenRouter)</option>
+                <option value="openrouter:openrouter/free">OpenRouter Free Router Fallback</option>
+              </optgroup>
             </select>
           </div>
           <div id="model-status-badge" style="font-size:11px; color:#10b981; display:flex; align-items:center; gap:6px;">
@@ -733,7 +752,7 @@ export function getUserWorkspaceHtml(username: string): string {
         <!-- Plan & Token Usage Meter -->
         <div class="box box-sidebar">
           <h2>📊 My Plan & Token Usage</h2>
-          <p>Industry-grade token metering (Input + Output token quotas).</p>
+          <p>Real-time prompt and completion token tracking with monthly quota balance.</p>
           <div style="background:#090d16; border:1px solid #1e293b; border-radius:10px; padding:12px 14px; margin-bottom:10px;">
             <div style="display:flex; justify-content:space-between; margin-bottom:8px; font-size:12.5px;">
               <span>Plan: <strong id="user-plan-badge" style="color:#38bdf8;">Community</strong></span>
@@ -917,26 +936,47 @@ export function getUserWorkspaceHtml(username: string): string {
 
         let degradedCount = 0;
 
-        data.tiers.forEach(tier => {
-          const opt = select.querySelector('option[value="' + tier.tierId + '"]');
-          if (!opt) return;
+        if (Array.isArray(data.tiers)) {
+          data.tiers.forEach(tier => {
+            const opt = select.querySelector('option[value="' + tier.tierId + '"]');
+            if (!opt) return;
 
-          if (tier.degraded) {
-            degradedCount++;
-            opt.disabled = true;
-            const remaining = tier.cooldownRemainingSeconds ? (' (' + tier.cooldownRemainingSeconds + 's cooldown)') : '';
-            opt.textContent = '⚠️ [Degraded] ' + tier.name + remaining;
-            if (select.value === tier.tierId) {
-              select.value = 'auto';
+            if (tier.degraded) {
+              degradedCount++;
+              opt.disabled = true;
+              const remaining = tier.cooldownRemainingSeconds ? (' (' + tier.cooldownRemainingSeconds + 's cooldown)') : '';
+              opt.textContent = '⚠️ [Degraded] ' + tier.name + remaining;
+              if (select.value === tier.tierId) {
+                select.value = 'auto';
+              }
+            } else {
+              opt.disabled = false;
+              if (tier.tierId === 'auto') opt.textContent = '⚡ Auto (Smart Complexity Router)';
+              if (tier.tierId === 'gemini-flash') opt.textContent = '🚀 Fast: Gemini 3.8 Flash';
+              if (tier.tierId === 'groq-120b') opt.textContent = '🧠 Deep Reasoning: Groq GPT-OSS 120B';
             }
-          } else {
-            opt.disabled = false;
-            if (tier.tierId === 'auto') opt.textContent = '⚡ Auto (Smart Complexity Router)';
-            if (tier.tierId === 'gemini-flash') opt.textContent = '🚀 Fast: Gemini 3.8 Flash';
-            if (tier.tierId === 'groq-120b') opt.textContent = '🧠 Deep Reasoning: Groq GPT-OSS 120B';
-            if (tier.tierId === 'openrouter-heavy') opt.textContent = '🌌 Heavyweight: OpenRouter 550B / 70B';
-          }
-        });
+          });
+        }
+
+        if (Array.isArray(data.models)) {
+          data.models.forEach(m => {
+            const opt = select.querySelector('option[value="' + m.id + '"]');
+            if (!opt) return;
+
+            if (m.degraded) {
+              degradedCount++;
+              opt.disabled = true;
+              const remaining = m.cooldownRemainingSeconds ? (' (' + m.cooldownRemainingSeconds + 's cooldown)') : '';
+              opt.textContent = '⚠️ [Degraded] ' + m.name + remaining;
+              if (select.value === m.id) {
+                select.value = 'auto';
+              }
+            } else {
+              opt.disabled = false;
+              opt.textContent = m.name;
+            }
+          });
+        }
 
         if (badge && select.value !== 'auto') {
           return;

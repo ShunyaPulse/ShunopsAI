@@ -56,7 +56,9 @@ export {
   classifyHeuristic,
   analyzeTaskComplexity,
   getRoutingTargets,
+  getModelsHealthStatus,
   type ComplexityLevel,
+  type IndividualModelStatus,
 } from "./router.js";
 
 export {
