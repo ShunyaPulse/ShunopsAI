@@ -61,6 +61,7 @@ export interface VideoScript {
   description: string;
   tags: string[];
   voice: string;
+  rate?: string;
   language?: string;
   chapters: { title: string; start_scene: number }[];
   scenes: { narration: string; caption?: string; visual_prompt: string }[];
@@ -375,6 +376,7 @@ CRITICAL DIRECTIVES:
   if (!script.scenes?.length) throw new Error("Gemini returned a script with no scenes");
   script.voice = voice;
   script.language = language;
+  script.rate = script.rate || "+10%";
   console.log(`[Video] Script generated with model "${modelUsed}" via Gemini key pool (${pool.length} keys). Title: ${script.title}`);
   return script;
 }

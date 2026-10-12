@@ -101,14 +101,14 @@ def duration(path):
 # ==========================================
 # Edge-TTS with Native WordBoundary Subtitles
 # ==========================================
-async def tts_with_boundaries(text, voice, a_path):
+async def tts_with_boundaries(text, voice, a_path, rate="+10%"):
     """
     Synthesizes speech with Edge-TTS and captures internal WordBoundary / SentenceBoundary
     metadata streams for 100% frame-perfect subtitle alignment without external Whisper calls.
     """
     for attempt in range(3):
         try:
-            communicate = edge_tts.Communicate(text, voice)
+            communicate = edge_tts.Communicate(text, voice, rate=rate)
             submaker = edge_tts.SubMaker()
             with open(a_path, "wb") as f:
                 async for chunk in communicate.stream():
@@ -475,8 +475,9 @@ async def main():
     script_path = find_script()
     script = json.load(open(script_path, encoding="utf-8"))
     voice = script.get("voice", "en-US-AndrewNeural")
+    rate = script.get("rate", "+10%")
     scenes = script["scenes"]
-    print(f"Loaded script: '{script.get('title')}' with {len(scenes)} scenes. Voice: {voice}")
+    print(f"Loaded script: '{script.get('title')}' with {len(scenes)} scenes. Voice: {voice}, Rate: {rate}")
 
     cfg = find_config()
     hf_token = cfg.get("hf_token", "").strip()
@@ -494,7 +495,7 @@ async def main():
 
         print(f"\n--- [Scene {i+1}/{len(scenes)}] ---")
         # 1. Synthesize dialogue audio and collect Edge-TTS WordBoundary cues
-        submaker = await tts_with_boundaries(sc["narration"], voice, a_path)
+        submaker = await tts_with_boundaries(sc["narration"], voice, a_path, rate=rate)
         if not submaker:
             print(f"Skipping scene {i+1}: TTS failed.")
             continue
@@ -554,25 +555,34 @@ async def main():
     if not clips:
         raise RuntimeError("No scenes were rendered!")
 
-    # Add 2.0-second cinematic outro buffer so the final dialogue never ends abruptly
-    print("\nAdding 2.0s cinematic outro buffer to master video and narration...")
-    outro_v = f"{TMP}/v_outro.mp4"
-    outro_a = f"{TMP}/a_outro.mp3"
-    # Freeze the last frame of the final scene for 2 seconds
-    run([
-        "ffmpeg", "-y", "-sseof", "-0.1", "-i", clips[-1],
-        "-vf", "tpad=stop_mode=clone:stop_duration=2.0,trim=duration=2.0",
-        "-r", "24", "-c:v", "libx264", "-preset", "veryfast", outro_v
+    # Robust Cinematic Outro Buffer:
+    # 1. Pad final video clip directly with 2.5s last-frame clone (tpad without fragile -sseof seeking)
+    print("\nAdding 2.5s cinematic outro freeze buffer to final video clip...")
+    last_v = clips[-1]
+    padded_v = f"{TMP}/v_final_padded.mp4"
+    ok_v = run([
+        "ffmpeg", "-y", "-i", last_v,
+        "-vf", "tpad=stop_mode=clone:stop_duration=2.5",
+        "-c:v", "libx264", "-preset", "veryfast", padded_v
     ])
-    # 2 seconds of outro silence
-    run([
-        "ffmpeg", "-y", "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
-        "-t", "2.0", "-c:a", "libmp3lame", "-b:a", "192k", outro_a
+    if ok_v and os.path.exists(padded_v) and os.path.getsize(padded_v) > 1000:
+        clips[-1] = padded_v
+    else:
+        print("[Warning] Outro video tpad padding failed, keeping original final clip.")
+
+    # 2. Pad final narration audio with 2.0s trailing silence buffer so dialogue never ends mid-word
+    print("Adding 2.0s silence buffer to final narration audio...")
+    last_a = narr_files[-1]
+    padded_a = f"{TMP}/a_final_padded.mp3"
+    ok_a = run([
+        "ffmpeg", "-y", "-i", last_a,
+        "-af", "apad=pad_dur=2.0",
+        "-c:a", "libmp3lame", "-b:a", "192k", padded_a
     ])
-    if os.path.exists(outro_v) and os.path.getsize(outro_v) > 500:
-        clips.append(outro_v)
-    if os.path.exists(outro_a) and os.path.getsize(outro_a) > 200:
-        narr_files.append(outro_a)
+    if ok_a and os.path.exists(padded_a) and os.path.getsize(padded_a) > 500:
+        narr_files[-1] = padded_a
+    else:
+        print("[Warning] Outro audio apad padding failed, keeping original final audio.")
 
     # Assemble concatenated master scenes and narration
     print("\nConcatenating master continuous scenes...")
@@ -581,6 +591,21 @@ async def main():
 
     run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", f"{TMP}/vlist.txt", "-c", "copy", f"{TMP}/video_raw.mp4"])
     run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", f"{TMP}/alist.txt", "-c:a", "libmp3lame", f"{TMP}/narration.mp3"])
+
+    # Ensure audio length matches video length exactly so -shortest never clips speech
+    v_raw_dur = duration(f"{TMP}/video_raw.mp4")
+    a_raw_dur = duration(f"{TMP}/narration.mp3")
+    print(f"Master assembly duration check: Video = {v_raw_dur:.2f}s, Audio = {a_raw_dur:.2f}s")
+    if v_raw_dur > a_raw_dur + 0.05:
+        a_matched = f"{TMP}/narration_matched.mp3"
+        run([
+            "ffmpeg", "-y", "-i", f"{TMP}/narration.mp3",
+            "-af", f"apad=whole_dur={v_raw_dur:.3f}",
+            "-c:a", "libmp3lame", "-b:a", "192k", a_matched
+        ])
+        if os.path.exists(a_matched) and os.path.getsize(a_matched) > 1000:
+            shutil.move(a_matched, f"{TMP}/narration.mp3")
+            a_raw_dur = duration(f"{TMP}/narration.mp3")
 
     # 4. Generate Master SRT Subtitles from Edge-TTS WordBoundaries
     print(f"Generating master subtitles from {len(master_cues)} WordBoundary cues...")
@@ -601,21 +626,26 @@ async def main():
     # - ACES-style Highlight Roll-Off Curve: pulls down blown cyan/blue channel highlights by ~12%
     # - Subtle 1.5% 35mm film grain overlay via noise filter to fuse heterogeneous drone & synthetic AI footage
     # - Clean modern typography with semi-transparent drop shadow
+    # - Smooth 0.8s cinematic fade-out at outro tail
     style = (
         "FontName=DejaVu Sans,FontSize=20,Bold=1,"
         "PrimaryColour=&H00FFFFFF,SecondaryColour=&H0000FFFF,"
         "OutlineColour=&H00000000,BackColour=&H80000000,"
         "BorderStyle=1,Outline=2,Shadow=1,Alignment=2,MarginV=42"
     )
-    print("Mastering final modern video with burn-in captions, highlight roll-off curves, and film grain...")
+    print("Mastering final modern video with burn-in captions, highlight roll-off curves, film grain, and outro fade...")
+    fade_start = max(0.0, v_raw_dur - 0.8)
     master_vf = (
         f"curves=all='0/0 0.85/0.83 1/0.92':blue='0/0 0.75/0.72 1/0.88':green='0/0 0.80/0.78 1/0.92',"
         f"noise=alls=1.5:allf=t+u,"
+        f"fade=t=out:st={fade_start:.2f}:d=0.8,"
         f"subtitles={OUT}/captions.srt:force_style='{style}'"
     )
+    master_af = f"afade=t=out:st={fade_start:.2f}:d=0.8"
     ok = run([
         "ffmpeg", "-y", "-i", f"{TMP}/video_raw.mp4", "-i", f"{TMP}/narration.mp3",
         "-vf", master_vf,
+        "-af", master_af,
         "-map", "0:v", "-map", "1:a",
         "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
         "-c:a", "aac", "-b:a", "192k", "-shortest", f"{OUT}/video.mp4"
