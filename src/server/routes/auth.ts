@@ -23,11 +23,25 @@ import { timingSafeEqualStr } from "../middleware/auth.js";
 
 const COOKIE_NAME = "shunops_user_session";
 
-// Precomputed bcrypt hash (of a fixed throwaway string) compared against when
-// the account does not exist, so a failed lookup costs the same ~bcrypt time as
-// a real password check. Without this, response timing distinguishes valid
-// usernames from invalid ones (user enumeration).
-const DUMMY_PASSWORD_HASH = "$2b$10$sbIeNL5deM6SmD5nEZ7fyO0TlKQisoqXmtE/Iuos5bpJNtotMK3SG";
+// Cost factor must match the cost used for stored password hashes (`genSalt(10)`).
+const BCRYPT_COST = 10;
+const DUMMY_PASSWORD_SEED = "shunops-timing-equalizer";
+
+let dummyPasswordHash: string | null = null;
+
+/**
+ * A real, never-matching bcrypt hash to compare against when the account does
+ * not exist or has no password, so a failed lookup costs the same ~bcrypt time
+ * as a real password check. Without it, response timing distinguishes valid
+ * usernames from invalid ones (user enumeration). Derived on first use so no
+ * hash literal is committed to the repository.
+ */
+function getDummyPasswordHash(): string {
+  if (!dummyPasswordHash) {
+    dummyPasswordHash = bcrypt.hashSync(DUMMY_PASSWORD_SEED, BCRYPT_COST);
+  }
+  return dummyPasswordHash;
+}
 
 export async function authRoutes(app: FastifyInstance): Promise<void> {
   // 1. Send OTP to Email (for registration verification or OTP login)
@@ -274,7 +288,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
 
     // Always run bcrypt (against a dummy hash when the account is missing or has
     // no password) so timing does not reveal whether a username/email exists.
-    const storedHash = user?.password_hash || DUMMY_PASSWORD_HASH;
+    const storedHash = user?.password_hash || getDummyPasswordHash();
     const match = await bcrypt.compare(password, storedHash);
     if (!user || !user.password_hash || !match) {
       reply.status(401);
