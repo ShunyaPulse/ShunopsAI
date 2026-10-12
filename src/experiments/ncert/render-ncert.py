@@ -111,8 +111,7 @@ async def probe_edge_tts(voice, rate="+0%"):
     """
     global EDGE_TTS_AVAILABLE
     try:
-        pitch = "-3Hz" if "madhur" in voice.lower() else "+0Hz"
-        communicate = edge_tts.Communicate("test probe", voice, rate=rate, pitch=pitch)
+        communicate = edge_tts.Communicate("test probe", voice, rate=rate)
         async for chunk in communicate.stream():
             if chunk["type"] == "audio":
                 break
@@ -137,8 +136,7 @@ async def tts_with_boundaries(text, voice, a_path, rate="+0%"):
     # Tier 1: Primary Edge-TTS (only attempted if circuit breaker is intact)
     if EDGE_TTS_AVAILABLE:
         try:
-            pitch = "-3Hz" if "madhur" in voice.lower() else "+0Hz"
-            communicate = edge_tts.Communicate(text, voice, rate=rate, pitch=pitch)
+            communicate = edge_tts.Communicate(text, voice, rate=rate)
             submaker = edge_tts.SubMaker()
             with open(a_path, "wb") as f:
                 async for chunk in communicate.stream():
@@ -522,7 +520,7 @@ class WanT4OptimizedEngine:
 async def main():
     script_path = find_script()
     script = json.load(open(script_path, encoding="utf-8"))
-    voice = script.get("voice", "hi-IN-SwaraNeural" if "hi" in script.get("language", "English").lower() else "en-IN-PrabhatNeural")
+    voice = script.get("voice", "hi-IN-MadhurNeural" if "hi" in script.get("language", "English").lower() else "en-IN-PrabhatNeural")
     rate = script.get("rate", "+0%")
     scenes = script["scenes"]
     print(f"Loaded script: '{script.get('title')}' with {len(scenes)} scenes. Voice: {voice}, Rate: {rate}")
