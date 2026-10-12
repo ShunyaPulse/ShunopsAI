@@ -139,9 +139,8 @@ export async function synthesizeEdgeTTS(
 
 /**
  * Unified Multi-Tier Speech Synthesis Cascade:
- * Tier 1: Kokoro-82M (Open-source SOTA, <150ms, ElevenLabs quality, $0 cost)
- * Tier 2: Google Cloud Neural2 (Always-free tier 1M chars)
- * Tier 3: Microsoft Edge-TTS (Zero-cost cloud fallback with retries)
+ * - Hindi Content: Tier 1: Google Cloud Neural2 (Documentary Studio) ➔ Tier 2: Microsoft Edge-TTS (Madhur/Swara)
+ * - English Content: Tier 1: Kokoro-82M (Kaggle GPU / ONNX SOTA) ➔ Tier 2: Google Cloud Neural2 ➔ Tier 3: Edge-TTS
  */
 export async function synthesizeUnifiedSpeech(
   text: string,
@@ -150,15 +149,41 @@ export async function synthesizeUnifiedSpeech(
     voice?: string;
     language?: string;
     gcpKey?: string;
+    speed?: number;
   }
 ): Promise<{ success: boolean; tierUsed: "kokoro" | "gcp" | "edge" | "none" }> {
-  // 1. Tier 1: Kokoro-82M
+  const isHindi = /hindi/i.test(options?.language || "") || (options?.voice && /hindi|madhur|swara/i.test(options.voice));
+
+  // 1. For Hindi Content: Kokoro lacks native Hindi datasets.
+  // Directly prioritize Google Cloud Neural2 -> Microsoft Edge-TTS
+  if (isHindi) {
+    if (isGoogleCloudTTSAvailable(options?.gcpKey)) {
+      const gcpSuccess = await synthesizeGoogleCloudTTS(text, outPath, {
+        voiceName: options?.voice,
+        language: "Hindi",
+        gcpKey: options?.gcpKey,
+      });
+      if (gcpSuccess) {
+        return { success: true, tierUsed: "gcp" };
+      }
+    }
+
+    const edgeVoice = options?.voice && /swara|female/i.test(options.voice) ? "hi-IN-SwaraNeural" : "hi-IN-MadhurNeural";
+    const edgeSuccess = await synthesizeEdgeTTS(text, outPath, edgeVoice);
+    if (edgeSuccess) {
+      return { success: true, tierUsed: "edge" };
+    }
+
+    return { success: false, tierUsed: "none" };
+  }
+
+  // 2. For English Content: Prioritize Kokoro-82M (Option A: Kaggle GPU / ONNX)
   const kokoroSuccess = await synthesizeKokoroTTS(text, outPath, options);
   if (kokoroSuccess) {
     return { success: true, tierUsed: "kokoro" };
   }
 
-  // 2. Tier 2: Google Cloud Neural2
+  // Fallback 1 for English: Google Cloud Neural2
   if (isGoogleCloudTTSAvailable(options?.gcpKey)) {
     const gcpSuccess = await synthesizeGoogleCloudTTS(text, outPath, {
       voiceName: options?.voice,
@@ -170,9 +195,8 @@ export async function synthesizeUnifiedSpeech(
     }
   }
 
-  // 3. Tier 3: Microsoft Edge-TTS
-  const edgeVoice = /hindi/i.test(options?.language || "") ? "hi-IN-MadhurNeural" : "en-IN-PrabhatNeural";
-  const edgeSuccess = await synthesizeEdgeTTS(text, outPath, edgeVoice);
+  // Fallback 2 for English: Edge-TTS
+  const edgeSuccess = await synthesizeEdgeTTS(text, outPath, "en-IN-PrabhatNeural");
   if (edgeSuccess) {
     return { success: true, tierUsed: "edge" };
   }

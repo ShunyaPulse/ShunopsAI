@@ -487,16 +487,18 @@ export async function startVideoJob(
     if (!sc) continue;
     const outMp3 = path.join(audioDir, `a${String(i).padStart(3, "0")}.mp3`);
 
-    // Tier 1: Kokoro-82M SOTA Engine (ElevenLabs quality, $0 cost)
     let synthesized = false;
-    if (await isKokoroAvailable()) {
+    const isHindi = /hindi/i.test(language) || (script.voice && /hindi|madhur|swara/i.test(script.voice));
+
+    // For English: Tier 1 is Kokoro-82M SOTA Engine (Option A: Kaggle GPU / Local)
+    if (!isHindi && (await isKokoroAvailable())) {
       synthesized = await synthesizeKokoroTTS(sc.narration, outMp3, {
         language,
         speed: 1.0,
       });
     }
 
-    // Tier 2: Google Cloud Text-to-Speech (DeepMind Neural2)
+    // Tier for Hindi (or fallback for English): Google Cloud Neural2
     if (!synthesized && gcpAvailable && gcpVoice) {
       synthesized = await synthesizeGoogleCloudTTS(sc.narration, outMp3, {
         voiceName: gcpVoice.name,
@@ -507,11 +509,11 @@ export async function startVideoJob(
       if (synthesized) {
         gcpSuccessCount++;
       } else {
-        console.warn(`[Video] ⚠️ Scene ${i + 1} Google Cloud TTS failed. Falling back to Tier 3 (Edge-TTS)...`);
+        console.warn(`[Video] ⚠️ Scene ${i + 1} Google Cloud TTS failed. Falling back to Edge-TTS...`);
       }
     }
 
-    // Tier 3 (High Quality Cloud Fallback): Microsoft Edge-TTS with up to 3 retries
+    // Edge-TTS (Primary free for Hindi, final cloud fallback for English)
     if (!synthesized) {
       for (let attempt = 1; attempt <= 3; attempt++) {
         synthesized = await synthesizeLocalEdgeTTS(sc.narration, outMp3, edgeVoice.name, edgeVoice.pitch);
