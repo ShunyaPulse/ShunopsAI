@@ -101,35 +101,35 @@ export function getUserWorkspaceHtml(username: string): string {
       background: rgba(239, 68, 68, 0.15);
     }
     .container {
-      max-width: 1140px;
+      max-width: 1440px;
       width: 100%;
-      margin: 28px auto;
+      margin: 20px auto;
       padding: 0 20px;
       flex: 1;
     }
     .welcome-card {
       background: var(--card);
       border: 1px solid var(--border);
-      border-radius: 16px;
-      padding: 24px 28px;
-      margin-bottom: 24px;
+      border-radius: 14px;
+      padding: 16px 24px;
+      margin-bottom: 20px;
       display: flex;
       justify-content: space-between;
       align-items: center;
-      box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+      box-shadow: 0 8px 24px rgba(0,0,0,0.25);
       flex-wrap: wrap;
-      gap: 16px;
+      gap: 14px;
     }
     .welcome-title {
-      font-size: 22px;
+      font-size: 20px;
       font-weight: 700;
-      margin-bottom: 4px;
+      margin-bottom: 2px;
       color: #fff;
     }
     .welcome-desc {
-      font-size: 14px;
+      font-size: 13px;
       color: var(--muted);
-      line-height: 1.5;
+      line-height: 1.45;
     }
     .btn-action {
       display: inline-flex;
@@ -150,12 +150,14 @@ export function getUserWorkspaceHtml(username: string): string {
     }
     .grid {
       display: grid;
-      grid-template-columns: 1.5fr 1fr;
-      gap: 20px;
+      grid-template-columns: minmax(0, 1fr) 340px;
+      gap: 24px;
+      align-items: start;
     }
-    @media (max-width: 860px) {
+    @media (max-width: 1080px) {
       .grid {
         grid-template-columns: 1fr;
+        gap: 20px;
       }
     }
     .box {
@@ -168,6 +170,45 @@ export function getUserWorkspaceHtml(username: string): string {
     }
     .box:last-child {
       margin-bottom: 0;
+    }
+    .box-hero {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 24px 28px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+      display: flex;
+      flex-direction: column;
+      min-height: 720px;
+      margin-bottom: 0;
+    }
+    .workspace-sidebar {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .box-sidebar {
+      background: rgba(15, 23, 42, 0.75);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 14px;
+      padding: 16px 18px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+      margin-bottom: 0;
+    }
+    .box-sidebar h2 {
+      font-size: 14px;
+      font-weight: 700;
+      margin-bottom: 4px;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .box-sidebar p {
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.45;
+      margin-bottom: 12px;
     }
     .box h2 {
       font-size: 16px;
@@ -187,16 +228,19 @@ export function getUserWorkspaceHtml(username: string): string {
 
     /* Chat thread & message bubbles */
     .chat-thread-container {
-      height: 380px;
+      flex: 1;
+      min-height: 520px;
+      height: calc(100vh - 440px);
+      max-height: 720px;
       overflow-y: auto;
-      padding: 14px;
+      padding: 20px 22px;
       background: #060911;
       border: 1px solid #1e293b;
-      border-radius: 12px;
-      margin-bottom: 12px;
+      border-radius: 14px;
+      margin-bottom: 14px;
       display: flex;
       flex-direction: column;
-      gap: 12px;
+      gap: 14px;
       scroll-behavior: smooth;
     }
     .chat-thread-container::-webkit-scrollbar {
@@ -208,9 +252,9 @@ export function getUserWorkspaceHtml(username: string): string {
     }
 
     .msg-bubble {
-      padding: 10px 14px;
-      font-size: 13px;
-      line-height: 1.55;
+      padding: 12px 18px;
+      font-size: 13.5px;
+      line-height: 1.6;
       word-break: break-word;
       animation: fadeIn 0.15s ease-in;
     }
@@ -220,19 +264,19 @@ export function getUserWorkspaceHtml(username: string): string {
     }
     .msg-user {
       align-self: flex-end;
-      max-width: 82%;
+      max-width: 78%;
       background: linear-gradient(135deg, #1d4ed8, #2563eb);
       color: #fff;
-      border-radius: 14px 14px 4px 14px;
-      box-shadow: 0 2px 8px rgba(37, 99, 235, 0.25);
+      border-radius: 16px 16px 4px 16px;
+      box-shadow: 0 2px 10px rgba(37, 99, 235, 0.25);
     }
     .msg-assistant {
       align-self: flex-start;
-      max-width: 88%;
-      background: #0f172a;
+      max-width: 90%;
+      background: #0d1322;
       border: 1px solid #1e293b;
       color: #e2e8f0;
-      border-radius: 14px 14px 14px 4px;
+      border-radius: 16px 16px 16px 4px;
     }
     .msg-header {
       font-size: 11px;
@@ -283,14 +327,15 @@ export function getUserWorkspaceHtml(username: string): string {
       background: #090d16;
       border: 1px solid #1e293b;
       border-radius: 12px;
-      padding: 6px 6px 6px 14px;
+      padding: 8px 8px 8px 16px;
       display: flex;
       align-items: center;
-      gap: 8px;
-      transition: border-color 0.15s;
+      gap: 10px;
+      transition: border-color 0.15s, box-shadow 0.15s;
     }
     .chat-input-wrapper:focus-within {
       border-color: var(--accent);
+      box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.15);
     }
     .chat-input {
       flex: 1;
@@ -298,27 +343,29 @@ export function getUserWorkspaceHtml(username: string): string {
       border: none;
       color: #fff;
       outline: none;
-      font-size: 14px;
+      font-size: 14.5px;
       font-family: inherit;
     }
     .chat-send-btn {
       background: var(--accent);
       color: #000;
       border: none;
-      padding: 8px 16px;
+      padding: 9px 18px;
       border-radius: 8px;
       font-weight: 700;
       font-size: 13px;
       cursor: pointer;
-      transition: background 0.15s;
+      transition: all 0.15s;
       flex-shrink: 0;
     }
     .chat-send-btn:hover {
       background: #7dd3fc;
+      transform: translateY(-1px);
     }
     .chat-send-btn:disabled {
       opacity: 0.5;
       cursor: not-allowed;
+      transform: none;
     }
 
     .quick-chips {
@@ -558,7 +605,7 @@ export function getUserWorkspaceHtml(username: string): string {
     }
 
     .footer {
-      max-width: 1140px;
+      max-width: 1440px;
       margin: 0 auto;
       padding: 24px 20px 40px;
       border-top: 1px solid var(--border);
@@ -617,8 +664,8 @@ export function getUserWorkspaceHtml(username: string): string {
     </div>
 
     <div class="grid">
-      <!-- Left: Chat Assistant with Persistent Conversation History -->
-      <div class="box">
+      <!-- Left: Chat Assistant with Persistent Conversation History (Primary Daily Workspace) -->
+      <div class="box box-hero">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
           <h2>💬 Ask Your AI Assistant</h2>
           <div style="display:flex; align-items:center; gap:8px;">
@@ -681,21 +728,21 @@ export function getUserWorkspaceHtml(username: string): string {
         </div>
       </div>
 
-      <!-- Right Column: Quota & Metering + Account Lifecycle -->
-      <div>
+      <!-- Right Column: Secondary Utilities (Quota Metering & Embed Snippet) -->
+      <aside class="workspace-sidebar">
         <!-- Plan & Token Usage Meter -->
-        <div class="box">
+        <div class="box box-sidebar">
           <h2>📊 My Plan & Token Usage</h2>
           <p>Industry-grade token metering (Input + Output token quotas).</p>
-          <div style="background:#090d16; border:1px solid #1e293b; border-radius:10px; padding:14px; margin-bottom:12px;">
-            <div style="display:flex; justify-content:space-between; margin-bottom:8px; font-size:13px;">
+          <div style="background:#090d16; border:1px solid #1e293b; border-radius:10px; padding:12px 14px; margin-bottom:10px;">
+            <div style="display:flex; justify-content:space-between; margin-bottom:8px; font-size:12.5px;">
               <span>Plan: <strong id="user-plan-badge" style="color:#38bdf8;">Community</strong></span>
               <span>Tokens: <strong id="user-usage-count" style="color:#fff;">0</strong> / <span id="user-usage-limit">1.5M</span></span>
             </div>
-            <div style="background:#1e293b; border-radius:6px; height:8px; overflow:hidden; margin-bottom:10px;">
+            <div style="background:#1e293b; border-radius:6px; height:7px; overflow:hidden; margin-bottom:10px;">
               <div id="user-usage-bar" style="background:linear-gradient(90deg, #38bdf8, #2563eb); height:100%; width:0%; transition:width 0.4s;"></div>
             </div>
-            <div id="token-breakdown-row" style="display:flex; justify-content:space-between; align-items:center; font-size:11px; color:#94a3b8; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); border-radius:6px; padding:6px 10px; margin-bottom:8px;">
+            <div id="token-breakdown-row" style="display:flex; justify-content:space-between; align-items:center; font-size:11px; color:#94a3b8; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); border-radius:6px; padding:5px 8px; margin-bottom:8px;">
               <span>📥 In: <strong id="user-in-tokens" style="color:#cbd5e1;">0</strong></span>
               <span>📤 Out: <strong id="user-out-tokens" style="color:#cbd5e1;">0</strong></span>
               <span>⚡ <strong id="user-query-calls" style="color:#cbd5e1;">0</strong> Calls</span>
@@ -707,13 +754,14 @@ export function getUserWorkspaceHtml(username: string): string {
         </div>
 
         <!-- Website Chatbot Widget Embed Snippet Box -->
-        <div class="box">
+        <div class="box box-sidebar">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
-            <h2>🤖 Website Customer Chatbot</h2>
-            <span style="font-size:11px; background:rgba(56,189,248,0.12); color:#38bdf8; border:1px solid rgba(56,189,248,0.25); padding:2px 8px; border-radius:12px; font-weight:600;">
+            <h2>🤖 Website Chatbot</h2>
+            <span style="font-size:10px; background:rgba(56,189,248,0.12); color:#38bdf8; border:1px solid rgba(56,189,248,0.25); padding:2px 8px; border-radius:12px; font-weight:600;">
               Edge CDN
             </span>
           </div>
+          <p>Embed customer agent widget on external sites (WordPress, Shopify, HTML).</p>
           <div class="code-snippet-box">
             <div class="code-snippet-header">
               <div class="code-snippet-lang">
@@ -730,11 +778,11 @@ export function getUserWorkspaceHtml(username: string): string {
             </div>
             <pre class="code-snippet-content"><code>&lt;script src="https://edge-agent-widget.shunopsai.workers.dev/widget.js" defer&gt;&lt;/script&gt;</code></pre>
           </div>
-          <div style="font-size:11px; color:#64748b;">
-            💡 Paste right before <code>&lt;/body&gt;</code> in your HTML or web builder (WordPress, Webflow, Shopify).
+          <div style="font-size:10.5px; color:#64748b; margin-top:8px;">
+            💡 Paste right before <code>&lt;/body&gt;</code> in your website template.
           </div>
         </div>
-      </div>
+      </aside>
     </div>
   </div>
 
