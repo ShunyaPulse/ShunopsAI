@@ -387,162 +387,23 @@ app.get('/widget.js', (c) => {
   });
 });
 
-// 6. Interactive Live Demo Landing Page
+/*
+// 6. Preview Route (Commented Out)
 app.get('/', (c) => {
-  const html = `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Cloudflare Edge AI Command Agent & Widget</title>
-  <style>
-    :root {
-      --bg: #090d16;
-      --card: #0f172a;
-      --border: rgba(255, 255, 255, 0.08);
-      --accent: #3b82f6;
-      --text: #f8fafc;
-      --muted: #94a3b8;
-    }
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      background: radial-gradient(circle at 50% 0%, #1e1b4b 0%, #090d16 60%);
-      color: var(--text);
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      min-height: 100vh;
-      padding: 40px 20px;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-    }
-    .container {
-      max-width: 900px;
-      width: 100%;
-    }
-    .badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      background: rgba(59, 130, 246, 0.15);
-      color: #60a5fa;
-      border: 1px solid rgba(59, 130, 246, 0.3);
-      padding: 6px 14px;
-      border-radius: 20px;
-      font-size: 13px;
-      font-weight: 500;
-      margin-bottom: 20px;
-    }
-    h1 {
-      font-size: 42px;
-      font-weight: 800;
-      letter-spacing: -1px;
-      line-height: 1.15;
-      margin-bottom: 16px;
-      background: linear-gradient(135deg, #ffffff 40%, #94a3b8 100%);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-    }
-    p.subtitle {
-      font-size: 18px;
-      color: var(--muted);
-      line-height: 1.6;
-      margin-bottom: 36px;
-    }
-    .grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-      gap: 20px;
-      margin-bottom: 40px;
-    }
-    .card {
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: 14px;
-      padding: 24px;
-      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
-    }
-    .card h3 {
-      font-size: 17px;
-      font-weight: 600;
-      margin-bottom: 8px;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-    .card p {
-      font-size: 14px;
-      color: var(--muted);
-      line-height: 1.5;
-    }
-    .code-box {
-      background: #020617;
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 20px;
-      margin-bottom: 30px;
-      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-      font-size: 13px;
-      color: #38bdf8;
-      overflow-x: auto;
-      line-height: 1.6;
-    }
-    .code-box pre { margin: 0; }
-    .hint {
-      background: rgba(16, 185, 129, 0.1);
-      border: 1px solid rgba(16, 185, 129, 0.25);
-      border-radius: 12px;
-      padding: 16px 20px;
-      font-size: 14px;
-      color: #6ee7b7;
-      display: flex;
-      align-items: center;
-      gap: 12px;
-    }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <div class="badge">
-      <span style="width:8px;height:8px;border-radius:50%;background:#10b981;box-shadow:0 0 8px #10b981;"></span>
-      Production Edge AI Worker Live
-    </div>
-
-    <h1>Serverless Edge AI Agent<br>& Interactive Action Engine</h1>
-    <p class="subtitle">
-      Powered by Cloudflare Workers, Hono, and Server-Sent Events (SSE). Seamlessly switches between conversational Q&A and active command execution with structured tool calling.
-    </p>
-
-    <div class="grid">
-      <div class="card">
-        <h3>⚡ Real-Time Streaming</h3>
-        <p>Ultra-low TTFB (&lt;100ms) with direct SSE token streaming. Powered by Gemini 3.8/3.7 Flash and Groq LPU failover.</p>
-      </div>
-      <div class="card">
-        <h3>🛠️ Native Tool Calling</h3>
-        <p>Understands user intent and executes <code>submit_lead</code>, <code>track_order_or_status</code>, <code>schedule_appointment</code>, and <code>trigger_system_action</code>.</p>
-      </div>
-      <div class="card">
-        <h3>🛡️ Human-in-the-Loop Cards</h3>
-        <p>Sensitive commands render interactive authorization cards in the chat with cryptographically signed confirmation tokens.</p>
-      </div>
-    </div>
-
-    <div class="code-box">
-      <p style="color:#94a3b8;margin-bottom:8px;">// Embed the floating widget into any website with 1 line of HTML:</p>
-      <pre>&lt;script src="/widget.js" data-title="Cloudflare Edge AI" defer&gt;&lt;/script&gt;</pre>
-    </div>
-
-    <div class="hint">
-      👉 Click the floating blue launcher icon in the bottom-right corner to test live conversations and commands!
-    </div>
-  </div>
-
-  <!-- Embedded Live Widget Script -->
-  <script src="/widget.js" data-title="Edge AI Command Engine" defer></script>
-</body>
-</html>`;
-
-  return c.html(html);
+  return c.json({
+    service: 'ShunopsAI Edge Agent Widget CDN & API',
+    status: 'healthy',
+    runtime: 'Cloudflare Workers Edge (V8 Isolates)',
+    embed_snippet: '<script src="https://edge-agent-widget.shunopsai.workers.dev/widget.js" defer></script>',
+    endpoints: {
+      widget_script: '/widget.js',
+      shield_challenge: '/api/shield/challenge',
+      chat_stream: '/api/chat',
+      health: '/api/health',
+    },
+    documentation: 'https://shunopsai-685823552970.asia-south1.run.app/portal',
+  });
 });
+*/
 
 export default app;
