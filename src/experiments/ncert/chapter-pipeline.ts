@@ -290,7 +290,7 @@ export async function launchChapterJob(
   console.log(`   Job ID: ${id}`);
   console.log(`   Title: ${script.title}`);
   console.log(`   Scenes: ${script.scenes.length}`);
-  console.log(`   Tracker URL: ${kaggleUrl}\n`);
+  console.log(`   Tracker URL: [REDACTED]\n`);
 
   return {
     jobId: id,
@@ -348,7 +348,7 @@ Options:
   };
 
   launchChapterJob(chapterArg, options).catch((err) => {
-    console.error("❌ Pipeline failed:", err?.message || err);
+    console.error("❌ Pipeline failed: " + (err?.message || "An error occurred"));
     process.exit(1);
   });
 }
