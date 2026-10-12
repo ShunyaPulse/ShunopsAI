@@ -187,18 +187,22 @@ def synthesize_gcp_cloud_tts(text, voice_name, out_path, gcp_key, default_lang="
             "voice": {"languageCode": lang_code, "name": v_name},
             "audioConfig": {"audioEncoding": "MP3", "speakingRate": 1.0, "sampleRateHertz": 44100}
         }
-        import urllib.request
+        import http.client
         from urllib.parse import urlparse
         parsed = urlparse(url)
         if parsed.scheme != "https" or parsed.netloc != "texttospeech.googleapis.com":
             return False
-        req = urllib.request.Request(
-            url,
-            data=json.dumps(payload).encode("utf-8"),
+        conn = http.client.HTTPSConnection("texttospeech.googleapis.com", timeout=20)
+        req_path = parsed.path + (f"?{parsed.query}" if parsed.query else "")
+        conn.request(
+            "POST",
+            req_path,
+            body=json.dumps(payload).encode("utf-8"),
             headers={"Content-Type": "application/json"}
         )
-        with urllib.request.urlopen(req, timeout=20) as res:
-            data = json.loads(res.read().decode("utf-8"))
+        res = conn.getresponse()
+        data = json.loads(res.read().decode("utf-8"))
+        conn.close()
         if "audioContent" in data:
             audio_bytes = base64.b64decode(data["audioContent"])
             with open(out_path, "wb") as f:
