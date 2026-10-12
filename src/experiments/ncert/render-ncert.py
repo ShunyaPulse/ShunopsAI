@@ -99,15 +99,42 @@ def duration(path):
 
 
 # ==========================================
-# Edge-TTS with Native WordBoundary Subtitles
+# Edge-TTS Circuit Breaker & Resilient Fallback
 # ==========================================
+EDGE_TTS_AVAILABLE = True
+
+async def probe_edge_tts(voice, rate="+10%"):
+    """
+    Performs a lightweight pre-flight probe at startup.
+    If Edge-TTS is blocked or unreachable in the environment,
+    trips the circuit breaker immediately so individual scenes never waste time checking.
+    """
+    global EDGE_TTS_AVAILABLE
+    try:
+        communicate = edge_tts.Communicate("test probe", voice, rate=rate)
+        async for chunk in communicate.stream():
+            if chunk["type"] == "audio":
+                break
+        EDGE_TTS_AVAILABLE = True
+        print("[TTS] ✅ Edge-TTS pre-flight probe succeeded. Primary engine: Edge-TTS.")
+        return True
+    except Exception as e:
+        EDGE_TTS_AVAILABLE = False
+        print(f"[TTS] ⚠️ Edge-TTS pre-flight probe failed: {e}")
+        print("[TTS] ⚡ Circuit breaker TRIPPED -> Edge-TTS disabled for all scenes. Using gTTS directly.")
+        return False
+
+
 async def tts_with_boundaries(text, voice, a_path, rate="+10%"):
     """
     Synthesizes speech with Edge-TTS and captures internal WordBoundary metadata streams.
-    Falls back gracefully to gTTS if Edge-TTS returns 403 or network failure in cloud environments.
+    Implements a fail-fast circuit breaker: if Edge-TTS fails or is blocked,
+    subsequent scenes bypass Edge-TTS completely and route directly to gTTS.
     """
-    # Tier 1: Primary Edge-TTS with WordBoundaries
-    for attempt in range(2):
+    global EDGE_TTS_AVAILABLE
+
+    # Tier 1: Primary Edge-TTS (only attempted if circuit breaker is intact)
+    if EDGE_TTS_AVAILABLE:
         try:
             communicate = edge_tts.Communicate(text, voice, rate=rate)
             submaker = edge_tts.SubMaker()
@@ -119,13 +146,16 @@ async def tts_with_boundaries(text, voice, a_path, rate="+10%"):
                         submaker.feed(chunk)
             if os.path.exists(a_path) and os.path.getsize(a_path) > 800:
                 return submaker
+            else:
+                raise RuntimeError("Edge-TTS generated empty or incomplete audio file.")
         except Exception as e:
-            print(f"[TTS] Edge-TTS retry {attempt} failed: {e}")
-            await asyncio.sleep(1)
+            print(f"[TTS] ⚠️ Edge-TTS error on current scene: {e}")
+            EDGE_TTS_AVAILABLE = False
+            print("[TTS] ⚡ Circuit breaker TRIPPED -> Edge-TTS disabled for all remaining scenes. Routing to gTTS.")
 
     # Tier 2: Resilient gTTS (Google Translate TTS) cloud fallback
     try:
-        print("[TTS] Falling back to gTTS (Google Translate TTS)...")
+        print("[TTS] Routing to gTTS (Google Translate TTS)...")
         from gtts import gTTS
         lang = "hi" if ("hi-" in voice or "hindi" in voice.lower()) else "en"
         tts = gTTS(text=text, lang=lang)
@@ -507,6 +537,9 @@ async def main():
     rate = script.get("rate", "+10%")
     scenes = script["scenes"]
     print(f"Loaded script: '{script.get('title')}' with {len(scenes)} scenes. Voice: {voice}, Rate: {rate}")
+
+    # Pre-flight probe on Edge-TTS to trip circuit breaker before rendering scenes
+    await probe_edge_tts(voice, rate=rate)
 
     cfg = find_config()
     hf_token = cfg.get("hf_token", "").strip()
