@@ -855,7 +855,7 @@ export function getShunopsPortalHtml(): string {
 
     
     function copyWidgetSnippet(btn) {
-      const code = '<script src="https://edge-agent-widget.shunopsai.workers.dev/widget.js" defer><\/script>';
+      const code = '<' + 'script src="https://edge-agent-widget.shunopsai.workers.dev/widget.js" defer><' + '/script>';
       navigator.clipboard.writeText(code).then(() => {
         const orig = btn.textContent;
         btn.textContent = "✅ Copied!";

@@ -1010,8 +1010,18 @@ export function getUserWorkspaceHtml(username: string): string {
     }
 
     
+    function toggleAccountModal() {
+      const drawer = document.getElementById('password-change-drawer');
+      if (drawer) {
+        drawer.style.display = 'block';
+        drawer.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        const input = document.getElementById('pw-current');
+        if (input) input.focus();
+      }
+    }
+
     function copyWorkspaceWidgetSnippet(btn) {
-      const code = '<script src="https://edge-agent-widget.shunopsai.workers.dev/widget.js" defer><\/script>';
+      const code = '<' + 'script src="https://edge-agent-widget.shunopsai.workers.dev/widget.js" defer><' + '/script>';
       navigator.clipboard.writeText(code).then(() => {
         const orig = btn.textContent;
         btn.textContent = "✅ Copied!";

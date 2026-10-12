@@ -261,7 +261,7 @@ export async function checkKaggleHealth(): Promise<ServiceHealthReport> {
     // Deep kernel inspection: Check whether the latest video-render kernel failed
     let latestFailedKernel: string | null = null;
     let latestFailedStatus = "";
-    const topKernelMatch = listResult.match(/([a-zA-Z0-9_-]+\/video-render-[a-zA-Z0-9]+)/);
+    const topKernelMatch = listResult.match(/([a-z0-9_-]{3,50}\/video-render-[a-z0-9]{4,32})/);
     if (topKernelMatch && topKernelMatch[1]) {
       const topKernel = topKernelMatch[1];
       try {
@@ -591,7 +591,7 @@ async function healKagglePipeline(failedKernelRef?: string): Promise<HealReport>
     // If no specific kernel was passed in, inspect recent kernels from list
     if (!targetKernel) {
       const listOutput = await manageKaggle("list");
-      const match = listOutput.match(/([a-zA-Z0-9_-]+\/video-render-[a-zA-Z0-9]+)/);
+      const match = listOutput.match(/([a-z0-9_-]{3,50}\/video-render-[a-z0-9]{4,32})/);
       if (match && match[1]) {
         const topRef = match[1];
         const status = await manageKaggle("status", topRef);
@@ -665,7 +665,7 @@ async function healSingleService(serviceName: string, reason?: string): Promise<
   } else if (norm.includes("web") || norm.includes("site") || norm.includes("uptime")) {
     healReport = await healWebEndpoints();
   } else if (norm.includes("kaggle") || norm.includes("gpu") || norm.includes("pipeline")) {
-    const failedMatch = reason?.match(/([a-zA-Z0-9_-]+\/video-render-[a-zA-Z0-9]+)/);
+    const failedMatch = reason?.match(/([a-z0-9_-]{3,50}\/video-render-[a-z0-9]{4,32})/);
     healReport = await healKagglePipeline(failedMatch ? failedMatch[1] : undefined);
   } else {
     healReport = unmappedServiceReport(serviceName, reason);
