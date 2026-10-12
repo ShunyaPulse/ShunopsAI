@@ -64,6 +64,46 @@ let cachedGroqKeys: string[] = [];
 let lastRawGroqString = "";
 let groqRoundRobinIndex = 0;
 
+let cachedOpenRouterKeys: string[] = [];
+let lastRawOpenRouterString = "";
+let openRouterRoundRobinIndex = 0;
+
+export function getOpenRouterKeysPool(): string[] {
+  const raw =
+    process.env.OPENROUTER_KEYS ||
+    process.env.OPENROUTER_API_KEYS ||
+    process.env.OPENROUTER_API_KEY ||
+    "";
+  if (raw !== lastRawOpenRouterString) {
+    lastRawOpenRouterString = raw;
+    cachedOpenRouterKeys = raw
+      .split(",")
+      .map((k) => k.trim())
+      .filter(Boolean);
+    if (cachedOpenRouterKeys.length > 1) {
+      openRouterRoundRobinIndex = Math.floor(Math.random() * cachedOpenRouterKeys.length);
+    } else {
+      openRouterRoundRobinIndex = 0;
+    }
+  }
+  return cachedOpenRouterKeys;
+}
+
+export function getNextOpenRouterKey(): string | null {
+  const keys = getOpenRouterKeysPool();
+  if (keys.length === 0) return null;
+  const key = keys[openRouterRoundRobinIndex];
+  openRouterRoundRobinIndex = (openRouterRoundRobinIndex + 1) % keys.length;
+  return key ?? null;
+}
+
+export function advanceOpenRouterKeyOnRateLimit(): void {
+  const keys = getOpenRouterKeysPool();
+  if (keys.length > 0) {
+    openRouterRoundRobinIndex = (openRouterRoundRobinIndex + 1) % keys.length;
+  }
+}
+
 export function getGroqKeysPool(): string[] {
   const raw =
     process.env.GROQ_KEYS ||
@@ -180,7 +220,7 @@ export function createClientForTarget(target: ModelTarget, overrides?: ProviderK
       apiKey,
     });
   }
-  const apiKey = overrides?.openrouterApiKey || process.env.OPENROUTER_API_KEY;
+  const apiKey = overrides?.openrouterApiKey || getNextOpenRouterKey() || process.env.OPENROUTER_API_KEY;
   if (!apiKey) throw new Error("No OpenRouter API key available");
   return new OpenAI({
     baseURL: OPENROUTER_BASE_URL,
@@ -205,11 +245,12 @@ export async function callChatCompletionWithFailover(
 ): Promise<{ response: OpenAI.ChatCompletion; usedModel: string }> {
   const geminiPool = getApiKeysPool();
   const groqPool = getGroqKeysPool();
+  const openRouterPool = getOpenRouterKeysPool();
   const hasServerGemini = geminiPool.length > 0;
   const hasServerGroq = groqPool.length > 0 || Boolean(process.env.GROQ_API_KEY);
   const hasServerGitHub = Boolean(process.env.GITHUB_PAT || process.env.GITHUB_TOKEN);
   const hasServerCloudflare = Boolean(process.env.CLOUDFLARE_ACCOUNT_ID && process.env.CLOUDFLARE_API_TOKEN);
-  const hasServerOpenRouter = Boolean(process.env.OPENROUTER_API_KEY);
+  const hasServerOpenRouter = openRouterPool.length > 0 || Boolean(process.env.OPENROUTER_API_KEY);
 
   const isBYOK = Boolean(overrides?.groqApiKey || overrides?.geminiApiKey || overrides?.openrouterApiKey);
 
@@ -243,12 +284,14 @@ export async function callChatCompletionWithFailover(
   let lastError: any = null;
 
   for (const target of eligibleTargets) {
-    // If Gemini/Groq target using server pool, bounded retries across pool keys before model fallback (Rule 6)
+    // If Gemini/Groq/OpenRouter target using server pool, bounded retries across pool keys before model fallback (Rule 6)
     let attempts = 1;
     if (!overrides?.geminiApiKey && target.provider === "gemini") {
       attempts = Math.min(2, geminiPool.length);
     } else if (!overrides?.groqApiKey && target.provider === "groq") {
       attempts = Math.min(2, groqPool.length);
+    } else if (!overrides?.openrouterApiKey && target.provider === "openrouter") {
+      attempts = Math.min(2, openRouterPool.length);
     }
 
     for (let att = 0; att < attempts; att++) {
@@ -290,6 +333,8 @@ export async function callChatCompletionWithFailover(
             advanceGeminiKeyOnRateLimit();
           } else if (target.provider === "groq") {
             advanceGroqKeyOnRateLimit();
+          } else if (target.provider === "openrouter") {
+            advanceOpenRouterKeyOnRateLimit();
           }
         }
         if (err?.status === 404) break; // Model does not exist, move to next model

@@ -202,7 +202,11 @@ export async function geminiGenerate(prompt: string, preferredModel?: string): P
   }
 
   // Cross-provider backup: if all Gemini models failed, fallback to Groq
-  const groqKey = process.env.GROQ_API_KEY;
+  const groqPool = (process.env.GROQ_KEYS || process.env.GROQ_API_KEYS || process.env.GROQ_API_KEY || "")
+    .split(",")
+    .map((k) => k.trim())
+    .filter(Boolean);
+  const groqKey = groqPool.length > 0 ? groqPool[Math.floor(Math.random() * groqPool.length)] : process.env.GROQ_API_KEY;
   if (groqKey) {
     console.warn(`[Video] ⚠️ Attempting cross-provider fallback to Groq (openai/gpt-oss-120b, qwen/qwen3.8-27b)...`);
     const groqModels = ["openai/gpt-oss-120b", "qwen/qwen3.8-27b"];
@@ -236,7 +240,11 @@ export async function geminiGenerate(prompt: string, preferredModel?: string): P
   }
 
   // Cross-provider backup Tier 3: OpenRouter High-Capability Models
-  const openrouterKey = process.env.OPENROUTER_API_KEY;
+  const openrouterPool = (process.env.OPENROUTER_KEYS || process.env.OPENROUTER_API_KEYS || process.env.OPENROUTER_API_KEY || "")
+    .split(",")
+    .map((k) => k.trim())
+    .filter(Boolean);
+  const openrouterKey = openrouterPool.length > 0 ? openrouterPool[Math.floor(Math.random() * openrouterPool.length)] : process.env.OPENROUTER_API_KEY;
   if (openrouterKey) {
     console.warn(`[Video] ⚠️ Attempting cross-provider fallback to OpenRouter...`);
     const openrouterModels = [

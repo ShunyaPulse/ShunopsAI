@@ -95,6 +95,26 @@ export function getGeminiKeys(): string[] {
   return raw.split(",").map((k) => k.trim()).filter(Boolean);
 }
 
+/** Groq keys configured for this process (pool first, then the single-key var). */
+export function getGroqKeys(): string[] {
+  const raw =
+    process.env.GROQ_KEYS ||
+    process.env.GROQ_API_KEYS ||
+    process.env.GROQ_API_KEY ||
+    "";
+  return raw.split(",").map((k) => k.trim()).filter(Boolean);
+}
+
+/** OpenRouter keys configured for this process (pool first, then the single-key var). */
+export function getOpenRouterKeys(): string[] {
+  const raw =
+    process.env.OPENROUTER_KEYS ||
+    process.env.OPENROUTER_API_KEYS ||
+    process.env.OPENROUTER_API_KEY ||
+    "";
+  return raw.split(",").map((k) => k.trim()).filter(Boolean);
+}
+
 /**
  * Whether usable credentials exist for a provider.
  *
@@ -105,15 +125,17 @@ export function getGeminiKeys(): string[] {
  */
 export function hasProviderCredentials(provider: ModelEndpoint["provider"]): boolean {
   if (provider === "gemini") return getGeminiKeys().length > 0;
-  if (provider === "groq") return Boolean(process.env.GROQ_API_KEY);
-  return Boolean(process.env.OPENROUTER_API_KEY);
+  if (provider === "groq") return getGroqKeys().length > 0;
+  return getOpenRouterKeys().length > 0;
 }
 
 export function createClient(target: ModelEndpoint): OpenAI {
   if (target.provider === "groq") {
+    const keys = getGroqKeys();
+    const key = keys.length > 0 ? keys[randomInt(0, keys.length)] : (process.env.GROQ_API_KEY || "dummy-groq-key");
     return new OpenAI({
       baseURL: "https://api.groq.com/openai/v1",
-      apiKey: process.env.GROQ_API_KEY || "dummy-groq-key",
+      apiKey: key,
     });
   }
 
@@ -126,9 +148,11 @@ export function createClient(target: ModelEndpoint): OpenAI {
     });
   }
 
+  const keys = getOpenRouterKeys();
+  const key = keys.length > 0 ? keys[randomInt(0, keys.length)] : (process.env.OPENROUTER_API_KEY || "dummy-openrouter-key");
   return new OpenAI({
     baseURL: "https://openrouter.ai/api/v1",
-    apiKey: process.env.OPENROUTER_API_KEY || "dummy-openrouter-key",
+    apiKey: key,
     defaultHeaders: {
       "HTTP-Referer": "https://github.com/ShunyaPulse/ShunopsAI",
       "X-Title": "ShunopsAI-Consensus-Engine",
