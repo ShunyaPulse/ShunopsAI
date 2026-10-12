@@ -464,45 +464,58 @@ export async function startVideoJob(
   const audioDir = path.join(dsDir, "audio");
   await fs.mkdir(audioDir, { recursive: true });
 
-  if (isGoogleCloudTTSAvailable()) {
-    console.log(`[Video] 🎙️ Google Cloud account detected. Synthesizing with Neural2 (Always Free Tier: 1M chars/mo)...`);
-    const gcpVoice = resolveGCPVoice(script.voice, language);
-    let allOk = true;
-    for (let i = 0; i < script.scenes.length; i++) {
-      const sc = script.scenes[i];
-      if (!sc) continue;
-      const outMp3 = path.join(audioDir, `a${String(i).padStart(3, "0")}.mp3`);
-      const ok = await synthesizeGoogleCloudTTS(sc.narration, outMp3, {
+  const gcpAvailable = isGoogleCloudTTSAvailable();
+  const gcpVoice = gcpAvailable ? resolveGCPVoice(script.voice, language) : null;
+  const edgeVoice = resolveEdgeVoice(script.voice, language);
+
+  console.log(
+    gcpAvailable
+      ? `[Video] 🎙️ Google Cloud detected. Best-to-worst fallback: Tier 1 (Google Cloud Neural2) ➔ Tier 2 (Edge-TTS)...`
+      : `[Video] 🎙️ No Google Cloud credentials. Running Tier 1 (Edge-TTS pre-synthesis)...`
+  );
+
+  let gcpSuccessCount = 0;
+  let edgeSuccessCount = 0;
+
+  for (let i = 0; i < script.scenes.length; i++) {
+    const sc = script.scenes[i];
+    if (!sc) continue;
+    const outMp3 = path.join(audioDir, `a${String(i).padStart(3, "0")}.mp3`);
+
+    // Tier 1 (Best): Google Cloud Text-to-Speech (DeepMind Neural2)
+    let synthesized = false;
+    if (gcpAvailable && gcpVoice) {
+      synthesized = await synthesizeGoogleCloudTTS(sc.narration, outMp3, {
         voiceName: gcpVoice.name,
         language,
         speakingRate: 1.0,
       });
-      if (!ok) allOk = false;
-    }
-    if (allOk) {
-      script.voice = gcpVoice.name;
-      console.log(`[Video] ✅ All ${script.scenes.length} scenes synthesized with Google Cloud TTS "${gcpVoice.name}"!`);
-    }
-  } else {
-    console.log(`[Video] 🎙️ No Google Cloud credentials detected. Pre-synthesizing locally with calibrated Edge-TTS (Zero Setup / Free)...`);
-    const edgeVoice = resolveEdgeVoice(script.voice, language);
-    let allOk = true;
-    for (let i = 0; i < script.scenes.length; i++) {
-      const sc = script.scenes[i];
-      if (!sc) continue;
-      const outMp3 = path.join(audioDir, `a${String(i).padStart(3, "0")}.mp3`);
-      const ok = await synthesizeLocalEdgeTTS(sc.narration, outMp3, edgeVoice.name, edgeVoice.pitch);
-      if (!ok) {
-        allOk = false;
-        break;
+      if (synthesized) {
+        gcpSuccessCount++;
+      } else {
+        console.warn(`[Video] ⚠️ Scene ${i + 1} Google Cloud TTS failed. Falling back to Tier 2 (Edge-TTS)...`);
       }
     }
-    if (allOk) {
-      script.voice = edgeVoice.name;
-      console.log(`[Video] ✅ All ${script.scenes.length} scenes pre-synthesized with calibrated Edge-TTS "${edgeVoice.name}" (Pitch: ${edgeVoice.pitch})!`);
-    } else {
-      console.log(`[Video] ℹ️ Local Edge-TTS synthesizer unavailable. Kaggle GPU kernel will synthesize directly on the fly.`);
+
+    // Tier 2 (High Quality Fallback): Microsoft Edge-TTS
+    if (!synthesized) {
+      synthesized = await synthesizeLocalEdgeTTS(sc.narration, outMp3, edgeVoice.name, edgeVoice.pitch);
+      if (synthesized) {
+        edgeSuccessCount++;
+      } else {
+        console.warn(`[Video] ⚠️ Scene ${i + 1} Edge-TTS pre-synthesis failed. Will rely on Kaggle GPU kernel fallback.`);
+      }
     }
+  }
+
+  if (gcpSuccessCount > 0 && gcpVoice) {
+    script.voice = gcpVoice.name;
+    console.log(`[Video] ✅ Audio synthesis complete: ${gcpSuccessCount} scenes via Google Cloud Neural2, ${edgeSuccessCount} scenes via Edge-TTS fallback.`);
+  } else if (edgeSuccessCount > 0) {
+    script.voice = edgeVoice.name;
+    console.log(`[Video] ✅ Audio synthesis complete: ${edgeSuccessCount}/${script.scenes.length} scenes synthesized via Edge-TTS.`);
+  } else {
+    console.log(`[Video] ℹ️ Host audio pre-synthesis unavailable. Kaggle GPU kernel will synthesize directly on the fly.`);
   }
 
   await fs.writeFile(path.join(dsDir, "script.json"), JSON.stringify(script, null, 2));
