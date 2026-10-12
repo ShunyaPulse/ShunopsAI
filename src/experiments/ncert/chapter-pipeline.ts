@@ -348,7 +348,7 @@ Options:
   };
 
   launchChapterJob(chapterArg, options).catch((err) => {
-    console.error("❌ Pipeline failed: " + (err?.message || "An error occurred"));
+    console.error("❌ Pipeline failed: [REDACTED]");
     process.exit(1);
   });
 }
