@@ -710,6 +710,33 @@ export function getUserWorkspaceHtml(username: string): string {
       }
     }
 
+    // Cryptographic Proof-of-Work Solver (Client Anti-Bot Shield)
+    async function solveProofOfWork(challenge) {
+      if (!challenge || !window.crypto || !window.crypto.subtle) return null;
+      const enc = new TextEncoder();
+      const targetDifficulty = challenge.targetDifficulty || 2;
+      const targetPrefix = '0'.repeat(targetDifficulty);
+      let nonce = 0;
+      while (nonce < 100000) {
+        const data = enc.encode(challenge.salt + ':' + nonce);
+        const buf = await window.crypto.subtle.digest('SHA-256', data);
+        const hex = Array.from(new Uint8Array(buf))
+          .map((b) => b.toString(16).padStart(2, '0'))
+          .join('');
+        if (hex.startsWith(targetPrefix)) {
+          return {
+            salt: challenge.salt,
+            timestamp: challenge.timestamp,
+            targetDifficulty: challenge.targetDifficulty,
+            signature: challenge.signature,
+            solution: String(nonce),
+          };
+        }
+        nonce++;
+      }
+      return null;
+    }
+
     async function sendUserChat() {
       const input = document.getElementById('user-chat-input');
       const sendBtn = document.getElementById('send-btn');
@@ -745,12 +772,24 @@ export function getUserWorkspaceHtml(username: string): string {
           if (vault.gemini) headers['x-gemini-key'] = vault.gemini;
         }
 
+        // Solve Proof-of-Work challenge in background (WebCrypto solves in ~20-30ms)
+        let shieldSolution = null;
+        try {
+          const chRes = await fetch('/api/shield/challenge');
+          if (chRes.ok) {
+            const chData = await chRes.json();
+            shieldSolution = await solveProofOfWork(chData);
+          }
+        } catch (e) {}
+
         const res = await fetch('/api/chat', {
           method: 'POST',
           headers,
+          credentials: 'same-origin',
           body: JSON.stringify({
             message: msg,
-            history: historyPayload
+            history: historyPayload,
+            shield: shieldSolution || undefined,
           })
         });
 
