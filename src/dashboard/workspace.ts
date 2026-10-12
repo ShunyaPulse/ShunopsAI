@@ -675,6 +675,7 @@ export function getUserWorkspaceHtml(username: string): string {
         <!-- Quick Suggestions -->
         <div class="quick-chips">
           <div class="chip" onclick="askSuggestion('What can you help me do?')">💡 What can you do?</div>
+          <div class="chip" onclick="askSuggestion('Search knowledge base for Neon Postgres architecture')">📚 Search docs</div>
           <div class="chip" onclick="askSuggestion('Help me write a friendly professional email')">✉️ Draft an email</div>
           <div class="chip" onclick="askSuggestion('Explain cloud hosting and containers simply')">☁️ Explain simply</div>
         </div>

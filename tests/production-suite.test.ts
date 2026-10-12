@@ -50,6 +50,7 @@ import {
   classifyHeuristic,
   getRoutingTargets,
   buildRollingMemory,
+  toolRegistry,
 } from "../src/agent/index.js";
 import {
   indexKnowledgeDocument,
@@ -495,6 +496,41 @@ async function runSuite() {
 
     const isKokoro = await isKokoroAvailable();
     assert.equal(typeof isKokoro, "boolean");
+  });
+
+  // 19. Knowledge API & Agent Tool Integration
+  await test("Knowledge Integration: /api/knowledge/search endpoint and agent tools", async () => {
+    // 1. Tool execution check
+    assert.ok(toolRegistry.search_knowledge_base, "search_knowledge_base tool must be registered");
+    assert.ok(toolRegistry.index_knowledge_document, "index_knowledge_document tool must be registered");
+
+    const indexRes = await toolRegistry.index_knowledge_document.execute({
+      title: "OCI Ampere Redis Deployment",
+      content: "Redis is deployed on Oracle Cloud Infrastructure Ampere A1 Compute VM with persistence.",
+      category: "infrastructure",
+    });
+    assert.ok(indexRes.includes("Successfully indexed"));
+
+    const searchRes = await toolRegistry.search_knowledge_base.execute({
+      query: "Ampere Redis",
+    });
+    assert.ok(searchRes.includes("OCI Ampere Redis"));
+
+    // 2. HTTP Endpoint check
+    const config = loadAppConfig();
+    const app = await createApp(config);
+
+    const apiSearchRes = await app.inject({
+      method: "GET",
+      url: "/api/knowledge/search?q=Ampere",
+    });
+    assert.equal(apiSearchRes.statusCode, 200);
+    const apiData = JSON.parse(apiSearchRes.payload);
+    assert.equal(apiData.success, true);
+    assert.ok(Array.isArray(apiData.results));
+    assert.ok(apiData.results.length > 0);
+
+    await app.close();
   });
 
   console.log("\n=================================================");

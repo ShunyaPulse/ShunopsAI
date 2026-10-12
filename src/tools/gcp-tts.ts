@@ -203,3 +203,12 @@ export async function synthesizeGoogleCloudTTS(
   }
 }
 
+export {
+  synthesizeKokoroTTS,
+  isKokoroAvailable,
+  synthesizeEdgeTTS,
+  synthesizeUnifiedSpeech,
+  KOKORO_CURATED_VOICES,
+} from "./kokoro-tts.js";
+
+

@@ -19,6 +19,7 @@ import { runCloudflareAiInference } from "../tools/cloudflare-ai.js";
 import { runDualModelConsensus } from "../ai/consensus.js";
 import { runAutoAlertResolver } from "../tools/code-scanner-resolver.js";
 import { resolveInsideProject, listDirectoryTree, assertAccessible } from "./sandbox.js";
+import { searchKnowledgeHybrid, indexKnowledgeDocument } from "../server/db.js";
 
 const execAsync = promisify(exec);
 
@@ -51,7 +52,9 @@ export type ToolName =
   | "auto_heal_service"
   | "run_cloudflare_ai"
   | "dual_model_consensus"
-  | "resolve_code_scanning_alerts";
+  | "resolve_code_scanning_alerts"
+  | "search_knowledge_base"
+  | "index_knowledge_document";
 
 export const toolRegistry: Record<ToolName, ToolDefinition> = {
   run_shell_command: {
@@ -673,6 +676,105 @@ export const toolRegistry: Record<ToolName, ToolDefinition> = {
     execute: async (args: { limit?: number }) => {
       const result = await runAutoAlertResolver(args.limit ?? 5);
       return JSON.stringify(result, null, 2);
+    },
+  },
+
+  search_knowledge_base: {
+    schema: {
+      type: "function",
+      function: {
+        name: "search_knowledge_base",
+        description:
+          "Searches the platform knowledge base, documentation, architecture records, and runbooks using Neon Lakebase Hybrid Search (BM25 Full-Text + Vector ranking).",
+        parameters: {
+          type: "object",
+          properties: {
+            query: {
+              type: "string",
+              description: "The search query or keyword phrase to find in documents and architecture guides.",
+            },
+            category: {
+              type: "string",
+              description: "Optional category filter (e.g., 'database', 'cloud', 'architecture', 'security').",
+            },
+            limit: {
+              type: "number",
+              description: "Maximum number of search results to return (default: 5).",
+            },
+          },
+          required: ["query"],
+        },
+      },
+    },
+    execute: async (args: { query: string; category?: string; limit?: number }) => {
+      try {
+        const results = await searchKnowledgeHybrid(args.query, {
+          category: args.category,
+          limit: args.limit ?? 5,
+        });
+        if (results.length === 0) {
+          return `No knowledge base documents matched query "${args.query}".`;
+        }
+        return JSON.stringify(
+          results.map((r) => ({
+            id: r.document.id,
+            title: r.document.title,
+            category: r.document.category,
+            content: r.document.content.slice(0, 500),
+            score: r.score,
+          })),
+          null,
+          2
+        );
+      } catch (err: any) {
+        return `Error searching knowledge base: ${err.message}`;
+      }
+    },
+  },
+
+  index_knowledge_document: {
+    schema: {
+      type: "function",
+      function: {
+        name: "index_knowledge_document",
+        description:
+          "Stores and indexes a new document, technical runbook, or incident post-mortem into the Neon Lakebase Hybrid Knowledge Search system.",
+        parameters: {
+          type: "object",
+          properties: {
+            title: {
+              type: "string",
+              description: "Title of the knowledge document.",
+            },
+            content: {
+              type: "string",
+              description: "Detailed content, documentation, or runbook instructions.",
+            },
+            category: {
+              type: "string",
+              description: "Category classification (e.g., 'architecture', 'database', 'cloud', 'incident').",
+            },
+            metadata: {
+              type: "object",
+              description: "Optional metadata object (author, tags, version, etc.).",
+            },
+          },
+          required: ["title", "content"],
+        },
+      },
+    },
+    execute: async (args: { title: string; content: string; category?: string; metadata?: Record<string, any> }) => {
+      try {
+        const doc = await indexKnowledgeDocument(
+          args.title,
+          args.content,
+          args.category || "general",
+          args.metadata || {}
+        );
+        return `Successfully indexed document ID #${doc.id}: "${doc.title}" in category "${doc.category}".`;
+      } catch (err: any) {
+        return `Error indexing knowledge document: ${err.message}`;
+      }
     },
   },
 };

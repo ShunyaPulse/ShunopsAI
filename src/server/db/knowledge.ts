@@ -23,9 +23,9 @@ export interface KnowledgeSearchResult {
 }
 
 export interface SearchOptions {
-  limit?: number;
-  category?: string;
-  queryEmbedding?: number[];
+  limit?: number | undefined;
+  category?: string | undefined;
+  queryEmbedding?: number[] | undefined;
 }
 
 /**
@@ -209,3 +209,4 @@ export async function deleteKnowledgeDocument(id: number): Promise<boolean> {
   );
   return (res || []).length > 0;
 }
+

@@ -13,6 +13,7 @@ import { authRoutes } from "./auth.js";
 import { adminRoutes } from "./admin.js";
 import { workspaceRoutes } from "./workspace.js";
 import { billingRoutes } from "./billing.js";
+import { knowledgeRoutes } from "./knowledge.js";
 
 export interface MountRoutesDeps {
   requireAuth: preHandlerHookHandler;
@@ -30,6 +31,7 @@ export async function registerRoutes(app: FastifyInstance, deps: MountRoutesDeps
   await app.register(adminRoutes, { requireDashboardAuth: deps.requireDashboardAuth });
   await app.register(workspaceRoutes, { requireAuth: deps.requireAuth });
   await app.register(billingRoutes, { requireAuth: deps.requireAuth });
+  await app.register(knowledgeRoutes, { requireAuth: deps.requireAuth });
   await app.register(sentinelRoutes, {
     requireDashboardAuth: deps.requireDashboardAuth,
     requireAuth: deps.requireAuth,
