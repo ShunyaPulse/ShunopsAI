@@ -136,7 +136,7 @@ export interface ProviderKeyOverrides {
  */
 export function createClientForTarget(target: ModelTarget, overrides?: ProviderKeyOverrides): OpenAI {
   if (target.provider === "groq") {
-    const apiKey = overrides?.groqApiKey || getNextGroqKey() || process.env.GROQ_API_KEY;
+    const apiKey = overrides?.groqApiKey || process.env.GROQ_API_KEY;
     if (!apiKey) throw new Error("No Groq API key available");
     return new OpenAI({
       baseURL: GROQ_BASE_URL,
