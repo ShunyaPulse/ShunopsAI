@@ -603,7 +603,7 @@ async function healKagglePipeline(failedKernelRef?: string): Promise<HealReport>
 
     if (targetKernel) {
       const cleanId = targetKernel.replace(/^[a-zA-Z0-9_-]+\/video-render-/, "");
-      console.log(`[Sentinel Auto-Heal] Diagnosing and re-dispatching failed kernel: ${targetKernel ? targetKernel.slice(0, 4) + '***' : 'none'} (Job: ${cleanId})...`);
+      console.log(`[Sentinel Auto-Heal] Diagnosing and re-dispatching failed kernel: ${targetKernel ? targetKernel.slice(0, 4) + '***' : 'none'} (Job: ${cleanId ? cleanId.slice(0, 4) + '***' : 'none'})...`);
       const rerunRes = await rerunVideoJob(cleanId);
       return {
         success: true,
