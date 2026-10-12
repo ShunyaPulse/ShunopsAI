@@ -556,7 +556,15 @@ async def main():
         v_path = f"{TMP}/v{i:03d}.mp4"
 
         print(f"\n--- [Scene {i+1}/{len(scenes)}] ---")
-        submaker = await tts_with_boundaries(sc["narration"], voice, a_path, rate=rate)
+        # Check if studio-grade Google Cloud Text-to-Speech audio was packaged in dataset
+        dataset_audio = os.path.join(os.path.dirname(script_path), "audio", f"a{i:03d}.mp3")
+        if os.path.exists(dataset_audio) and os.path.getsize(dataset_audio) > 500:
+            shutil.copyfile(dataset_audio, a_path)
+            print(f"[TTS] Using packaged Google Cloud Text-to-Speech audio ({os.path.getsize(a_path)} bytes).")
+            submaker = edge_tts.SubMaker()
+        else:
+            submaker = await tts_with_boundaries(sc["narration"], voice, a_path, rate=rate)
+
         if not os.path.exists(a_path) or os.path.getsize(a_path) < 100:
             print(f"Skipping scene {i+1}: Audio synthesis failed.")
             continue

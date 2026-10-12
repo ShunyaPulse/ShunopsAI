@@ -4,6 +4,11 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import * as os from "node:os";
 import * as dotenv from "dotenv";
+import {
+  isGoogleCloudTTSAvailable,
+  synthesizeGoogleCloudTTS,
+  resolveGCPVoice,
+} from "./gcp-tts.js";
 dotenv.config({ path: path.resolve(process.cwd(), ".env"), override: true });
 
 const execFileAsync = promisify(execFile);
@@ -407,6 +412,32 @@ export async function startVideoJob(
   const kDir = path.join(jobDir, "kernel");
   await fs.mkdir(dsDir, { recursive: true });
   await fs.mkdir(kDir, { recursive: true });
+
+  // Pre-synthesize studio-grade narration with Google Cloud Text-to-Speech (Neural2 Always Free Tier: 1M chars/mo)
+  const audioDir = path.join(dsDir, "audio");
+  if (isGoogleCloudTTSAvailable()) {
+    console.log(`[Video] 🎙️ Synthesizing narration with Google Cloud Text-to-Speech (Neural2 Always Free Tier)...`);
+    await fs.mkdir(audioDir, { recursive: true });
+    const gcpVoice = resolveGCPVoice(script.voice, language);
+    let allOk = true;
+    for (let i = 0; i < script.scenes.length; i++) {
+      const sc = script.scenes[i];
+      if (!sc) continue;
+      const outMp3 = path.join(audioDir, `a${String(i).padStart(3, "0")}.mp3`);
+      const ok = await synthesizeGoogleCloudTTS(sc.narration, outMp3, {
+        voiceName: gcpVoice.name,
+        language,
+        speakingRate: 1.0,
+      });
+      if (!ok) allOk = false;
+    }
+    if (allOk) {
+      script.voice = gcpVoice.name;
+      console.log(`[Video] ✅ All ${script.scenes.length} scenes synthesized with Google Cloud TTS "${gcpVoice.name}"!`);
+    }
+  } else {
+    console.log(`[Video] Google Cloud TTS credentials not found in env. Kernel will use Edge-TTS / gTTS.`);
+  }
 
   await fs.writeFile(path.join(dsDir, "script.json"), JSON.stringify(script, null, 2));
   await fs.writeFile(
