@@ -381,9 +381,12 @@ async function runSuite() {
     // 4. Zero-probe tier health inspection (0 synthetic requests)
     const tiers = await getTiersHealthStatus();
     assert.ok(Array.isArray(tiers), "getTiersHealthStatus must return array of tiers");
-    assert.equal(tiers.length, 4, "Must cover auto, gemini-flash, groq-120b, and openrouter-heavy tiers");
+    assert.ok(tiers.length >= 4, "Must cover smart tiers including auto, fast, deep reasoning, and frontier");
     const autoTier = tiers.find((t) => t.tierId === "auto");
     assert.ok(autoTier, "Auto tier must be present in health status");
+    assert.ok(tiers.find((t) => t.tierId === "gemini-flash"), "Fast tier must be present");
+    assert.ok(tiers.find((t) => t.tierId === "groq-120b"), "Deep reasoning tier must be present");
+    assert.ok(tiers.find((t) => t.tierId === "openrouter-heavy"), "Frontier tier must be present");
   });
 
   await test("Task Complexity Routing: Heuristics and circuit-breaker-aware prioritizing", async () => {
@@ -439,7 +442,7 @@ async function runSuite() {
     const statusData = JSON.parse(statusRes.payload);
     assert.equal(statusData.success, true);
     assert.ok(Array.isArray(statusData.tiers));
-    assert.equal(statusData.tiers.length, 4);
+    assert.ok(statusData.tiers.length >= 4);
 
     await app.close();
   });

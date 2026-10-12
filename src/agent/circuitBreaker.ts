@@ -17,7 +17,7 @@ export interface DegradedState {
 }
 
 export interface TierHealthStatus {
-  tierId: "auto" | "gemini-flash" | "groq-120b" | "openrouter-heavy";
+  tierId: "auto" | "gemini-flash" | "groq-120b" | "code-dev" | "research-context" | "openrouter-heavy" | string;
   name: string;
   healthy: boolean;
   degraded: boolean;
@@ -202,19 +202,30 @@ export async function getTiersHealthStatus(): Promise<TierHealthStatus[]> {
   // Tier 2: Groq GPT-OSS 120B (High Reasoning)
   const groq120b = await getModelDegradedInfo("groq", "openai/gpt-oss-120b");
 
-  // Tier 3: OpenRouter Heavyweights (550B & 70B)
+  // Tier 3: Code & Dev (GitHub GPT-4o & Cohere Code)
+  const githubGpt4o = await getModelDegradedInfo("github", "gpt-4o");
+  const cohereCode = await getModelDegradedInfo("openrouter", "cohere/north-mini-code:free");
+  const isCodeDegraded = githubGpt4o.degraded && cohereCode.degraded;
+  const codeCooldown = Math.max(githubGpt4o.remainingSeconds || 0, cohereCode.remainingSeconds || 0);
+
+  // Tier 4: Long Context & Research (Nemotron 3.5 Lightning 1M)
+  const lightning1m = await getModelDegradedInfo("openrouter", "nvidia/nemotron-3.5-lightning:free");
+  const isResearchDegraded = lightning1m.degraded && flashPrimary.degraded;
+  const researchCooldown = Math.max(lightning1m.remainingSeconds || 0, flashPrimary.remainingSeconds || 0);
+
+  // Tier 5: OpenRouter Heavyweights & Frontier (550B & 70B)
   const openRouter550b = await getModelDegradedInfo("openrouter", "nvidia/nemotron-3-ultra-550b-a55b:free");
   const openRouter70b = await getModelDegradedInfo("openrouter", "meta-llama/llama-3.3-70b-instruct:free");
   const isOpenRouterDegraded = openRouter550b.degraded && openRouter70b.degraded;
   const openRouterCooldown = Math.max(openRouter550b.remainingSeconds || 0, openRouter70b.remainingSeconds || 0);
 
   // Auto is healthy if at least one tier is available
-  const anyHealthy = !isFlashDegraded || !groq120b.degraded || !isOpenRouterDegraded;
+  const anyHealthy = !isFlashDegraded || !groq120b.degraded || !isOpenRouterDegraded || !isCodeDegraded;
 
   return [
     {
       tierId: "auto",
-      name: "⚡ Auto (Smart Complexity Router)",
+      name: "⚡ Auto: Smart Adaptive (Auto-Routes & Self-Heals)",
       healthy: anyHealthy,
       degraded: !anyHealthy,
       cooldownRemainingSeconds: anyHealthy ? undefined : Math.min(flashCooldown || 60, groq120b.remainingSeconds || 60),
@@ -222,7 +233,7 @@ export async function getTiersHealthStatus(): Promise<TierHealthStatus[]> {
     },
     {
       tierId: "gemini-flash",
-      name: "🚀 Fast: Gemini 3.8 Flash",
+      name: "🚀 Fast & Responsive: Quick Q&A (Low Quota Usage)",
       healthy: !isFlashDegraded,
       degraded: isFlashDegraded,
       cooldownRemainingSeconds: isFlashDegraded ? flashCooldown : undefined,
@@ -230,19 +241,35 @@ export async function getTiersHealthStatus(): Promise<TierHealthStatus[]> {
     },
     {
       tierId: "groq-120b",
-      name: "🧠 Deep Reasoning: Groq GPT-OSS 120B",
+      name: "🧠 Deep Reasoning & Math: 120B AST (Heavy Quota ⚠️)",
       healthy: !groq120b.degraded,
       degraded: groq120b.degraded,
       cooldownRemainingSeconds: groq120b.degraded ? groq120b.remainingSeconds : undefined,
       reason: groq120b.degraded ? (groq120b.reason || "Groq 120B reasoning model rate limited") : undefined,
     },
     {
+      tierId: "code-dev",
+      name: "💻 Code Architect & Debugging: GPT-4o & AST (Balanced)",
+      healthy: !isCodeDegraded,
+      degraded: isCodeDegraded,
+      cooldownRemainingSeconds: isCodeDegraded ? codeCooldown : undefined,
+      reason: isCodeDegraded ? "Coding models rate limited" : undefined,
+    },
+    {
+      tierId: "research-context",
+      name: "📚 Long Context & Research: 1M Window (Balanced)",
+      healthy: !isResearchDegraded,
+      degraded: isResearchDegraded,
+      cooldownRemainingSeconds: isResearchDegraded ? researchCooldown : undefined,
+      reason: isResearchDegraded ? "1M context model rate limited" : undefined,
+    },
+    {
       tierId: "openrouter-heavy",
-      name: "🌌 Heavyweight: OpenRouter 550B / 70B",
+      name: "👑 Frontier Flagship: 550B & GPT-4o (Heavy Quota ⚠️)",
       healthy: !isOpenRouterDegraded,
       degraded: isOpenRouterDegraded,
       cooldownRemainingSeconds: isOpenRouterDegraded ? openRouterCooldown : undefined,
-      reason: isOpenRouterDegraded ? (openRouter550b.reason || "OpenRouter heavyweights rate limited") : undefined,
+      reason: isOpenRouterDegraded ? (openRouter550b.reason || "Frontier heavyweights rate limited") : undefined,
     },
   ];
 }

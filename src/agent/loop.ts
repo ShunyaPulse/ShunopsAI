@@ -34,6 +34,7 @@ export interface AgentRunResult {
   stepsTaken: number;
   history: OpenAI.ChatCompletionMessageParam[];
   usage?: AgentTokenUsage;
+  usedModel?: string;
 }
 
 /**
@@ -98,6 +99,7 @@ export async function runAutonomousAgent(
   let stepsTaken = 0;
   let totalPromptTokens = 0;
   let totalCompletionTokens = 0;
+  let lastUsedModel = targets[0]?.model || "unknown";
 
   for (let step = 1; step <= maxSteps; step++) {
     stepsTaken = step;
@@ -113,6 +115,7 @@ export async function runAutonomousAgent(
         temperature,
         options.keyOverrides
       );
+      lastUsedModel = usedModel;
 
       // Accumulate industry-grade token metrics
       if (response.usage) {
@@ -153,6 +156,7 @@ export async function runAutonomousAgent(
           finalAnswer: choice.message.content || "",
           stepsTaken,
           history: messages,
+          usedModel: lastUsedModel,
           usage: {
             promptTokens: totalPromptTokens,
             completionTokens: totalCompletionTokens,
@@ -250,6 +254,7 @@ export async function runAutonomousAgent(
         finalAnswer: `Error during execution: ${loopError.message}`,
         stepsTaken,
         history: messages,
+        usedModel: lastUsedModel,
         usage: {
           promptTokens: totalPromptTokens,
           completionTokens: totalCompletionTokens,
@@ -268,6 +273,7 @@ export async function runAutonomousAgent(
     finalAnswer: "Max steps reached without explicit task completion.",
     stepsTaken,
     history: messages,
+    usedModel: lastUsedModel,
     usage: {
       promptTokens: totalPromptTokens,
       completionTokens: totalCompletionTokens,

@@ -680,36 +680,39 @@ export function getUserWorkspaceHtml(username: string): string {
         <p>Your conversation history is securely saved in your database account and restored across reloads.</p>
 
         <!-- Model Selection Dropdown & Live Circuit Breaker Status -->
-        <div style="display:flex; justify-content:space-between; align-items:center; background:#070a12; border:1px solid #1e293b; border-radius:10px; padding:8px 12px; margin:10px 0 14px; gap:10px; flex-wrap:wrap;">
+        <div style="display:flex; justify-content:space-between; align-items:center; background:#070a12; border:1px solid #1e293b; border-radius:10px; padding:8px 12px; margin:10px 0 10px; gap:10px; flex-wrap:wrap;">
           <div style="display:flex; align-items:center; gap:8px;">
             <label for="chat-model-select" style="font-size:12px; font-weight:600; color:#94a3b8; cursor:pointer;">🎯 Model Backbone:</label>
             <select id="chat-model-select" onchange="onModelPreferenceChange()" style="background:#0f172a; color:#fff; border:1px solid #334155; border-radius:6px; padding:5px 10px; font-size:12px; font-weight:500; outline:none; cursor:pointer; transition:border 0.2s; max-width:100%;">
-              <optgroup label="─── Smart Modes (Top 3) ───">
-                <option value="auto">⚡ Auto (Smart Complexity Router)</option>
-                <option value="gemini-flash">🚀 Fast: Gemini 3.8 Flash</option>
-                <option value="groq-120b">🧠 Deep Reasoning: Groq GPT-OSS 120B</option>
+              <optgroup label="─── Smart Modes (Auto-Failover by Need) ───">
+                <option value="auto">⚡ Auto: Smart Adaptive (Auto-Routes & Self-Heals)</option>
+                <option value="gemini-flash">🚀 Fast & Responsive (Quick Q&A • Low Quota 🟢)</option>
+                <option value="groq-120b">🧠 Deep Reasoning & Math (120B AST • Heavy Quota ⚠️)</option>
+                <option value="code-dev">💻 Code Architect & Debugging (GPT-4o & AST • Balanced)</option>
+                <option value="research-context">📚 Long Context & Research (1M Window • Balanced)</option>
+                <option value="openrouter-heavy">👑 Frontier Flagship (550B & GPT-4o • Heavy Quota ⚠️)</option>
               </optgroup>
               <optgroup label="─── Google Gemini (Active Pool) ───">
-                <option value="gemini:gemini-3.8-flash">Gemini 3.8 Flash (Active 1/5)</option>
-                <option value="gemini:gemini-3-flash-preview">Gemini 3 Flash Preview</option>
+                <option value="gemini:gemini-3.8-flash">Gemini 3.8 Flash (Active 1/5 • Economical 🟢)</option>
+                <option value="gemini:gemini-3-flash-preview">Gemini 3 Flash Preview (Economical 🟢)</option>
               </optgroup>
               <optgroup label="─── Groq Ultra-Fast LPUs ───">
-                <option value="groq:openai/gpt-oss-120b">Groq GPT-OSS 120B (High Reasoning)</option>
-                <option value="groq:qwen/qwen3.8-27b">Groq Qwen 3.8 27B (Fast Tool Calling)</option>
+                <option value="groq:openai/gpt-oss-120b">Groq GPT-OSS 120B (High Reasoning • Heavy ⚠️)</option>
+                <option value="groq:qwen/qwen3.8-27b">Groq Qwen 3.8 27B (Fast Tool Calling 🟢)</option>
               </optgroup>
               <optgroup label="─── GitHub Models (OpenAI Frontier via PAT) ───">
-                <option value="github:gpt-4o">OpenAI GPT-4o (GitHub)</option>
-                <option value="github:gpt-4o-mini">OpenAI GPT-4o Mini (GitHub)</option>
-                <option value="github:o1-mini">OpenAI o1-mini Reasoning (GitHub)</option>
+                <option value="github:gpt-4o">OpenAI GPT-4o (Frontier Omni • Heavy ⚠️)</option>
+                <option value="github:gpt-4o-mini">OpenAI GPT-4o Mini (Fast Q&A 🟢)</option>
+                <option value="github:o1-mini">OpenAI o1-mini Reasoning (High Quota ⚠️)</option>
                 <option value="github:meta-llama-3.3-70b-instruct">Meta Llama 3.3 70B (GitHub)</option>
               </optgroup>
               <optgroup label="─── Cloudflare Workers AI (Serverless Edge) ───">
-                <option value="cloudflare:@cf/meta/llama-3.3-70b-instruct-fp8-fast">Llama 3.3 70B Fast (Cloudflare)</option>
-                <option value="cloudflare:@cf/meta/llama-3.1-8b-instruct">Llama 3.1 8B (Cloudflare)</option>
-                <option value="cloudflare:@cf/qwen/qwen1.5-7b-chat-awq">Qwen 1.5 7B Chat (Cloudflare)</option>
+                <option value="cloudflare:@cf/meta/llama-3.3-70b-instruct-fp8-fast">Llama 3.3 70B Fast (Edge)</option>
+                <option value="cloudflare:@cf/meta/llama-3.1-8b-instruct">Llama 3.1 8B (Edge Low Quota 🟢)</option>
+                <option value="cloudflare:@cf/qwen/qwen1.5-7b-chat-awq">Qwen 1.5 7B Chat (Edge)</option>
               </optgroup>
               <optgroup label="─── Open Models (OpenRouter Pool) ───">
-                <option value="openrouter:nvidia/nemotron-3-ultra-550b-a55b:free">Nemotron 3 Ultra 550B</option>
+                <option value="openrouter:nvidia/nemotron-3-ultra-550b-a55b:free">Nemotron 3 Ultra 550B (Giant • Heavy ⚠️)</option>
                 <option value="openrouter:nvidia/nemotron-3.5-lightning:free">Nemotron 3.5 Lightning (1M Context)</option>
                 <option value="openrouter:meta-llama/llama-3.3-70b-instruct:free">Meta Llama 3.3 70B Instruct</option>
                 <option value="openrouter:google/gemma-4-31b-it:free">Google Gemma 4 31B IT</option>
@@ -723,6 +726,25 @@ export function getUserWorkspaceHtml(username: string): string {
           <div id="model-status-badge" style="font-size:11px; color:#10b981; display:flex; align-items:center; gap:6px;">
             <span style="width:6px; height:6px; border-radius:50%; background:#10b981; display:inline-block;"></span>
             <span>All Models Healthy</span>
+          </div>
+        </div>
+
+        <!-- Zero-FOMO & Quota Advisory Banner -->
+        <div id="model-advisory-banner" style="background:#090d16; border:1px solid #1e293b; border-radius:10px; padding:10px 14px; margin-bottom:14px; display:flex; align-items:flex-start; gap:10px; font-size:12px;">
+          <span style="font-size:15px; line-height:1; margin-top:2px;">💡</span>
+          <div style="flex:1;">
+            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:6px;">
+              <span style="font-weight:600; color:#38bdf8;">Smart Multi-Model Governance</span>
+              <span id="quota-warning-badge" style="font-size:10px; padding:2px 7px; border-radius:10px; font-weight:600; background:rgba(16,185,129,0.12); color:#10b981; border:1px solid rgba(16,185,129,0.25);">
+                🟢 Low Quota Usage (Economical)
+              </span>
+            </div>
+            <p style="margin:4px 0 0; color:#94a3b8; font-size:11.5px; line-height:1.45;">
+              Access 19 top models across Google, Groq, GitHub Models, Cloudflare & OpenRouter without FOMO. Smart Modes auto-select the best model and <strong>auto-switch to fallback models if errors or rate limits occur</strong>.
+              <span style="display:block; margin-top:4px; color:#f59e0b;">
+                ⚠️ <strong>Quota Notice:</strong> Heavier reasoning models (550B, 120B, o1-mini, GPT-4o) consume provider rate-limits much faster. Use <strong>Auto</strong> or <strong>Fast</strong> for everyday questions to conserve limits.
+              </span>
+            </p>
           </div>
         </div>
 
@@ -926,11 +948,45 @@ export function getUserWorkspaceHtml(username: string): string {
     function onModelPreferenceChange() {
       const select = document.getElementById('chat-model-select');
       const badge = document.getElementById('model-status-badge');
-      if (select && badge) {
-        if (select.value === 'auto') {
-          badge.innerHTML = '<span style="width:6px; height:6px; border-radius:50%; background:#38bdf8; display:inline-block;"></span><span style="color:#38bdf8;">Smart Auto-Router Active</span>';
+      const quotaBadge = document.getElementById('quota-warning-badge');
+      if (!select) return;
+      const val = select.value;
+
+      // Identify heavy models for quota advisory
+      const isHeavy = val === 'groq-120b' ||
+        val === 'openrouter-heavy' ||
+        val === 'github:o1-mini' ||
+        val === 'github:gpt-4o' ||
+        val === 'groq:openai/gpt-oss-120b' ||
+        val.includes('550b') ||
+        val.includes('120b');
+
+      if (quotaBadge) {
+        if (isHeavy) {
+          quotaBadge.style.background = 'rgba(239,68,68,0.15)';
+          quotaBadge.style.color = '#f87171';
+          quotaBadge.style.border = '1px solid rgba(239,68,68,0.3)';
+          quotaBadge.textContent = '⚠️ Heavy Quota Usage (Uses Limits Fast)';
+        } else if (val === 'code-dev' || val === 'research-context' || val.includes('70b')) {
+          quotaBadge.style.background = 'rgba(245,158,11,0.15)';
+          quotaBadge.style.color = '#f59e0b';
+          quotaBadge.style.border = '1px solid rgba(245,158,11,0.3)';
+          quotaBadge.textContent = '🟠 Balanced Quota Usage';
         } else {
-          badge.innerHTML = '<span style="width:6px; height:6px; border-radius:50%; background:#10b981; display:inline-block;"></span><span style="color:#10b981;">Manual Model Locked</span>';
+          quotaBadge.style.background = 'rgba(16,185,129,0.12)';
+          quotaBadge.style.color = '#10b981';
+          quotaBadge.style.border = '1px solid rgba(16,185,129,0.25)';
+          quotaBadge.textContent = '🟢 Low Quota Usage (Economical)';
+        }
+      }
+
+      if (badge) {
+        if (val === 'auto') {
+          badge.innerHTML = '<span style="width:6px; height:6px; border-radius:50%; background:#38bdf8; display:inline-block;"></span><span style="color:#38bdf8;">Smart Auto-Router Active</span>';
+        } else if (['gemini-flash', 'groq-120b', 'code-dev', 'research-context', 'openrouter-heavy'].includes(val)) {
+          badge.innerHTML = '<span style="width:6px; height:6px; border-radius:50%; background:#10b981; display:inline-block;"></span><span style="color:#10b981;">Smart Category Active</span>';
+        } else {
+          badge.innerHTML = '<span style="width:6px; height:6px; border-radius:50%; background:#a855f7; display:inline-block;"></span><span style="color:#a855f7;">Individual Model Locked</span>';
         }
       }
     }
@@ -962,9 +1018,12 @@ export function getUserWorkspaceHtml(username: string): string {
               }
             } else {
               opt.disabled = false;
-              if (tier.tierId === 'auto') opt.textContent = '⚡ Auto (Smart Complexity Router)';
-              if (tier.tierId === 'gemini-flash') opt.textContent = '🚀 Fast: Gemini 3.8 Flash';
-              if (tier.tierId === 'groq-120b') opt.textContent = '🧠 Deep Reasoning: Groq GPT-OSS 120B';
+              if (tier.tierId === 'auto') opt.textContent = '⚡ Auto: Smart Adaptive (Auto-Routes & Self-Heals)';
+              if (tier.tierId === 'gemini-flash') opt.textContent = '🚀 Fast & Responsive (Quick Q&A • Low Quota 🟢)';
+              if (tier.tierId === 'groq-120b') opt.textContent = '🧠 Deep Reasoning & Math (120B AST • Heavy Quota ⚠️)';
+              if (tier.tierId === 'code-dev') opt.textContent = '💻 Code Architect & Debugging (GPT-4o & AST • Balanced)';
+              if (tier.tierId === 'research-context') opt.textContent = '📚 Long Context & Research (1M Window • Balanced)';
+              if (tier.tierId === 'openrouter-heavy') opt.textContent = '👑 Frontier Flagship (550B & GPT-4o • Heavy Quota ⚠️)';
             }
           });
         }
@@ -1058,7 +1117,7 @@ export function getUserWorkspaceHtml(username: string): string {
       return div.innerHTML;
     }
 
-    function appendMessageBubble(role, content, autoScroll = true) {
+    function appendMessageBubble(role, content, autoScroll = true, meta = null) {
       const emptyState = document.getElementById('empty-state');
       if (emptyState) emptyState.remove();
 
@@ -1068,7 +1127,34 @@ export function getUserWorkspaceHtml(username: string): string {
 
       const header = document.createElement('div');
       header.className = 'msg-header';
-      header.textContent = role === 'user' ? '👤 You' : '⚡ Assistant';
+      header.style.display = 'flex';
+      header.style.justifyContent = 'space-between';
+      header.style.alignItems = 'center';
+
+      const titleSpan = document.createElement('span');
+      titleSpan.textContent = role === 'user' ? '👤 You' : '⚡ Assistant';
+      header.appendChild(titleSpan);
+
+      if (role === 'assistant' && meta && meta.usedModel) {
+        const badge = document.createElement('span');
+        badge.style.fontSize = '10.5px';
+        badge.style.padding = '2px 7px';
+        badge.style.borderRadius = '6px';
+        badge.style.fontWeight = '600';
+        if (meta.switched) {
+          badge.style.background = 'rgba(245,158,11,0.16)';
+          badge.style.color = '#f59e0b';
+          badge.style.border = '1px solid rgba(245,158,11,0.35)';
+          badge.textContent = '🔄 Auto-switched: ' + meta.usedModel;
+          badge.title = 'Primary model experienced high traffic or rate-limits; ShunopsAI auto-switched to this healthy fallback.';
+        } else {
+          badge.style.background = 'rgba(56,189,248,0.12)';
+          badge.style.color = '#38bdf8';
+          badge.style.border = '1px solid rgba(56,189,248,0.25)';
+          badge.textContent = '🎯 ' + meta.usedModel;
+        }
+        header.appendChild(badge);
+      }
 
       const body = document.createElement('div');
       body.className = 'msg-body';
@@ -1225,7 +1311,26 @@ export function getUserWorkspaceHtml(username: string): string {
         removeThinkingIndicator();
 
         const reply = data.reply || 'No response received. Please try again.';
-        appendMessageBubble('assistant', reply);
+        const usedModel = data.usedModel || '';
+        const pref = modelPreference;
+        let isSwitched = false;
+        if (usedModel && pref !== 'auto') {
+          // If preference was an individual model e.g. "github:gpt-4o"
+          if (pref.includes(':') && !usedModel.toLowerCase().includes(pref.split(':')[1].toLowerCase())) {
+            isSwitched = true;
+          }
+          // If preference was a smart category that didn't land on its primary
+          if (pref === 'gemini-flash' && !usedModel.toLowerCase().includes('gemini')) isSwitched = true;
+          if (pref === 'groq-120b' && !usedModel.toLowerCase().includes('120b')) isSwitched = true;
+          if (pref === 'code-dev' && !usedModel.toLowerCase().includes('gpt-4o') && !usedModel.toLowerCase().includes('code')) isSwitched = true;
+          if (pref === 'research-context' && !usedModel.toLowerCase().includes('lightning') && !usedModel.toLowerCase().includes('gemini')) isSwitched = true;
+          if (pref === 'openrouter-heavy' && !usedModel.toLowerCase().includes('550b') && !usedModel.toLowerCase().includes('gpt-4o')) isSwitched = true;
+        }
+
+        appendMessageBubble('assistant', reply, true, {
+          usedModel: usedModel ? usedModel.replace(/^openrouter:/i, '').replace(/^github:/i, '').replace(/^gemini:/i, '').replace(/^groq:/i, '').replace(/^cloudflare:/i, '') : '',
+          switched: isSwitched,
+        });
 
         conversationHistory.push({ role: 'user', content: msg });
         conversationHistory.push({ role: 'assistant', content: reply });
@@ -1236,7 +1341,8 @@ export function getUserWorkspaceHtml(username: string): string {
           const badge = document.getElementById('model-status-badge');
           if (badge) {
             const compLabel = data.routedComplexity === 'complex' ? '🧠 Deep Reasoning' : '🚀 Fast Flash';
-            badge.innerHTML = '<span style="width:6px; height:6px; border-radius:50%; background:#38bdf8; display:inline-block;"></span><span style="color:#38bdf8;">Auto-routed: ' + compLabel + '</span>';
+            const switchNotice = usedModel ? (' (' + usedModel.split(':')[0].toUpperCase() + ')') : '';
+            badge.innerHTML = '<span style="width:6px; height:6px; border-radius:50%; background:#38bdf8; display:inline-block;"></span><span style="color:#38bdf8;">Auto-routed: ' + compLabel + switchNotice + '</span>';
           }
         }
         fetchModelStatus();

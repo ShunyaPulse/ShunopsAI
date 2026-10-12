@@ -133,6 +133,30 @@ export async function analyzeTaskComplexity(
 }
 
 /**
+ * Deduplicate targets while guaranteeing full fallback coverage across all configured models.
+ */
+function dedupeTargets(targets: ModelTarget[]): ModelTarget[] {
+  const seen = new Set<string>();
+  const out: ModelTarget[] = [];
+  for (const t of targets) {
+    const key = `${t.provider}:${t.model}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      out.push(t);
+    }
+  }
+  // Guarantee full fallback coverage: append any model from AGENT_MODELS_CHAIN not yet included
+  for (const m of AGENT_MODELS_CHAIN) {
+    const key = `${m.provider}:${m.model}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      out.push(m);
+    }
+  }
+  return out;
+}
+
+/**
  * Build candidate chain prioritized according to task complexity and user preference.
  */
 function buildCandidateChain(
@@ -142,18 +166,100 @@ function buildCandidateChain(
   const geminiFlash = AGENT_MODELS_CHAIN.filter((m) => m.provider === "gemini");
   const groq120b = AGENT_MODELS_CHAIN.filter((m) => m.provider === "groq" && m.model.includes("120b"));
   const groq27b = AGENT_MODELS_CHAIN.filter((m) => m.provider === "groq" && !m.model.includes("120b"));
-  const openRouterHeavy = AGENT_MODELS_CHAIN.filter((m) => m.provider === "openrouter");
+  const githubGpt4o = AGENT_MODELS_CHAIN.filter((m) => m.provider === "github" && m.model === "gpt-4o");
+  const githubO1 = AGENT_MODELS_CHAIN.filter((m) => m.provider === "github" && m.model === "o1-mini");
+  const githubMini = AGENT_MODELS_CHAIN.filter((m) => m.provider === "github" && m.model === "gpt-4o-mini");
+  const githubLlama = AGENT_MODELS_CHAIN.filter((m) => m.provider === "github" && m.model.includes("llama"));
+  const cloudflareModels = AGENT_MODELS_CHAIN.filter((m) => m.provider === "cloudflare");
+  const openRouter550b = AGENT_MODELS_CHAIN.filter((m) => m.provider === "openrouter" && m.model.includes("550b"));
+  const openRouterLightning = AGENT_MODELS_CHAIN.filter((m) => m.provider === "openrouter" && m.model.includes("lightning"));
+  const openRouterCode = AGENT_MODELS_CHAIN.filter((m) => m.provider === "openrouter" && m.model.includes("code"));
+  const openRouter70b = AGENT_MODELS_CHAIN.filter((m) => m.provider === "openrouter" && m.model.includes("llama-3.3-70b"));
+  const openRouterGemma = AGENT_MODELS_CHAIN.filter((m) => m.provider === "openrouter" && m.model.includes("gemma"));
+  const openRouterRemaining = AGENT_MODELS_CHAIN.filter(
+    (m) =>
+      m.provider === "openrouter" &&
+      !m.model.includes("550b") &&
+      !m.model.includes("lightning") &&
+      !m.model.includes("code") &&
+      !m.model.includes("llama-3.3-70b") &&
+      !m.model.includes("gemma")
+  );
 
-  if (preference === "gemini-flash") {
-    return [...geminiFlash, ...groq27b, ...groq120b, ...openRouterHeavy];
+  // 1. Fast & Responsive (Quick Q&A, low quota consumption)
+  if (preference === "fast" || preference === "gemini-flash") {
+    return dedupeTargets([
+      ...geminiFlash,
+      ...groq27b,
+      ...cloudflareModels,
+      ...githubMini,
+      ...groq120b,
+      ...githubGpt4o,
+      ...openRouterLightning,
+      ...openRouterRemaining,
+    ]);
   }
 
-  if (preference === "groq-120b") {
-    return [...groq120b, ...groq27b, ...openRouterHeavy, ...geminiFlash];
+  // 2. Deep Reasoning & Math (120B AST, logic puzzles, multi-step deductions)
+  if (preference === "deep-reasoning" || preference === "groq-120b") {
+    return dedupeTargets([
+      ...groq120b,
+      ...githubO1,
+      ...openRouter550b,
+      ...openRouter70b,
+      ...githubLlama,
+      ...geminiFlash,
+      ...groq27b,
+      ...cloudflareModels,
+    ]);
+  }
+
+  // 3. Code Architect & Debugging (AST analysis, refactoring, code generation)
+  if (preference === "code" || preference === "code-dev") {
+    return dedupeTargets([
+      ...githubGpt4o,
+      ...openRouterCode,
+      ...groq120b,
+      ...geminiFlash,
+      ...cloudflareModels,
+      ...groq27b,
+      ...openRouterRemaining,
+    ]);
+  }
+
+  // 4. Long Context & Research (1M context window, doc analysis, large repo review)
+  if (preference === "research" || preference === "research-context") {
+    return dedupeTargets([
+      ...openRouterLightning,
+      ...geminiFlash,
+      ...openRouterGemma,
+      ...githubLlama,
+      ...openRouter550b,
+      ...groq120b,
+      ...openRouterRemaining,
+    ]);
+  }
+
+  // 5. Frontier Flagship (Maximum reasoning fidelity & flagship intelligence)
+  if (preference === "frontier" || preference === "frontier-master") {
+    return dedupeTargets([
+      ...githubGpt4o,
+      ...openRouter550b,
+      ...githubLlama,
+      ...groq120b,
+      ...geminiFlash,
+      ...openRouterRemaining,
+    ]);
   }
 
   if (preference === "openrouter-heavy") {
-    return [...openRouterHeavy, ...groq120b, ...geminiFlash, ...groq27b];
+    return dedupeTargets([
+      ...openRouter550b,
+      ...openRouter70b,
+      ...groq120b,
+      ...geminiFlash,
+      ...groq27b,
+    ]);
   }
 
   // Handle specific model selection: "provider:model" (e.g. "openrouter:meta-llama/llama-3.3-70b-instruct:free")
@@ -165,23 +271,36 @@ function buildCandidateChain(
       (m) => m.provider === prefProvider && m.model === prefModel
     );
     if (chosen) {
-      const remaining = AGENT_MODELS_CHAIN.filter(
-        (m) => !(m.provider === prefProvider && m.model === prefModel)
-      );
-      return [chosen, ...remaining];
+      return dedupeTargets([chosen, ...AGENT_MODELS_CHAIN]);
     }
   }
 
-  // 'auto' mode: Smart Complexity-Based Priority
+  // 'auto' mode: Smart Adaptive Complexity-Based Priority
   if (complexity === "complex") {
     // GEMINI.md Rule 1: Heavyweight Reasoning & AST Debugging Backbones:
-    // Groq 120B reasoning -> OpenRouter Heavyweights -> Gemini Flash -> Groq 27B
-    return [...groq120b, ...openRouterHeavy, ...geminiFlash, ...groq27b];
+    // Groq 120B reasoning -> OpenAI o1-mini -> OpenRouter 550B -> GitHub GPT-4o -> Gemini Flash -> Groq 27B
+    return dedupeTargets([
+      ...groq120b,
+      ...githubO1,
+      ...openRouter550b,
+      ...githubGpt4o,
+      ...openRouterCode,
+      ...geminiFlash,
+      ...groq27b,
+      ...cloudflareModels,
+    ]);
   }
 
   // Simple tasks: Fast zero-latency models first:
-  // Gemini 3.8 Flash -> Groq 27B -> Groq 120B -> OpenRouter Heavyweights
-  return [...geminiFlash, ...groq27b, ...groq120b, ...openRouterHeavy];
+  // Gemini 3.8 Flash -> Groq 27B -> Cloudflare Llama 3.3 Fast -> GitHub GPT-4o Mini -> Groq 120B -> OpenRouter
+  return dedupeTargets([
+    ...geminiFlash,
+    ...groq27b,
+    ...cloudflareModels,
+    ...githubMini,
+    ...groq120b,
+    ...openRouterRemaining,
+  ]);
 }
 
 /**

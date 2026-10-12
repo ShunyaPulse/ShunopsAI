@@ -221,6 +221,9 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
 
         reply.header("X-Routed-Complexity", routedComplexity);
         reply.header("X-Model-Preference", modelPreference || "auto");
+        if (result.usedModel) {
+          reply.header("X-Used-Model", result.usedModel);
+        }
 
         // Record modern token consumption for authenticated non-BYOK users
         if (authenticatedUser && !isBYOK) {
@@ -245,6 +248,7 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
             totalTokens: inTokens + outTokens,
           },
           routedComplexity,
+          usedModel: result.usedModel,
           modelPreference: modelPreference || "auto",
         };
       } catch (error: any) {
