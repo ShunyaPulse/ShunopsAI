@@ -290,7 +290,7 @@ export async function runAutoAlertResolver(
       execFileSync("git", [
         "commit",
         "-m",
-        `fix(security): auto-resolved ${resolvedCount} code scanning alerts by ShunopsAI [skip ci]`,
+        `fix(security): auto-resolved ${resolvedCount} code scanning alerts by ShunopsAI`,
       ], { env: authEnv });
       const pat = process.env.GH_PAT || process.env.GITHUB_PAT;
       if (pat) {

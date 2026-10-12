@@ -2,6 +2,7 @@ import "dotenv/config";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { geminiGenerate, kaggle } from "../../tools/video.js";
+import { synthesizeGoogleCloudTTS } from "../../tools/gcp-tts.js";
 
 export interface ChapterResearch {
   title: string;
@@ -141,10 +142,10 @@ STRICT FILMMAKING DIRECTIVES:
 1. ZERO HALLUCINATION / ZERO MODERN FICTION:
    - Ground every scene in the factual research data. Do NOT add modern gadgets, altered plots, or fictitious characters.
 2. DUAL-VOICE ARCHITECTURE:
-   - Default Narrator voice: "hi-IN-MadhurNeural" (speaks dramatic, captivating, crystal-clear Hindi narration explaining the scene and psychological depth).
+   - Default Narrator voice: "hi-IN-Neural2-B" (Google Cloud Studio voice: speaks dramatic, captivating, crystal-clear Hindi narration explaining the scene and psychological depth).
    - Character dialogue scenes (speaking iconic textbook lines):
-     * Set "speaker" to the character's name (e.g. "${research.characters[0]?.name || "Protagonist"}")
-     * Set "voice" to "en-IN-PrabhatNeural" or "en-US-AndrewNeural"
+     * Set "speaker" to the character's name (e.g. "${research.characters[0]?.name || "The Narrator"}" or "The Photographer")
+     * Set "voice" to a Kokoro-82M voice: "am_adam" (for natural sincere male voice), "bm_george" (for cold/intellectual male technician), or "af_heart" (for female characters)
      * In "narration", write the verbatim English line from the textbook!
    - Exam Booster scenes (final 2-3 scenes):
      * Set "speaker" to "Exam Booster"
@@ -172,7 +173,7 @@ Respond strictly in valid JSON matching this schema:
     "visual_prompt": string
   },
   "language": "Hindi",
-  "voice": "hi-IN-MadhurNeural",
+  "voice": "hi-IN-Neural2-B",
   "rate": "+10%",
   "scenes": [
     {
@@ -193,13 +194,13 @@ Respond strictly in valid JSON matching this schema:
 
   const script: ChapterScript = JSON.parse(clean);
   script.language = script.language || "Hindi";
-  script.voice = script.voice || "hi-IN-MadhurNeural";
+  script.voice = script.voice || "hi-IN-Neural2-B";
   script.rate = script.rate || "+10%";
 
   // Safety sanitation for scene voices
   for (const sc of script.scenes) {
     if (!sc.voice) {
-      sc.voice = sc.speaker && sc.speaker !== "Narrator" ? "en-IN-PrabhatNeural" : script.voice;
+      sc.voice = sc.speaker && sc.speaker !== "Narrator" && sc.speaker !== "Exam Booster" ? "am_adam" : script.voice;
     }
   }
 
@@ -235,6 +236,36 @@ export async function launchChapterJob(
   await fs.mkdir(dsDir, { recursive: true });
   await fs.mkdir(kDir, { recursive: true });
 
+  // Synthesize Hindi narration via Google Cloud TTS Neural2 locally before dispatching to Kaggle
+  const audioDir = path.join(dsDir, "audio");
+  await fs.mkdir(audioDir, { recursive: true });
+
+  console.log(`\n🎙️ [Audio Pre-Synthesis] Synthesizing Hindi narration via Google Cloud Neural2...`);
+  for (let i = 0; i < script.scenes.length; i++) {
+    const sc = script.scenes[i];
+    if (!sc) continue;
+    const isHindi = !sc.speaker || sc.speaker === "Narrator" || sc.speaker === "Exam Booster" || (sc as any).language === "Hindi" || /[\u0900-\u097F]/.test(sc.narration);
+    if (isHindi) {
+      const outAudio = path.join(audioDir, `a${String(i).padStart(3, "0")}.mp3`);
+      const voiceName = sc.voice && sc.voice.startsWith("hi-IN-") ? sc.voice : "hi-IN-Neural2-B";
+      try {
+        const ok = await synthesizeGoogleCloudTTS(sc.narration, outAudio, {
+          voiceName,
+          language: "Hindi",
+        });
+        if (ok) {
+          console.log(`   ✅ Scene ${i + 1}/${script.scenes.length} synthesized via Google Cloud TTS (${voiceName})`);
+        } else {
+          console.warn(`   ⚠️ Scene ${i + 1} Google Cloud TTS skipped, runner will fallback.`);
+        }
+      } catch (err: any) {
+        console.warn(`   ⚠️ Scene ${i + 1} Google Cloud TTS error: ${err.message}`);
+      }
+    } else {
+      console.log(`   🎭 Scene ${i + 1}/${script.scenes.length} is English dialogue ("${sc.speaker}"). Will synthesize via Kokoro-82M on Kaggle GPU.`);
+    }
+  }
+
   await fs.writeFile(path.join(dsDir, "script.json"), JSON.stringify(script, null, 2));
   await fs.writeFile(
     path.join(dsDir, "dataset-metadata.json"),
@@ -250,6 +281,7 @@ export async function launchChapterJob(
     JSON.stringify({
       groq_api_key: process.env.GROQ_API_KEY || "",
       hf_token: process.env.HF_TOKEN || "",
+      gcp_tts_api_key: process.env.GCP_TTS_API_KEY || process.env.GOOGLE_TTS_API_KEY || process.env.GEMINI_API_KEY?.split(",")[0] || "",
     }, null, 2)
   );
 

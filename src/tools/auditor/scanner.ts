@@ -40,7 +40,8 @@ function detectInsecureRandomness(
   lineNo: number
 ): CodeFlawCandidate | null {
   if (!/Math\.random\(\)/.test(line) || isTestFile(filePath)) return null;
-  if (!/id|token|key|secret|auth|nonce|session|approval/i.test(line)) return null;
+  const context = surroundingSnippet(lines, index);
+  if (!/id|token|key|secret|auth|nonce|session|approval|pool|offset/i.test(line) && !/id|token|key|secret|auth|pool/i.test(context)) return null;
 
   return flaw(
     filePath,

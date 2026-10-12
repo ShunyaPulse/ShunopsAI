@@ -40,13 +40,22 @@ for mod in list(sys.modules.keys()):
     if "torchao" in mod:
         del sys.modules[mod]
 
-# Ensure all dependencies are present and upgraded
+# Ensure core video diffusion dependencies are installed first
 subprocess.run([
     sys.executable, "-m", "pip", "install", "-q", "-U",
-    "diffusers", "transformers", "accelerate", "safetensors", "huggingface_hub", "edge-tts"
+    "diffusers", "transformers", "accelerate", "safetensors", "huggingface_hub"
 ], check=False)
 
-import edge_tts
+# Install audio synthesis engines in isolated steps (ensures zero failure cascade)
+subprocess.run([sys.executable, "-m", "pip", "install", "-q", "edge-tts"], check=False)
+subprocess.run([sys.executable, "-m", "pip", "install", "-q", "kokoro-onnx", "soundfile"], check=False)
+subprocess.run([sys.executable, "-m", "pip", "install", "-q", "kokoro"], check=False)
+
+try:
+    import edge_tts
+except ImportError:
+    edge_tts = None
+
 import torch
 
 # Force PyTorch SDPA to use native Turing (SM 7.5) Memory-Efficient attention
@@ -99,33 +108,127 @@ def duration(path):
 
 
 # ==========================================
-# Edge-TTS Circuit Breaker & Resilient Fallback
+# Audio Synthesis Engines: Google Cloud Neural2 + Kokoro-82M + Edge-TTS
 # ==========================================
-EDGE_TTS_AVAILABLE = True
+EDGE_TTS_AVAILABLE = False
+kokoro_pipeline = None
 
-async def probe_edge_tts(voice, rate="+0%", max_retries=3):
+
+def get_kokoro_pipeline():
+    global kokoro_pipeline
+    if kokoro_pipeline is not None:
+        return kokoro_pipeline
+    try:
+        from kokoro import KPipeline
+        kokoro_pipeline = KPipeline(lang_code="a")
+        print("[Kokoro-82M] ✅ Neural pipeline loaded successfully on GPU runner.")
+        return kokoro_pipeline
+    except Exception as e:
+        print(f"[Kokoro-82M] ⚠️ Kokoro init notice: {e}")
+        return None
+
+
+def resolve_kokoro_voice(speaker, voice):
+    sp = (speaker or "").lower()
+    v = (voice or "").lower()
+    if "photographer" in sp:
+        return "bm_george"  # Deep, cold, British intellectual technician tone
+    if "narrator" in sp and sp != "narrator":
+        return "am_adam"    # Natural, sincere, emotional gentleman tone
+    if "female" in v or "woman" in sp or "girl" in sp:
+        return "af_heart"
+    return "am_adam"
+
+
+def synthesize_kokoro_audio(text, voice_name, out_path, speed=1.0):
+    try:
+        pipeline = get_kokoro_pipeline()
+        if not pipeline:
+            return False
+        import soundfile as sf
+        clean_text = text.strip("\"' \n\t")
+        generator = pipeline(clean_text, voice=voice_name, speed=speed)
+        wav_tmp = out_path.replace(".mp3", ".wav")
+        saved = False
+        for _, _, audio in generator:
+            sf.write(wav_tmp, audio, 24000)
+            saved = True
+            break
+        if saved and os.path.exists(wav_tmp):
+            subprocess.run(["ffmpeg", "-y", "-i", wav_tmp, "-b:a", "192k", out_path], capture_output=True, check=False)
+            if os.path.exists(wav_tmp):
+                os.remove(wav_tmp)
+            if os.path.exists(out_path) and os.path.getsize(out_path) > 300:
+                print(f"[Kokoro-82M] ✅ Synthesized English dialogue ({voice_name}): '{clean_text[:40]}...'")
+                return True
+        return False
+    except Exception as e:
+        print(f"[Kokoro-82M] ⚠️ Synthesis error: {e}")
+        return False
+
+
+def synthesize_gcp_cloud_tts(text, voice_name, out_path, gcp_key, default_lang="hi-IN"):
     """
-    Performs a lightweight pre-flight probe at startup with up to 3 retries.
-    If Microsoft Edge-TTS is blocked or unreachable after 3 attempts, raises RuntimeError immediately.
-    Halts the job before expensive GPU models are loaded to avoid wasting GPU quota on a mute video.
+    Direct autonomous cloud synthesis on Kaggle/remote runners via Google Cloud REST API.
+    Supports both Hindi (hi-IN-Neural2-B) and English (en-US-Neural2-J / en-IN-Neural2-B).
+    Does not depend on any local laptop or environment.
     """
+    if not gcp_key:
+        return False
+    try:
+        import urllib.request
+        import base64
+        clean_key = gcp_key.split(",")[0].strip()
+        url = f"https://texttospeech.googleapis.com/v1/text:synthesize?key={clean_key}"
+        v_name = voice_name or ("hi-IN-Neural2-B" if default_lang == "hi-IN" else "en-US-Neural2-J")
+        lang_code = "en-US" if "en-US" in v_name else ("en-IN" if "en-IN" in v_name else ("hi-IN" if "hi-IN" in v_name else default_lang))
+        payload = {
+            "input": {"text": text},
+            "voice": {"languageCode": lang_code, "name": v_name},
+            "audioConfig": {"audioEncoding": "MP3", "speakingRate": 1.0, "sampleRateHertz": 44100}
+        }
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"}
+        )
+        with urllib.request.urlopen(req, timeout=20) as res:
+            data = json.loads(res.read().decode("utf-8"))
+            if "audioContent" in data:
+                audio_bytes = base64.b64decode(data["audioContent"])
+                with open(out_path, "wb") as f:
+                    f.write(audio_bytes)
+                if os.path.exists(out_path) and os.path.getsize(out_path) > 300:
+                    print(f"[GCP Cloud TTS] ✅ Direct cloud synthesis succeeded ({v_name}): '{text[:40]}...'")
+                    return True
+        return False
+    except Exception as e:
+        print(f"[GCP Cloud TTS] ⚠️ Direct cloud synthesis notice: {e}")
+        return False
+
+
+async def probe_edge_tts(voice, rate="+0%", max_retries=2):
+    global EDGE_TTS_AVAILABLE
+    if edge_tts is None:
+        EDGE_TTS_AVAILABLE = False
+        return False
     for attempt in range(1, max_retries + 1):
         try:
             communicate = edge_tts.Communicate("test probe", voice, rate=rate)
             async for chunk in communicate.stream():
                 if chunk["type"] == "audio":
                     break
-            print("[TTS] ✅ Edge-TTS pre-flight probe succeeded. Primary engine: Edge-TTS.")
+            print("[TTS] ✅ Edge-TTS connection verified.")
+            EDGE_TTS_AVAILABLE = True
             return True
         except Exception as e:
-            print(f"[TTS] ⚠️ Edge-TTS pre-flight probe attempt {attempt}/{max_retries} failed: {e}")
+            print(f"[TTS] ⚠️ Edge-TTS probe attempt {attempt}/{max_retries} notice: {e}")
             if attempt < max_retries:
-                await asyncio.sleep(2 * attempt)
+                await asyncio.sleep(2)
 
-    raise RuntimeError(
-        f"[TTS] ❌ Fatal: Edge-TTS connection failed after {max_retries} attempts. "
-        "Halting job immediately to prevent rendering a mute video and wasting GPU quota."
-    )
+    print("[TTS] ⚠️ Edge-TTS unavailable on runner network. Pipeline will utilize Cloud GCP Audio & Kokoro-82M.")
+    EDGE_TTS_AVAILABLE = False
+    return False
 
 
 async def tts_with_boundaries(text, voice, a_path, rate="+0%", max_retries=3):
@@ -543,17 +646,45 @@ async def main():
         v_path = f"{TMP}/v{i:03d}.mp4"
 
         print(f"\n--- [Scene {i+1}/{len(scenes)}] ---")
-        # Check if pre-packaged audio exists in dataset
+        # 1. Audio Acquisition: Pre-packaged GCP Audio ➔ Kokoro-82M ➔ Edge-TTS
         dataset_audio = os.path.join(os.path.dirname(script_path), "audio", f"a{i:03d}.mp3")
+        submaker = None
+
         if os.path.exists(dataset_audio) and os.path.getsize(dataset_audio) > 500:
             shutil.copyfile(dataset_audio, a_path)
             print(f"[TTS] Using pre-packaged audio ({os.path.getsize(a_path)} bytes).")
-            submaker = edge_tts.SubMaker()
         else:
-            submaker = await tts_with_boundaries(sc["narration"], voice, a_path, rate=rate)
+            # Check if this scene is English dialogue
+            is_hindi = not sc.get("speaker") or sc.get("speaker") == "Narrator" or any("\u0900" <= c <= "\u097F" for c in sc.get("narration", ""))
+            audio_ready = False
 
-        if not os.path.exists(a_path) or os.path.getsize(a_path) < 100:
-            raise RuntimeError(f"[TTS] Critical: Audio missing for scene {i+1}. Halting pipeline to prevent rendering a mute video.")
+            if not is_hindi:
+                k_voice = resolve_kokoro_voice(sc.get("speaker", ""), sc.get("voice", ""))
+                print(f"[TTS] Synthesizing English dialogue via Kokoro-82M ('{k_voice}')...")
+                audio_ready = synthesize_kokoro_audio(sc["narration"], k_voice, a_path)
+                if not audio_ready:
+                    gcp_key = cfg.get("gcp_tts_api_key", "")
+                    if gcp_key:
+                        eng_gcp_voice = "en-IN-Neural2-B" if "narrator" in (sc.get("speaker") or "").lower() else "en-US-Neural2-J"
+                        print(f"[TTS] Kokoro fallback -> Cloud GCP English Neural2 ('{eng_gcp_voice}')...")
+                        audio_ready = synthesize_gcp_cloud_tts(sc["narration"], eng_gcp_voice, a_path, gcp_key, default_lang="en-US")
+            else:
+                # Direct Autonomous Cloud GCP Synthesis on Kaggle
+                gcp_key = cfg.get("gcp_tts_api_key", "")
+                if gcp_key:
+                    print(f"[TTS] Synthesizing Hindi narration via Cloud Google Cloud TTS...")
+                    audio_ready = synthesize_gcp_cloud_tts(sc["narration"], sc.get("voice", voice), a_path, gcp_key, default_lang="hi-IN")
+
+            if not audio_ready and EDGE_TTS_AVAILABLE:
+                try:
+                    scene_voice = sc.get("voice") if (sc.get("voice") and not is_hindi) else voice
+                    submaker = await tts_with_boundaries(sc["narration"], scene_voice, a_path, rate=rate)
+                    audio_ready = True
+                except Exception as tts_e:
+                    print(f"[TTS] ⚠️ Edge-TTS failed for scene {i+1}: {tts_e}")
+
+            if not os.path.exists(a_path) or os.path.getsize(a_path) < 100:
+                raise RuntimeError(f"[TTS] Critical: Audio missing for scene {i+1}. Halting pipeline to prevent rendering a mute video.")
 
         d = round(duration(a_path), 3)
 

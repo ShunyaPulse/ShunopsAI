@@ -81,14 +81,17 @@ export async function synthesizeKokoroTTS(
   try {
     await fs.mkdir(path.dirname(outPath), { recursive: true });
 
-    // Execute Kokoro synthesis script via Python runner
+    // Execute Kokoro synthesis script via Python runner safely escaped
+    const safeText = JSON.stringify(text);
+    const safeOut = JSON.stringify(outPath.replace(/\\/g, "/"));
+    const safeVoice = JSON.stringify(voice);
     const script = `
 import kokoro
 import soundfile as sf
 pipeline = kokoro.KPipeline(lang_code='a')
-generator = pipeline("${text.replace(/"/g, '\\"')}", voice="${voice}", speed=${speed})
+generator = pipeline(${safeText}, voice=${safeVoice}, speed=${speed})
 for _, _, audio in generator:
-    sf.write("${outPath.replace(/\\/g, "/")}", audio, 24000)
+    sf.write(${safeOut}, audio, 24000)
     break
 `;
 

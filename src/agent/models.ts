@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import { randomInt } from "node:crypto";
 import { colors } from "../core/colors.js";
 import { recordCircuitBreakerSuccess, recordCircuitBreakerFailure } from "./circuitBreaker.js";
 
@@ -81,7 +82,7 @@ export function getOpenRouterKeysPool(): string[] {
       .map((k) => k.trim())
       .filter(Boolean);
     if (cachedOpenRouterKeys.length > 1) {
-      openRouterRoundRobinIndex = Math.floor(Math.random() * cachedOpenRouterKeys.length);
+      openRouterRoundRobinIndex = randomInt(0, cachedOpenRouterKeys.length);
     } else {
       openRouterRoundRobinIndex = 0;
     }
@@ -117,7 +118,7 @@ export function getGroqKeysPool(): string[] {
       .map((k) => k.trim())
       .filter(Boolean);
     if (cachedGroqKeys.length > 1) {
-      groqRoundRobinIndex = Math.floor(Math.random() * cachedGroqKeys.length);
+      groqRoundRobinIndex = randomInt(0, cachedGroqKeys.length);
     } else {
       groqRoundRobinIndex = 0;
     }
@@ -154,7 +155,7 @@ export function getApiKeysPool(): string[] {
       .filter(Boolean);
     // Initialize starting index once on startup so different services/instances start at different indices
     if (cachedKeys.length > 1) {
-      roundRobinIndex = Math.floor(Math.random() * cachedKeys.length);
+      roundRobinIndex = randomInt(0, cachedKeys.length);
     } else {
       roundRobinIndex = 0;
     }
@@ -186,16 +187,9 @@ export interface ProviderKeyOverrides {
 /**
  * Create an OpenAI-compatible client for a provider target, with optional request-scoped BYOK overrides.
  */
-import { randomInt } from "node:crypto";
-
 export function createClientForTarget(target: ModelTarget, overrides?: ProviderKeyOverrides): OpenAI {
   if (target.provider === "groq") {
-    const groqKeys = (process.env.GROQ_API_KEYS || process.env.GROQ_API_KEY || "")
-      .split(",")
-      .map((k) => k.trim())
-      .filter(Boolean);
-    const randomKey = groqKeys.length > 0 ? groqKeys[randomInt(0, groqKeys.length)] : undefined;
-    const apiKey = overrides?.groqApiKey || randomKey || process.env.GROQ_API_KEY;
+    const apiKey = overrides?.groqApiKey || getNextGroqKey() || process.env.GROQ_API_KEY;
     if (!apiKey) throw new Error("No Groq API key available");
     return new OpenAI({
       baseURL: GROQ_BASE_URL,
