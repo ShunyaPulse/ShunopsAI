@@ -186,9 +186,16 @@ export interface ProviderKeyOverrides {
 /**
  * Create an OpenAI-compatible client for a provider target, with optional request-scoped BYOK overrides.
  */
+import { randomInt } from "node:crypto";
+
 export function createClientForTarget(target: ModelTarget, overrides?: ProviderKeyOverrides): OpenAI {
   if (target.provider === "groq") {
-    const apiKey = overrides?.groqApiKey || getNextGroqKey() || process.env.GROQ_API_KEY;
+    const groqKeys = (process.env.GROQ_API_KEYS || process.env.GROQ_API_KEY || "")
+      .split(",")
+      .map((k) => k.trim())
+      .filter(Boolean);
+    const randomKey = groqKeys.length > 0 ? groqKeys[randomInt(0, groqKeys.length)] : undefined;
+    const apiKey = overrides?.groqApiKey || randomKey || process.env.GROQ_API_KEY;
     if (!apiKey) throw new Error("No Groq API key available");
     return new OpenAI({
       baseURL: GROQ_BASE_URL,
