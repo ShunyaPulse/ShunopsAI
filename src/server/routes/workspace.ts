@@ -16,6 +16,54 @@ import {
 } from "../db.js";
 import { McpHttpClient } from "../../agent/mcp/client.js";
 
+function isIpv4Address(hostname: string): boolean {
+  const parts = hostname.split(".");
+  if (parts.length !== 4) return false;
+  return parts.every((part) => /^\d+$/.test(part) && Number(part) >= 0 && Number(part) <= 255);
+}
+
+function isPrivateOrLocalIpv4(hostname: string): boolean {
+  if (!isIpv4Address(hostname)) return false;
+  const [a, b] = hostname.split(".").map((n) => Number(n));
+  if (a === 10) return true;
+  if (a === 127) return true;
+  if (a === 0) return true;
+  if (a === 169 && b === 254) return true;
+  if (a === 172 && b >= 16 && b <= 31) return true;
+  if (a === 192 && b === 168) return true;
+  return false;
+}
+
+function isDisallowedMcpTestUrl(rawUrl: string): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    return true;
+  }
+
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return true;
+  if (parsed.username || parsed.password) return true;
+  if (parsed.hash) return true;
+
+  const hostname = parsed.hostname.toLowerCase();
+  const blockedHosts = new Set([
+    "localhost",
+    "127.0.0.1",
+    "::1",
+    "0.0.0.0",
+    "169.254.169.254",
+    "metadata.google.internal",
+    "metadata.platform",
+  ]);
+
+  if (blockedHosts.has(hostname)) return true;
+  if (hostname.endsWith(".internal") || hostname.endsWith(".localhost")) return true;
+  if (isPrivateOrLocalIpv4(hostname)) return true;
+
+  return false;
+}
+
 export interface WorkspaceRouteOptions {
   requireAuth: preHandlerHookHandler;
 }
@@ -196,6 +244,15 @@ export async function workspaceRoutes(app: FastifyInstance, options: WorkspaceRo
       if (!serverUrl) {
         reply.status(400);
         return { success: false, connected: false, error: "Server URL is required to test MCP connection." };
+      }
+
+      if (isDisallowedMcpTestUrl(serverUrl)) {
+        reply.status(400);
+        return {
+          success: false,
+          connected: false,
+          error: "Server URL is invalid or not allowed for security reasons.",
+        };
       }
 
       try {
