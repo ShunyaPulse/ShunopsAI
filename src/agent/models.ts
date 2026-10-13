@@ -1,7 +1,10 @@
 import OpenAI from "openai";
 import { randomInt } from "node:crypto";
 import { colors } from "../core/colors.js";
-import { recordCircuitBreakerSuccess, recordCircuitBreakerFailure } from "./circuitBreaker.js";
+import { recordCircuitBreakerSuccess, recordCircuitBreakerFailure, isModelDegraded } from "./circuitBreaker.js";
+
+// Interactive chat timeout per individual model call (12s max before fast failover)
+const INFERENCE_TIMEOUT_MS = 12000;
 
 // ==========================================
 // Multi-Provider Model Configuration & Fallback Chain
@@ -194,6 +197,8 @@ export function createClientForTarget(target: ModelTarget, overrides?: ProviderK
     return new OpenAI({
       baseURL: GROQ_BASE_URL,
       apiKey,
+      timeout: INFERENCE_TIMEOUT_MS,
+      maxRetries: 0,
     });
   }
   if (target.provider === "gemini") {
@@ -202,6 +207,8 @@ export function createClientForTarget(target: ModelTarget, overrides?: ProviderK
     return new OpenAI({
       baseURL: GEMINI_OPENAI_BASE_URL,
       apiKey,
+      timeout: INFERENCE_TIMEOUT_MS,
+      maxRetries: 0,
     });
   }
   if (target.provider === "github") {
@@ -210,6 +217,8 @@ export function createClientForTarget(target: ModelTarget, overrides?: ProviderK
     return new OpenAI({
       baseURL: GITHUB_MODELS_BASE_URL,
       apiKey,
+      timeout: INFERENCE_TIMEOUT_MS,
+      maxRetries: 0,
     });
   }
   if (target.provider === "cloudflare") {
@@ -219,6 +228,8 @@ export function createClientForTarget(target: ModelTarget, overrides?: ProviderK
     return new OpenAI({
       baseURL: `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/v1`,
       apiKey,
+      timeout: INFERENCE_TIMEOUT_MS,
+      maxRetries: 0,
     });
   }
   const apiKey = overrides?.openrouterApiKey || getNextOpenRouterKey() || process.env.OPENROUTER_API_KEY;
@@ -226,6 +237,8 @@ export function createClientForTarget(target: ModelTarget, overrides?: ProviderK
   return new OpenAI({
     baseURL: OPENROUTER_BASE_URL,
     apiKey,
+    timeout: INFERENCE_TIMEOUT_MS,
+    maxRetries: 0,
     defaultHeaders: {
       "HTTP-Referer": "https://github.com/nemotron-agent",
       "X-Title": "Nemotron-Autonomous-Agent",
@@ -285,6 +298,11 @@ export async function callChatCompletionWithFailover(
   let lastError: any = null;
 
   for (const target of eligibleTargets) {
+    // Proactively skip models that recently tripped circuit-breaker cooldown
+    if (await isModelDegraded(target.provider, target.model)) {
+      continue;
+    }
+
     // If Gemini/Groq/OpenRouter target using server pool, bounded retries across pool keys before model fallback (Rule 6)
     let attempts = 1;
     if (!overrides?.geminiApiKey && target.provider === "gemini") {
@@ -324,7 +342,11 @@ export async function callChatCompletionWithFailover(
         throw new Error(`Model ${target.model} returned empty choices array.`);
       } catch (err: any) {
         lastError = err;
-        const statusCode = err?.status || err?.statusCode || "Unknown";
+        const isTimeout =
+          err?.name === "APIConnectionTimeoutError" ||
+          String(err?.message || "").toLowerCase().includes("timeout") ||
+          String(err?.message || "").toLowerCase().includes("timed out");
+        const statusCode = err?.status || err?.statusCode || (isTimeout ? 504 : "Unknown");
         recordCircuitBreakerFailure(target.provider, target.model, statusCode, err?.message).catch(() => {});
         console.warn(
           `${colors.yellow}[Failover Notice]${colors.reset} [${target.provider}] ${target.model} attempt ${att + 1}/${attempts} failed (${statusCode}: ${err.message}). Trying fallback...`
@@ -338,8 +360,18 @@ export async function callChatCompletionWithFailover(
             advanceOpenRouterKeyOnRateLimit();
           }
         }
-        if (err?.status === 404) break; // Model does not exist, move to next model
-        await new Promise((r) => setTimeout(r, 200));
+        // 503 is service-level unavailability/high demand at provider. 504/isTimeout means connection stalled.
+        // Fast-fail immediately to next model in cascade without burning another 12s on the same dead model.
+        if (
+          statusCode === 503 ||
+          String(statusCode).includes("503") ||
+          statusCode === 404 ||
+          statusCode === 504 ||
+          isTimeout
+        ) {
+          break;
+        }
+        await new Promise((r) => setTimeout(r, 100));
       }
     }
   }

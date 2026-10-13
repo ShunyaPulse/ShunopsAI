@@ -55,7 +55,13 @@ export function classifyHeuristic(prompt: string): ComplexityLevel | null {
     return "simple";
   }
 
-  // 4. Long, detailed multi-step technical instructions (> 90 words with numbering)
+  // 4. Short conversational follow-ups & verification commands (e.g. "check once again", "try again", "done", "ok", "proceed")
+  const shortFollowUpPattern = /^(check|try|see|look|test|verify|retry|refresh|recheck|inspect|continue|proceed|go ahead|done|ok|okay|yes|no|haan|nahi|karo|batao|ab dekho|once more|again)\b/i;
+  if (wordCount <= 6 && !/[{}[\];<>=$]/.test(p) && shortFollowUpPattern.test(lower)) {
+    return "simple";
+  }
+
+  // 5. Long, detailed multi-step technical instructions (> 90 words with numbering)
   if (wordCount > 90 && /\b(1\.|step 1|first,|firstly)\b/i.test(p)) {
     return "complex";
   }

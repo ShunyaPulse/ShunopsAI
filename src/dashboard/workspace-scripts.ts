@@ -306,17 +306,35 @@ export function workspaceScripts(safeUsername: string): string {
       if (autoScroll) thread.scrollTop = thread.scrollHeight;
     }
 
+    let thinkingTimerA = null;
+    let thinkingTimerB = null;
+
     function showThinkingIndicator() {
       const thread = document.getElementById('chat-thread');
       const thinking = document.createElement('div');
       thinking.id = 'thinking-indicator';
       thinking.className = 'thinking-bubble';
-      thinking.innerHTML = '<span>Thinking</span><span class="dot"></span><span class="dot"></span><span class="dot"></span>';
+      thinking.innerHTML = '<span id="thinking-label">Thinking</span><span class="dot"></span><span class="dot"></span><span class="dot"></span>';
       thread.appendChild(thinking);
       thread.scrollTop = thread.scrollHeight;
+
+      if (thinkingTimerA) clearTimeout(thinkingTimerA);
+      if (thinkingTimerB) clearTimeout(thinkingTimerB);
+
+      thinkingTimerA = setTimeout(() => {
+        const lbl = document.getElementById('thinking-label');
+        if (lbl) lbl.textContent = 'Processing reasoning';
+      }, 4000);
+
+      thinkingTimerB = setTimeout(() => {
+        const lbl = document.getElementById('thinking-label');
+        if (lbl) lbl.textContent = 'Routing fast fallback';
+      }, 9000);
     }
 
     function removeThinkingIndicator() {
+      if (thinkingTimerA) { clearTimeout(thinkingTimerA); thinkingTimerA = null; }
+      if (thinkingTimerB) { clearTimeout(thinkingTimerB); thinkingTimerB = null; }
       const thinking = document.getElementById('thinking-indicator');
       if (thinking) thinking.remove();
     }
