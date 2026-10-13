@@ -197,7 +197,13 @@ export class McpHttpClient {
         const safePort = targetUrl.port ? `:${targetUrl.port}` : "";
         if (!['http:', 'https:'].includes(targetUrl.protocol)) { throw new Error(`Disallowed protocol: ${targetUrl.protocol}`); }
 const safeOrigin = `${targetUrl.protocol}//${matchedHost}${safePort}`;
-        const safeUrl = new URL(targetUrl.pathname + targetUrl.search, safeOrigin);
+        if (targetUrl.pathname.startsWith('//')) {
+          throw new Error('Disallowed path traversal in URL');
+        }
+        const safeUrl = new URL(`${targetUrl.pathname}${targetUrl.search}`, safeOrigin);
+        if (safeUrl.hostname !== matchedHost) {
+          throw new Error(`Hostname mismatch after URL resolution: ${safeUrl.hostname}`);
+        }
         destinationUrl = safeUrl.href;
       }
 
