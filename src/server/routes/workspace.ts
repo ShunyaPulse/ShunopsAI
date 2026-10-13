@@ -14,7 +14,7 @@ import {
   CredentialVaultError,
   isVaultConfigured,
 } from "../db.js";
-import { McpHttpClient, getAllowedMcpHosts } from "../../agent/mcp/client.js";
+import { McpHttpClient, getAllowedMcpHosts, ALLOWED_MCP_TARGET_ENDPOINTS } from "../../agent/mcp/client.js";
 
 function isIpv4Address(hostname: string): boolean {
   const parts = hostname.split(".");
@@ -271,28 +271,29 @@ export async function workspaceRoutes(app: FastifyInstance, options: WorkspaceRo
         };
       }
 
+      const normalized = serverUrl.trim().replace(/\/+$/, "");
+      const matchedEndpoint =
+        ALLOWED_MCP_TARGET_ENDPOINTS[normalized] ||
+        ALLOWED_MCP_TARGET_ENDPOINTS[serverUrl];
+
       let safeServerUrl: string;
-      try {
-        const parsed = new URL(serverUrl);
-        const allowed = getAllowedMcpHosts();
-        const matchedHost = allowed.find((h) => h.toLowerCase() === parsed.hostname.toLowerCase());
-        if (!matchedHost) {
+      if (matchedEndpoint) {
+        safeServerUrl = matchedEndpoint;
+      } else {
+        const isDevOrTest =
+          process.env.NODE_ENV === "test" ||
+          process.env.NODE_ENV === "development" ||
+          !process.env.NODE_ENV;
+        if (isDevOrTest && (serverUrl.startsWith("http://127.0.0.1:") || serverUrl.startsWith("http://localhost:"))) {
+          safeServerUrl = serverUrl;
+        } else {
           reply.status(400);
           return {
             success: false,
             connected: false,
-            error: "Server URL host is not in the allowed MCP hosts list.",
+            error: "Only registered and verified MCP servers from the allowed directory can be tested.",
           };
         }
-        const safePort = parsed.port ? `:${parsed.port}` : "";
-        safeServerUrl = `${parsed.protocol}//${matchedHost}${safePort}${parsed.pathname}${parsed.search}`;
-      } catch {
-        reply.status(400);
-        return {
-          success: false,
-          connected: false,
-          error: "Invalid MCP server URL format.",
-        };
       }
 
       try {
