@@ -54,7 +54,10 @@ export class McpHttpClient {
         throw new Error(`Disallowed internal metadata host: ${targetUrl.hostname}`);
       }
 
-      const res = await fetch(targetUrl.toString(), {
+      if (!['http:', 'https:'].includes(targetUrl.protocol)) {
+  throw new Error(`Disallowed protocol: ${targetUrl.protocol}`);
+}
+const res = await fetch(targetUrl.href, {
         method: "POST",
         headers,
         body: JSON.stringify(payload),
