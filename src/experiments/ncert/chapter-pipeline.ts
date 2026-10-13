@@ -3,6 +3,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { geminiGenerate, kaggle } from "../../tools/video.js";
 import { synthesizeGoogleCloudTTS } from "../../tools/gcp-tts.js";
+import { synthesizeKokoroTTS, synthesizeEdgeTTS } from "../../tools/kokoro-tts.js";
 
 export interface ChapterResearch {
   title: string;
@@ -240,31 +241,58 @@ export async function launchChapterJob(
   const audioDir = path.join(dsDir, "audio");
   await fs.mkdir(audioDir, { recursive: true });
 
-  console.log(`\n🎙️ [Audio Pre-Synthesis] Synthesizing Hindi narration via Google Cloud Neural2...`);
+  console.log(`\n🎙️ [Audio Pre-Synthesis] Synthesizing 100% of scenes locally before dispatch...`);
   for (let i = 0; i < script.scenes.length; i++) {
     const sc = script.scenes[i];
     if (!sc) continue;
+    const outAudio = path.join(audioDir, `a${String(i).padStart(3, "0")}.mp3`);
     const isHindi = !sc.speaker || sc.speaker === "Narrator" || sc.speaker === "Exam Booster" || (sc as any).language === "Hindi" || /[\u0900-\u097F]/.test(sc.narration);
+
+    let audioReady = false;
     if (isHindi) {
-      const outAudio = path.join(audioDir, `a${String(i).padStart(3, "0")}.mp3`);
       const voiceName = sc.voice && sc.voice.startsWith("hi-IN-") ? sc.voice : "hi-IN-Neural2-B";
       try {
-        const ok = await synthesizeGoogleCloudTTS(sc.narration, outAudio, {
+        audioReady = await synthesizeGoogleCloudTTS(sc.narration, outAudio, {
           voiceName,
           language: "Hindi",
         });
-        if (ok) {
-          console.log(`   ✅ Scene ${i + 1}/${script.scenes.length} synthesized via Google Cloud TTS (${voiceName})`);
-        } else {
-          console.warn(`   ⚠️ Scene ${i + 1} Google Cloud TTS skipped, runner will fallback.`);
-        }
-      } catch (err: any) {
-        console.warn(`   ⚠️ Scene ${i + 1} Google Cloud TTS error: ${err.message}`);
+      } catch {}
+      if (!audioReady) {
+        audioReady = await synthesizeEdgeTTS(sc.narration, outAudio, "hi-IN-MadhurNeural");
       }
     } else {
-      console.log(`   🎭 Scene ${i + 1}/${script.scenes.length} is English dialogue ("${sc.speaker}"). Will synthesize via Kokoro-82M on Kaggle GPU.`);
+      const isPhotographer = /photographer/i.test(sc.speaker || "");
+      const engVoice = isPhotographer ? "en-GB-RyanNeural" : "en-US-GuyNeural";
+      try {
+        audioReady = await synthesizeKokoroTTS(sc.narration, outAudio, {
+          voice: isPhotographer ? "bm_george" : "am_adam",
+        });
+      } catch {}
+      if (!audioReady) {
+        audioReady = await synthesizeEdgeTTS(sc.narration, outAudio, engVoice);
+      }
+    }
+
+    if (audioReady) {
+      console.log(`   ✅ Scene ${i + 1}/${script.scenes.length} synthesized (${isHindi ? "Hindi" : "English dialogue"})`);
+    } else {
+      console.warn(`   ⚠️ Warning: Scene ${i + 1} synthesis failed.`);
     }
   }
+
+  // Pre-Flight Verification Gate: Halt immediately if any audio is missing
+  for (let i = 0; i < script.scenes.length; i++) {
+    const expectedAudio = path.join(audioDir, `a${String(i).padStart(3, "0")}.mp3`);
+    try {
+      const stat = await fs.stat(expectedAudio);
+      if (stat.size < 500) {
+        throw new Error(`Scene ${i + 1} audio too small (${stat.size} bytes)`);
+      }
+    } catch {
+      throw new Error(`[Pre-Flight Abort] Scene ${i + 1} audio missing in dataset/audio. Refusing to dispatch broken job to Kaggle GPU.`);
+    }
+  }
+  console.log(`   🛡️ [Pre-Flight Verification] All ${script.scenes.length} audio files 100% verified and pre-packaged.`);
 
   await fs.writeFile(path.join(dsDir, "script.json"), JSON.stringify(script, null, 2));
   await fs.writeFile(
@@ -313,8 +341,8 @@ export async function launchChapterJob(
     };
   }
 
-  console.log(`\n🚀 [Kaggle Dispatch] Uploading dataset & kernel for "${script.title}"...`);
-  await kaggle(["datasets", "create", "-p", dsDir]);
+  console.log(`\n🚀 [Kaggle Dispatch] Uploading dataset with all pre-packaged audio (--dir-mode zip) & kernel for "${script.title}"...`);
+  await kaggle(["datasets", "create", "-p", dsDir, "--dir-mode", "zip"]);
   await kaggle(["kernels", "push", "-p", kDir]);
 
   const kaggleUrl = `https://www.kaggle.com/code/${user}/video-render-${id}`;

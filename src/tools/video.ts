@@ -584,7 +584,7 @@ export async function startVideoJob(
     })
   );
 
-  const ds = await kaggle(["datasets", "create", "-p", dsDir]);
+  const ds = await kaggle(["datasets", "create", "-p", dsDir, "--dir-mode", "zip"]);
   // dataset processing takes a few seconds before a kernel can mount it
   await new Promise((r) => setTimeout(r, 20000));
   const push = await kaggle(["kernels", "push", "-p", kDir]);
@@ -614,7 +614,17 @@ export async function rerunVideoJob(jobId: string): Promise<string> {
   const cleanId = jobId.replace(/^video-render-/, "").replace(/^shunyapulse\//, "");
   const jobDir = path.join(JOBS_DIR, cleanId);
   const kDir = path.join(jobDir, "kernel");
+  const dsDir = path.join(jobDir, "dataset");
   await fs.mkdir(kDir, { recursive: true });
+
+  // Sync dataset audio if present to guarantee pre-packaged audio on Kaggle
+  try {
+    const audioDir = path.join(dsDir, "audio");
+    const audioStat = await fs.stat(audioDir);
+    if (audioStat.isDirectory()) {
+      await kaggle(["datasets", "version", "-p", dsDir, "-m", "Auto-heal audio sync", "--dir-mode", "zip"]);
+    }
+  } catch {}
 
   // Copy latest patched render.py into the job kernel directory
   await fs.copyFile(RENDER_SRC, path.join(kDir, "render.py"));

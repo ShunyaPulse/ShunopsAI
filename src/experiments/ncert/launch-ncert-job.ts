@@ -59,7 +59,7 @@ export async function launchNCERTJob(): Promise<{ jobId: string; kernel: string;
   );
 
   console.log(`[NCERT Launch] Uploading dataset to Kaggle (job-${id})...`);
-  const dsRes = await kaggle(["datasets", "create", "-p", dsDir]);
+  const dsRes = await kaggle(["datasets", "create", "-p", dsDir, "--dir-mode", "zip"]);
   console.log("[NCERT Launch] Dataset create response:", dsRes ? "[REDACTED]" : "none");
 
   console.log("[NCERT Launch] Waiting 20s for Kaggle dataset provisioning...");
