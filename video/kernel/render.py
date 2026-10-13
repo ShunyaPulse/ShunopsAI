@@ -514,8 +514,7 @@ class WanT4OptimizedEngine:
 # ==========================================
 async def main():
     script_path = find_script()
-    script = json.load(open(script_path, encoding="utf-8"))
-    voice = script.get("voice", "hi-IN-MadhurNeural" if "hi" in script.get("language", "English").lower() else "en-IN-PrabhatNeural")
+    voice = script.get("voice", "hi-IN-Neural2-B" if "hi" in script.get("language", "English").lower() else "en-IN-PrabhatNeural")
     rate = script.get("rate", "+0%")
     scenes = script["scenes"]
     print(f"Loaded script: '{script.get('title')}' with {len(scenes)} scenes. Voice: {voice}, Rate: {rate}")
@@ -530,7 +529,10 @@ async def main():
         print("[TTS] ✅ All scenes have pre-packaged audio in dataset. Bypassing Edge-TTS network probe.")
     else:
         # Pre-flight probe with up to 3 retries. Fails immediately if Microsoft is unreachable!
-        await probe_edge_tts(voice, rate=rate)
+        edge_voice = voice
+        if "neural2" in voice.lower():
+            edge_voice = "hi-IN-MadhurNeural" if "hi" in script.get("language", "English").lower() else "en-IN-PrabhatNeural"
+        await probe_edge_tts(edge_voice, rate=rate)
 
     cfg = find_config()
     hf_token = cfg.get("hf_token", "").strip()
@@ -554,7 +556,10 @@ async def main():
             print(f"[TTS] Using pre-packaged audio ({os.path.getsize(a_path)} bytes).")
             submaker = edge_tts.SubMaker()
         else:
-            submaker = await tts_with_boundaries(sc["narration"], voice, a_path, rate=rate)
+            edge_voice = voice
+            if "neural2" in voice.lower():
+                edge_voice = "hi-IN-MadhurNeural" if "hi" in script.get("language", "English").lower() else "en-IN-PrabhatNeural"
+            submaker = await tts_with_boundaries(sc["narration"], edge_voice, a_path, rate=rate)
 
         if not os.path.exists(a_path) or os.path.getsize(a_path) < 100:
             raise RuntimeError(f"[TTS] Critical: Audio missing for scene {i+1}. Halting pipeline to prevent rendering a mute video.")

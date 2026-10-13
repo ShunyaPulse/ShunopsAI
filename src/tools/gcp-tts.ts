@@ -84,7 +84,9 @@ export function resolveGCPVoice(requestedVoice?: string, language = "Hindi"): { 
     return { name: requestedVoice, languageCode: "en-US" };
   }
 
-  const isHindi = /hindi/i.test(language) || (requestedVoice && requestedVoice.toLowerCase().includes("hindi"));
+  const isHindi =
+    /hindi/i.test(language) ||
+    Boolean(requestedVoice && (/hindi/i.test(requestedVoice) || requestedVoice.toLowerCase().startsWith("hi-")));
   if (isHindi) {
     if (requestedVoice && (requestedVoice.toLowerCase().includes("female") || requestedVoice.toLowerCase().includes("swara"))) {
       return { name: GCP_TTS_VOICES.hindi_female, languageCode: "hi-IN" };

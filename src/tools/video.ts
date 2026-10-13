@@ -302,9 +302,9 @@ export async function generateScript(
   const targetWords = Math.round(minutes * 150);
   const sceneCount = Math.round(targetWords / 16);
   // Curated documentary voices:
-  // hi-IN-MadhurNeural: natural, crisp Hindi male narrator
-  // en-IN-PrabhatNeural: natural, authentic Indian intellectual documentary narrator
-  const voice = /hindi/i.test(language) ? "hi-IN-MadhurNeural" : "en-IN-PrabhatNeural";
+  // hi-IN-Neural2-B: Google Cloud Neural2 documentary studio narrator (Priority Tier 1 for Hindi)
+  // en-IN-PrabhatNeural: authentic Indian intellectual documentary narrator
+  const voice = /hindi/i.test(language) ? "hi-IN-Neural2-B" : "en-IN-PrabhatNeural";
 
   const prompt = `You are an elite investigative documentary filmmaker and YouTube director (Vox, Johnny Harris, Think School style).
 Write a gripping, 100% factual, highly engaging video script with hard synchronization between spoken narration and cinematic footage.
@@ -339,7 +339,7 @@ CRITICAL DIRECTIVES:
      NEVER use Devanagari script. Maximum 70 characters.
    - DESCRIPTION (PURE ENGLISH): Must be written in 100% PURE ENGLISH (English language & Roman letters). Include detailed SEO overview of the event, key technical keywords, and timestamps/chapters. No Devanagari script.
    - CHAPTER TITLES & TAGS: Must be strictly in English (Roman) alphabet.
-   - NARRATION (Spoken Audio): Natural, engaging Hindi dialogue spoken by voice hi-IN-MadhurNeural.
+   - NARRATION (Spoken Audio): Natural, engaging Hindi dialogue spoken by studio documentary voice hi-IN-Neural2-B.
    - CAPTIONS (On-Screen Subtitles): Must be in 100% PURE ENGLISH (both English letters AND English language words). For every single scene, provide the exact English translation in "caption" to be displayed on-screen.
 4. Visual Prompt Engineering for True Continuous Video & Flaw-Free Execution:
    - For EVERY scene, write a "visual_prompt" that describes a real, continuous cinematic video shot — NOT a static photo or generic concept.
@@ -373,7 +373,7 @@ CRITICAL DIRECTIVES:
   },
   "scenes": [
     {
-      "narration": "<Exact words spoken in Hindi by voice hi-IN-MadhurNeural>",
+      "narration": "<Exact words spoken in Hindi by voice hi-IN-Neural2-B>",
       "caption": "<Exact English translation in pure English language and Roman alphabet for on-screen subtitles>",
       "visual_prompt": "<Ultra-detailed cinematic video prompt in English: camera move (slow dolly/steadicam), lens, subject action matching narration, lighting, locked rigid background geometry, clean text-free screens>"
     }
@@ -483,7 +483,7 @@ export async function startVideoJob(
 
   console.log(
     gcpAvailable
-      ? `[Video] 🎙️ Google Cloud detected. Best-to-worst fallback: Tier 1 (Google Cloud Neural2) ➔ Tier 2 (Edge-TTS)...`
+      ? `[Video] 🎙️ Google Cloud Neural2 detected as Tier 1 Priority (${gcpVoice?.name}). Best-to-worst fallback: Tier 1 (Google Cloud Neural2) ➔ Tier 2 (Edge-TTS)...`
       : `[Video] 🎙️ No Google Cloud credentials. Running Tier 1 (Edge-TTS pre-synthesis)...`
   );
 
@@ -496,7 +496,7 @@ export async function startVideoJob(
     const outMp3 = path.join(audioDir, `a${String(i).padStart(3, "0")}.mp3`);
 
     let synthesized = false;
-    const isHindi = /hindi/i.test(language) || (script.voice && /hindi|madhur|swara/i.test(script.voice));
+    const isHindi = /hindi/i.test(language) || Boolean(script.voice && (/hindi|neural2|madhur|swara/i.test(script.voice) || script.voice.startsWith("hi-")));
 
     // For English: Tier 1 is Kokoro-82M SOTA Engine (Option A: Kaggle GPU / Local)
     if (!isHindi && (await isKokoroAvailable())) {
@@ -506,22 +506,33 @@ export async function startVideoJob(
       });
     }
 
-    // Tier for Hindi (or fallback for English): Google Cloud Neural2
+    // Tier 1 for Hindi (or fallback for English): Google Cloud Neural2 with retries
     if (!synthesized && gcpAvailable && gcpVoice) {
-      synthesized = await synthesizeGoogleCloudTTS(sc.narration, outMp3, {
-        voiceName: gcpVoice.name,
-        language,
-        speakingRate: 1.0,
-        gcpKey: options?.gcpKey,
-      });
-      if (synthesized) {
-        gcpSuccessCount++;
-      } else {
-        console.warn(`[Video] ⚠️ Scene ${i + 1} Google Cloud TTS failed. Falling back to Edge-TTS...`);
+      for (let gcpAttempt = 1; gcpAttempt <= 2; gcpAttempt++) {
+        try {
+          synthesized = await synthesizeGoogleCloudTTS(sc.narration, outMp3, {
+            voiceName: gcpVoice.name,
+            language,
+            speakingRate: 1.0,
+            gcpKey: options?.gcpKey,
+          });
+          if (synthesized) {
+            gcpSuccessCount++;
+            break;
+          }
+        } catch (gcpErr: any) {
+          console.warn(`[Video] ⚠️ Scene ${i + 1} Google Cloud TTS attempt ${gcpAttempt} failed: ${gcpErr.message}`);
+        }
+        if (gcpAttempt < 2) {
+          await new Promise((r) => setTimeout(r, 1000));
+        }
+      }
+      if (!synthesized) {
+        console.warn(`[Video] ⚠️ Scene ${i + 1} Google Cloud TTS failed after 2 attempts. Falling back to local Edge-TTS...`);
       }
     }
 
-    // Edge-TTS (Primary free for Hindi, final cloud fallback for English)
+    // Edge-TTS (Local host fallback if GCP unavailable/failed)
     if (!synthesized) {
       for (let attempt = 1; attempt <= 3; attempt++) {
         synthesized = await synthesizeLocalEdgeTTS(sc.narration, outMp3, edgeVoice.name, edgeVoice.pitch);
@@ -537,18 +548,29 @@ export async function startVideoJob(
     }
 
     if (!synthesized) {
-      throw new Error(`[Video] Fatal: Audio synthesis failed for scene ${i + 1} after 3 attempts. Aborting job immediately to prevent launching a GPU kernel on a mute video.`);
+      throw new Error(`[Video] Fatal: Audio synthesis failed for scene ${i + 1} after all attempts. Aborting job immediately to prevent launching a GPU kernel on a mute video.`);
+    }
+  }
+
+  // Strict invariant: verify 100% of scenes have pre-packaged audio on disk before dataset creation
+  for (let i = 0; i < script.scenes.length; i++) {
+    const chkMp3 = path.join(audioDir, `a${String(i).padStart(3, "0")}.mp3`);
+    try {
+      const st = await fs.stat(chkMp3);
+      if (st.size < 500) {
+        throw new Error(`Scene audio ${path.basename(chkMp3)} is too small (${st.size} bytes).`);
+      }
+    } catch (err: any) {
+      throw new Error(`[Video] Fatal: Pre-packaged audio verification failed for scene ${i + 1} (${chkMp3}): ${err.message}. Aborting dispatch to protect Kaggle GPU resources.`);
     }
   }
 
   if (gcpSuccessCount > 0 && gcpVoice) {
     script.voice = gcpVoice.name;
-    console.log(`[Video] ✅ Audio synthesis complete: ${gcpSuccessCount} scenes via Google Cloud Neural2, ${edgeSuccessCount} scenes via Edge-TTS fallback.`);
+    console.log(`[Video] ✅ Audio synthesis complete: ${gcpSuccessCount}/${script.scenes.length} scenes via Google Cloud Neural2 (${gcpVoice.name}), ${edgeSuccessCount} via Edge-TTS fallback.`);
   } else if (edgeSuccessCount > 0) {
     script.voice = edgeVoice.name;
     console.log(`[Video] ✅ Audio synthesis complete: ${edgeSuccessCount}/${script.scenes.length} scenes synthesized via Edge-TTS.`);
-  } else {
-    console.log(`[Video] ℹ️ Host audio pre-synthesis unavailable. Kaggle GPU kernel will synthesize directly on the fly.`);
   }
 
   await fs.writeFile(path.join(dsDir, "script.json"), JSON.stringify(script, null, 2));
@@ -617,14 +639,47 @@ export async function rerunVideoJob(jobId: string): Promise<string> {
   const dsDir = path.join(jobDir, "dataset");
   await fs.mkdir(kDir, { recursive: true });
 
-  // Sync dataset audio if present to guarantee pre-packaged audio on Kaggle
+  // Ensure pre-packaged audio exists in dataset; auto-synthesize if missing
   try {
-    const audioDir = path.join(dsDir, "audio");
-    const audioStat = await fs.stat(audioDir);
-    if (audioStat.isDirectory()) {
-      await kaggle(["datasets", "version", "-p", dsDir, "-m", "Auto-heal audio sync", "--dir-mode", "zip"]);
+    const scriptFile = path.join(dsDir, "script.json");
+    const scriptExists = await fs.stat(scriptFile).then(() => true).catch(() => false);
+    if (scriptExists) {
+      const scriptRaw = await fs.readFile(scriptFile, "utf-8");
+      const script = JSON.parse(scriptRaw) as VideoScript;
+      const audioDir = path.join(dsDir, "audio");
+      await fs.mkdir(audioDir, { recursive: true });
+
+      const gcpAvailable = isGoogleCloudTTSAvailable();
+      const gcpVoice = gcpAvailable ? resolveGCPVoice(script.voice, script.language) : null;
+      const edgeVoice = resolveEdgeVoice(script.voice, script.language);
+
+      let anySynthesized = false;
+      for (let i = 0; i < script.scenes.length; i++) {
+        const outMp3 = path.join(audioDir, `a${String(i).padStart(3, "0")}.mp3`);
+        const stat = await fs.stat(outMp3).catch(() => null);
+        if (!stat || stat.size < 500) {
+          const sc = script.scenes[i];
+          if (!sc) continue;
+          let ok = false;
+          if (gcpAvailable && gcpVoice) {
+            ok = await synthesizeGoogleCloudTTS(sc.narration, outMp3, {
+              voiceName: gcpVoice.name,
+              language: script.language,
+            });
+          }
+          if (!ok) {
+            ok = await synthesizeLocalEdgeTTS(sc.narration, outMp3, edgeVoice.name, edgeVoice.pitch);
+          }
+          if (ok) anySynthesized = true;
+        }
+      }
+      if (anySynthesized) {
+        await kaggle(["datasets", "version", "-p", dsDir, "-m", "Auto-heal audio sync", "--dir-mode", "zip"]);
+      }
     }
-  } catch {}
+  } catch (syncErr: any) {
+    console.warn(`[Video] Audio sync warning in rerunVideoJob: ${syncErr.message}`);
+  }
 
   // Copy latest patched render.py into the job kernel directory
   await fs.copyFile(RENDER_SRC, path.join(kDir, "render.py"));
