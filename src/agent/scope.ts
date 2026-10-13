@@ -147,48 +147,44 @@ function notConnected(platform: string, instruction: string): { ok: false; messa
 }
 
 export function resolveNeon(scope?: ToolScope): CredentialResolution<string> {
-  if (isAdminScope(scope)) return { ok: true, source: "server" };
-  const connectionString = scope!.credentials?.neon?.connectionString;
-  if (!connectionString) {
-    return notConnected(
-      "Neon Postgres",
-      "Add it under Workspace → Platform Connections → Neon Postgres."
-    );
+  const connectionString = scope?.credentials?.neon?.connectionString;
+  if (connectionString) {
+    return { ok: true, source: "user", value: connectionString };
   }
-  return { ok: true, source: "user", value: connectionString };
+  if (isAdminScope(scope)) return { ok: true, source: "server" };
+  return notConnected(
+    "Neon Postgres",
+    "Add it under Workspace → Platform Connections → Neon Postgres."
+  );
 }
 
 export function resolveRedis(scope?: ToolScope): CredentialResolution<string> {
+  const url = scope?.credentials?.redis?.url;
+  if (url) return { ok: true, source: "user", value: url };
   if (isAdminScope(scope)) return { ok: true, source: "server" };
-  const url = scope!.credentials?.redis?.url;
-  if (!url) {
-    return notConnected("Redis", "Add it under Workspace → Platform Connections → Redis.");
-  }
-  return { ok: true, source: "user", value: url };
+  return notConnected("Redis", "Add it under Workspace → Platform Connections → Redis.");
 }
 
 export function resolveGitHub(scope?: ToolScope): CredentialResolution<string> {
+  const token = scope?.credentials?.github?.token;
+  if (token) return { ok: true, source: "user", value: token };
   if (isAdminScope(scope)) return { ok: true, source: "server" };
-  const token = scope!.credentials?.github?.token;
-  if (!token) {
-    return notConnected(
-      "GitHub",
-      "Add a personal access token under Workspace → Platform Connections → GitHub."
-    );
-  }
-  return { ok: true, source: "user", value: token };
+  return notConnected(
+    "GitHub",
+    "Add a personal access token under Workspace → Platform Connections → GitHub."
+  );
 }
 
 export function resolveCloudflare(
   scope?: ToolScope
 ): CredentialResolution<{ accountId: string; apiToken: string }> {
-  if (isAdminScope(scope)) return { ok: true, source: "server" };
-  const cloudflare = scope!.credentials?.cloudflare;
-  if (!cloudflare?.accountId || !cloudflare?.apiToken) {
-    return notConnected(
-      "Cloudflare",
-      "Add your account ID and API token under Workspace → Platform Connections → Cloudflare."
-    );
+  const cloudflare = scope?.credentials?.cloudflare;
+  if (cloudflare?.accountId && cloudflare?.apiToken) {
+    return { ok: true, source: "user", value: cloudflare };
   }
-  return { ok: true, source: "user", value: cloudflare };
+  if (isAdminScope(scope)) return { ok: true, source: "server" };
+  return notConnected(
+    "Cloudflare",
+    "Add your account ID and API token under Workspace → Platform Connections → Cloudflare."
+  );
 }

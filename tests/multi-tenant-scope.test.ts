@@ -346,6 +346,13 @@ async function runSuite(): Promise<void> {
     });
     assert.equal(replayRes.statusCode, 409);
   });
+
+  await check("chat route resolves tenant scope and connected platform context", async () => {
+    await upsertUserPlatformCredential(1, "neon", { connectionString: SECRET_NEON });
+    const scope = await buildRequestScope({ id: 1, username: "alice", role: "user" });
+    assert.equal(scope.kind, "user");
+    assert.equal(scope.credentials.neon?.connectionString, SECRET_NEON);
+  });
 }
 
 runSuite()

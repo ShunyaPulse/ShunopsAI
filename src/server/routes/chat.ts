@@ -9,6 +9,7 @@ import {
   buildRollingMemory,
 } from "../../agent/index.js";
 import { ChatRequestSchema, type ChatRequest } from "../schemas/alert.js";
+import { buildRequestScope } from "../scope.js";
 import {
   verifyCloudflareTurnstile,
   verifyShieldSolution,
@@ -212,6 +213,8 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
           : "";
         const goal = `${historyPrefix}Answer this query politely and helpfully: "${message}".${imageContext}`;
 
+        const scope = await buildRequestScope(authenticatedUser);
+
         // Enable safe diagnostic, operational, and knowledge tools for authenticated/BYOK workspace users
         const disabledTools = (authenticatedUser || isBYOK)
           ? (["run_shell_command", "write_file"] as ToolName[])
@@ -222,6 +225,7 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
           disabledTools,
           keyOverrides,
           targets,
+          scope,
         });
 
         const replyAnswer = result.finalAnswer || "I'm here to help! Could you please clarify your question?";

@@ -37,7 +37,13 @@ export async function buildRequestScope(
 ): Promise<ToolScope> {
   const userId = tenantUserId(user);
   if (isAdminUser(user) || userId === 0) {
-    return adminScope();
+    const adminCreds = userId > 0 ? await getUserCredentialBundle(userId) : {};
+    return {
+      kind: "admin",
+      userId,
+      username: user?.username || "admin",
+      credentials: adminCreds,
+    };
   }
   const credentials = await getUserCredentialBundle(userId);
   return userScope(userId, user?.username || `user_${userId}`, credentials);

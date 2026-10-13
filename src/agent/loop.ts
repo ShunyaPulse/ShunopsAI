@@ -100,16 +100,35 @@ export async function runAutonomousAgent(
     });
   }
 
-  if (scope && scope.kind === "user") {
+  if (scope) {
     const connected = Object.keys(scope.credentials ?? {});
+    const lines = [
+      `Workspace Execution Scope: running as "${scope.username || (scope.kind === "admin" ? "admin" : `user_${scope.userId}`)}" (role: ${scope.kind}).`,
+      `Connected platforms: ${connected.length > 0 ? connected.join(", ") : "none"}.`,
+    ];
+    if (scope.credentials?.neon) {
+      lines.push(
+        "Neon Postgres is CONNECTED and active via `execute_neon_sql`. When the user asks if you can see their connected Neon project or database, or asks questions about their tables or schema: you HAVE direct visibility through `execute_neon_sql`! Proactively run queries (such as `SELECT current_database(), current_user, version();` and tables list) to inspect and verify the connected project. Never ask the user to paste connection strings or passwords into chat."
+      );
+    }
+    if (scope.credentials?.redis) {
+      lines.push("Redis is CONNECTED and accessible via `execute_redis_command`.");
+    }
+    if (scope.credentials?.github) {
+      lines.push("GitHub is CONNECTED and accessible via `manage_github`.");
+    }
+    if (scope.credentials?.cloudflare) {
+      lines.push("Cloudflare is CONNECTED and accessible via `run_cloudflare_ai`.");
+    }
+    if (scope.kind === "user") {
+      lines.push(
+        "Only connected platforms and safe diagnostic tools are available; host-level infrastructure is restricted.",
+        "If a tool refuses because an account is not connected, tell the user to connect it under Workspace → Platform Connections."
+      );
+    }
     messages.push({
       role: "system",
-      content: [
-        `Tenant scope: you are running for user "${scope.username}" (id ${scope.userId}).`,
-        `Connected platforms for this user: ${connected.length > 0 ? connected.join(", ") : "none"}.`,
-        "Only the platforms listed above are reachable; host-level and shared operator infrastructure is unavailable.",
-        "If a tool refuses because an account is not connected, tell the user to connect it under Workspace → Platform Connections.",
-      ].join("\n"),
+      content: lines.join("\n"),
     });
   }
 
