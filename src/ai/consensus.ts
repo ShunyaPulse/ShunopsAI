@@ -221,20 +221,24 @@ export async function callModel(
   backupTarget?: ModelEndpoint,
   temperature = 0.2
 ): Promise<{ text: string; modelName: string }> {
-  const chain: ModelEndpoint[] = [target];
-  if (backupTarget && (backupTarget.provider !== target.provider || backupTarget.model !== target.model)) {
-    chain.push(backupTarget);
-  }
-
   // Determine whether this target behaves more like a proposer or auditor and load its chain
   const isAuditor = target.provider === "groq" || target.model.includes("oss");
   const preferredChain = isAuditor ? AUDITOR_MODELS_CHAIN : PROPOSER_MODELS_CHAIN;
   const secondaryChain = isAuditor ? PROPOSER_MODELS_CHAIN : AUDITOR_MODELS_CHAIN;
 
+  // Build ordered chain strictly respecting Rule 3 cascade:
+  // Proposer: Active Gemini -> Groq LPUs (120B / 27B) -> OpenRouter High-Capacity
+  // Auditor: Groq LPUs (120B / 27B) -> Active Gemini -> OpenRouter High-Capacity
+  const chain: ModelEndpoint[] = [target];
   for (const m of [...preferredChain, ...secondaryChain]) {
     if (!chain.some((c) => c.provider === m.provider && c.model === m.model)) {
       chain.push(m);
     }
+  }
+
+  // If backupTarget is provided and not already present, ensure it's in the chain
+  if (backupTarget && !chain.some((c) => c.provider === backupTarget.provider && c.model === backupTarget.model)) {
+    chain.push(backupTarget);
   }
 
   return callModelWithChain(chain, messages, temperature);

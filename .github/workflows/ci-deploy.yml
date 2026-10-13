@@ -115,8 +115,10 @@ jobs:
           (github.event_name == 'issues' && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.issue.author_association)) ||
           (github.event_name == 'pull_request' && github.actor == 'dependabot[bot]')
         env:
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_KEYS || secrets.OPENROUTER_API_KEYS || secrets.OPENROUTER_API_KEY }}
+          OPENROUTER_KEYS: ${{ secrets.OPENROUTER_KEYS || secrets.OPENROUTER_API_KEYS || secrets.OPENROUTER_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_KEYS || secrets.GROQ_API_KEYS || secrets.GROQ_API_KEY }}
+          GROQ_KEYS: ${{ secrets.GROQ_KEYS || secrets.GROQ_API_KEYS || secrets.GROQ_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_KEYS || secrets.GEMINI_API_KEYS || secrets.GEMINI_API_KEY }}
           GEMINI_KEYS: ${{ secrets.GEMINI_KEYS || secrets.GEMINI_API_KEYS || secrets.GEMINI_API_KEY }}
           GEMINI_API_KEYS: ${{ secrets.GEMINI_KEYS || secrets.GEMINI_API_KEYS || secrets.GEMINI_API_KEY }}
@@ -160,7 +162,10 @@ jobs:
       - name: Autonomous Code Scanning Self-Healing
         if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main'
         env:
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_KEYS || secrets.OPENROUTER_API_KEYS || secrets.OPENROUTER_API_KEY }}
+          OPENROUTER_KEYS: ${{ secrets.OPENROUTER_KEYS || secrets.OPENROUTER_API_KEYS || secrets.OPENROUTER_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_KEYS || secrets.GROQ_API_KEYS || secrets.GROQ_API_KEY }}
+          GROQ_KEYS: ${{ secrets.GROQ_KEYS || secrets.GROQ_API_KEYS || secrets.GROQ_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_KEYS || secrets.GEMINI_API_KEYS || secrets.GEMINI_API_KEY }}
           GEMINI_KEYS: ${{ secrets.GEMINI_KEYS || secrets.GEMINI_API_KEYS || secrets.GEMINI_API_KEY }}
           GEMINI_API_KEYS: ${{ secrets.GEMINI_KEYS || secrets.GEMINI_API_KEYS || secrets.GEMINI_API_KEY }}

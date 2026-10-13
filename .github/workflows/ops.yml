@@ -72,10 +72,12 @@ jobs:
       - name: Run Sentinel Health Check (Scheduled)
         if: github.event_name == 'schedule'
         env:
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GEMINI_KEYS: ${{ secrets.GEMINI_KEYS || secrets.GEMINI_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_KEYS || secrets.OPENROUTER_API_KEYS || secrets.OPENROUTER_API_KEY }}
+          OPENROUTER_KEYS: ${{ secrets.OPENROUTER_KEYS || secrets.OPENROUTER_API_KEYS || secrets.OPENROUTER_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_KEYS || secrets.GROQ_API_KEYS || secrets.GROQ_API_KEY }}
+          GROQ_KEYS: ${{ secrets.GROQ_KEYS || secrets.GROQ_API_KEYS || secrets.GROQ_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_KEYS || secrets.GEMINI_API_KEYS || secrets.GEMINI_API_KEY }}
+          GEMINI_KEYS: ${{ secrets.GEMINI_KEYS || secrets.GEMINI_API_KEYS || secrets.GEMINI_API_KEY }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           SARALGATI_DATABASE_URL: ${{ secrets.SARALGATI_DATABASE_URL }}
           KANBAN_DATABASE_URL: ${{ secrets.KANBAN_DATABASE_URL }}
@@ -121,10 +123,12 @@ jobs:
       - name: Execute Authenticated Dispatch or Triggered Task
         if: github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch'
         env:
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GEMINI_KEYS: ${{ secrets.GEMINI_KEYS || secrets.GEMINI_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_KEYS || secrets.OPENROUTER_API_KEYS || secrets.OPENROUTER_API_KEY }}
+          OPENROUTER_KEYS: ${{ secrets.OPENROUTER_KEYS || secrets.OPENROUTER_API_KEYS || secrets.OPENROUTER_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_KEYS || secrets.GROQ_API_KEYS || secrets.GROQ_API_KEY }}
+          GROQ_KEYS: ${{ secrets.GROQ_KEYS || secrets.GROQ_API_KEYS || secrets.GROQ_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_KEYS || secrets.GEMINI_API_KEYS || secrets.GEMINI_API_KEY }}
+          GEMINI_KEYS: ${{ secrets.GEMINI_KEYS || secrets.GEMINI_API_KEYS || secrets.GEMINI_API_KEY }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           SARALGATI_DATABASE_URL: ${{ secrets.SARALGATI_DATABASE_URL }}
           KANBAN_DATABASE_URL: ${{ secrets.KANBAN_DATABASE_URL }}
