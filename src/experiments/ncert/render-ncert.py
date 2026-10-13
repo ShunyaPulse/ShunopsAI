@@ -217,9 +217,13 @@ async def probe_edge_tts(voice, rate="+0%", max_retries=2):
     if edge_tts is None:
         EDGE_TTS_AVAILABLE = False
         return False
+    # Map GCP Neural2 or other non-edge voice names to canonical Edge-TTS voice for network probe
+    probe_voice = voice
+    if "Neural2" in (voice or "") or "Wavenet" in (voice or ""):
+        probe_voice = "hi-IN-MadhurNeural" if "hi-IN" in (voice or "") else "en-US-ChristopherNeural"
     for attempt in range(1, max_retries + 1):
         try:
-            communicate = edge_tts.Communicate("test probe", voice, rate=rate)
+            communicate = edge_tts.Communicate("test probe", probe_voice, rate=rate)
             async for chunk in communicate.stream():
                 if chunk["type"] == "audio":
                     break
@@ -682,7 +686,8 @@ async def main():
 
             if not audio_ready and EDGE_TTS_AVAILABLE:
                 try:
-                    scene_voice = sc.get("voice") if (sc.get("voice") and not is_hindi) else voice
+                    edge_fallback_voice = "hi-IN-MadhurNeural" if is_hindi else "en-US-ChristopherNeural"
+                    scene_voice = sc.get("voice") if (sc.get("voice") and not is_hindi and "Neural2" not in sc.get("voice", "")) else edge_fallback_voice
                     submaker = await tts_with_boundaries(sc["narration"], scene_voice, a_path, rate=rate)
                     audio_ready = True
                 except Exception as tts_e:
