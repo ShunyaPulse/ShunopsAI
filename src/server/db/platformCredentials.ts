@@ -309,7 +309,7 @@ export async function getUserCredentialBundle(userId: number): Promise<PlatformC
     }
   } else {
     const result = await (sql as any).query(
-      `SELECT platform, secret_payload FROM shunops_user_platform_credentials WHERE user_id = $1;`,
+      `SELECT platform, secret_payload AS payload FROM shunops_user_platform_credentials WHERE user_id = $1;`,
       [userId]
     );
     rows.push(...(result || []));
@@ -317,7 +317,8 @@ export async function getUserCredentialBundle(userId: number): Promise<PlatformC
 
   for (const row of rows) {
     try {
-      const values = decryptValues(row.payload);
+      const payload = row.payload || (row as any).secret_payload;
+      const values = decryptValues(payload);
       switch (row.platform) {
         case "neon":
           if (values.connectionString) bundle.neon = { connectionString: values.connectionString };
@@ -334,8 +335,8 @@ export async function getUserCredentialBundle(userId: number): Promise<PlatformC
           }
           break;
       }
-    } catch {
-      // Undecryptable row: treat the platform as not connected for this run.
+    } catch (err: any) {
+      console.warn(`[Vault] Could not decrypt ${row.platform} credential for user ${userId}:`, err?.message || err);
     }
   }
 

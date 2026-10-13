@@ -390,6 +390,10 @@ async function runSuite() {
   });
 
   await test("Task Complexity Routing: Heuristics and circuit-breaker-aware prioritizing", async () => {
+    // Reset circuit breaker state for clean deterministic testing
+    await recordCircuitBreakerSuccess("gemini", "gemini-3.8-flash");
+    await recordCircuitBreakerSuccess("gemini", "gemini-3-flash-preview");
+
     // 1. Heuristic classifications
     const simple1 = classifyHeuristic("hi there");
     assert.equal(simple1, "simple", "Greetings should be classified as simple");

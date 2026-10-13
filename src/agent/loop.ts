@@ -108,7 +108,7 @@ export async function runAutonomousAgent(
     ];
     if (scope.credentials?.neon) {
       lines.push(
-        "Neon Postgres is CONNECTED and active via `execute_neon_sql`. When the user asks if you can see their connected Neon project or database, or asks questions about their tables or schema: you HAVE direct visibility through `execute_neon_sql`! Proactively run queries (such as `SELECT current_database(), current_user, version();` and tables list) to inspect and verify the connected project. Never ask the user to paste connection strings or passwords into chat."
+        "Neon Postgres is CONNECTED and active via `execute_neon_sql`. When the user asks about their database, projects, tables, schemas, or registered users: you HAVE direct visibility through `execute_neon_sql`! Proactively run queries (such as querying tables like `users` / `pg_user`, checking schemas, or `SELECT current_database(), current_user, version();`) to inspect and return answers directly. Never tell the user that Neon is not connected when it is listed as connected here, and never ask them to reconnect it."
       );
     }
     if (scope.credentials?.redis) {
