@@ -11,6 +11,67 @@ import type {
  * Connects to remote or local HTTP MCP servers using standard JSON-RPC 2.0.
  * Memory footprint: ~1MB.
  */
+function isPrivateOrSpecialIpv4(hostname: string): boolean {
+  if (!/^\d{1,3}(?:\.\d{1,3}){3}$/.test(hostname)) return false;
+  const parts = hostname.split(".").map((p) => Number(p));
+  if (parts.some((n) => Number.isNaN(n) || n < 0 || n > 255)) return true;
+
+  const [a, b] = parts;
+  return (
+    a === 10 || // RFC1918
+    a === 127 || // loopback
+    (a === 169 && b === 254) || // link-local
+    (a === 192 && b === 168) || // RFC1918
+    (a === 172 && b >= 16 && b <= 31) // RFC1918
+  );
+}
+
+function isDisallowedIpv6Literal(hostname: string): boolean {
+  // URL.hostname for IPv6 literals is typically bracketed, e.g. "[::1]"
+  const normalized = hostname.toLowerCase();
+  if (!(normalized.startsWith("[") && normalized.endsWith("]"))) return false;
+  const v6 = normalized.slice(1, -1);
+  return (
+    v6 === "::1" || // loopback
+    v6.startsWith("fe80:") || // link-local
+    v6.startsWith("fc") || // unique local
+    v6.startsWith("fd") // unique local
+  );
+}
+
+function validateOutboundMcpUrl(rawUrl: string): URL {
+  const targetUrl = new URL(rawUrl);
+  if (targetUrl.protocol !== "http:" && targetUrl.protocol !== "https:") {
+    throw new Error(`Disallowed protocol: ${targetUrl.protocol}`);
+  }
+
+  if (targetUrl.username || targetUrl.password) {
+    throw new Error("Disallowed URL credentials in MCP server URL.");
+  }
+
+  const hostname = targetUrl.hostname.toLowerCase().replace(/\.$/, "");
+  const blockedHosts = new Set([
+    "localhost",
+    "127.0.0.1",
+    "::1",
+    "0.0.0.0",
+    "169.254.169.254",
+    "metadata.google.internal",
+    "metadata.platform",
+  ]);
+
+  if (
+    blockedHosts.has(hostname) ||
+    hostname.endsWith(".internal") ||
+    isPrivateOrSpecialIpv4(hostname) ||
+    isDisallowedIpv6Literal(hostname)
+  ) {
+    throw new Error(`Disallowed internal or private host: ${targetUrl.hostname}`);
+  }
+
+  return targetUrl;
+}
+
 export class McpHttpClient {
   private config: McpServerConfig;
   private requestId = 1;
@@ -41,27 +102,8 @@ export class McpHttpClient {
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
-      const targetUrl = new URL(this.config.url);
-      if (targetUrl.protocol !== "http:" && targetUrl.protocol !== "https:") {
-        throw new Error(`Invalid MCP URL protocol: ${targetUrl.protocol}`);
-      }
-      const blockedHosts = [
-        "169.254.169.254",
-        "metadata.google.internal",
-        "metadata.platform",
-        "localhost",
-        "127.0.0.1",
-        "::1",
-      ];
-      const isPrivateIp = /^(10\.|127\.|169\.254\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.)/.test(targetUrl.hostname);
-      if (blockedHosts.includes(targetUrl.hostname) || targetUrl.hostname.endsWith(".internal") || isPrivateIp) {
-        throw new Error(`Disallowed internal or private host: ${targetUrl.hostname}`);
-      }
-
-      if (!['http:', 'https:'].includes(targetUrl.protocol)) {
-  throw new Error(`Disallowed protocol: ${targetUrl.protocol}`);
-}
-const res = await fetch(targetUrl.href, {
+      const targetUrl = validateOutboundMcpUrl(this.config.url);
+      const res = await fetch(targetUrl.toString(), {
         method: "POST",
         headers,
         body: JSON.stringify(payload),
