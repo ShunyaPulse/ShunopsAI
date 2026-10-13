@@ -12,7 +12,7 @@ import { getSql, memStore } from "./store.js";
 // Secrets are encrypted with AES-256-GCM before they are persisted. The UI only
 // ever receives a masked hint; plaintext is decrypted on demand for one run.
 
-export type PlatformId = "neon" | "redis" | "github" | "cloudflare";
+export type PlatformId = "neon" | "redis" | "github" | "cloudflare" | "mcp";
 
 export interface PlatformFieldSpec {
   key: string;
@@ -68,6 +68,15 @@ export const PLATFORM_SPECS: Record<PlatformId, PlatformSpec> = {
       { key: "apiToken", label: "API token", secret: true, placeholder: "cf_..." },
     ],
   },
+  mcp: {
+    id: "mcp",
+    label: "Model Context Protocol (MCP)",
+    description: "Connect any remote or local MCP server to dynamically discover and run custom external tools.",
+    fields: [
+      { key: "serverUrl", label: "MCP Server URL", secret: false, placeholder: "https://your-mcp-server.com/sse or http://127.0.0.1:8000" },
+      { key: "apiKey", label: "Authorization Token / Header (Optional)", secret: true, placeholder: "Bearer token or secret key" },
+    ],
+  },
 };
 
 export interface PlatformCredentialSummary {
@@ -90,6 +99,7 @@ export interface PlatformCredentialBundle {
   redis?: { url: string };
   github?: { token: string };
   cloudflare?: { accountId: string; apiToken: string };
+  mcp?: { serverUrl: string; apiKey?: string | undefined };
 }
 
 export class CredentialVaultError extends Error {}
@@ -373,6 +383,11 @@ export async function getUserCredentialBundle(userId: number): Promise<PlatformC
         case "cloudflare":
           if (values.accountId && values.apiToken) {
             bundle.cloudflare = { accountId: values.accountId, apiToken: values.apiToken };
+          }
+          break;
+        case "mcp":
+          if (values.serverUrl) {
+            bundle.mcp = { serverUrl: values.serverUrl, apiKey: values.apiKey };
           }
           break;
       }

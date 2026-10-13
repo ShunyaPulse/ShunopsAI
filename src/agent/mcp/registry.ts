@@ -90,8 +90,23 @@ class McpRegistryManager {
   /**
    * Fetch and aggregate dynamic tools from all active MCP servers for the current run.
    */
-  async getActiveTools(_scope?: ToolScope): Promise<DynamicMcpTool[]> {
+  async getActiveTools(scope?: ToolScope): Promise<DynamicMcpTool[]> {
     const allTools: DynamicMcpTool[] = [];
+
+    // Dynamically register tenant's connected MCP server from scope vault credentials
+    if (scope?.credentials?.mcp?.serverUrl) {
+      const userMcpId = `user_${scope.userId || "tenant"}_mcp`;
+      this.registerServer({
+        id: userMcpId,
+        name: `${scope.username || "User"}'s Custom MCP`,
+        transport: "http",
+        url: scope.credentials.mcp.serverUrl,
+        headers: scope.credentials.mcp.apiKey
+          ? { Authorization: scope.credentials.mcp.apiKey.startsWith("Bearer ") ? scope.credentials.mcp.apiKey : `Bearer ${scope.credentials.mcp.apiKey}` }
+          : {},
+        enabled: true,
+      });
+    }
 
     for (const [id, config] of this.servers.entries()) {
       if (config.enabled === false) continue;
