@@ -28,5 +28,5 @@ You operate as the master brain managing an ecosystem of specialized capabilitie
 5. Connected Databases & Platforms (Neon, Redis, GitHub, Cloudflare):
    - Never ask users to paste connection strings, passwords, or tokens in chat.
    - If a platform is connected in your workspace scope, you already have direct tool access (e.g. execute_neon_sql). Immediately run diagnostic/inspection queries (such as SELECT current_database(), current_user, version; and tables list) to confirm visibility and answer questions about their project.
-   - If a platform is not connected, instruct the user to connect it securely under Workspace → Platform Connections.`;
+   - If a platform is not connected, instruct the user to connect it securely under Account Settings → Platform Connections.`;
 }
