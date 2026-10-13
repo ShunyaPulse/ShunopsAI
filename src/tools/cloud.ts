@@ -8,37 +8,46 @@ import * as path from "node:path";
 
 const execFileAsync = promisify(execFile);
 
-// Cache Redis instance
-let redisClient: Redis | null = null;
+// Cache one Redis client per connection URL: the server default plus one entry
+// per user who connected their own instance, so tenants never share a client.
+const redisClients = new Map<string, Redis>();
 
-function getRedisInstance(): Redis | null {
-  const redisUrl = process.env.REDIS_URL;
+function getRedisInstance(connectionUrl?: string): Redis | null {
+  const redisUrl = connectionUrl || process.env.REDIS_URL;
   if (!redisUrl && !process.env.REDIS_HOST) return null;
 
-  if (!redisClient) {
-    try {
-      redisClient = redisUrl
-        ? new Redis(redisUrl, { lazyConnect: true, maxRetriesPerRequest: 2 })
-        : new Redis({
-            host: process.env.REDIS_HOST || "127.0.0.1",
-            port: Number(process.env.REDIS_PORT) || 6379,
-            password: process.env.REDIS_PASSWORD || undefined,
-            lazyConnect: true,
-            maxRetriesPerRequest: 2,
-          });
-    } catch (err: any) {
-      console.warn(`[Redis Init Warning]: ${err.message}`);
-      return null;
-    }
+  const cacheKey = redisUrl || `${process.env.REDIS_HOST}:${process.env.REDIS_PORT || 6379}`;
+  const cached = redisClients.get(cacheKey);
+  if (cached) return cached;
+
+  try {
+    const client = redisUrl
+      ? new Redis(redisUrl, { lazyConnect: true, maxRetriesPerRequest: 2 })
+      : new Redis({
+          host: process.env.REDIS_HOST || "127.0.0.1",
+          port: Number(process.env.REDIS_PORT) || 6379,
+          password: process.env.REDIS_PASSWORD || undefined,
+          lazyConnect: true,
+          maxRetriesPerRequest: 2,
+        });
+    redisClients.set(cacheKey, client);
+    return client;
+  } catch (err: any) {
+    console.warn(`[Redis Init Warning]: ${err.message}`);
+    return null;
   }
-  return redisClient;
 }
 
 /**
  * 1. Neon Postgres Query Tool (Uses HTTP fetch, no WebSockets required)
  */
-export async function executeNeonSql(query: string): Promise<string> {
+export async function executeNeonSql(
+  query: string,
+  /** Per-user connection string. When present it is the ONLY database touched. */
+  opts: { connectionString?: string } = {}
+): Promise<string> {
   const dbUrl =
+    opts.connectionString ||
     process.env.DATABASE_URL ||
     process.env.NEON_DATABASE_URL ||
     process.env.SARALGATI_DATABASE_URL;
@@ -72,13 +81,18 @@ const ALLOWED_REDIS_COMMANDS = new Set<string>([
   "ZCARD", "ZSCORE", "DBSIZE", "INFO", "MEMORY", "COMMAND",
 ]);
 
-export async function executeRedisCommand(command: string, args: string[] = []): Promise<string> {
+export async function executeRedisCommand(
+  command: string,
+  args: string[] = [],
+  /** Per-user Redis URL. When present it is the ONLY instance touched. */
+  opts: { url?: string } = {}
+): Promise<string> {
   const normalizedCommand = command.trim().toUpperCase();
   if (!ALLOWED_REDIS_COMMANDS.has(normalizedCommand)) {
     return `Error: Redis command '${command}' is not permitted. Allowed commands: ${[...ALLOWED_REDIS_COMMANDS].join(", ")}.`;
   }
 
-  const redis = getRedisInstance();
+  const redis = getRedisInstance(opts.url);
   if (!redis) {
     return "Error: REDIS_URL or REDIS_HOST is not set in .env. Please configure your OCI Redis connection.";
   }
@@ -108,8 +122,11 @@ export async function manageGitHub(action: {
   body?: string;
   head?: string;
   base?: string;
-}): Promise<string> {
-  const token = process.env.GITHUB_PAT || process.env.GITHUB_TOKEN;
+},
+  /** Per-user token. When present it is the ONLY identity used, never the operator's. */
+  opts: { token?: string } = {}
+): Promise<string> {
+  const token = opts.token || process.env.GITHUB_PAT || process.env.GITHUB_TOKEN;
 
   // First try gh CLI if available locally (argv form — no shell interpolation)
   try {
@@ -143,7 +160,13 @@ export async function manageGitHub(action: {
     if (argv) {
       const bin = action.operation === "list_branches" ? "git" : "gh";
       const { stdout, stderr } = await execFileAsync(bin, argv, {
-        env: { ...process.env, GITHUB_TOKEN: token || process.env.GITHUB_TOKEN },
+        // GH_TOKEN takes precedence inside the gh CLI, so a user's own token is
+        // guaranteed to win over any credential already on the server.
+        env: {
+          ...process.env,
+          GITHUB_TOKEN: token || process.env.GITHUB_TOKEN,
+          ...(opts.token ? { GH_TOKEN: opts.token } : {}),
+        },
       });
       return stdout || stderr || `GitHub action '${action.operation}' completed.`;
     }

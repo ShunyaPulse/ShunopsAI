@@ -4,6 +4,7 @@ import { AGENT_MODELS_CHAIN, callChatCompletionWithFailover, type ModelTarget, t
 import { buildSystemPrompt } from "./prompts.js";
 import { sensitivityPayload } from "./sandbox.js";
 import { toolRegistry, registeredTools, type ToolDefinition, type ToolName } from "./tools.js";
+import { allowedToolsForScope, type ToolScope } from "./scope.js";
 import { requestHumanApproval, isActionSensitive } from "../tools/safety.js";
 
 // ==========================================
@@ -20,6 +21,11 @@ export interface AgentOptions {
   disabledTools?: ToolName[];
   /** Optional request-scoped BYOK provider key overrides. */
   keyOverrides?: ProviderKeyOverrides | undefined;
+  /**
+   * Whose accounts this run may touch. Defaults to the operator scope, which is
+   * what internal CLI/cron/admin callers have always used.
+   */
+  scope?: ToolScope | undefined;
 }
 
 export interface AgentTokenUsage {
@@ -68,9 +74,16 @@ export async function runAutonomousAgent(
   const targets = resolveTargets(options);
 
   // Least-privilege: restrict the toolset exposed to the model for this run.
+  // A user scope never even sees host-tier tools, and its platform tools can
+  // only act on the accounts that user connected themselves.
+  const scope = options.scope;
+  const scopeAllowed = allowedToolsForScope(scope);
   const disabled = new Set<ToolName>(options.disabledTools ?? []);
   const activeTools = registeredTools.filter(
-    (t) => t.type === "function" && !disabled.has(t.function.name as ToolName)
+    (t) =>
+      t.type === "function" &&
+      scopeAllowed.has(t.function.name as ToolName) &&
+      !disabled.has(t.function.name as ToolName)
   );
   const allowedNames = new Set(
     activeTools.map((t) => (t.type === "function" ? t.function.name : ""))
@@ -84,6 +97,19 @@ export async function runAutonomousAgent(
     messages.push({
       role: "system",
       content: `Initial Workspace Context:\n${options.initialContext}`,
+    });
+  }
+
+  if (scope && scope.kind === "user") {
+    const connected = Object.keys(scope.credentials ?? {});
+    messages.push({
+      role: "system",
+      content: [
+        `Tenant scope: you are running for user "${scope.username}" (id ${scope.userId}).`,
+        `Connected platforms for this user: ${connected.length > 0 ? connected.join(", ") : "none"}.`,
+        "Only the platforms listed above are reachable; host-level and shared operator infrastructure is unavailable.",
+        "If a tool refuses because an account is not connected, tell the user to connect it under Workspace → Platform Connections.",
+      ].join("\n"),
     });
   }
 
@@ -214,12 +240,19 @@ export async function runAutonomousAgent(
             const payload = sensitivityPayload(toolName, parsedArgs);
             const sensitivity = isActionSensitive(payload);
             if (sensitivity.isSensitive) {
-              const approval = await requestHumanApproval(`Tool: ${toolName}`, payload, sensitivity.reason);
+              // Route the approval to the account that owns this run, so the
+              // request shows up on the user's own workspace, not the operator's.
+              const approval = await requestHumanApproval(
+                `Tool: ${toolName}`,
+                payload,
+                sensitivity.reason,
+                { userId: scope?.userId, username: scope?.username }
+              );
               executionResult = approval.approved
-                ? await toolHandler.execute(parsedArgs).catch((e: any) => `Error executing tool ${toolName}: ${e.message}`)
+                ? await toolHandler.execute(parsedArgs, scope).catch((e: any) => `Error executing tool ${toolName}: ${e.message}`)
                 : `Aborted by safety gate: ${approval.message}`;
             } else {
-              executionResult = await toolHandler.execute(parsedArgs).catch((e: any) => `Error executing tool ${toolName}: ${e.message}`);
+              executionResult = await toolHandler.execute(parsedArgs, scope).catch((e: any) => `Error executing tool ${toolName}: ${e.message}`);
             }
           } catch (execErr: any) {
             executionResult = `Error executing tool ${toolName}: ${execErr?.message || String(execErr)}`;

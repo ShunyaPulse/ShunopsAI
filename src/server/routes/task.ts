@@ -3,6 +3,7 @@ import { runAutonomousAgent } from "../../agent/index.js";
 import { TaskRequestSchema, type TaskRequest } from "../schemas/alert.js";
 import { createQueuedTask, getTaskState } from "../taskQueue.js";
 import { listUserTasks, saveTaskRecord } from "../db.js";
+import { buildRequestScope } from "../scope.js";
 
 export interface TaskRouteOptions {
   requireAuth: preHandlerHookHandler;
@@ -27,6 +28,10 @@ export async function taskRoutes(app: FastifyInstance, options: TaskRouteOptions
       const body = req.body || {};
       const user = (req as any).user;
       const userId = user?.id && user.id > 0 ? user.id : undefined;
+
+      // Tenant isolation: a signed-in user's run may only touch the accounts
+      // they connected themselves, never the operator's infrastructure.
+      const scope = await buildRequestScope(user);
 
       const taskGoal =
         body.goal ||
@@ -69,7 +74,7 @@ export async function taskRoutes(app: FastifyInstance, options: TaskRouteOptions
         (req.headers["x-execution-mode"] as string)?.toLowerCase() === "async";
 
       if (isAsync) {
-        const queued = createQueuedTask(taskGoal, maxSteps, context, userId, keyOverrides);
+        const queued = createQueuedTask(taskGoal, maxSteps, context, userId, keyOverrides, scope);
         reply.status(202);
         return {
           success: true,
@@ -87,6 +92,7 @@ export async function taskRoutes(app: FastifyInstance, options: TaskRouteOptions
           maxSteps,
           ...(context ? { initialContext: context } : {}),
           keyOverrides,
+          scope,
         });
 
         // Record task outcome in database

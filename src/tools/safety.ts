@@ -9,6 +9,18 @@ export interface ApprovalRequest {
   riskReason: string;
   timestamp: string;
   status: "pending" | "approved" | "rejected";
+  /**
+   * Owning account. `null` means the request belongs to the operator (CLI/cron
+   * or an admin run) and is therefore visible to admins only.
+   */
+  userId?: number | null;
+  username?: string | null;
+}
+
+/** Who a run belongs to, so approvals can be routed to the right tenant. */
+export interface ApprovalRequester {
+  userId?: number | undefined;
+  username?: string | undefined;
 }
 
 const pendingApprovals = new Map<string, ApprovalRequest>();
@@ -203,11 +215,14 @@ async function notifyTelegram(request: ApprovalRequest): Promise<void> {
 export async function requestHumanApproval(
   action: string,
   commandOrPayload: string,
-  riskReason: string
+  riskReason: string,
+  requester: ApprovalRequester = {}
 ): Promise<{ approved: boolean; message: string }> {
   // Use a cryptographically strong random suffix: approval IDs must be
   // unguessable so a third party cannot approve/reject a pending action.
   const id = `req_${Date.now()}_${randomInt(0, 0xffffffff).toString(36)}`;
+  const tenantUserId =
+    typeof requester.userId === "number" && requester.userId > 0 ? requester.userId : null;
   const request: ApprovalRequest = {
     id,
     action,
@@ -215,6 +230,8 @@ export async function requestHumanApproval(
     riskReason,
     timestamp: new Date().toISOString(),
     status: "pending",
+    userId: tenantUserId,
+    username: requester.username ?? null,
   };
 
   pendingApprovals.set(id, request);
@@ -224,10 +241,17 @@ export async function requestHumanApproval(
   // request was already listed as pending but had no resolver, so a prompt
   // /api/approve would be rejected as "not found" and the action would hang
   // until it timed out.
-  const telegramAlert = notifyTelegram(request).catch(() => {});
+  // A tenant's request belongs in that tenant's own approval queue: sending it
+  // to the operator's Telegram would leak the user's payload off-platform.
+  const telegramAlert = tenantUserId === null ? notifyTelegram(request).catch(() => {}) : Promise.resolve();
 
   console.log(`\n\x1b[31m\x1b[1m========================================================\x1b[0m`);
   console.log(`\x1b[31m\x1b[1m⚠️  [HUMAN-IN-THE-LOOP APPROVAL REQUIRED]\x1b[0m`);
+  if (tenantUserId !== null) {
+    console.log(
+      `\x1b[33mTenant:\x1b[0m ${request.username ?? "user"} (id ${tenantUserId}) — awaiting approval in their own workspace (${id})`
+    );
+  }
   console.log(`\x1b[33mAction:\x1b[0m ${action}`);
   console.log(`\x1b[33mRisk Reason:\x1b[0m ${riskReason}`);
   console.log(`\x1b[33mCommand / Payload:\x1b[0m\n${commandOrPayload}`);
@@ -285,13 +309,24 @@ export async function requestHumanApproval(
 /**
  * Handle remote approval from API endpoint /api/approve
  */
-export function resolveApproval(id: string, approved: boolean): boolean {
+export function resolveApproval(
+  id: string,
+  approved: boolean,
+  requester: { userId?: number | undefined; isAdmin?: boolean } = {}
+): boolean {
   if (typeof id !== "string") return false;
   const resolver = approvalResolvers.get(id);
   const request = pendingApprovals.get(id);
   // Both must exist: a resolver without a pending entry (or vice versa) means
   // the request already settled (approved, rejected, or timed out).
   if (!resolver || !request) return false;
+
+  // Tenant isolation: a signed-in user may only settle their own request. An
+  // internal caller that passes no userId keeps admin power (CLI/cron/admin).
+  const isAdmin = requester.isAdmin ?? requester.userId === undefined;
+  if (!isAdmin && request.userId != null && request.userId !== requester.userId) {
+    return false;
+  }
 
   if (typeof resolver === "function") {
     resolver(approved);
@@ -300,6 +335,14 @@ export function resolveApproval(id: string, approved: boolean): boolean {
   return true;
 }
 
-export function listPendingApprovals(): ApprovalRequest[] {
-  return Array.from(pendingApprovals.values()).filter((r) => r.status === "pending");
+/**
+ * Pending approvals. Pass a userId to get only that account's requests; call
+ * with no argument (admin scope) to see everything.
+ */
+export function listPendingApprovals(userId?: number): ApprovalRequest[] {
+  const pending = Array.from(pendingApprovals.values()).filter((r) => r.status === "pending");
+  if (typeof userId === "number") {
+    return pending.filter((r) => r.userId === userId);
+  }
+  return pending;
 }

@@ -752,8 +752,200 @@ export function workspaceScripts(safeUsername: string): string {
     }
 
     function copyWorkspaceWidgetSnippet(btn) {
-      const code = '<' + 'script src="https://edge-agent-widget.shunopsai.workers.dev/widget.js" defer><' + '/script>';
+      const code = '<' + 'script src="https://edge-agent-widget.shunopsai.workers.dev/widget.js" data-api-url="https://edge-agent-widget.shunopsai.workers.dev" defer><' + '/script>';
       copyToClipboardStandard(btn, code, 'Copied!');
+    }
+
+    // 8. Platform Connections (the user's OWN provider credentials)
+    let platformSpecs = [];
+
+    function setPlatformStatus(message, ok) {
+      const el = document.getElementById('platform-connect-status');
+      if (!el) return;
+      el.textContent = message;
+      el.style.color = ok ? '#10b981' : '#f87171';
+    }
+
+    async function loadPlatformCredentials() {
+      const listBox = document.getElementById('platform-connected-list');
+      try {
+        const res = await fetch('/api/user/platform-credentials');
+        if (!res.ok) {
+          if (listBox) listBox.textContent = 'Could not load connected platforms.';
+          return;
+        }
+        const data = await res.json();
+        platformSpecs = data.available || [];
+        renderConnectedPlatforms(data.connected || []);
+        renderPlatformSelect();
+      } catch (e) {
+        if (listBox) listBox.textContent = 'Could not load connected platforms.';
+      }
+    }
+
+    function renderConnectedPlatforms(connected) {
+      const box = document.getElementById('platform-connected-list');
+      if (!box) return;
+      if (!connected.length) {
+        box.innerHTML = '<div style="font-size:12px; color:#94a3b8; line-height:1.5;">No platform accounts connected yet. Tasks you run can only use what you connect here.</div>';
+        return;
+      }
+      box.innerHTML = connected.map(function (item) {
+        return '<div style="display:flex; justify-content:space-between; align-items:center; gap:8px; background:#090d16; border:1px solid #1e293b; border-radius:8px; padding:8px 10px; margin-bottom:6px;">'
+          + '<div><div style="font-size:12.5px; color:#fff; font-weight:600;">' + escapeHtmlText(item.label || item.platform) + '</div>'
+          + '<div style="font-size:11px; color:#94a3b8; font-family:monospace;">' + escapeHtmlText(item.hint || '') + ' · updated ' + escapeHtmlText(String(item.updatedAt || '').slice(0, 10)) + '</div></div>'
+          + '<button class="btn-sub" data-disconnect="' + escapeHtmlText(item.platform) + '" style="border-color:rgba(239,68,68,0.4); color:#ef4444;">Disconnect</button>'
+          + '</div>';
+      }).join('');
+      box.querySelectorAll('[data-disconnect]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          disconnectPlatform(btn.getAttribute('data-disconnect'));
+        });
+      });
+    }
+
+    function renderPlatformSelect() {
+      const select = document.getElementById('platform-select');
+      if (!select) return;
+      select.innerHTML = platformSpecs.map(function (spec) {
+        return '<option value="' + escapeHtmlText(spec.id) + '">' + escapeHtmlText(spec.label) + '</option>';
+      }).join('');
+      onPlatformSelectChange();
+    }
+
+    function onPlatformSelectChange() {
+      const select = document.getElementById('platform-select');
+      const box = document.getElementById('platform-field-inputs');
+      if (!select || !box) return;
+      const spec = platformSpecs.filter(function (s) { return s.id === select.value; })[0];
+      if (!spec) {
+        box.innerHTML = '';
+        return;
+      }
+      box.innerHTML = '<div style="font-size:11.5px; color:#94a3b8; line-height:1.45;">' + escapeHtmlText(spec.description) + '</div>'
+        + spec.fields.map(function (field) {
+          return '<input data-cred-field="' + escapeHtmlText(field.key) + '" type="' + (field.secret ? 'password' : 'text') + '" placeholder="' + escapeHtmlText(field.label) + '" autocomplete="off" style="width:100%; background:#070a12; border:1px solid #1e293b; border-radius:6px; padding:8px 10px; color:#fff; font-size:12px; outline:none;" />';
+        }).join('');
+    }
+
+    async function connectPlatformCredential() {
+      const select = document.getElementById('platform-select');
+      const box = document.getElementById('platform-field-inputs');
+      if (!select || !box) return;
+
+      const values = {};
+      box.querySelectorAll('[data-cred-field]').forEach(function (input) {
+        values[input.getAttribute('data-cred-field')] = input.value;
+      });
+
+      setPlatformStatus('Connecting...', true);
+      try {
+        const res = await fetch('/api/user/platform-credentials', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ platform: select.value, values: values }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+          setPlatformStatus(data.error || 'Could not connect that account.', false);
+          return;
+        }
+        box.innerHTML = '';
+        setPlatformStatus('Connected. Your tasks can now use this account.', true);
+        loadPlatformCredentials();
+      } catch (e) {
+        setPlatformStatus('Network error while connecting.', false);
+      }
+    }
+
+    async function disconnectPlatform(platform) {
+      setPlatformStatus('Disconnecting...', true);
+      try {
+        const res = await fetch('/api/user/platform-credentials/' + encodeURIComponent(platform), { method: 'DELETE' });
+        if (!res.ok) {
+          const data = await res.json().catch(function () { return {}; });
+          setPlatformStatus(data.error || 'Could not disconnect that account.', false);
+          return;
+        }
+        setPlatformStatus('Disconnected.', true);
+        loadPlatformCredentials();
+      } catch (e) {
+        setPlatformStatus('Network error while disconnecting.', false);
+      }
+    }
+
+    // 9. Autonomous task dispatch (scoped to this account's own connections)
+    async function runAutonomousTask() {
+      const input = document.getElementById('task-goal-input');
+      const statusBox = document.getElementById('task-run-status');
+      const stepsSelect = document.getElementById('task-max-steps');
+      if (!input || !statusBox) return;
+
+      const goal = (input.value || '').trim();
+      if (!goal) {
+        statusBox.style.display = 'block';
+        statusBox.style.color = '#f59e0b';
+        statusBox.textContent = 'Describe what you want the agent to do first.';
+        return;
+      }
+
+      statusBox.style.display = 'block';
+      statusBox.style.color = '#94a3b8';
+      statusBox.textContent = 'Submitting task...';
+
+      try {
+        // Async dispatch keeps the page responsive while the agent works and
+        // while it waits for your approval in the red bar above.
+        const res = await fetch('/api/task', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            goal: goal,
+            maxSteps: Number((stepsSelect && stepsSelect.value) || 6),
+            async: true,
+          }),
+        });
+        const data = await res.json();
+        if (!data || !data.taskId) {
+          statusBox.style.color = '#f87171';
+          statusBox.textContent = (data && data.error) || 'The task could not be started.';
+          return;
+        }
+        statusBox.textContent = 'Task accepted (' + data.taskId + '). Running... the agent pauses for your approval before any sensitive step.';
+        fetchWorkspaceApprovals();
+        pollTaskResult(data.taskId, statusBox, 0);
+      } catch (e) {
+        statusBox.style.color = '#f87171';
+        statusBox.textContent = 'Network error while starting the task.';
+      }
+    }
+
+    function pollTaskResult(taskId, statusBox, attempts) {
+      if (attempts > 240) {
+        statusBox.style.color = '#f59e0b';
+        statusBox.textContent = 'Still running after roughly 12 minutes. Reopen this panel later to see the outcome.';
+        return;
+      }
+      setTimeout(async function () {
+        try {
+          const res = await fetch('/api/task/' + encodeURIComponent(taskId));
+          const data = await res.json();
+          const task = data && data.task;
+          if (task && (task.status === 'COMPLETED' || task.status === 'FAILED')) {
+            const answer = (task.result && task.result.finalAnswer) || task.error || 'Task finished with no output.';
+            const steps = (task.result && task.result.stepsTaken) || 0;
+            statusBox.style.color = task.status === 'COMPLETED' ? '#34d399' : '#f59e0b';
+            statusBox.textContent = answer + '  ·  ' + steps + ' steps';
+            fetchWorkspaceApprovals();
+            return;
+          }
+          statusBox.textContent = 'Running (' + ((task && task.status) || 'QUEUED').toLowerCase() + ')... the agent pauses for your approval before any sensitive step.';
+          pollTaskResult(taskId, statusBox, attempts + 1);
+        } catch (e) {
+          statusBox.style.color = '#f87171';
+          statusBox.textContent = 'Lost connection while polling the task result.';
+        }
+      }, 3000);
     }
 
     window.addEventListener('DOMContentLoaded', () => {
@@ -762,6 +954,7 @@ export function workspaceScripts(safeUsername: string): string {
       fetchBillingUsage();
       loadApiKeys();
       fetchModelStatus();
+      loadPlatformCredentials();
       setInterval(fetchWorkspaceApprovals, 4000); // Live approvals polling
     });`;
 }

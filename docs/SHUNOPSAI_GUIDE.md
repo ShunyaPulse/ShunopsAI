@@ -63,6 +63,26 @@ Monitors, benchmarks, and maintains 100% error-free operation across all service
 - **Website Bot (Dify)**:
   - Exclusively for visitors/users to answer questions and provide support without exposing privileged tools.
 
+### 🔐 Pillar 4: Tenant Isolation — Users Act Only On Their Own Accounts
+
+Every agent run carries a **scope**, resolved in one place (`src/server/scope.ts`):
+
+| Scope | Credentials used | Host-level tools |
+|---|---|---|
+| `admin` — operator, master admin, internal CLI/cron | the server's own credentials | allowed |
+| `user` — signed-in account, or a `shun_*` personal API key | **only** the credentials that user connected themselves | refused |
+
+- **Platform Connections** (`/workspace` → Account Settings): a user connects their own Neon / Redis / GitHub / Cloudflare account. Secrets are encrypted with AES-256-GCM (`CREDENTIALS_ENCRYPTION_KEY`) and only a 4-character hint is ever read back.
+- **Fail closed**: if a user runs `execute_neon_sql` without having connected Neon, the tool refuses and points them at Platform Connections. The operator's credentials are never substituted for a user's.
+- **Host tier stays operator-only**: `run_shell_command`, `read_file`, `write_file`, `list_directory`, gcloud/SSH, `wrangler`, the shared Kaggle/YouTube pipeline, sentinel/auto-heal and knowledge-base writes are refused for a user scope. This is enforced once, centrally, across the whole tool registry (`src/agent/scope.ts` + the guard in `src/agent/tools.ts`).
+- **Approvals are per tenant**: a sensitive step raised by a user's run appears in *that user's* workspace approval bar, and only that user (or an operator) may approve or reject it. Operator requests are never shown to tenants.
+- **Dispatch**: `/workspace` → “Run an Autonomous Task” posts to `POST /api/task`, which runs with the caller's scope (async dispatch + polling).
+
+Isolation tests:
+```bash
+npm run test:isolation
+```
+
 ---
 
 ## 3. Quick Start & Execution
