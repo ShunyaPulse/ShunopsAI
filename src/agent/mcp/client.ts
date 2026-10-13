@@ -41,7 +41,12 @@ export class McpHttpClient {
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
-      const res = await fetch(this.config.url, {
+      const targetUrl = new URL(this.config.url);
+      if (targetUrl.protocol !== "http:" && targetUrl.protocol !== "https:") {
+        throw new Error(`Invalid MCP URL protocol: ${targetUrl.protocol}`);
+      }
+
+      const res = await fetch(targetUrl.toString(), {
         method: "POST",
         headers,
         body: JSON.stringify(payload),
