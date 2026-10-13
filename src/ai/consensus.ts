@@ -129,6 +129,9 @@ export function hasProviderCredentials(provider: ModelEndpoint["provider"]): boo
   return getOpenRouterKeys().length > 0;
 }
 
+// Fast failover timeout for automated consensus inference (15s max)
+const CONSENSUS_TIMEOUT_MS = 15000;
+
 export function createClient(target: ModelEndpoint): OpenAI {
   if (target.provider === "groq") {
     const keys = getGroqKeys();
@@ -136,6 +139,8 @@ export function createClient(target: ModelEndpoint): OpenAI {
     return new OpenAI({
       baseURL: "https://api.groq.com/openai/v1",
       apiKey: key,
+      timeout: CONSENSUS_TIMEOUT_MS,
+      maxRetries: 0,
     });
   }
 
@@ -145,6 +150,8 @@ export function createClient(target: ModelEndpoint): OpenAI {
     return new OpenAI({
       baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/",
       apiKey: key,
+      timeout: CONSENSUS_TIMEOUT_MS,
+      maxRetries: 0,
     });
   }
 
@@ -153,6 +160,8 @@ export function createClient(target: ModelEndpoint): OpenAI {
   return new OpenAI({
     baseURL: "https://openrouter.ai/api/v1",
     apiKey: key,
+    timeout: CONSENSUS_TIMEOUT_MS,
+    maxRetries: 0,
     defaultHeaders: {
       "HTTP-Referer": "https://github.com/ShunyaPulse/ShunopsAI",
       "X-Title": "ShunopsAI-Consensus-Engine",

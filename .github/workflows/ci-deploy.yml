@@ -176,4 +176,4 @@ jobs:
           echo "🤖 [Autonomous Security] Resolving open CodeQL, Semgrep, and Trivy alerts..."
           git config --global user.name "ShunopsAI-AutoResolver[bot]"
           git config --global user.email "shunopsai-agent@users.noreply.github.com"
-          npx tsx src/tools/code-scanner-resolver.ts 10
+          npx tsx src/tools/code-scanner-resolver.ts 5
