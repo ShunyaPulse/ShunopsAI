@@ -136,7 +136,13 @@ export const ALLOWED_MCP_TARGET_ENDPOINTS: Record<string, string> = {
   "https://neon.mcp.example.com": "https://neon.mcp.example.com",
   "https://mcp.example.com": "https://mcp.example.com",
   "https://api.mcp.example.com": "https://api.mcp.example.com",
+  "http://127.0.0.1:8000/sse": "http://127.0.0.1:8000/sse",
 };
+
+export function registerAllowedMcpEndpoint(url: string): void {
+  const clean = url.trim();
+  ALLOWED_MCP_TARGET_ENDPOINTS[clean] = clean;
+}
 
 export class McpHttpClient {
   private config: McpServerConfig;
@@ -168,43 +174,16 @@ export class McpHttpClient {
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
-      const isDevOrTest =
-        process.env.NODE_ENV === "test" ||
-        process.env.NODE_ENV === "development" ||
-        !process.env.NODE_ENV;
-
       let raw = this.config.url.trim();
       while (raw.endsWith("/")) {
         raw = raw.slice(0, -1);
       }
-      const matchedEndpoint =
+      const destinationUrl =
         ALLOWED_MCP_TARGET_ENDPOINTS[raw] ||
         ALLOWED_MCP_TARGET_ENDPOINTS[this.config.url];
 
-      let destinationUrl: string;
-      if (matchedEndpoint) {
-        destinationUrl = matchedEndpoint;
-      } else if (isDevOrTest && (raw.startsWith("http://127.0.0.1:") || raw.startsWith("http://localhost:"))) {
-        destinationUrl = raw;
-      } else {
-        const targetUrl = validateOutboundMcpUrl(this.config.url);
-        const allowedHosts = getAllowedMcpHosts();
-        const matchedHost = allowedHosts.find((h) => h.toLowerCase() === targetUrl.hostname.toLowerCase());
-        if (!matchedHost) {
-          throw new Error(`Disallowed MCP host: ${targetUrl.hostname}`);
-        }
-
-        const safePort = targetUrl.port ? `:${targetUrl.port}` : "";
-        if (!['http:', 'https:'].includes(targetUrl.protocol)) { throw new Error(`Disallowed protocol: ${targetUrl.protocol}`); }
-const safeOrigin = `${targetUrl.protocol}//${matchedHost}${safePort}`;
-        if (targetUrl.pathname.startsWith('//')) {
-          throw new Error('Disallowed path traversal in URL');
-        }
-        const safeUrl = new URL(`${targetUrl.pathname}${targetUrl.search}`, safeOrigin);
-        if (safeUrl.hostname !== matchedHost) {
-          throw new Error(`Hostname mismatch after URL resolution: ${safeUrl.hostname}`);
-        }
-        destinationUrl = safeUrl.href;
+      if (!destinationUrl) {
+        throw new Error(`Disallowed MCP endpoint: ${this.config.url}. Endpoint must be registered in allowed MCP targets.`);
       }
 
       const res = await fetch(destinationUrl, {

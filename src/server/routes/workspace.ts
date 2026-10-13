@@ -279,24 +279,13 @@ export async function workspaceRoutes(app: FastifyInstance, options: WorkspaceRo
         ALLOWED_MCP_TARGET_ENDPOINTS[normalized] ||
         ALLOWED_MCP_TARGET_ENDPOINTS[serverUrl];
 
-      let safeServerUrl: string;
-      if (matchedEndpoint) {
-        safeServerUrl = matchedEndpoint;
-      } else {
-        const isDevOrTest =
-          process.env.NODE_ENV === "test" ||
-          process.env.NODE_ENV === "development" ||
-          !process.env.NODE_ENV;
-        if (isDevOrTest && (serverUrl.startsWith("http://127.0.0.1:") || serverUrl.startsWith("http://localhost:"))) {
-          safeServerUrl = serverUrl;
-        } else {
-          reply.status(400);
-          return {
-            success: false,
-            connected: false,
-            error: "Only registered and verified MCP servers from the allowed directory can be tested.",
-          };
-        }
+      if (!matchedEndpoint) {
+        reply.status(400);
+        return {
+          success: false,
+          connected: false,
+          error: "Only registered and verified MCP servers from the allowed directory can be tested.",
+        };
       }
 
       try {
@@ -304,7 +293,7 @@ export async function workspaceRoutes(app: FastifyInstance, options: WorkspaceRo
           id: "test-mcp",
           name: "MCP Connection Test",
           transport: "http",
-          url: safeServerUrl,
+          url: matchedEndpoint,
           headers: apiKey
             ? { Authorization: apiKey.startsWith("Bearer ") ? apiKey : `Bearer ${apiKey}` }
             : {},

@@ -132,7 +132,8 @@ async function runTests() {
   const port = (testServer.address() as any).port;
   const mockMcpUrl = `http://127.0.0.1:${port}`;
 
-  const { McpHttpClient } = await import("../src/agent/mcp/client.js");
+  const { McpHttpClient, registerAllowedMcpEndpoint } = await import("../src/agent/mcp/client.js");
+  registerAllowedMcpEndpoint(mockMcpUrl);
   const client = new McpHttpClient({
     id: "mock",
     name: "Mock MCP",
