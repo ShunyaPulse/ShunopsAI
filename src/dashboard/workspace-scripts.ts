@@ -823,6 +823,50 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]'): stri
     let platformVaultReady = true;
     let platformBusy = false;
     let activeMcpPreset = null;
+    let currentInlineTier = 'native';
+
+    const LOCAL_BRIDGE_PRESETS = [
+      { id: 'local_bridge', name: 'Custom Local Bridge (127.0.0.1:8000)', url: 'http://127.0.0.1:8000/sse' },
+      { id: 'mcp:docker', name: 'Docker Engine (Local Bridge)', url: 'http://127.0.0.1:8000/sse' },
+      { id: 'mcp:sqlite', name: 'SQLite Database (Local Bridge)', url: 'http://127.0.0.1:8000/sse' },
+      { id: 'mcp:git', name: 'Local Git Repository (Local Bridge)', url: 'http://127.0.0.1:8000/sse' },
+      { id: 'mcp:ollama', name: 'Ollama Local LLMs (Local Bridge)', url: 'http://127.0.0.1:8000/sse' },
+      { id: 'mcp:filesystem', name: 'Local Filesystem (Local Bridge)', url: 'http://127.0.0.1:8000/sse' }
+    ];
+
+    const REMOTE_MCP_POPULAR_PRESETS = [
+      { id: 'mcp:shunops-core', name: 'ShunopsAI Core MCP (Built-in /api/mcp)', url: '/api/mcp' },
+      { id: 'mcp', name: 'Custom Remote MCP Server (SSE / HTTPS)', url: '' },
+      { id: 'mcp:wikipedia-mcp', name: 'Wikipedia & Wikidata MCP', url: 'https://mcp.wikipedia.org/v1' },
+      { id: 'mcp:firecrawl-mcp', name: 'Firecrawl Web Scraper MCP', url: 'https://mcp.firecrawl.dev/v1' },
+      { id: 'mcp:browserbase-mcp', name: 'Browserbase Cloud Browser MCP', url: 'https://mcp.browserbase.com/v1' },
+      { id: 'mcp:arxiv-papers', name: 'ArXiv Research Papers MCP', url: 'https://mcp.arxiv.org/v1' },
+      { id: 'mcp:exa-search', name: 'Exa Neural Search MCP', url: 'https://mcp.exa.ai/v1' },
+      { id: 'mcp:slack-mcp', name: 'Slack Workspace MCP', url: 'https://mcp.slack.com/v1' },
+      { id: 'mcp:linear-mcp', name: 'Linear Issues & Tracking MCP', url: 'https://mcp.linear.app/v1' }
+    ];
+
+    function setInlineTierFilter(tier) {
+      currentInlineTier = tier;
+      const tabNative = document.getElementById('tab-tier-native');
+      const tabLocal = document.getElementById('tab-tier-local_bridge');
+      const tabMcp = document.getElementById('tab-tier-mcp');
+
+      if (tabNative) {
+        tabNative.style.background = tier === 'native' ? '#10b981' : 'transparent';
+        tabNative.style.color = tier === 'native' ? '#fff' : '#94a3b8';
+      }
+      if (tabLocal) {
+        tabLocal.style.background = tier === 'local_bridge' ? '#f59e0b' : 'transparent';
+        tabLocal.style.color = tier === 'local_bridge' ? '#fff' : '#94a3b8';
+      }
+      if (tabMcp) {
+        tabMcp.style.background = tier === 'mcp' ? '#0284c7' : 'transparent';
+        tabMcp.style.color = tier === 'mcp' ? '#fff' : '#94a3b8';
+      }
+
+      renderPlatformSelect();
+    }
 
     // Attribute-safe escaping: escapeHtmlText runs through innerHTML, which
     // leaves quotes intact and would let a value break out of an attribute.
@@ -898,9 +942,10 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]'): stri
         return;
       }
       box.innerHTML = connected.map(function (item) {
-        const isMcp = item.platform === 'mcp' || item.platform.startsWith('mcp:');
+        const isLocalBridge = item.platform === 'local_bridge' || item.platform.startsWith('local_bridge:') || (item.label && item.label.includes('(Local Bridge)'));
+        const isMcp = !isLocalBridge && (item.platform === 'mcp' || item.platform.startsWith('mcp:'));
         const spec = platformSpecs.filter(function (s) {
-          return s.id === item.platform || (isMcp && s.id === 'mcp');
+          return s.id === item.platform || (isLocalBridge && s.id === 'local_bridge') || (isMcp && s.id === 'mcp');
         })[0];
         // A stored row is only usable when every required field of its spec round-trips.
         const stored = item.fields || [];
@@ -914,15 +959,23 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]'): stri
           banner = '<div style="font-size:11px; color:#f59e0b; margin-top:2px;">⚠︎ Incomplete — reconnect to store every required field.</div>';
         }
 
-        const connectedBadge = '<span style="font-size:10px; background:rgba(16,185,129,0.12); color:#10b981; border:1px solid rgba(16,185,129,0.25); padding:2px 7px; border-radius:10px; font-weight:600; margin-left:6px;">🟢 Connected</span>';
-        const pingBtn = isMcp
+        let tierBadge = '<span style="font-size:9px; background:rgba(16,185,129,0.12); color:#10b981; border:1px solid rgba(16,185,129,0.25); padding:2px 7px; border-radius:10px; font-weight:700; margin-left:6px;">⚡ Native</span>';
+        if (isLocalBridge) {
+          tierBadge = '<span style="font-size:9px; background:rgba(245,158,11,0.12); color:#f59e0b; border:1px solid rgba(245,158,11,0.25); padding:2px 7px; border-radius:10px; font-weight:700; margin-left:6px;">💻 Local Bridge</span>';
+        } else if (isMcp) {
+          tierBadge = '<span style="font-size:9px; background:rgba(56,189,248,0.12); color:#38bdf8; border:1px solid rgba(56,189,248,0.25); padding:2px 7px; border-radius:10px; font-weight:700; margin-left:6px;">🌐 Remote MCP</span>';
+        }
+
+        const pingBtn = (isMcp || isLocalBridge)
           ? '<button class="btn-sub" data-test-ping="' + escapeHtmlAttr(item.platform) + '" style="border-color:rgba(56,189,248,0.3); color:#38bdf8; font-size:11px; padding:3px 8px;">⚡ Test Ping</button>'
           : '';
 
+        const cleanLabel = (item.label || (spec ? spec.label : item.platform)).replace(/^⚡\s*/, '');
+
         return '<div style="display:flex; justify-content:space-between; align-items:center; gap:8px; background:#090d16; border:1px solid #1e293b; border-radius:8px; padding:8px 10px; margin-bottom:6px;">'
           + '<div><div style="font-size:12.5px; color:#fff; font-weight:600; display:flex; align-items:center;">'
-          + escapeHtmlText(item.label || (spec ? spec.label : item.platform))
-          + connectedBadge
+          + escapeHtmlText(cleanLabel)
+          + tierBadge
           + '</div>'
           + '<div style="font-size:11px; color:#94a3b8; font-family:monospace; margin-top:2px;">' + escapeHtmlText(item.hint || '') + ' · updated ' + escapeHtmlText(String(item.updatedAt || '').slice(0, 10)) + '</div>'
           + banner + '</div>'
@@ -950,39 +1003,43 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]'): stri
       if (!select) return;
       const previous = select.value;
 
-      const nativeOptions = [];
-      const bridgeOptions = [];
-      const mcpOptions = [];
+      let options = [];
 
-      platformSpecs.forEach(function (spec) {
-        const suffix = platformIsConnected(spec.id) ? ' ✓ connected' : '';
-        const optHtml = '<option value="' + escapeHtmlAttr(spec.id) + '">' + escapeHtmlText(spec.label + suffix) + '</option>';
-        if (spec.tier === 'native') nativeOptions.push(optHtml);
-        else if (spec.tier === 'local_bridge') bridgeOptions.push(optHtml);
-        else mcpOptions.push(optHtml);
-      });
-
-      // Also include any connected custom MCP preset platforms
-      platformConnected.forEach(function (conn) {
-        if (conn.platform.startsWith('mcp:') && !platformSpecs.some(function (s) { return s.id === conn.platform; })) {
-          mcpOptions.push('<option value="' + escapeHtmlAttr(conn.platform) + '">' + escapeHtmlText((conn.label || conn.platform) + ' ✓ connected') + '</option>');
-        }
-      });
-
-      let html = '';
-      if (nativeOptions.length) {
-        html += '<optgroup label="⚡ Direct Native Drivers (Zero-Daemon)">' + nativeOptions.join('') + '</optgroup>';
+      if (currentInlineTier === 'native') {
+        platformSpecs.filter(function (s) { return s.tier === 'native'; }).forEach(function (spec) {
+          const isConn = platformIsConnected(spec.id);
+          options.push('<option value="' + escapeHtmlAttr(spec.id) + '">' + escapeHtmlText(spec.label + (isConn ? ' ✓ connected' : '')) + '</option>');
+        });
+      } else if (currentInlineTier === 'local_bridge') {
+        LOCAL_BRIDGE_PRESETS.forEach(function (item) {
+          const isConn = platformIsConnected(item.id);
+          options.push('<option value="' + escapeHtmlAttr(item.id) + '">' + escapeHtmlText(item.name + (isConn ? ' ✓ connected' : '')) + '</option>');
+        });
+        platformConnected.forEach(function (conn) {
+          if ((conn.platform === 'local_bridge' || conn.platform.startsWith('local_bridge:')) && !LOCAL_BRIDGE_PRESETS.some(function (b) { return b.id === conn.platform; })) {
+            options.push('<option value="' + escapeHtmlAttr(conn.platform) + '">' + escapeHtmlText((conn.label || conn.platform) + ' ✓ connected') + '</option>');
+          }
+        });
+      } else {
+        // Tier 3: Remote MCP
+        REMOTE_MCP_POPULAR_PRESETS.forEach(function (item) {
+          const isConn = platformIsConnected(item.id);
+          options.push('<option value="' + escapeHtmlAttr(item.id) + '">' + escapeHtmlText(item.name + (isConn ? ' ✓ connected' : '')) + '</option>');
+        });
+        // Deduplicated: Don't show native platforms under remote MCP!
+        const nativeDuplicates = ['mcp:gcp', 'mcp:redis', 'mcp:neon', 'mcp:brave', 'mcp:tavily', 'mcp:cloudflare', 'mcp:github', 'mcp:supabase', 'mcp:upstash'];
+        platformConnected.forEach(function (conn) {
+          if (conn.platform.startsWith('mcp:') && nativeDuplicates.indexOf(conn.platform) === -1 && !REMOTE_MCP_POPULAR_PRESETS.some(function (r) { return r.id === conn.platform; }) && !LOCAL_BRIDGE_PRESETS.some(function (b) { return b.id === conn.platform; })) {
+            options.push('<option value="' + escapeHtmlAttr(conn.platform) + '">' + escapeHtmlText((conn.label || conn.platform) + ' ✓ connected') + '</option>');
+          }
+        });
       }
-      if (bridgeOptions.length) {
-        html += '<optgroup label="💻 Self-Hosted / Local Bridge (Localhost)">' + bridgeOptions.join('') + '</optgroup>';
-      }
-      if (mcpOptions.length) {
-        html += '<optgroup label="🌐 Remote Model Context Protocol (MCP)">' + mcpOptions.join('') + '</optgroup>';
-      }
 
-      select.innerHTML = html;
-      if (previous && (platformSpecs.some(function (s) { return s.id === previous; }) || platformConnected.some(function (c) { return c.platform === previous; }))) {
+      select.innerHTML = options.join('');
+      if (previous && options.some(function (opt) { return opt.includes('value="' + escapeHtmlAttr(previous) + '"'); })) {
         select.value = previous;
+      } else if (select.options.length > 0) {
+        select.selectedIndex = 0;
       }
       onPlatformSelectChange();
     }
@@ -995,23 +1052,33 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]'): stri
       const testStatus = document.getElementById('mcp-test-status');
       if (!select || !box) return;
 
-      const isMcp = select.value === 'mcp' || select.value.startsWith('mcp:');
-      if (testBtn) testBtn.style.display = isMcp ? 'inline-block' : 'none';
+      const selectedVal = select.value;
+      const isLocalBridge = currentInlineTier === 'local_bridge' || selectedVal === 'local_bridge' || selectedVal.startsWith('local_bridge:');
+      const isMcp = currentInlineTier === 'mcp' || selectedVal === 'mcp' || selectedVal.startsWith('mcp:');
+
+      if (testBtn) testBtn.style.display = (isMcp || isLocalBridge) ? 'inline-block' : 'none';
       if (testStatus) {
         testStatus.style.display = 'none';
         testStatus.textContent = '';
       }
 
-      const spec = platformSpecs.filter(function (s) {
-        return s.id === select.value || (isMcp && s.id === 'mcp');
-      })[0];
+      let spec = null;
+      if (isLocalBridge) {
+        spec = platformSpecs.filter(function (s) { return s.id === 'local_bridge'; })[0];
+      } else if (isMcp) {
+        spec = platformSpecs.filter(function (s) { return s.id === 'mcp'; })[0];
+      } else {
+        spec = platformSpecs.filter(function (s) { return s.id === selectedVal; })[0];
+      }
+
       setPlatformStatus('', true);
       if (!spec) {
         box.innerHTML = '';
         if (note) note.textContent = '';
         return;
       }
-      const existing = connectedPlatformFor(select.value);
+
+      const existing = connectedPlatformFor(selectedVal);
       box.innerHTML = '<div style="font-size:11.5px; color:#94a3b8; line-height:1.45;">' + escapeHtmlText(spec.description) + '</div>'
         + spec.fields.map(function (field) {
           return '<div style="display:flex; flex-direction:column; gap:4px;">'
@@ -1019,6 +1086,22 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]'): stri
             + '<input data-cred-field="' + escapeHtmlAttr(field.key) + '" type="' + (field.secret ? 'password' : 'text') + '" placeholder="' + escapeHtmlAttr(field.placeholder) + '" autocomplete="off" spellcheck="false" style="width:100%; background:#070a12; border:1px solid #1e293b; border-radius:6px; padding:8px 10px; color:#fff; font-size:12px; outline:none;" />'
             + '</div>';
         }).join('');
+
+      // Auto-populate preset defaults if selecting a preset option:
+      if (isLocalBridge) {
+        const bridgeItem = LOCAL_BRIDGE_PRESETS.filter(function (b) { return b.id === selectedVal; })[0];
+        const urlInput = box.querySelector('[data-cred-field="bridgeUrl"]');
+        if (urlInput && bridgeItem && bridgeItem.url && !existing) {
+          urlInput.value = bridgeItem.url;
+        }
+      } else if (isMcp) {
+        const mcpItem = REMOTE_MCP_POPULAR_PRESETS.filter(function (r) { return r.id === selectedVal; })[0];
+        const urlInput = box.querySelector('[data-cred-field="serverUrl"]');
+        if (urlInput && mcpItem && mcpItem.url && !existing) {
+          urlInput.value = mcpItem.url;
+        }
+      }
+
       const button = document.getElementById('platform-connect-button');
       if (button) button.textContent = existing ? 'Update Connection' : 'Connect Account';
       if (note) {
@@ -1029,7 +1112,7 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]'): stri
     }
 
     async function testMcpConnection() {
-      const urlInput = document.querySelector('[data-cred-field="serverUrl"]');
+      const urlInput = document.querySelector('[data-cred-field="serverUrl"]') || document.querySelector('[data-cred-field="bridgeUrl"]');
       const tokenInput = document.querySelector('[data-cred-field="apiKey"]');
       const testBtn = document.getElementById('platform-test-button');
       const statusBox = document.getElementById('mcp-test-status');
@@ -1043,7 +1126,7 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]'): stri
           statusBox.style.background = 'rgba(245,158,11,0.12)';
           statusBox.style.border = '1px solid rgba(245,158,11,0.3)';
           statusBox.style.color = '#fbbf24';
-          statusBox.textContent = 'Please enter an MCP Server URL before testing.';
+          statusBox.textContent = 'Please enter a Server / Bridge URL before testing.';
         }
         return;
       }
@@ -1305,6 +1388,7 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]'): stri
     }
 
     function openMcpDirectoryModal() {
+      setPresetTierFilter(currentInlineTier === 'local_bridge' ? 'local_bridge' : (currentInlineTier === 'mcp' ? 'mcp' : 'all'));
       toggleMcpDirectoryModal(true);
     }
 
@@ -1407,6 +1491,7 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]'): stri
 
       // Tier 1: Direct Native Driver available
       if (preset.tier === 'native' && preset.nativePlatform) {
+        setInlineTierFilter('native');
         platformSelect.value = preset.nativePlatform;
         activeMcpPreset = preset;
         onPlatformSelectChange();
@@ -1421,12 +1506,13 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]'): stri
 
       // Tier 2: Self-Hosted / Local Bridge
       if (preset.tier === 'local_bridge') {
+        setInlineTierFilter('local_bridge');
         const bridgePlatformId = 'mcp:' + preset.id;
         let opt = platformSelect.querySelector('option[value="' + bridgePlatformId + '"]');
         if (!opt) {
           opt = document.createElement('option');
           opt.value = bridgePlatformId;
-          opt.textContent = '💻 ' + preset.name + ' (Local Bridge)' + (platformIsConnected(bridgePlatformId) ? ' ✓ connected' : '');
+          opt.textContent = preset.name + ' (Local Bridge)' + (platformIsConnected(bridgePlatformId) ? ' ✓ connected' : '');
           platformSelect.appendChild(opt);
         }
         platformSelect.value = bridgePlatformId;
@@ -1434,7 +1520,7 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]'): stri
         onPlatformSelectChange();
 
         setTimeout(() => {
-          const urlInput = document.querySelector('[data-cred-field="serverUrl"]');
+          const urlInput = document.querySelector('[data-cred-field="bridgeUrl"]') || document.querySelector('[data-cred-field="serverUrl"]');
           if (urlInput) urlInput.value = preset.url || 'http://127.0.0.1:8000/sse';
           setPlatformStatus('Configured 💻 Local Bridge for ' + preset.name + '. Click "Test Connection 🔌" to verify, then "Connect Account".', true);
         }, 50);
@@ -1442,12 +1528,13 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]'): stri
       }
 
       // Tier 3: Remote Cloud MCP Server
+      setInlineTierFilter('mcp');
       const customPlatformId = 'mcp:' + preset.id;
       let opt = platformSelect.querySelector('option[value="' + customPlatformId + '"]');
       if (!opt) {
         opt = document.createElement('option');
         opt.value = customPlatformId;
-        opt.textContent = '🌐 ' + preset.name + ' (MCP Server)' + (platformIsConnected(customPlatformId) ? ' ✓ connected' : '');
+        opt.textContent = preset.name + (platformIsConnected(customPlatformId) ? ' ✓ connected' : '');
         platformSelect.appendChild(opt);
       }
       platformSelect.value = customPlatformId;

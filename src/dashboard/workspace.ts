@@ -320,9 +320,21 @@ ${WORKSPACE_STYLES}
           </div>
           <div style="border-top:1px solid #1e293b; margin-top:14px; padding-top:14px;">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-              <label for="platform-select" style="font-size:11.5px; color:#94a3b8;">Connect a platform</label>
+              <label for="platform-select" style="font-size:12px; font-weight:600; color:#fff;">Connect a Platform</label>
               <button type="button" class="btn-sub" style="font-size:11px; padding:3px 8px; border-color:rgba(56,189,248,0.3); color:#38bdf8; background:rgba(56,189,248,0.08);" onclick="openMcpDirectoryModal()">
-                ⚡ Browse 1-Click MCP Presets
+                🔍 Browse 100+ Directory
+              </button>
+            </div>
+            <!-- Category Tabs: Direct Native / Local Bridge / Remote MCP -->
+            <div id="inline-tier-tabs" style="display:flex; gap:6px; margin-bottom:10px; background:#060a12; padding:3px; border-radius:8px; border:1px solid #1e293b;">
+              <button type="button" id="tab-tier-native" class="tier-tab-pill active" onclick="setInlineTierFilter('native')" style="flex:1; font-size:11px; padding:6px 8px; border-radius:6px; background:#10b981; color:#fff; border:none; font-weight:600; cursor:pointer; text-align:center; transition:all 0.15s;">
+                ⚡ Direct Native Drivers
+              </button>
+              <button type="button" id="tab-tier-local_bridge" class="tier-tab-pill" onclick="setInlineTierFilter('local_bridge')" style="flex:1; font-size:11px; padding:6px 8px; border-radius:6px; background:transparent; color:#94a3b8; border:none; font-weight:600; cursor:pointer; text-align:center; transition:all 0.15s;">
+                💻 Local Bridge
+              </button>
+              <button type="button" id="tab-tier-mcp" class="tier-tab-pill" onclick="setInlineTierFilter('mcp')" style="flex:1; font-size:11px; padding:6px 8px; border-radius:6px; background:transparent; color:#94a3b8; border:none; font-weight:600; cursor:pointer; text-align:center; transition:all 0.15s;">
+                🌐 Remote MCP
               </button>
             </div>
             <select id="platform-select" onchange="onPlatformSelectChange()" style="width:100%; background:#090d16; border:1px solid #1e293b; border-radius:8px; padding:7px 10px; color:#fff; font-size:12px; outline:none;"></select>

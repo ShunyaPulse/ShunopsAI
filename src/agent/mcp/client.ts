@@ -42,12 +42,16 @@ export class McpHttpClient {
 
     try {
       const targetUrl = new URL(this.config.url);
-      const allowedHosts = ["allowed.example.com", "api.example.com"];
-      if (!allowedHosts.includes(targetUrl.hostname)) {
-        throw new Error(`Disallowed MCP host: ${targetUrl.hostname}`);
-      }
       if (targetUrl.protocol !== "http:" && targetUrl.protocol !== "https:") {
         throw new Error(`Invalid MCP URL protocol: ${targetUrl.protocol}`);
+      }
+      const blockedHosts = [
+        "169.254.169.254",
+        "metadata.google.internal",
+        "metadata.platform",
+      ];
+      if (blockedHosts.includes(targetUrl.hostname) || targetUrl.hostname.endsWith(".internal")) {
+        throw new Error(`Disallowed internal metadata host: ${targetUrl.hostname}`);
       }
 
       const res = await fetch(targetUrl.toString(), {
