@@ -318,7 +318,12 @@ ${WORKSPACE_STYLES}
             ⚠️ Credential storage is not configured on this server, so platform accounts cannot be connected yet. An operator must set <code>CREDENTIALS_ENCRYPTION_KEY</code>.
           </div>
           <div style="border-top:1px solid #1e293b; margin-top:14px; padding-top:14px;">
-            <label for="platform-select" style="font-size:11.5px; color:#94a3b8; display:block; margin-bottom:6px;">Connect a platform</label>
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+              <label for="platform-select" style="font-size:11.5px; color:#94a3b8;">Connect a platform</label>
+              <button type="button" class="btn-sub" style="font-size:11px; padding:3px 8px; border-color:rgba(56,189,248,0.3); color:#38bdf8; background:rgba(56,189,248,0.08);" onclick="openMcpDirectoryModal()">
+                ⚡ Browse 1-Click MCP Presets
+              </button>
+            </div>
             <select id="platform-select" onchange="onPlatformSelectChange()" style="width:100%; background:#090d16; border:1px solid #1e293b; border-radius:8px; padding:7px 10px; color:#fff; font-size:12px; outline:none;"></select>
             <div id="platform-connect-note" style="font-size:11px; color:#f59e0b; margin-top:6px; line-height:1.45;"></div>
             <div id="platform-field-inputs" style="margin-top:8px; display:flex; flex-direction:column; gap:8px;"></div>
@@ -348,6 +353,29 @@ ${WORKSPACE_STYLES}
             <button class="btn-sub" onclick="exportMyData()">📥 Export My Data (JSON)</button>
             <button class="btn-sub" style="border-color:rgba(239,68,68,0.4); color:#ef4444;" onclick="deleteMyAccount()">🗑️ Delete My Account Permanently</button>
           </div>
+        </div>
+      </div>
+  <!-- MCP Directory & Presets Explorer Modal -->
+  <div id="mcp-directory-modal" class="modal-overlay" onclick="if(event.target === this) toggleMcpDirectoryModal(false)" style="z-index:1100;">
+    <div class="modal-dialog" style="max-width:680px;">
+      <div class="modal-header">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span style="font-size:20px;">⚡</span>
+          <div>
+            <h2 style="font-size:16px; margin:0;">Model Context Protocol (MCP) Directory</h2>
+            <div style="font-size:11px; color:#94a3b8;">Discover &amp; connect popular verified MCP servers with 1-click presets</div>
+          </div>
+        </div>
+        <button class="modal-close-btn" onclick="toggleMcpDirectoryModal(false)" title="Close">&times;</button>
+      </div>
+      <div class="modal-body" style="padding:16px 20px;">
+        <!-- Search bar -->
+        <div style="position:relative; margin-bottom:14px;">
+          <input type="text" id="mcp-search-input" oninput="filterMcpDirectory()" placeholder="🔍 Search MCP servers (e.g. search, postgres, github, memory, docker)..." style="width:100%; background:#090d16; border:1px solid #1e293b; border-radius:8px; padding:10px 14px; color:#fff; font-size:12.5px; outline:none;" />
+        </div>
+        <!-- MCP Presets Grid -->
+        <div id="mcp-presets-grid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(280px, 1fr)); gap:10px; max-height:400px; overflow-y:auto; padding-right:4px;">
+          <!-- Dynamically populated via JS -->
         </div>
       </div>
     </div>

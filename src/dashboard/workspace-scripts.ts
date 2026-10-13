@@ -1090,32 +1090,158 @@ export function workspaceScripts(safeUsername: string): string {
       }
     }
 
-    function pollTaskResult(taskId, statusBox, attempts) {
-      if (attempts > 240) {
-        statusBox.style.color = '#f59e0b';
-        statusBox.textContent = 'Still running after roughly 12 minutes. Reopen this panel later to see the outcome.';
+    // 9. MCP Directory & 1-Click Presets Explorer
+    const MCP_PRESETS = [
+      {
+        id: 'brave-search',
+        name: '🌐 Brave Web Search MCP',
+        category: 'Web & Research',
+        description: 'Enables live internet web search, latest documentation lookup, and news retrieval.',
+        url: 'https://mcp.brave.com/v1',
+        tokenPlaceholder: 'BSA... (Brave Search API Key)',
+        tokenLabel: 'Brave API Key',
+        docs: 'brave.com/search/api',
+      },
+      {
+        id: 'neon-postgres',
+        name: '🗄️ Neon Serverless Postgres MCP',
+        category: 'Databases',
+        description: 'Direct SQL query engine, table schema inspection, and database management.',
+        url: 'https://mcp.neon.tech/v1',
+        tokenPlaceholder: 'postgresql://user:pass@ep-xyz.neon.tech/neondb',
+        tokenLabel: 'Postgres Connection String',
+        docs: 'neon.tech/docs',
+      },
+      {
+        id: 'github-actions',
+        name: '🐙 GitHub Operations MCP',
+        category: 'DevOps & Git',
+        description: 'Manage PRs, branches, trigger GitHub actions workflows, and inspect commit diffs.',
+        url: 'https://api.githubcopilot.com/mcp',
+        tokenPlaceholder: 'ghp_... (GitHub Personal Access Token)',
+        tokenLabel: 'GitHub Token',
+        docs: 'github.com/settings/tokens',
+      },
+      {
+        id: 'cloudflare-kv',
+        name: '⚡ Cloudflare Workers & D1 MCP',
+        category: 'Serverless Edge',
+        description: 'Serverless edge computing, D1 SQL queries, and KV store operations.',
+        url: 'https://mcp.cloudflare.com/v1',
+        tokenPlaceholder: 'cf_api_token...',
+        tokenLabel: 'Cloudflare API Token',
+        docs: 'developers.cloudflare.com',
+      },
+      {
+        id: 'memory-graph',
+        name: '🧠 Knowledge Graph Memory MCP',
+        category: 'State & Memory',
+        description: 'Persistent knowledge graph memory across agent runs and multi-turn sessions.',
+        url: 'https://mcp-memory.internal/v1',
+        tokenPlaceholder: 'Optional secret key',
+        tokenLabel: 'Access Key (Optional)',
+        docs: 'github.com/modelcontextprotocol/servers',
+      },
+      {
+        id: 'custom-mcp',
+        name: '⚙️ Custom Remote MCP Server',
+        category: 'Custom & Private',
+        description: 'Connect any remote or self-hosted Fastify/Express/Python JSON-RPC MCP server.',
+        url: '',
+        tokenPlaceholder: 'Bearer token or secret API key',
+        tokenLabel: 'Authorization Token (Optional)',
+        docs: 'modelcontextprotocol.io',
+      },
+    ];
+
+    function toggleMcpDirectoryModal(show) {
+      const modal = document.getElementById('mcp-directory-modal');
+      if (!modal) return;
+      const shouldOpen = show !== undefined ? show : !modal.classList.contains('active');
+      if (shouldOpen) {
+        modal.classList.add('active');
+        document.body.style.overflow = 'hidden';
+        renderMcpPresets(MCP_PRESETS);
+        const searchInput = document.getElementById('mcp-search-input');
+        if (searchInput) {
+          searchInput.value = '';
+          setTimeout(() => searchInput.focus(), 50);
+        }
+      } else {
+        modal.classList.remove('active');
+        document.body.style.overflow = '';
+      }
+    }
+
+    function openMcpDirectoryModal() {
+      toggleMcpDirectoryModal(true);
+    }
+
+    function filterMcpDirectory() {
+      const query = (document.getElementById('mcp-search-input')?.value || '').toLowerCase().trim();
+      const filtered = MCP_PRESETS.filter(p =>
+        p.name.toLowerCase().includes(query) ||
+        p.description.toLowerCase().includes(query) ||
+        p.category.toLowerCase().includes(query) ||
+        p.id.toLowerCase().includes(query)
+      );
+      renderMcpPresets(filtered);
+    }
+
+    function renderMcpPresets(presets) {
+      const grid = document.getElementById('mcp-presets-grid');
+      if (!grid) return;
+      if (!presets.length) {
+        grid.innerHTML = '<div style="grid-column:1/-1; text-align:center; padding:30px; color:#94a3b8; font-size:12.5px;">No matching MCP presets found. Use "Custom Remote MCP Server" to connect your own endpoint.</div>';
         return;
       }
-      setTimeout(async function () {
-        try {
-          const res = await fetch('/api/task/' + encodeURIComponent(taskId));
-          const data = await res.json();
-          const task = data && data.task;
-          if (task && (task.status === 'COMPLETED' || task.status === 'FAILED')) {
-            const answer = (task.result && task.result.finalAnswer) || task.error || 'Task finished with no output.';
-            const steps = (task.result && task.result.stepsTaken) || 0;
-            statusBox.style.color = task.status === 'COMPLETED' ? '#34d399' : '#f59e0b';
-            statusBox.textContent = answer + '  ·  ' + steps + ' steps';
-            fetchWorkspaceApprovals();
-            return;
+      grid.innerHTML = presets.map(p => \`
+        <div style="background:#090d16; border:1px solid #1e293b; border-radius:10px; padding:12px; display:flex; flex-direction:column; justify-content:space-between; transition:all 0.15s ease;" onmouseover="this.style.borderColor='#38bdf8'" onmouseout="this.style.borderColor='#1e293b'">
+          <div>
+            <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:4px;">
+              <strong style="font-size:13px; color:#fff;">\${escapeHtmlText(p.name)}</strong>
+              <span style="font-size:10px; background:rgba(56,189,248,0.1); color:#38bdf8; border:1px solid rgba(56,189,248,0.25); padding:1px 6px; border-radius:10px; white-space:nowrap;">\${escapeHtmlText(p.category)}</span>
+            </div>
+            <p style="font-size:11.5px; color:#94a3b8; line-height:1.45; margin:6px 0 10px;">\${escapeHtmlText(p.description)}</p>
+          </div>
+          <div style="display:flex; justify-content:space-between; align-items:center; border-top:1px solid rgba(255,255,255,0.05); padding-top:8px; margin-top:4px;">
+            <span style="font-size:10px; color:#64748b; font-family:monospace;">\${escapeHtmlText(p.docs)}</span>
+            <button class="btn-sub" style="font-size:11px; padding:4px 10px; background:#2563eb; color:#fff; border:none;" onclick="selectMcpPreset('\${escapeHtmlAttr(p.id)}')">Use Preset ⚡</button>
+          </div>
+        </div>
+      \`).join('');
+    }
+
+    function selectMcpPreset(presetId) {
+      const preset = MCP_PRESETS.find(p => p.id === presetId);
+      if (!preset) return;
+      toggleMcpDirectoryModal(false);
+
+      // Select MCP in Platform dropdown
+      const platformSelect = document.getElementById('platform-select');
+      if (platformSelect) {
+        platformSelect.value = 'mcp';
+        onPlatformSelectChange();
+
+        // Auto-fill values
+        setTimeout(() => {
+          const urlInput = document.querySelector('[data-cred-field="serverUrl"]');
+          const tokenInput = document.querySelector('[data-cred-field="apiKey"]');
+          const tokenLabel = document.querySelector('[data-cred-label="apiKey"]');
+
+          if (urlInput && preset.url) {
+            urlInput.value = preset.url;
           }
-          statusBox.textContent = 'Running (' + ((task && task.status) || 'QUEUED').toLowerCase() + ')... the agent pauses for your approval before any sensitive step.';
-          pollTaskResult(taskId, statusBox, attempts + 1);
-        } catch (e) {
-          statusBox.style.color = '#f87171';
-          statusBox.textContent = 'Lost connection while polling the task result.';
-        }
-      }, 3000);
+          if (tokenInput && preset.tokenPlaceholder) {
+            tokenInput.placeholder = preset.tokenPlaceholder;
+            tokenInput.focus();
+          }
+          if (tokenLabel && preset.tokenLabel) {
+            tokenLabel.textContent = preset.tokenLabel;
+          }
+          setPlatformStatus('Configured ' + preset.name + '. Enter your credentials and click Connect.', true);
+        }, 50);
+      }
     }
 
     window.addEventListener('DOMContentLoaded', () => {
