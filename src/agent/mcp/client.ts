@@ -110,7 +110,7 @@ export class McpHttpClient {
     if (!allowedHosts.includes(targetUrl.hostname)) {
       throw new Error(`Disallowed MCP host: ${targetUrl.hostname}`);
     }
-      const res = await fetch(targetUrl.toString(), {
+      if (targetUrl.protocol !== 'https:') { throw new Error(`Disallowed protocol: ${targetUrl.protocol}`); } const res = await fetch(targetUrl.href, {
         method: "POST",
         headers,
         body: JSON.stringify(payload),
