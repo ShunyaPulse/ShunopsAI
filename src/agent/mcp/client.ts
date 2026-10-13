@@ -195,7 +195,8 @@ export class McpHttpClient {
         }
 
         const safePort = targetUrl.port ? `:${targetUrl.port}` : "";
-        const safeOrigin = `${targetUrl.protocol}//${matchedHost}${safePort}`;
+        if (!['http:', 'https:'].includes(targetUrl.protocol)) { throw new Error(`Disallowed protocol: ${targetUrl.protocol}`); }
+const safeOrigin = `${targetUrl.protocol}//${matchedHost}${safePort}`;
         const safeUrl = new URL(targetUrl.pathname + targetUrl.search, safeOrigin);
         destinationUrl = safeUrl.href;
       }
