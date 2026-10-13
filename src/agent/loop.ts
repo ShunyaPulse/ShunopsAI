@@ -115,7 +115,9 @@ export async function runAutonomousAgent(
       lines.push("Redis is CONNECTED and accessible via `execute_redis_command`.");
     }
     if (scope.credentials?.github) {
-      lines.push("GitHub is CONNECTED and accessible via `manage_github`.");
+      lines.push(
+        "GitHub is CONNECTED and active via `manage_github` using the user's personal access token. When the user asks about GitHub, repositories, branches, issues, or PRs: you HAVE direct visibility through `manage_github`! Proactively call `manage_github` (with operations like list_branches, list_issues, list_prs) to inspect and report details. Never claim that GitHub is not connected or that a token is missing when it is listed here."
+      );
     }
     if (scope.credentials?.cloudflare) {
       lines.push("Cloudflare is CONNECTED and accessible via `run_cloudflare_ai`.");

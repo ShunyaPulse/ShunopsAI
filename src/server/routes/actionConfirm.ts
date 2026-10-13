@@ -71,7 +71,16 @@ export async function actionConfirmRoutes(app: FastifyInstance): Promise<void> {
       let replayBlocked = false;
       const now = Date.now();
 
-      if (redis) {
+      // 1. In-memory check (process-local atomic defense)
+      const existingMem = consumedActionsMem.get(actionId);
+      if (existingMem && existingMem > now) {
+        replayBlocked = true;
+      } else {
+        consumedActionsMem.set(actionId, now + 86400 * 1000);
+      }
+
+      // 2. Distributed Redis check (cross-runner defense)
+      if (!replayBlocked && redis) {
         try {
           const already = await redis.get(consumedKey);
           if (already) {
@@ -79,22 +88,7 @@ export async function actionConfirmRoutes(app: FastifyInstance): Promise<void> {
           } else {
             await redis.set(consumedKey, "1", "EX", 86400); // 24-hour TTL
           }
-        } catch {
-          // Fallback to in-memory replay tracking if Redis is unreachable
-          const existing = consumedActionsMem.get(actionId);
-          if (existing && existing > now) {
-            replayBlocked = true;
-          } else {
-            consumedActionsMem.set(actionId, now + 86400 * 1000);
-          }
-        }
-      } else {
-        const existing = consumedActionsMem.get(actionId);
-        if (existing && existing > now) {
-          replayBlocked = true;
-        } else {
-          consumedActionsMem.set(actionId, now + 86400 * 1000);
-        }
+        } catch {}
       }
 
       if (replayBlocked) {

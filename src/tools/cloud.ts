@@ -127,11 +127,119 @@ export async function manageGitHub(action: {
   opts: { token?: string } = {}
 ): Promise<string> {
   const token = opts.token || process.env.GITHUB_PAT || process.env.GITHUB_TOKEN;
+  const targetRepo = action.repo || "ShunyaPulse/ShunopsAI";
 
-  // First try gh CLI if available locally (argv form — no shell interpolation)
+  // When a token is available, execute directly via GitHub REST API (works in bare Docker, Cloud Run, and serverless without gh CLI or git)
+  if (token) {
+    try {
+      const headers: Record<string, string> = {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/vnd.github.v3+json",
+        "User-Agent": "ShunopsAI-Autonomous-Agent",
+      };
+
+      if (action.operation === "list_branches") {
+        const res = await fetch(`https://api.github.com/repos/${targetRepo}/branches?per_page=30`, { headers });
+        if (!res.ok) {
+          const errData = (await res.json().catch(() => ({}))) as any;
+          return `GitHub API Error (${res.status}): ${errData?.message || res.statusText}`;
+        }
+        const data = (await res.json()) as any;
+        const branchList = Array.isArray(data)
+          ? data.map((b: any) => `• ${b.name} (${b.commit?.sha?.slice(0, 7) || "unknown"})`).join("\n")
+          : "No branches found.";
+        return `GitHub branches for ${targetRepo} (${Array.isArray(data) ? data.length : 0}):\n${branchList}`;
+      }
+
+      if (action.operation === "list_issues") {
+        const res = await fetch(`https://api.github.com/repos/${targetRepo}/issues?state=open&per_page=10`, { headers });
+        if (!res.ok) {
+          const errData = (await res.json().catch(() => ({}))) as any;
+          return `GitHub API Error (${res.status}): ${errData?.message || res.statusText}`;
+        }
+        const data = (await res.json()) as any;
+        return Array.isArray(data)
+          ? `Open issues in ${targetRepo} (${data.length}):\n` +
+              data.map((i: any) => `#${i.number} [${i.title}] by @${i.user?.login || "unknown"}`).join("\n")
+          : JSON.stringify(data, null, 2);
+      }
+
+      if (action.operation === "get_issue") {
+        const issueNum = action.issueNumber;
+        if (!issueNum) return "Error: issueNumber is required for get_issue.";
+        const res = await fetch(`https://api.github.com/repos/${targetRepo}/issues/${issueNum}`, { headers });
+        if (!res.ok) {
+          const errData = (await res.json().catch(() => ({}))) as any;
+          return `GitHub API Error (${res.status}): ${errData?.message || res.statusText}`;
+        }
+        const data = (await res.json()) as any;
+        return `Issue #${data.number}: ${data.title}\nState: ${data.state}\nAuthor: @${data.user?.login}\n\n${data.body || "(No description)"}`;
+      }
+
+      if (action.operation === "create_issue") {
+        const res = await fetch(`https://api.github.com/repos/${targetRepo}/issues`, {
+          method: "POST",
+          headers: { ...headers, "Content-Type": "application/json" },
+          body: JSON.stringify({ title: action.title || "New Issue", body: action.body || "" }),
+        });
+        if (!res.ok) {
+          const errData = (await res.json().catch(() => ({}))) as any;
+          return `GitHub API Error (${res.status}): ${errData?.message || res.statusText}`;
+        }
+        const data = (await res.json()) as any;
+        return `Successfully created Issue #${data.number}: ${data.title} (${data.html_url})`;
+      }
+
+      if (action.operation === "list_prs") {
+        const res = await fetch(`https://api.github.com/repos/${targetRepo}/pulls?state=open&per_page=10`, { headers });
+        if (!res.ok) {
+          const errData = (await res.json().catch(() => ({}))) as any;
+          return `GitHub API Error (${res.status}): ${errData?.message || res.statusText}`;
+        }
+        const data = (await res.json()) as any;
+        return Array.isArray(data)
+          ? `Open PRs in ${targetRepo} (${data.length}):\n` +
+              data.map((p: any) => `#${p.number} [${p.title}] (${p.head?.ref} -> ${p.base?.ref}) by @${p.user?.login || "unknown"}`).join("\n")
+          : JSON.stringify(data, null, 2);
+      }
+
+      if (action.operation === "create_pr") {
+        const res = await fetch(`https://api.github.com/repos/${targetRepo}/pulls`, {
+          method: "POST",
+          headers: { ...headers, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            title: action.title || "Fix",
+            body: action.body || "",
+            head: action.head || "HEAD",
+            base: action.base || "main",
+          }),
+        });
+        if (!res.ok) {
+          const errData = (await res.json().catch(() => ({}))) as any;
+          return `GitHub API Error (${res.status}): ${errData?.message || res.statusText}`;
+        }
+        const data = (await res.json()) as any;
+        return `Successfully created PR #${data.number}: ${data.title} (${data.html_url})`;
+      }
+
+      if (action.operation === "code_scanning_alerts") {
+        const res = await fetch(`https://api.github.com/repos/${targetRepo}/code-scanning/alerts`, { headers });
+        if (!res.ok) {
+          const errData = (await res.json().catch(() => ({}))) as any;
+          return `GitHub API Error (${res.status}): ${errData?.message || res.statusText}`;
+        }
+        const data = (await res.json()) as any;
+        return JSON.stringify(data, null, 2);
+      }
+    } catch (apiErr: any) {
+      return `GitHub REST API Error: ${apiErr.message}`;
+    }
+  }
+
+  // Fallback to gh / git CLI if no token provided or on workstation with gh CLI
   try {
     let argv: string[] | null = null;
-    const repoArg = action.repo ? ["-R", action.repo] : [];
+    const repoArg = targetRepo ? ["-R", targetRepo] : [];
 
     switch (action.operation) {
       case "list_issues":
@@ -150,7 +258,7 @@ export async function manageGitHub(action: {
         argv = ["pr", "create", ...repoArg, "--title", action.title || "Fix", "--body", action.body || "", "--base", action.base || "main", "--head", action.head || "HEAD"];
         break;
       case "code_scanning_alerts":
-        argv = ["api", "-H", "Accept: application/vnd.github+json", `/repos/${action.repo || "{owner}/{repo}"}/code-scanning/alerts`];
+        argv = ["api", "-H", "Accept: application/vnd.github+json", `/repos/${targetRepo}/code-scanning/alerts`];
         break;
       case "list_branches":
         argv = ["branch", "-a"];
@@ -160,8 +268,6 @@ export async function manageGitHub(action: {
     if (argv) {
       const bin = action.operation === "list_branches" ? "git" : "gh";
       const { stdout, stderr } = await execFileAsync(bin, argv, {
-        // GH_TOKEN takes precedence inside the gh CLI, so a user's own token is
-        // guaranteed to win over any credential already on the server.
         env: {
           ...process.env,
           GITHUB_TOKEN: token || process.env.GITHUB_TOKEN,
@@ -171,32 +277,7 @@ export async function manageGitHub(action: {
       return stdout || stderr || `GitHub action '${action.operation}' completed.`;
     }
   } catch (cliErr: any) {
-    // If gh CLI fails or is missing, try GitHub REST API if GITHUB_TOKEN and repo are provided
-    if (token && action.repo) {
-      try {
-        const headers = {
-          Authorization: `token ${token}`,
-          Accept: "application/vnd.github.v3+json",
-          "User-Agent": "AA-Autonomous-Agent",
-        };
-
-        if (action.operation === "list_issues") {
-          const res = await fetch(`https://api.github.com/repos/${action.repo}/issues?state=open`, { headers });
-          const data = await res.json();
-          return JSON.stringify(data, null, 2);
-        }
-
-        if (action.operation === "code_scanning_alerts") {
-          const res = await fetch(`https://api.github.com/repos/${action.repo}/code-scanning/alerts`, { headers });
-          const data = await res.json();
-          return JSON.stringify(data, null, 2);
-        }
-      } catch (apiErr: any) {
-        return `GitHub API Error: ${apiErr.message}`;
-      }
-    }
-
-    return `GitHub Operation Error: ${cliErr.message}. (Ensure 'gh' CLI is installed or GITHUB_TOKEN is set in .env).`;
+    return `GitHub Operation Error: ${cliErr.message}. Ensure GitHub token is connected in Account Settings → Platform Connections.`;
   }
 
   return "Unsupported GitHub operation.";
