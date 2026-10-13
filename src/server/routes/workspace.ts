@@ -24,7 +24,10 @@ function isIpv4Address(hostname: string): boolean {
 
 function isPrivateOrLocalIpv4(hostname: string): boolean {
   if (!isIpv4Address(hostname)) return false;
-  const [a, b] = hostname.split(".").map((n) => Number(n));
+  const parts = hostname.split(".").map((n) => Number(n));
+  const a = parts[0];
+  const b = parts[1];
+  if (a === undefined || b === undefined) return false;
   if (a === 10) return true;
   if (a === 127) return true;
   if (a === 0) return true;
