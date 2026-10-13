@@ -45,7 +45,6 @@ ${WORKSPACE_STYLES}
     <div class="welcome-card">
       <div>
         <h1 class="welcome-title">Welcome, ${safeUsername}!</h1>
-        <p class="welcome-desc">Your private multi-tenant workspace with persistent conversation history, task isolation, and approval controls.</p>
       </div>
       <div style="display:flex; gap:10px;">
         <button class="btn-sub" onclick="toggleAccountModal()">⚙️ Account Settings</button>
@@ -79,33 +78,31 @@ ${WORKSPACE_STYLES}
             </button>
           </div>
         </div>
-        <p>Your conversation history is securely saved in your database account and restored across reloads.</p>
-
-        <!-- Model Selection Dropdown & Live Circuit Breaker Status -->
-        <div style="display:flex; justify-content:space-between; align-items:center; background:#070a12; border:1px solid #1e293b; border-radius:10px; padding:8px 12px; margin:10px 0 10px; gap:10px; flex-wrap:wrap;">
+        <!-- Model Selection Bar -->
+        <div style="display:flex; justify-content:space-between; align-items:center; margin:8px 0 12px; gap:8px; flex-wrap:wrap;">
           <div style="display:flex; align-items:center; gap:8px;">
-            <label for="chat-model-select" style="font-size:12px; font-weight:600; color:#94a3b8; cursor:pointer;">🎯 Model Backbone:</label>
-            <select id="chat-model-select" onchange="onModelPreferenceChange()" style="background:#0f172a; color:#fff; border:1px solid #334155; border-radius:6px; padding:5px 10px; font-size:12px; font-weight:500; outline:none; cursor:pointer; transition:border 0.2s; max-width:100%;">
+            <label for="chat-model-select" style="font-size:12px; font-weight:500; color:#94a3b8; cursor:pointer;">Model:</label>
+            <select id="chat-model-select" onchange="onModelPreferenceChange()" style="background:#090d16; color:#fff; border:1px solid #1e293b; border-radius:6px; padding:4px 8px; font-size:12px; font-weight:500; outline:none; cursor:pointer;">
               <optgroup label="─── Smart Modes (Auto-Failover by Need) ───">
                 <option value="auto">⚡ Auto: Smart Adaptive (Auto-Routes & Self-Heals)</option>
-                <option value="gemini-flash">🚀 Fast & Responsive (Quick Q&A • Low Quota 🟢)</option>
-                <option value="groq-120b">🧠 Deep Reasoning & Math (120B AST • Heavy Quota ⚠️)</option>
-                <option value="code-dev">💻 Code Architect & Debugging (GPT-4o & AST • Balanced)</option>
-                <option value="research-context">📚 Long Context & Research (1M Window • Balanced)</option>
-                <option value="openrouter-heavy">👑 Frontier Flagship (550B & GPT-4o • Heavy Quota ⚠️)</option>
+                <option value="gemini-flash">🚀 Fast & Responsive (Low Quota 🟢)</option>
+                <option value="groq-120b">🧠 Deep Reasoning & Math (120B AST ⚠️)</option>
+                <option value="code-dev">💻 Code Architect & Debugging (GPT-4o & AST)</option>
+                <option value="research-context">📚 Long Context & Research (1M Window)</option>
+                <option value="openrouter-heavy">👑 Frontier Flagship (550B & GPT-4o ⚠️)</option>
               </optgroup>
               <optgroup label="─── Google Gemini (Active Pool) ───">
-                <option value="gemini:gemini-3.8-flash">Gemini 3.8 Flash (Active 1/5 • Economical 🟢)</option>
-                <option value="gemini:gemini-3-flash-preview">Gemini 3 Flash Preview (Economical 🟢)</option>
+                <option value="gemini:gemini-3.8-flash">Gemini 3.8 Flash (Active 1/5 🟢)</option>
+                <option value="gemini:gemini-3-flash-preview">Gemini 3 Flash Preview (🟢)</option>
               </optgroup>
               <optgroup label="─── Groq Ultra-Fast LPUs ───">
-                <option value="groq:openai/gpt-oss-120b">Groq GPT-OSS 120B (High Reasoning • Heavy ⚠️)</option>
+                <option value="groq:openai/gpt-oss-120b">Groq GPT-OSS 120B (High Reasoning ⚠️)</option>
                 <option value="groq:qwen/qwen3.8-27b">Groq Qwen 3.8 27B (Fast Tool Calling 🟢)</option>
               </optgroup>
               <optgroup label="─── GitHub Models (OpenAI Frontier via PAT) ───">
-                <option value="github:gpt-4o">OpenAI GPT-4o (Frontier Omni • Heavy ⚠️)</option>
+                <option value="github:gpt-4o">OpenAI GPT-4o (Frontier Omni ⚠️)</option>
                 <option value="github:gpt-4o-mini">OpenAI GPT-4o Mini (Fast Q&A 🟢)</option>
-                <option value="github:o1-mini">OpenAI o1-mini Reasoning (High Quota ⚠️)</option>
+                <option value="github:o1-mini">OpenAI o1-mini Reasoning (⚠️)</option>
                 <option value="github:meta-llama-3.3-70b-instruct">Meta Llama 3.3 70B (GitHub)</option>
               </optgroup>
               <optgroup label="─── Cloudflare Workers AI (Serverless Edge) ───">
@@ -114,7 +111,7 @@ ${WORKSPACE_STYLES}
                 <option value="cloudflare:@cf/qwen/qwen1.5-7b-chat-awq">Qwen 1.5 7B Chat (Edge)</option>
               </optgroup>
               <optgroup label="─── Open Models (OpenRouter Pool) ───">
-                <option value="openrouter:nvidia/nemotron-3-ultra-550b-a55b:free">Nemotron 3 Ultra 550B (Giant • Heavy ⚠️)</option>
+                <option value="openrouter:nvidia/nemotron-3-ultra-550b-a55b:free">Nemotron 3 Ultra 550B (Giant ⚠️)</option>
                 <option value="openrouter:nvidia/nemotron-3.5-lightning:free">Nemotron 3.5 Lightning (1M Context)</option>
                 <option value="openrouter:meta-llama/llama-3.3-70b-instruct:free">Meta Llama 3.3 70B Instruct</option>
                 <option value="openrouter:google/gemma-4-31b-it:free">Google Gemma 4 31B IT</option>
@@ -125,29 +122,11 @@ ${WORKSPACE_STYLES}
               </optgroup>
             </select>
           </div>
-          <div id="model-status-badge" style="font-size:11px; color:#10b981; display:flex; align-items:center; gap:6px;">
+          <div id="model-status-badge" style="font-size:11px; color:#10b981; display:flex; align-items:center; gap:5px;">
             <span style="width:6px; height:6px; border-radius:50%; background:#10b981; display:inline-block;"></span>
-            <span>All Models Healthy</span>
+            <span>Healthy</span>
           </div>
-        </div>
-
-        <!-- Zero-FOMO & Quota Advisory Banner -->
-        <div id="model-advisory-banner" style="background:#090d16; border:1px solid #1e293b; border-radius:10px; padding:10px 14px; margin-bottom:14px; display:flex; align-items:flex-start; gap:10px; font-size:12px;">
-          <span style="font-size:15px; line-height:1; margin-top:2px;">💡</span>
-          <div style="flex:1;">
-            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:6px;">
-              <span style="font-weight:600; color:#38bdf8;">Smart Multi-Model Governance</span>
-              <span id="quota-warning-badge" style="font-size:10px; padding:2px 7px; border-radius:10px; font-weight:600; background:rgba(16,185,129,0.12); color:#10b981; border:1px solid rgba(16,185,129,0.25);">
-                🟢 Low Quota Usage (Economical)
-              </span>
-            </div>
-            <p style="margin:4px 0 0; color:#94a3b8; font-size:11.5px; line-height:1.45;">
-              Access 19 top models across Google, Groq, GitHub Models, Cloudflare & OpenRouter without FOMO. Smart Modes auto-select the best model and <strong>auto-switch to fallback models if errors or rate limits occur</strong>.
-              <span style="display:block; margin-top:4px; color:#f59e0b;">
-                ⚠️ <strong>Quota Notice:</strong> Heavier reasoning models (550B, 120B, o1-mini, GPT-4o) consume provider rate-limits much faster. Use <strong>Auto</strong> or <strong>Fast</strong> for everyday questions to conserve limits.
-              </span>
-            </p>
-          </div>
+          <span id="quota-warning-badge" style="display:none;"></span>
         </div>
 
         <!-- Message Thread -->
@@ -210,13 +189,12 @@ ${WORKSPACE_STYLES}
       <aside class="workspace-sidebar">
         <!-- Autonomous Task Dispatcher: runs ONLY with this user's connected accounts -->
         <div class="box box-sidebar">
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
-            <h2>🚀 Run an Autonomous Task</h2>
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+            <h2>🚀 Autonomous Task</h2>
             <span style="font-size:10px; background:rgba(16,185,129,0.12); color:#10b981; border:1px solid rgba(16,185,129,0.25); padding:2px 8px; border-radius:12px; font-weight:600;">
               Your Accounts Only
             </span>
           </div>
-          <p>Give the agent a goal. It acts only on the platforms <strong>you</strong> connected, and pauses for your approval before any sensitive step.</p>
           <textarea id="task-goal-input" rows="3" placeholder="e.g. List the 10 newest rows in my orders table" style="width:100%; background:#090d16; border:1px solid #1e293b; border-radius:8px; padding:8px 10px; color:#fff; font-size:12.5px; outline:none; resize:vertical;"></textarea>
           <div style="display:flex; gap:8px; margin-top:8px;">
             <select id="task-max-steps" style="background:#090d16; border:1px solid #1e293b; border-radius:8px; padding:7px 8px; color:#fff; font-size:12px; outline:none;">
@@ -227,15 +205,11 @@ ${WORKSPACE_STYLES}
             <button class="btn-action" style="flex:1;" onclick="runAutonomousTask()">▶ Run Task</button>
           </div>
           <div id="task-run-status" style="display:none; margin-top:10px; font-size:12px; line-height:1.5; background:#090d16; border:1px solid #1e293b; border-radius:8px; padding:10px; white-space:pre-wrap; word-break:break-word;"></div>
-          <div style="font-size:10.5px; color:#64748b; margin-top:8px;">
-            💡 Connect Neon, Redis, GitHub or Cloudflare under <strong>Account Settings → Platform Connections</strong>. Unconnected platforms are refused, never substituted with someone else's account.
-          </div>
         </div>
 
         <!-- Plan & Token Usage Meter -->
         <div class="box box-sidebar">
-          <h2>📊 My Plan & Token Usage</h2>
-          <p>Real-time prompt and completion token tracking with monthly quota balance.</p>
+          <h2>📊 Token Usage</h2>
           <div style="background:#090d16; border:1px solid #1e293b; border-radius:10px; padding:12px 14px; margin-bottom:10px;">
             <div style="display:flex; justify-content:space-between; margin-bottom:8px; font-size:12.5px;">
               <span>Plan: <strong id="user-plan-badge" style="color:#38bdf8;">Community</strong></span>
