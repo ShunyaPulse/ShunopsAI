@@ -818,6 +818,48 @@ export function workspaceScripts(safeUsername: string): string {
 
     // 8. Platform Connections (the user's OWN provider credentials)
     let platformSpecs = [];
+    let platformConnected = [];
+    let platformVaultReady = true;
+    let platformBusy = false;
+
+    // Attribute-safe escaping: escapeHtmlText runs through innerHTML, which
+    // leaves quotes intact and would let a value break out of an attribute.
+    function escapeHtmlAttr(str) {
+      return String(str === null || str === undefined ? '' : str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function platformIsConnected(platformId) {
+      return platformConnected.some(function (item) { return item.platform === platformId; });
+    }
+
+    function connectedPlatformFor(platformId) {
+      return platformConnected.filter(function (item) { return item.platform === platformId; })[0];
+    }
+
+    function applyPlatformButtonState() {
+      const btn = document.getElementById('platform-connect-button');
+      if (!btn) return;
+      const disabled = platformBusy || !platformVaultReady;
+      btn.disabled = disabled;
+      btn.style.opacity = disabled ? '0.55' : '1';
+      btn.style.cursor = disabled ? 'not-allowed' : 'pointer';
+    }
+
+    function setPlatformBusy(busy) {
+      platformBusy = busy;
+      applyPlatformButtonState();
+    }
+
+    function renderVaultWarning() {
+      const box = document.getElementById('platform-vault-warning');
+      if (box) box.style.display = platformVaultReady ? 'none' : 'block';
+      applyPlatformButtonState();
+    }
 
     function setPlatformStatus(message, ok) {
       const el = document.getElementById('platform-connect-status');
@@ -836,7 +878,10 @@ export function workspaceScripts(safeUsername: string): string {
         }
         const data = await res.json();
         platformSpecs = data.available || [];
-        renderConnectedPlatforms(data.connected || []);
+        platformConnected = data.connected || [];
+        platformVaultReady = data.vaultReady !== false;
+        renderVaultWarning();
+        renderConnectedPlatforms(platformConnected);
         renderPlatformSelect();
       } catch (e) {
         if (listBox) listBox.textContent = 'Could not load connected platforms.';
@@ -851,10 +896,23 @@ export function workspaceScripts(safeUsername: string): string {
         return;
       }
       box.innerHTML = connected.map(function (item) {
+        const spec = platformSpecs.filter(function (s) { return s.id === item.platform; })[0];
+        // A stored row is only usable when every field of its spec round-trips.
+        const stored = item.fields || [];
+        const incomplete = Boolean(spec) && spec.fields.some(function (field) {
+          return stored.indexOf(field.key) === -1;
+        });
+        let banner = '';
+        if (item.readable === false) {
+          banner = '<div style="font-size:11px; color:#f87171; margin-top:2px;">⚠ Unreadable on this server — reconnect the account.</div>';
+        } else if (incomplete) {
+          banner = '<div style="font-size:11px; color:#f59e0b; margin-top:2px;">⚠︎ Incomplete — reconnect to store every required field.</div>';
+        }
         return '<div style="display:flex; justify-content:space-between; align-items:center; gap:8px; background:#090d16; border:1px solid #1e293b; border-radius:8px; padding:8px 10px; margin-bottom:6px;">'
           + '<div><div style="font-size:12.5px; color:#fff; font-weight:600;">' + escapeHtmlText(item.label || item.platform) + '</div>'
-          + '<div style="font-size:11px; color:#94a3b8; font-family:monospace;">' + escapeHtmlText(item.hint || '') + ' · updated ' + escapeHtmlText(String(item.updatedAt || '').slice(0, 10)) + '</div></div>'
-          + '<button class="btn-sub" data-disconnect="' + escapeHtmlText(item.platform) + '" style="border-color:rgba(239,68,68,0.4); color:#ef4444;">Disconnect</button>'
+          + '<div style="font-size:11px; color:#94a3b8; font-family:monospace;">' + escapeHtmlText(item.hint || '') + ' · updated ' + escapeHtmlText(String(item.updatedAt || '').slice(0, 10)) + '</div>'
+          + banner + '</div>'
+          + '<button class="btn-sub" data-disconnect="' + escapeHtmlAttr(item.platform) + '" style="border-color:rgba(239,68,68,0.4); color:#ef4444;">Disconnect</button>'
           + '</div>';
       }).join('');
       box.querySelectorAll('[data-disconnect]').forEach(function (btn) {
@@ -867,58 +925,108 @@ export function workspaceScripts(safeUsername: string): string {
     function renderPlatformSelect() {
       const select = document.getElementById('platform-select');
       if (!select) return;
+      const previous = select.value;
       select.innerHTML = platformSpecs.map(function (spec) {
-        return '<option value="' + escapeHtmlText(spec.id) + '">' + escapeHtmlText(spec.label) + '</option>';
+        const suffix = platformIsConnected(spec.id) ? ' ✓ connected' : '';
+        return '<option value="' + escapeHtmlAttr(spec.id) + '">' + escapeHtmlText(spec.label + suffix) + '</option>';
       }).join('');
+      if (previous && platformSpecs.some(function (s) { return s.id === previous; })) {
+        select.value = previous;
+      }
       onPlatformSelectChange();
     }
 
     function onPlatformSelectChange() {
       const select = document.getElementById('platform-select');
       const box = document.getElementById('platform-field-inputs');
+      const note = document.getElementById('platform-connect-note');
       if (!select || !box) return;
       const spec = platformSpecs.filter(function (s) { return s.id === select.value; })[0];
+      setPlatformStatus('', true);
       if (!spec) {
         box.innerHTML = '';
+        if (note) note.textContent = '';
         return;
       }
+      const existing = connectedPlatformFor(spec.id);
       box.innerHTML = '<div style="font-size:11.5px; color:#94a3b8; line-height:1.45;">' + escapeHtmlText(spec.description) + '</div>'
         + spec.fields.map(function (field) {
-          return '<input data-cred-field="' + escapeHtmlText(field.key) + '" type="' + (field.secret ? 'password' : 'text') + '" placeholder="' + escapeHtmlText(field.label) + '" autocomplete="off" style="width:100%; background:#070a12; border:1px solid #1e293b; border-radius:6px; padding:8px 10px; color:#fff; font-size:12px; outline:none;" />';
+          return '<div style="display:flex; flex-direction:column; gap:4px;">'
+            + '<label style="font-size:11px; color:#94a3b8;" data-cred-label="' + escapeHtmlAttr(field.key) + '">' + escapeHtmlText(field.label) + '</label>'
+            + '<input data-cred-field="' + escapeHtmlAttr(field.key) + '" type="' + (field.secret ? 'password' : 'text') + '" placeholder="' + escapeHtmlAttr(field.placeholder) + '" autocomplete="off" spellcheck="false" style="width:100%; background:#070a12; border:1px solid #1e293b; border-radius:6px; padding:8px 10px; color:#fff; font-size:12px; outline:none;" />'
+            + '</div>';
         }).join('');
+      const button = document.getElementById('platform-connect-button');
+      if (button) button.textContent = existing ? 'Update Connection' : 'Connect Account';
+      if (note) {
+        note.textContent = existing
+          ? 'The stored ' + spec.label + ' credential is ' + (existing.hint || 'saved') + '. Submitting replaces it.'
+          : '';
+      }
     }
 
     async function connectPlatformCredential() {
       const select = document.getElementById('platform-select');
       const box = document.getElementById('platform-field-inputs');
       if (!select || !box) return;
+      if (platformBusy) return;
+      if (!platformVaultReady) {
+        setPlatformStatus('Credential storage is not configured on this server, so accounts cannot be connected.', false);
+        return;
+      }
+      const platformId = select.value;
+      const spec = platformSpecs.filter(function (s) { return s.id === platformId; })[0];
+      if (!spec) {
+        setPlatformStatus('Choose a platform to connect.', false);
+        return;
+      }
 
       const values = {};
+      let missing = '';
       box.querySelectorAll('[data-cred-field]').forEach(function (input) {
-        values[input.getAttribute('data-cred-field')] = input.value;
+        const key = input.getAttribute('data-cred-field');
+        values[key] = input.value;
+        const value = (input.value || '').trim();
+        const field = spec.fields.filter(function (f) { return f.key === key; })[0];
+        if (!value && !missing) missing = field ? field.label : key;
       });
+      if (missing) {
+        setPlatformStatus(missing + ' is required.', false);
+        return;
+      }
 
-      setPlatformStatus('Connecting...', true);
+      const updating = platformIsConnected(platformId);
+      setPlatformBusy(true);
+      setPlatformStatus(updating ? 'Updating...' : 'Connecting...', true);
       try {
         const res = await fetch('/api/user/platform-credentials', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ platform: select.value, values: values }),
+          body: JSON.stringify({ platform: platformId, values: values }),
         });
-        const data = await res.json();
+        const data = await res.json().catch(function () { return {}; });
         if (!res.ok || !data.success) {
           setPlatformStatus(data.error || 'Could not connect that account.', false);
           return;
         }
-        box.innerHTML = '';
-        setPlatformStatus('Connected. Your tasks can now use this account.', true);
-        loadPlatformCredentials();
+        box.querySelectorAll('[data-cred-field]').forEach(function (input) { input.value = ''; });
+        // Reloading the panel refreshes the connected list and resets the form
+        // status, so the confirmation is applied after the refresh.
+        await loadPlatformCredentials();
+        setPlatformStatus(
+          updating ? 'Updated. Your tasks use the new credential.' : 'Connected. Your tasks can now use this account.',
+          true
+        );
       } catch (e) {
         setPlatformStatus('Network error while connecting.', false);
+      } finally {
+        setPlatformBusy(false);
       }
     }
 
     async function disconnectPlatform(platform) {
+      if (platformBusy) return;
+      setPlatformBusy(true);
       setPlatformStatus('Disconnecting...', true);
       try {
         const res = await fetch('/api/user/platform-credentials/' + encodeURIComponent(platform), { method: 'DELETE' });
@@ -927,10 +1035,12 @@ export function workspaceScripts(safeUsername: string): string {
           setPlatformStatus(data.error || 'Could not disconnect that account.', false);
           return;
         }
+        await loadPlatformCredentials();
         setPlatformStatus('Disconnected.', true);
-        loadPlatformCredentials();
       } catch (e) {
         setPlatformStatus('Network error while disconnecting.', false);
+      } finally {
+        setPlatformBusy(false);
       }
     }
 

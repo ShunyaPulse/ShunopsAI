@@ -11,6 +11,7 @@ import {
   deleteUserPlatformCredential,
   PLATFORM_SPECS,
   CredentialVaultError,
+  isVaultConfigured,
 } from "../db.js";
 
 export interface WorkspaceRouteOptions {
@@ -97,6 +98,8 @@ export async function workspaceRoutes(app: FastifyInstance, options: WorkspaceRo
     const userId = (req as any).user?.id || 0;
     return {
       success: true,
+      // Lets the form warn up front instead of failing only after a submit.
+      vaultReady: isVaultConfigured(),
       available: Object.values(PLATFORM_SPECS).map((spec) => ({
         id: spec.id,
         label: spec.label,

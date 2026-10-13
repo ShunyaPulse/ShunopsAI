@@ -75,8 +75,13 @@ export interface PlatformCredentialSummary {
   label: string;
   hint: string;
   updatedAt: string;
-  /** Field keys that were stored, so the UI can show a complete/incomplete state. */
+  /**
+   * Field keys actually readable inside the stored secret — not the spec's wish
+   * list — so the UI can show a complete/incomplete state.
+   */
   fields: string[];
+  /** False when the stored payload cannot be decrypted (e.g. after a key rotation). */
+  readable: boolean;
 }
 
 /** Decrypted credential bundle handed to a single agent run (never persisted). */
@@ -175,6 +180,32 @@ export function getPlatformSpec(platform: string): PlatformSpec | null {
   return (PLATFORM_SPECS as Record<string, PlatformSpec | undefined>)[platform] ?? null;
 }
 
+/**
+ * Describe a stored payload without revealing it: which spec fields it actually
+ * holds, and whether this server can decrypt it at all. A row that fails to
+ * decrypt is reported as unreadable instead of silently looking healthy.
+ */
+function inspectStoredPayload(
+  platform: string,
+  payload: string
+): { fields: string[]; readable: boolean } {
+  const spec = getPlatformSpec(platform);
+  if (!spec) return { fields: [], readable: false };
+
+  try {
+    const values = decryptValues(payload);
+    const fields = spec.fields
+      .map((field) => field.key)
+      .filter((key) => {
+        const value = values[key];
+        return typeof value === "string" && value.trim().length > 0;
+      });
+    return { fields, readable: true };
+  } catch {
+    return { fields: [], readable: false };
+  }
+}
+
 /** Validate that every non-optional field is present before storing. */
 function normalizeValues(spec: PlatformSpec, values: Record<string, unknown>): Record<string, string> {
   const normalized: Record<string, string> = {};
@@ -225,6 +256,7 @@ export async function upsertUserPlatformCredential(
       hint: record.hint,
       updatedAt: record.updatedAt,
       fields: spec.fields.map((f) => f.key),
+      readable: true,
     };
   }
 
@@ -246,6 +278,7 @@ export async function upsertUserPlatformCredential(
     hint,
     updatedAt: rows?.[0]?.updated_at ?? new Date().toISOString(),
     fields: spec.fields.map((f) => f.key),
+    readable: true,
   };
 }
 
@@ -254,27 +287,35 @@ export async function listUserPlatformCredentials(userId: number): Promise<Platf
   if (!sql) {
     return Array.from(memStore.platformCredentials.values())
       .filter((c) => c.userId === userId)
-      .map((c) => ({
-        platform: c.platform as PlatformId,
-        label: c.label ?? "",
-        hint: c.hint,
-        updatedAt: c.updatedAt,
-        fields: (getPlatformSpec(c.platform)?.fields ?? []).map((f) => f.key),
-      }));
+      .map((c) => {
+        const stored = inspectStoredPayload(c.platform, c.payload);
+        return {
+          platform: c.platform as PlatformId,
+          label: c.label ?? "",
+          hint: c.hint,
+          updatedAt: c.updatedAt,
+          fields: stored.fields,
+          readable: stored.readable,
+        };
+      });
   }
 
   const rows = await (sql as any).query(
-    `SELECT platform, label, secret_hint, updated_at FROM shunops_user_platform_credentials WHERE user_id = $1 ORDER BY platform;`,
+    `SELECT platform, label, secret_hint, updated_at, secret_payload FROM shunops_user_platform_credentials WHERE user_id = $1 ORDER BY platform;`,
     [userId]
   );
 
-  return (rows || []).map((row: any) => ({
-    platform: row.platform as PlatformId,
-    label: row.label ?? "",
-    hint: row.secret_hint ?? "",
-    updatedAt: row.updated_at ?? "",
-    fields: (getPlatformSpec(row.platform)?.fields ?? []).map((f) => f.key),
-  }));
+  return (rows || []).map((row: any) => {
+    const stored = inspectStoredPayload(row.platform, String(row.secret_payload ?? ""));
+    return {
+      platform: row.platform as PlatformId,
+      label: row.label ?? "",
+      hint: row.secret_hint ?? "",
+      updatedAt: row.updated_at ?? "",
+      fields: stored.fields,
+      readable: stored.readable,
+    };
+  });
 }
 
 export async function deleteUserPlatformCredential(userId: number, platform: string): Promise<boolean> {

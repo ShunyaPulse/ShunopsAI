@@ -183,6 +183,42 @@ async function runSuite(): Promise<void> {
     assert.equal((await getUserCredentialBundle(2)).neon, undefined, "another tenant must not decrypt it");
   });
 
+  await check("a rotated vault key is reported unreadable and reconnecting repairs it", async () => {
+    await upsertUserPlatformCredential(2, "github", { token: "ghp_rotatedsecretvalue1234" });
+    const before = (await listUserPlatformCredentials(2)).find((c) => c.platform === "github");
+    assert.ok(before, "the stored row must be listed");
+    assert.equal(before!.readable, true);
+    assert.deepEqual(before!.fields, ["token"]);
+
+    const pinned = process.env.CREDENTIALS_ENCRYPTION_KEY;
+    process.env.CREDENTIALS_ENCRYPTION_KEY =
+      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    try {
+      const rotated = (await listUserPlatformCredentials(2)).find((c) => c.platform === "github");
+      assert.equal(rotated!.readable, false, "an undecryptable row must not look healthy");
+      assert.deepEqual(rotated!.fields, [], "no field may be claimed for an unreadable row");
+      assert.equal(
+        (await getUserCredentialBundle(2)).github,
+        undefined,
+        "a run must treat an unreadable row as not connected"
+      );
+      assert.ok(
+        !JSON.stringify(rotated).includes("rotatedsecretvalue"),
+        "the listing must never leak the secret"
+      );
+
+      // Reconnecting under the current key makes the row usable again.
+      await upsertUserPlatformCredential(2, "github", { token: "ghp_rotatedsecretvalue1234" });
+      const repaired = (await listUserPlatformCredentials(2)).find((c) => c.platform === "github");
+      assert.equal(repaired!.readable, true);
+      assert.deepEqual(repaired!.fields, ["token"]);
+    } finally {
+      process.env.CREDENTIALS_ENCRYPTION_KEY = pinned;
+    }
+
+    await deleteUserPlatformCredential(2, "github");
+  });
+
   await check("vault rejects incomplete fields and unknown platforms", async () => {
     await assert.rejects(
       () => upsertUserPlatformCredential(1, "neon", { connectionString: "   " }),
@@ -276,6 +312,91 @@ async function runSuite(): Promise<void> {
       // Compiles only — a SyntaxError here means the template literal mangled it.
       new Function(script);
     }
+  });
+
+  await check("connections panel shows examples, labels and an attribute-safe form", () => {
+    const html = getUserWorkspaceHtml("alice");
+    for (const marker of [
+      "platform-vault-warning",
+      "platform-connect-button",
+      "platform-connect-note",
+      "escapeHtmlAttr",
+      "field.placeholder",
+      "escapeHtmlAttr(field.key)",
+      "Update Connection",
+      "item.readable === false",
+    ]) {
+      assert.ok(html.includes(marker), `${marker} missing from the connections panel`);
+    }
+    assert.ok(
+      !html.includes("data-cred-field=\"' + escapeHtmlText"),
+      "field attributes must use the attribute-safe escaper"
+    );
+  });
+
+  await check("credentials API reports vault readiness and a usable field example", async () => {
+    const { createApp } = await import("../src/server/app.js");
+    const { createUser, createSession, isVaultConfigured } = await import("../src/server/db.js");
+    assert.equal(isVaultConfigured(), true, "this suite pins CREDENTIALS_ENCRYPTION_KEY");
+
+    const user = await createUser(`platform_api_${Date.now()}`, null, null, true);
+    const token = `session_${Date.now()}_platform`;
+    await createSession(user.id, token);
+
+    const app = await createApp();
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/user/platform-credentials",
+      cookies: { shunops_user_session: token },
+    });
+    assert.equal(res.statusCode, 200, res.body);
+    const body = res.json();
+    assert.equal(body.success, true);
+    assert.equal(body.vaultReady, true, "the form needs to know storage is configured");
+
+    const ids = body.available.map((spec: any) => spec.id).sort();
+    assert.deepEqual(ids, ["cloudflare", "github", "neon", "redis"]);
+    for (const spec of body.available) {
+      assert.ok(spec.description.length > 10, `${spec.id} needs a description`);
+      assert.ok(spec.fields.length > 0, `${spec.id} needs fields`);
+      for (const field of spec.fields) {
+        assert.ok(field.label.length > 0, `${spec.id}.${field.key} needs a label`);
+        assert.ok(
+          field.placeholder.length > 0 && field.placeholder !== field.label,
+          `${spec.id}.${field.key} needs a concrete example, not the field name`
+        );
+      }
+    }
+
+    // Round-trip through the interface the panel calls: connect, read back a
+    // masked hint, then disconnect.
+    const connectRes = await app.inject({
+      method: "POST",
+      url: "/api/user/platform-credentials",
+      cookies: { shunops_user_session: token },
+      payload: { platform: "neon", values: { connectionString: SECRET_NEON } },
+    });
+    assert.equal(connectRes.statusCode, 200, connectRes.body);
+    assert.ok(!connectRes.body.includes("sup3rsecret"), "HTTP response must never echo the secret");
+
+    const listRes = await app.inject({
+      method: "GET",
+      url: "/api/user/platform-credentials",
+      cookies: { shunops_user_session: token },
+    });
+    const listed = listRes.json();
+    const neonRow = listed.connected.find((row: any) => row.platform === "neon");
+    assert.ok(neonRow, "the connected platform must be listed");
+    assert.ok(neonRow.hint.startsWith("••••"), neonRow.hint);
+    assert.deepEqual(neonRow.fields, ["connectionString"]);
+    assert.equal(neonRow.readable, true, "a stored connection must report as readable");
+
+    const disconnectRes = await app.inject({
+      method: "DELETE",
+      url: "/api/user/platform-credentials/neon",
+      cookies: { shunops_user_session: token },
+    });
+    assert.equal(disconnectRes.statusCode, 200, disconnectRes.body);
   });
 
   // ---- 8. Approval Queue Persistence & Action Confirmation -----------------

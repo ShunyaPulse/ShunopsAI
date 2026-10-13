@@ -73,7 +73,10 @@ Every agent run carries a **scope**, resolved in one place (`src/server/scope.ts
 | `user` — signed-in account, or a `shun_*` personal API key | **only** the credentials that user connected themselves | refused |
 
 - **Platform Connections** (`/workspace` → Account Settings): a user connects their own Neon / Redis / GitHub / Cloudflare account. Secrets are encrypted with AES-256-GCM (`CREDENTIALS_ENCRYPTION_KEY`) and only a 4-character hint is ever read back.
+- **Own account wins**: once an account (operator included) connects a platform, that credential is what the tool uses; the server's own configuration is only the `admin` fallback for a platform nobody connected.
 - **Fail closed**: if a user runs `execute_neon_sql` without having connected Neon, the tool refuses and points them at Platform Connections. The operator's credentials are never substituted for a user's.
+- **Stored connections are self-describing**: the API reports which spec fields are actually present in the secret and whether this server can decrypt it, so a key rotation shows up in the panel as *Unreadable — reconnect* instead of a connection that silently does nothing. Reconnecting re-encrypts the row under the current key.
+- **No secrets in attributes or responses**: credentials are typed into masked inputs and the panel escapes every interpolated value for its attribute context; no endpoint ever echoes a secret.
 - **Host tier stays operator-only**: `run_shell_command`, `read_file`, `write_file`, `list_directory`, gcloud/SSH, `wrangler`, the shared Kaggle/YouTube pipeline, sentinel/auto-heal and knowledge-base writes are refused for a user scope. This is enforced once, centrally, across the whole tool registry (`src/agent/scope.ts` + the guard in `src/agent/tools.ts`).
 - **Approvals are per tenant**: a sensitive step raised by a user's run appears in *that user's* workspace approval bar, and only that user (or an operator) may approve or reject it. Operator requests are never shown to tenants.
 - **Dispatch**: `/workspace` → “Run an Autonomous Task” posts to `POST /api/task`, which runs with the caller's scope (async dispatch + polling).

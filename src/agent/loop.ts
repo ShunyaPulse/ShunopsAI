@@ -123,7 +123,7 @@ export async function runAutonomousAgent(
     if (scope.kind === "user") {
       lines.push(
         "Only connected platforms and safe diagnostic tools are available; host-level infrastructure is restricted.",
-        "If a tool refuses because an account is not connected, tell the user to connect it under Workspace → Platform Connections."
+        "If a tool refuses because an account is not connected, tell the user to connect it under Account Settings → Platform Connections."
       );
     }
     messages.push({

@@ -136,7 +136,7 @@ export type CredentialResolution<T> =
   | { ok: false; message: string };
 
 export function hostToolRefusal(toolName: ToolName): string {
-  return `Refused: "${toolName}" operates on the server host and is not available to user accounts. Connect the platform you need under Workspace → Platform Connections, or ask the workspace owner to run this.`;
+  return `Refused: "${toolName}" operates on the server host and is not available to user accounts. Connect the platform you need under Account Settings → Platform Connections, or ask the workspace owner to run this.`;
 }
 
 function notConnected(platform: string, instruction: string): { ok: false; message: string } {
@@ -154,7 +154,7 @@ export function resolveNeon(scope?: ToolScope): CredentialResolution<string> {
   if (isAdminScope(scope)) return { ok: true, source: "server" };
   return notConnected(
     "Neon Postgres",
-    "Add it under Workspace → Platform Connections → Neon Postgres."
+    "Add it under Account Settings → Platform Connections → Neon Postgres."
   );
 }
 
@@ -162,7 +162,7 @@ export function resolveRedis(scope?: ToolScope): CredentialResolution<string> {
   const url = scope?.credentials?.redis?.url;
   if (url) return { ok: true, source: "user", value: url };
   if (isAdminScope(scope)) return { ok: true, source: "server" };
-  return notConnected("Redis", "Add it under Workspace → Platform Connections → Redis.");
+  return notConnected("Redis", "Add it under Account Settings → Platform Connections → Redis.");
 }
 
 export function resolveGitHub(scope?: ToolScope): CredentialResolution<string> {
@@ -171,7 +171,7 @@ export function resolveGitHub(scope?: ToolScope): CredentialResolution<string> {
   if (isAdminScope(scope)) return { ok: true, source: "server" };
   return notConnected(
     "GitHub",
-    "Add a personal access token under Workspace → Platform Connections → GitHub."
+    "Add a personal access token under Account Settings → Platform Connections → GitHub."
   );
 }
 
@@ -185,6 +185,6 @@ export function resolveCloudflare(
   if (isAdminScope(scope)) return { ok: true, source: "server" };
   return notConnected(
     "Cloudflare",
-    "Add your account ID and API token under Workspace → Platform Connections → Cloudflare."
+    "Add your account ID and API token under Account Settings → Platform Connections → Cloudflare."
   );
 }
