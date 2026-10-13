@@ -13,6 +13,7 @@ export * from "./db/account.js";
 export * from "./db/chat.js";
 export * from "./db/tasks.js";
 export * from "./db/apiKeys.js";
+export * from "./db/platformCredentials.js";
 export * from "./db/billing.js";
 export * from "./db/admin.js";
 export * from "./db/knowledge.js";

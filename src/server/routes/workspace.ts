@@ -6,6 +6,11 @@ import {
   createApiKey,
   listUserApiKeys,
   deleteApiKey,
+  listUserPlatformCredentials,
+  upsertUserPlatformCredential,
+  deleteUserPlatformCredential,
+  PLATFORM_SPECS,
+  CredentialVaultError,
 } from "../db.js";
 
 export interface WorkspaceRouteOptions {
@@ -85,7 +90,81 @@ export async function workspaceRoutes(app: FastifyInstance, options: WorkspaceRo
     }
   );
 
-  // 6. Revoke Personal API Key
+  // 6. Platform Connections — the user's OWN provider credentials.
+  // Agent runs started by this account use these and nothing else, so a user's
+  // Neon/GitHub/Redis/Cloudflare commands can only ever touch their account.
+  app.get("/api/user/platform-credentials", { preHandler: [requireAuth] }, async (req) => {
+    const userId = (req as any).user?.id || 0;
+    return {
+      success: true,
+      available: Object.values(PLATFORM_SPECS).map((spec) => ({
+        id: spec.id,
+        label: spec.label,
+        description: spec.description,
+        fields: spec.fields.map((field) => ({
+          key: field.key,
+          label: field.label,
+          secret: field.secret,
+          placeholder: field.placeholder,
+        })),
+      })),
+      connected: await listUserPlatformCredentials(userId),
+    };
+  });
+
+  app.post<{ Body: { platform?: string; label?: string; values?: Record<string, unknown> } }>(
+    "/api/user/platform-credentials",
+    { preHandler: [requireAuth] },
+    async (req, reply) => {
+      const user = (req as any).user;
+      const userId = user?.id;
+      if (!userId) {
+        reply.status(401);
+        return { error: "Authentication required to connect a platform account." };
+      }
+
+      try {
+        const credential = await upsertUserPlatformCredential(
+          userId,
+          String(req.body?.platform || ""),
+          req.body?.values || {},
+          req.body?.label
+        );
+        // Only the masked summary is echoed back; the secret never leaves the vault.
+        return { success: true, credential };
+      } catch (err: any) {
+        reply.status(400);
+        return {
+          error:
+            err instanceof CredentialVaultError
+              ? err.message
+              : "Could not store that credential.",
+        };
+      }
+    }
+  );
+
+  app.delete<{ Params: { platform: string } }>(
+    "/api/user/platform-credentials/:platform",
+    { preHandler: [requireAuth] },
+    async (req, reply) => {
+      const userId = (req as any).user?.id;
+      if (!userId) {
+        reply.status(401);
+        return { error: "Authentication required to disconnect a platform account." };
+      }
+
+      const deleted = await deleteUserPlatformCredential(userId, req.params.platform);
+      if (!deleted) {
+        reply.status(404);
+        return { error: "No credential stored for that platform." };
+      }
+
+      return { success: true, message: "Platform account disconnected." };
+    }
+  );
+
+  // 7. Revoke Personal API Key
   app.delete<{ Params: { id: string } }>(
     "/api/user/api-keys/:id",
     { preHandler: [requireAuth] },

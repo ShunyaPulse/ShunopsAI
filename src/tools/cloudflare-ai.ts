@@ -29,10 +29,12 @@ export const CLOUDFLARE_MODELS_CHAIN: string[] = [
  * Run inference on Cloudflare Workers AI
  */
 export async function runCloudflareAiInference(
-  promptOrOptions: string | CloudflareAiOptions
+  promptOrOptions: string | CloudflareAiOptions,
+  /** Per-user account. When present it is the ONLY account billed/queried. */
+  overrides: { accountId?: string; apiToken?: string } = {}
 ): Promise<string> {
-  const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
-  const apiToken = process.env.CLOUDFLARE_API_TOKEN;
+  const accountId = overrides.accountId || process.env.CLOUDFLARE_ACCOUNT_ID;
+  const apiToken = overrides.apiToken || process.env.CLOUDFLARE_API_TOKEN;
 
   if (!accountId || !apiToken) {
     return "Error: CLOUDFLARE_ACCOUNT_ID or CLOUDFLARE_API_TOKEN is not configured in .env.";

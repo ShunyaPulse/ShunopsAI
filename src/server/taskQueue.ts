@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { runAutonomousAgent } from "../agent/index.js";
+import type { ToolScope } from "../agent/scope.js";
 import { getRedisClient } from "./redis.js";
 import { saveTaskRecord, getTaskRecord } from "./db.js";
 
@@ -122,7 +123,9 @@ export function createQueuedTask(
   maxSteps = 6,
   context?: string | undefined,
   userId?: number | undefined,
-  keyOverrides?: { groqApiKey?: string | undefined; geminiApiKey?: string | undefined } | undefined
+  keyOverrides?: { groqApiKey?: string | undefined; geminiApiKey?: string | undefined } | undefined,
+  /** Tenant scope captured at request time, so the background run cannot escalate. */
+  scope?: ToolScope | undefined
 ): QueuedTaskState {
   const id = `task_${Date.now()}_${randomUUID().slice(0, 8)}`;
   const task: QueuedTaskState = {
@@ -143,6 +146,7 @@ export function createQueuedTask(
         maxSteps,
         ...(context ? { initialContext: context } : {}),
         keyOverrides,
+        ...(scope ? { scope } : {}),
       });
       task.status = result.success ? "COMPLETED" : "FAILED";
       task.completedAt = new Date().toISOString();

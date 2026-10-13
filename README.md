@@ -64,7 +64,7 @@
   - 35mm optical grain matching (`noise=alls=1.5`) across all synthetic cuts.
 
 ### 5. Embeddable ReAct Edge AI Command Center
-- Lightweight, zero-dependency drop-in JavaScript widget (`/api/widget.js`).
+- Lightweight, zero-dependency drop-in JavaScript widget (`/widget.js`).
 - Features client domain awareness, customizable quick-action chips, dark/light theme adaptation, and SSE streaming responses.
 - Generates interactive, cryptographic HMAC-signed action cards for one-click trigger executions.
 

@@ -394,7 +394,7 @@ app.get('/', (c) => {
     service: 'ShunopsAI Edge Agent Widget CDN & API',
     status: 'healthy',
     runtime: 'Cloudflare Workers Edge (V8 Isolates)',
-    embed_snippet: '<script src="https://edge-agent-widget.shunopsai.workers.dev/widget.js" defer></script>',
+    embed_snippet: '<script src="https://edge-agent-widget.shunopsai.workers.dev/widget.js" data-api-url="https://edge-agent-widget.shunopsai.workers.dev" defer></script>',
     endpoints: {
       widget_script: '/widget.js',
       shield_challenge: '/api/shield/challenge',

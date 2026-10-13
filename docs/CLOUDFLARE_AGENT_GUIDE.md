@@ -100,7 +100,7 @@ Add this single script tag to any HTML page (WordPress, Webflow, Next.js, static
 ```
 
 ### Customization Attributes
-- `data-api-url`: URL of your deployed Worker backend (defaults to current origin).
+- `data-api-url`: URL of your deployed Worker backend (defaults to the origin that served `widget.js`, falling back to the current origin).
 - `data-title`: Chat modal header title.
 - `data-welcome`: Initial greeting message shown to visitors.
 - `data-turnstile-sitekey`: (Optional) Cloudflare Turnstile public site key for bot verification.

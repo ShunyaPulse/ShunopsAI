@@ -184,6 +184,32 @@ export const MIGRATIONS: SchemaMigration[] = [
       } catch {}
     },
   },
+  {
+    version: 8,
+    name: "008_user_platform_credentials",
+    up: async (sql) => {
+      // One row per (user, platform): a user's OWN Neon/Redis/GitHub/Cloudflare
+      // credential. Secrets are AES-256-GCM encrypted before they reach this
+      // table, so a database dump alone cannot be replayed against a provider.
+      await (sql as any).query(`
+        CREATE TABLE IF NOT EXISTS shunops_user_platform_credentials (
+          id SERIAL PRIMARY KEY,
+          user_id INTEGER NOT NULL REFERENCES shunops_users(id) ON DELETE CASCADE,
+          platform VARCHAR(32) NOT NULL,
+          label VARCHAR(64),
+          secret_hint VARCHAR(64),
+          secret_payload TEXT NOT NULL,
+          created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE(user_id, platform)
+        );
+      `);
+
+      await (sql as any).query(
+        `CREATE INDEX IF NOT EXISTS idx_shunops_platform_credentials_user ON shunops_user_platform_credentials(user_id);`
+      );
+    },
+  },
 ];
 
 /**

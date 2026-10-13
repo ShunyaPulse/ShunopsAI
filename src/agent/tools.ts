@@ -19,6 +19,15 @@ import { runCloudflareAiInference } from "../tools/cloudflare-ai.js";
 import { runDualModelConsensus } from "../ai/consensus.js";
 import { runAutoAlertResolver } from "../tools/code-scanner-resolver.js";
 import { resolveInsideProject, listDirectoryTree, assertAccessible } from "./sandbox.js";
+import {
+  resolveNeon,
+  resolveRedis,
+  resolveGitHub,
+  resolveCloudflare,
+  isToolAllowedForScope,
+  hostToolRefusal,
+  type ToolScope,
+} from "./scope.js";
 import { searchKnowledgeHybrid, indexKnowledgeDocument } from "../server/db.js";
 
 const execAsync = promisify(exec);
@@ -29,7 +38,12 @@ const execAsync = promisify(exec);
 
 export interface ToolDefinition {
   schema: OpenAI.ChatCompletionTool;
-  execute: (args: any) => Promise<string>;
+  /**
+   * `scope` identifies whose accounts this run may touch. Platform tools resolve
+   * credentials from it and refuse (rather than escalate to server credentials)
+   * when the caller has not connected that platform.
+   */
+  execute: (args: any, scope?: ToolScope) => Promise<string>;
 }
 
 export type ToolName =
@@ -248,8 +262,13 @@ export const toolRegistry: Record<ToolName, ToolDefinition> = {
         },
       },
     },
-    execute: async (args: { query: string }) => {
-      return await executeNeonSql(args.query);
+    execute: async (args: { query: string }, scope?: ToolScope) => {
+      const credential = resolveNeon(scope);
+      if (!credential.ok) return credential.message;
+      return await executeNeonSql(
+        args.query,
+        credential.source === "user" ? { connectionString: credential.value } : {}
+      );
     },
   },
 
@@ -276,8 +295,14 @@ export const toolRegistry: Record<ToolName, ToolDefinition> = {
         },
       },
     },
-    execute: async (args: { command: string; args?: string[] }) => {
-      return await executeRedisCommand(args.command, args.args || []);
+    execute: async (args: { command: string; args?: string[] }, scope?: ToolScope) => {
+      const credential = resolveRedis(scope);
+      if (!credential.ok) return credential.message;
+      return await executeRedisCommand(
+        args.command,
+        args.args || [],
+        credential.source === "user" ? { url: credential.value } : {}
+      );
     },
   },
 
@@ -318,8 +343,13 @@ export const toolRegistry: Record<ToolName, ToolDefinition> = {
         },
       },
     },
-    execute: async (args: any) => {
-      return await manageGitHub(args);
+    execute: async (args: any, scope?: ToolScope) => {
+      const credential = resolveGitHub(scope);
+      if (!credential.ok) return credential.message;
+      return await manageGitHub(
+        args,
+        credential.source === "user" ? { token: credential.value } : {}
+      );
     },
   },
 
@@ -606,11 +636,16 @@ export const toolRegistry: Record<ToolName, ToolDefinition> = {
         },
       },
     },
-    execute: async (args: { prompt: string; model?: string }) => {
-      return await runCloudflareAiInference({
-        prompt: args.prompt,
-        ...(args.model ? { model: args.model } : {}),
-      });
+    execute: async (args: { prompt: string; model?: string }, scope?: ToolScope) => {
+      const credential = resolveCloudflare(scope);
+      if (!credential.ok) return credential.message;
+      return await runCloudflareAiInference(
+        {
+          prompt: args.prompt,
+          ...(args.model ? { model: args.model } : {}),
+        },
+        credential.source === "user" ? credential.value : {}
+      );
     },
   },
 
@@ -778,6 +813,22 @@ export const toolRegistry: Record<ToolName, ToolDefinition> = {
     },
   },
 };
+
+/**
+ * Scope enforcement, applied once across the whole registry so an individual
+ * tool cannot forget it: host-tier tools refuse to run for a user scope, and
+ * every tool receives the scope of the run.
+ */
+for (const [name, definition] of Object.entries(toolRegistry)) {
+  const executeWithScope = definition.execute;
+  definition.execute = async (args: any, scope?: ToolScope) => {
+    const toolName = name as ToolName;
+    if (!isToolAllowedForScope(toolName, scope)) {
+      return hostToolRefusal(toolName);
+    }
+    return executeWithScope(args, scope);
+  };
+}
 
 export const registeredTools: OpenAI.ChatCompletionTool[] = Object.values(toolRegistry).map(
   (t) => t.schema
