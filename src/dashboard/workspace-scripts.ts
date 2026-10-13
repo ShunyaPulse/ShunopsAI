@@ -822,6 +822,7 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]'): stri
     let platformConnected = [];
     let platformVaultReady = true;
     let platformBusy = false;
+    let activeMcpPreset = null;
 
     // Attribute-safe escaping: escapeHtmlText runs through innerHTML, which
     // leaves quotes intact and would let a value break out of an attribute.
@@ -897,11 +898,14 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]'): stri
         return;
       }
       box.innerHTML = connected.map(function (item) {
-        const spec = platformSpecs.filter(function (s) { return s.id === item.platform; })[0];
-        // A stored row is only usable when every field of its spec round-trips.
+        const isMcp = item.platform === 'mcp' || item.platform.startsWith('mcp:');
+        const spec = platformSpecs.filter(function (s) {
+          return s.id === item.platform || (isMcp && s.id === 'mcp');
+        })[0];
+        // A stored row is only usable when every required field of its spec round-trips.
         const stored = item.fields || [];
         const incomplete = Boolean(spec) && spec.fields.some(function (field) {
-          return stored.indexOf(field.key) === -1;
+          return !field.optional && stored.indexOf(field.key) === -1;
         });
         let banner = '';
         if (item.readable === false) {
@@ -909,16 +913,34 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]'): stri
         } else if (incomplete) {
           banner = '<div style="font-size:11px; color:#f59e0b; margin-top:2px;">⚠︎ Incomplete — reconnect to store every required field.</div>';
         }
+
+        const connectedBadge = '<span style="font-size:10px; background:rgba(16,185,129,0.12); color:#10b981; border:1px solid rgba(16,185,129,0.25); padding:2px 7px; border-radius:10px; font-weight:600; margin-left:6px;">🟢 Connected</span>';
+        const pingBtn = isMcp
+          ? '<button class="btn-sub" data-test-ping="' + escapeHtmlAttr(item.platform) + '" style="border-color:rgba(56,189,248,0.3); color:#38bdf8; font-size:11px; padding:3px 8px;">⚡ Test Ping</button>'
+          : '';
+
         return '<div style="display:flex; justify-content:space-between; align-items:center; gap:8px; background:#090d16; border:1px solid #1e293b; border-radius:8px; padding:8px 10px; margin-bottom:6px;">'
-          + '<div><div style="font-size:12.5px; color:#fff; font-weight:600;">' + escapeHtmlText(item.label || item.platform) + '</div>'
-          + '<div style="font-size:11px; color:#94a3b8; font-family:monospace;">' + escapeHtmlText(item.hint || '') + ' · updated ' + escapeHtmlText(String(item.updatedAt || '').slice(0, 10)) + '</div>'
+          + '<div><div style="font-size:12.5px; color:#fff; font-weight:600; display:flex; align-items:center;">'
+          + escapeHtmlText(item.label || (spec ? spec.label : item.platform))
+          + connectedBadge
+          + '</div>'
+          + '<div style="font-size:11px; color:#94a3b8; font-family:monospace; margin-top:2px;">' + escapeHtmlText(item.hint || '') + ' · updated ' + escapeHtmlText(String(item.updatedAt || '').slice(0, 10)) + '</div>'
           + banner + '</div>'
-          + '<button class="btn-sub" data-disconnect="' + escapeHtmlAttr(item.platform) + '" style="border-color:rgba(239,68,68,0.4); color:#ef4444;">Disconnect</button>'
+          + '<div style="display:flex; gap:6px; align-items:center;">'
+          + pingBtn
+          + '<button class="btn-sub" data-disconnect="' + escapeHtmlAttr(item.platform) + '" style="border-color:rgba(239,68,68,0.4); color:#ef4444; font-size:11px; padding:3px 8px;">Disconnect</button>'
+          + '</div>'
           + '</div>';
       }).join('');
+
       box.querySelectorAll('[data-disconnect]').forEach(function (btn) {
         btn.addEventListener('click', function () {
           disconnectPlatform(btn.getAttribute('data-disconnect'));
+        });
+      });
+      box.querySelectorAll('[data-test-ping]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          testConnectedPlatformPing(btn.getAttribute('data-test-ping'), btn);
         });
       });
     }
@@ -927,11 +949,20 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]'): stri
       const select = document.getElementById('platform-select');
       if (!select) return;
       const previous = select.value;
-      select.innerHTML = platformSpecs.map(function (spec) {
+      const options = platformSpecs.map(function (spec) {
         const suffix = platformIsConnected(spec.id) ? ' ✓ connected' : '';
         return '<option value="' + escapeHtmlAttr(spec.id) + '">' + escapeHtmlText(spec.label + suffix) + '</option>';
-      }).join('');
-      if (previous && platformSpecs.some(function (s) { return s.id === previous; })) {
+      });
+
+      // Also include any connected MCP preset platforms
+      platformConnected.forEach(function (conn) {
+        if (conn.platform.startsWith('mcp:') && !platformSpecs.some(function (s) { return s.id === conn.platform; })) {
+          options.push('<option value="' + escapeHtmlAttr(conn.platform) + '">' + escapeHtmlText((conn.label || conn.platform) + ' ✓ connected') + '</option>');
+        }
+      });
+
+      select.innerHTML = options.join('');
+      if (previous && (platformSpecs.some(function (s) { return s.id === previous; }) || platformConnected.some(function (c) { return c.platform === previous; }))) {
         select.value = previous;
       }
       onPlatformSelectChange();
@@ -941,15 +972,27 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]'): stri
       const select = document.getElementById('platform-select');
       const box = document.getElementById('platform-field-inputs');
       const note = document.getElementById('platform-connect-note');
+      const testBtn = document.getElementById('platform-test-button');
+      const testStatus = document.getElementById('mcp-test-status');
       if (!select || !box) return;
-      const spec = platformSpecs.filter(function (s) { return s.id === select.value; })[0];
+
+      const isMcp = select.value === 'mcp' || select.value.startsWith('mcp:');
+      if (testBtn) testBtn.style.display = isMcp ? 'inline-block' : 'none';
+      if (testStatus) {
+        testStatus.style.display = 'none';
+        testStatus.textContent = '';
+      }
+
+      const spec = platformSpecs.filter(function (s) {
+        return s.id === select.value || (isMcp && s.id === 'mcp');
+      })[0];
       setPlatformStatus('', true);
       if (!spec) {
         box.innerHTML = '';
         if (note) note.textContent = '';
         return;
       }
-      const existing = connectedPlatformFor(spec.id);
+      const existing = connectedPlatformFor(select.value);
       box.innerHTML = '<div style="font-size:11.5px; color:#94a3b8; line-height:1.45;">' + escapeHtmlText(spec.description) + '</div>'
         + spec.fields.map(function (field) {
           return '<div style="display:flex; flex-direction:column; gap:4px;">'
@@ -961,8 +1004,128 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]'): stri
       if (button) button.textContent = existing ? 'Update Connection' : 'Connect Account';
       if (note) {
         note.textContent = existing
-          ? 'The stored ' + spec.label + ' credential is ' + (existing.hint || 'saved') + '. Submitting replaces it.'
+          ? 'The stored ' + (existing.label || spec.label) + ' credential is ' + (existing.hint || 'saved') + '. Submitting replaces it.'
           : '';
+      }
+    }
+
+    async function testMcpConnection() {
+      const urlInput = document.querySelector('[data-cred-field="serverUrl"]');
+      const tokenInput = document.querySelector('[data-cred-field="apiKey"]');
+      const testBtn = document.getElementById('platform-test-button');
+      const statusBox = document.getElementById('mcp-test-status');
+
+      const serverUrl = (urlInput ? urlInput.value : '').trim();
+      const apiKey = (tokenInput ? tokenInput.value : '').trim();
+
+      if (!serverUrl) {
+        if (statusBox) {
+          statusBox.style.display = 'block';
+          statusBox.style.background = 'rgba(245,158,11,0.12)';
+          statusBox.style.border = '1px solid rgba(245,158,11,0.3)';
+          statusBox.style.color = '#fbbf24';
+          statusBox.textContent = 'Please enter an MCP Server URL before testing.';
+        }
+        return;
+      }
+
+      if (testBtn) {
+        testBtn.disabled = true;
+        testBtn.textContent = 'Testing... ⏳';
+      }
+      if (statusBox) {
+        statusBox.style.display = 'block';
+        statusBox.style.background = 'rgba(56,189,248,0.1)';
+        statusBox.style.border = '1px solid rgba(56,189,248,0.25)';
+        statusBox.style.color = '#38bdf8';
+        statusBox.textContent = 'Pinging MCP server & discovering tools via JSON-RPC...';
+      }
+
+      try {
+        const res = await fetch('/api/user/platform-credentials/test-mcp', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ serverUrl: serverUrl, apiKey: apiKey }),
+        });
+        const data = await res.json();
+        if (data.success && data.connected) {
+          const toolNames = (data.tools || []).map(function (t) { return t.name; }).slice(0, 5).join(', ');
+          const extra = (data.toolsCount > 5) ? (' +' + (data.toolsCount - 5) + ' more') : '';
+          if (statusBox) {
+            statusBox.style.background = 'rgba(16,185,129,0.12)';
+            statusBox.style.border = '1px solid rgba(16,185,129,0.3)';
+            statusBox.style.color = '#10b981';
+            statusBox.innerHTML = '✅ <strong>Connected &amp; Verified!</strong> Found ' + data.toolsCount + ' active tool' + (data.toolsCount === 1 ? '' : 's') + (toolNames ? (' (<code>' + escapeHtmlText(toolNames + extra) + '</code>)') : '') + '.';
+          }
+        } else {
+          if (statusBox) {
+            statusBox.style.background = 'rgba(239,68,68,0.12)';
+            statusBox.style.border = '1px solid rgba(239,68,68,0.3)';
+            statusBox.style.color = '#f87171';
+            statusBox.textContent = '❌ Connection failed: ' + (data.error || 'Server unreachable or returned invalid JSON-RPC response.');
+          }
+        }
+      } catch (err) {
+        if (statusBox) {
+          statusBox.style.background = 'rgba(239,68,68,0.12)';
+          statusBox.style.border = '1px solid rgba(239,68,68,0.3)';
+          statusBox.style.color = '#f87171';
+          statusBox.textContent = '❌ Network error while pinging MCP server.';
+        }
+      } finally {
+        if (testBtn) {
+          testBtn.disabled = false;
+          testBtn.textContent = 'Test Connection 🔌';
+        }
+      }
+    }
+
+    async function testConnectedPlatformPing(platform, btn) {
+      const originalText = btn ? btn.textContent : '';
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Testing... ⏳';
+      }
+      try {
+        const res = await fetch('/api/user/platform-credentials/test-mcp', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ platform: platform }),
+        });
+        const data = await res.json();
+        if (data.success && data.connected) {
+          if (btn) {
+            btn.style.color = '#10b981';
+            btn.style.borderColor = 'rgba(16,185,129,0.4)';
+            btn.textContent = '✅ ' + data.toolsCount + ' tools online';
+            setTimeout(function () {
+              btn.style.color = '#38bdf8';
+              btn.style.borderColor = 'rgba(56,189,248,0.3)';
+              btn.textContent = originalText;
+              btn.disabled = false;
+            }, 4000);
+          }
+        } else {
+          if (btn) {
+            btn.style.color = '#f87171';
+            btn.style.borderColor = 'rgba(239,68,68,0.4)';
+            btn.textContent = '❌ Ping failed';
+            setTimeout(function () {
+              btn.style.color = '#38bdf8';
+              btn.style.borderColor = 'rgba(56,189,248,0.3)';
+              btn.textContent = originalText;
+              btn.disabled = false;
+            }, 4000);
+          }
+        }
+      } catch (e) {
+        if (btn) {
+          btn.textContent = '❌ Network error';
+          setTimeout(function () {
+            btn.textContent = originalText;
+            btn.disabled = false;
+          }, 4000);
+        }
       }
     }
 
@@ -976,7 +1139,10 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]'): stri
         return;
       }
       const platformId = select.value;
-      const spec = platformSpecs.filter(function (s) { return s.id === platformId; })[0];
+      const isMcp = platformId === 'mcp' || platformId.startsWith('mcp:');
+      const spec = platformSpecs.filter(function (s) {
+        return s.id === platformId || (isMcp && s.id === 'mcp');
+      })[0];
       if (!spec) {
         setPlatformStatus('Choose a platform to connect.', false);
         return;
@@ -989,7 +1155,7 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]'): stri
         values[key] = input.value;
         const value = (input.value || '').trim();
         const field = spec.fields.filter(function (f) { return f.key === key; })[0];
-        if (!value && !missing) missing = field ? field.label : key;
+        if (!value && (!field || !field.optional) && !missing) missing = field ? field.label : key;
       });
       if (missing) {
         setPlatformStatus(missing + ' is required.', false);
@@ -999,11 +1165,19 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]'): stri
       const updating = platformIsConnected(platformId);
       setPlatformBusy(true);
       setPlatformStatus(updating ? 'Updating...' : 'Connecting...', true);
+
+      let customLabel = '';
+      if (activeMcpPreset && platformId === ('mcp:' + activeMcpPreset.id)) {
+        customLabel = activeMcpPreset.name + ' MCP';
+      } else if (isMcp && platformId !== 'mcp') {
+        customLabel = platformId.replace(/^mcp:/, '') + ' MCP';
+      }
+
       try {
         const res = await fetch('/api/user/platform-credentials', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ platform: platformId, values: values }),
+          body: JSON.stringify({ platform: platformId, values: values, label: customLabel || undefined }),
         });
         const data = await res.json().catch(function () { return {}; });
         if (!res.ok || !data.success) {
@@ -1015,7 +1189,7 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]'): stri
         // status, so the confirmation is applied after the refresh.
         await loadPlatformCredentials();
         setPlatformStatus(
-          updating ? 'Updated. Your tasks use the new credential.' : 'Connected. Your tasks can now use this account.',
+          updating ? 'Updated. Your tasks use the new credential.' : 'Connected! This platform is now live for your tasks.',
           true
         );
       } catch (e) {
@@ -1159,10 +1333,18 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]'): stri
       if (!preset) return;
       toggleMcpDirectoryModal(false);
 
-      // Select MCP in Platform dropdown
       const platformSelect = document.getElementById('platform-select');
       if (platformSelect) {
-        platformSelect.value = 'mcp';
+        const customPlatformId = 'mcp:' + preset.id;
+        let opt = platformSelect.querySelector('option[value="' + customPlatformId + '"]');
+        if (!opt) {
+          opt = document.createElement('option');
+          opt.value = customPlatformId;
+          opt.textContent = '⚡ ' + preset.name + ' (MCP Preset)' + (platformIsConnected(customPlatformId) ? ' ✓ connected' : '');
+          platformSelect.appendChild(opt);
+        }
+        platformSelect.value = customPlatformId;
+        activeMcpPreset = preset;
         onPlatformSelectChange();
 
         // Auto-fill values
@@ -1181,7 +1363,7 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]'): stri
           if (tokenLabel && preset.tokenLabel) {
             tokenLabel.textContent = preset.tokenLabel;
           }
-          setPlatformStatus('Configured ' + preset.name + '. Enter your credentials and click Connect.', true);
+          setPlatformStatus('Configured ' + preset.name + '. Click "Test Connection 🔌" to verify, then "Connect Account".', true);
         }, 50);
       }
     }

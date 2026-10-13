@@ -328,7 +328,11 @@ ${WORKSPACE_STYLES}
             <select id="platform-select" onchange="onPlatformSelectChange()" style="width:100%; background:#090d16; border:1px solid #1e293b; border-radius:8px; padding:7px 10px; color:#fff; font-size:12px; outline:none;"></select>
             <div id="platform-connect-note" style="font-size:11px; color:#f59e0b; margin-top:6px; line-height:1.45;"></div>
             <div id="platform-field-inputs" style="margin-top:8px; display:flex; flex-direction:column; gap:8px;"></div>
-            <button id="platform-connect-button" class="btn-sub" style="background:#2563eb; color:#fff; border:none; width:100%; padding:8px; margin-top:10px;" onclick="connectPlatformCredential()">Connect Account</button>
+            <div id="platform-buttons-row" style="display:flex; gap:8px; margin-top:10px;">
+              <button id="platform-test-button" class="btn-sub" style="flex:1; border-color:rgba(56,189,248,0.4); color:#38bdf8; padding:8px; display:none;" onclick="testMcpConnection()">Test Connection 🔌</button>
+              <button id="platform-connect-button" class="btn-sub" style="flex:1; background:#2563eb; color:#fff; border:none; padding:8px;" onclick="connectPlatformCredential()">Connect Account</button>
+            </div>
+            <div id="mcp-test-status" style="display:none; font-size:11.5px; margin-top:8px; padding:8px 10px; border-radius:6px; line-height:1.45;"></div>
             <div id="platform-connect-status" role="status" aria-live="polite" style="font-size:11.5px; margin-top:8px; line-height:1.5;"></div>
             <div style="font-size:10.5px; color:#64748b; margin-top:8px;">
               🔒 Secrets are encrypted at rest (AES-256-GCM) and only shown back to you as a 4-character hint.

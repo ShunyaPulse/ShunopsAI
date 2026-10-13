@@ -9,10 +9,12 @@ import {
   listUserPlatformCredentials,
   upsertUserPlatformCredential,
   deleteUserPlatformCredential,
+  getUserCredentialBundle,
   PLATFORM_SPECS,
   CredentialVaultError,
   isVaultConfigured,
 } from "../db.js";
+import { McpHttpClient } from "../../agent/mcp/client.js";
 
 export interface WorkspaceRouteOptions {
   requireAuth: preHandlerHookHandler;
@@ -142,6 +144,72 @@ export async function workspaceRoutes(app: FastifyInstance, options: WorkspaceRo
             err instanceof CredentialVaultError
               ? err.message
               : "Could not store that credential.",
+        };
+      }
+    }
+  );
+
+  // 6b. Test MCP Server Connection
+  app.post<{ Body: { serverUrl?: string; apiKey?: string; platform?: string } }>(
+    "/api/user/platform-credentials/test-mcp",
+    { preHandler: [requireAuth] },
+    async (req, reply) => {
+      let serverUrl = typeof req.body?.serverUrl === "string" ? req.body.serverUrl.trim() : "";
+      let apiKey = typeof req.body?.apiKey === "string" ? req.body.apiKey.trim() : "";
+      const platform = typeof req.body?.platform === "string" ? req.body.platform.trim() : "";
+
+      // If testing an already connected platform by ID
+      if (!serverUrl && platform) {
+        const userId = (req as any).user?.id;
+        if (userId) {
+          try {
+            const bundle = await getUserCredentialBundle(userId);
+            const found = bundle.mcpServers?.find((s) => s.id === platform) || (platform === "mcp" ? bundle.mcp : undefined);
+            if (found) {
+              serverUrl = found.serverUrl;
+              apiKey = found.apiKey || "";
+            }
+          } catch {
+            // ignore and proceed to validation
+          }
+        }
+      }
+
+      if (!serverUrl) {
+        reply.status(400);
+        return { success: false, connected: false, error: "Server URL is required to test MCP connection." };
+      }
+
+      try {
+        const client = new McpHttpClient({
+          id: "test-mcp",
+          name: "MCP Connection Test",
+          transport: "http",
+          url: serverUrl,
+          headers: apiKey
+            ? { Authorization: apiKey.startsWith("Bearer ") ? apiKey : `Bearer ${apiKey}` }
+            : {},
+        });
+
+        const res = await client.listTools();
+        const tools = (res?.tools || []).map((t) => ({
+          name: t.name,
+          description: t.description || "",
+        }));
+
+        return {
+          success: true,
+          connected: true,
+          toolsCount: tools.length,
+          tools,
+          message: `Connection successful! ${tools.length} tool${tools.length === 1 ? "" : "s"} discovered.`,
+        };
+      } catch (err: any) {
+        reply.status(400);
+        return {
+          success: false,
+          connected: false,
+          error: err.message || "Failed to reach MCP server.",
         };
       }
     }

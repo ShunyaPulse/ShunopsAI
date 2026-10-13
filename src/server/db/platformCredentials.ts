@@ -12,7 +12,7 @@ import { getSql, memStore } from "./store.js";
 // Secrets are encrypted with AES-256-GCM before they are persisted. The UI only
 // ever receives a masked hint; plaintext is decrypted on demand for one run.
 
-export type PlatformId = "neon" | "redis" | "github" | "cloudflare" | "mcp";
+export type PlatformId = "neon" | "redis" | "github" | "cloudflare" | "mcp" | string;
 
 export interface PlatformFieldSpec {
   key: string;
@@ -20,6 +20,7 @@ export interface PlatformFieldSpec {
   /** Rendered as a password input and never echoed back to the client. */
   secret: boolean;
   placeholder: string;
+  optional?: boolean;
 }
 
 export interface PlatformSpec {
@@ -29,7 +30,7 @@ export interface PlatformSpec {
   fields: PlatformFieldSpec[];
 }
 
-export const PLATFORM_SPECS: Record<PlatformId, PlatformSpec> = {
+export const PLATFORM_SPECS: Record<string, PlatformSpec> = {
   neon: {
     id: "neon",
     label: "Neon Postgres",
@@ -74,7 +75,7 @@ export const PLATFORM_SPECS: Record<PlatformId, PlatformSpec> = {
     description: "Connect any remote or local MCP server to dynamically discover and run custom external tools.",
     fields: [
       { key: "serverUrl", label: "MCP Server URL", secret: false, placeholder: "https://your-mcp-server.com/sse or http://127.0.0.1:8000" },
-      { key: "apiKey", label: "Authorization Token / Header (Optional)", secret: true, placeholder: "Bearer token or secret key" },
+      { key: "apiKey", label: "Authorization Token / Header (Optional)", secret: true, placeholder: "Bearer token or secret key", optional: true },
     ],
   },
 };
@@ -93,6 +94,13 @@ export interface PlatformCredentialSummary {
   readable: boolean;
 }
 
+export interface McpServerConfigEntry {
+  id: string;
+  name?: string;
+  serverUrl: string;
+  apiKey?: string | undefined;
+}
+
 /** Decrypted credential bundle handed to a single agent run (never persisted). */
 export interface PlatformCredentialBundle {
   neon?: { connectionString: string };
@@ -100,6 +108,7 @@ export interface PlatformCredentialBundle {
   github?: { token: string };
   cloudflare?: { accountId: string; apiToken: string };
   mcp?: { serverUrl: string; apiKey?: string | undefined };
+  mcpServers?: McpServerConfigEntry[];
 }
 
 export class CredentialVaultError extends Error {}
@@ -187,7 +196,17 @@ function buildHint(spec: PlatformSpec, values: Record<string, string>): string {
 }
 
 export function getPlatformSpec(platform: string): PlatformSpec | null {
-  return (PLATFORM_SPECS as Record<string, PlatformSpec | undefined>)[platform] ?? null;
+  if (platform === "mcp" || platform.startsWith("mcp:")) {
+    const base = PLATFORM_SPECS.mcp;
+    if (!base) return null;
+    return {
+      id: platform,
+      label: base.label,
+      description: base.description,
+      fields: base.fields,
+    };
+  }
+  return PLATFORM_SPECS[platform] ?? null;
 }
 
 /**
@@ -222,10 +241,12 @@ function normalizeValues(spec: PlatformSpec, values: Record<string, unknown>): R
   for (const field of spec.fields) {
     const raw = values?.[field.key];
     const value = typeof raw === "string" ? raw.trim() : "";
-    if (!value) {
+    if (!value && !field.optional) {
       throw new CredentialVaultError(`${field.label} is required for ${spec.label}.`);
     }
-    normalized[field.key] = value;
+    if (value) {
+      normalized[field.key] = value;
+    }
   }
   return normalized;
 }
@@ -351,16 +372,17 @@ export async function deleteUserPlatformCredential(userId: number, platform: str
  */
 export async function getUserCredentialBundle(userId: number): Promise<PlatformCredentialBundle> {
   const bundle: PlatformCredentialBundle = {};
+  const mcpServers: McpServerConfigEntry[] = [];
 
-  const rows: Array<{ platform: string; payload: string }> = [];
+  const rows: Array<{ platform: string; label?: string | undefined; payload: string }> = [];
   const sql = getSql();
   if (!sql) {
     for (const record of memStore.platformCredentials.values()) {
-      if (record.userId === userId) rows.push({ platform: record.platform, payload: record.payload });
+      if (record.userId === userId) rows.push({ platform: record.platform, label: record.label || undefined, payload: record.payload });
     }
   } else {
     const result = await (sql as any).query(
-      `SELECT platform, secret_payload AS payload FROM shunops_user_platform_credentials WHERE user_id = $1;`,
+      `SELECT platform, label, secret_payload AS payload FROM shunops_user_platform_credentials WHERE user_id = $1;`,
       [userId]
     );
     rows.push(...(result || []));
@@ -370,29 +392,38 @@ export async function getUserCredentialBundle(userId: number): Promise<PlatformC
     try {
       const payload = row.payload || (row as any).secret_payload;
       const values = decryptValues(payload);
-      switch (row.platform) {
-        case "neon":
-          if (values.connectionString) bundle.neon = { connectionString: values.connectionString };
-          break;
-        case "redis":
-          if (values.url) bundle.redis = { url: values.url };
-          break;
-        case "github":
-          if (values.token) bundle.github = { token: values.token };
-          break;
-        case "cloudflare":
-          if (values.accountId && values.apiToken) {
-            bundle.cloudflare = { accountId: values.accountId, apiToken: values.apiToken };
-          }
-          break;
-        case "mcp":
-          if (values.serverUrl) {
+      if (row.platform === "neon") {
+        if (values.connectionString) bundle.neon = { connectionString: values.connectionString };
+      } else if (row.platform === "redis") {
+        if (values.url) bundle.redis = { url: values.url };
+      } else if (row.platform === "github") {
+        if (values.token) bundle.github = { token: values.token };
+      } else if (row.platform === "cloudflare") {
+        if (values.accountId && values.apiToken) {
+          bundle.cloudflare = { accountId: values.accountId, apiToken: values.apiToken };
+        }
+      } else if (row.platform === "mcp" || row.platform.startsWith("mcp:")) {
+        if (values.serverUrl) {
+          if (row.platform === "mcp" && !bundle.mcp) {
             bundle.mcp = { serverUrl: values.serverUrl, apiKey: values.apiKey };
           }
-          break;
+          mcpServers.push({
+            id: row.platform,
+            name: row.label || row.platform,
+            serverUrl: values.serverUrl,
+            apiKey: values.apiKey || undefined,
+          });
+        }
       }
     } catch (err: any) {
       console.warn("[Vault] Could not decrypt %s credential for user %s:", row.platform, userId, err?.message || err);
+    }
+  }
+
+  if (mcpServers.length > 0) {
+    bundle.mcpServers = mcpServers;
+    if (!bundle.mcp && mcpServers[0]) {
+      bundle.mcp = { serverUrl: mcpServers[0].serverUrl, apiKey: mcpServers[0].apiKey };
     }
   }
 

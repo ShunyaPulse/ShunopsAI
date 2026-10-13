@@ -93,16 +93,29 @@ class McpRegistryManager {
   async getActiveTools(scope?: ToolScope): Promise<DynamicMcpTool[]> {
     const allTools: DynamicMcpTool[] = [];
 
-    // Dynamically register tenant's connected MCP server from scope vault credentials
-    if (scope?.credentials?.mcp?.serverUrl) {
-      const userMcpId = `user_${scope.userId || "tenant"}_mcp`;
+    // Dynamically register tenant's connected MCP servers from scope vault credentials
+    const tenantServers: Array<{ id: string; name?: string | undefined; serverUrl: string; apiKey?: string | undefined }> = [];
+    if (scope?.credentials?.mcpServers && scope.credentials.mcpServers.length > 0) {
+      tenantServers.push(...scope.credentials.mcpServers);
+    } else if (scope?.credentials?.mcp?.serverUrl) {
+      tenantServers.push({
+        id: "mcp",
+        name: `${scope.username || "User"}'s Custom MCP`,
+        serverUrl: scope.credentials.mcp.serverUrl,
+        apiKey: scope.credentials.mcp.apiKey,
+      });
+    }
+
+    for (const s of tenantServers) {
+      const sanitizedId = s.id.replace(/[^a-zA-Z0-9_-]/g, "_");
+      const userMcpId = `user_${scope?.userId || "tenant"}_${sanitizedId}`;
       this.registerServer({
         id: userMcpId,
-        name: `${scope.username || "User"}'s Custom MCP`,
+        name: s.name || s.id,
         transport: "http",
-        url: scope.credentials.mcp.serverUrl,
-        headers: scope.credentials.mcp.apiKey
-          ? { Authorization: scope.credentials.mcp.apiKey.startsWith("Bearer ") ? scope.credentials.mcp.apiKey : `Bearer ${scope.credentials.mcp.apiKey}` }
+        url: s.serverUrl,
+        headers: s.apiKey
+          ? { Authorization: s.apiKey.startsWith("Bearer ") ? s.apiKey : `Bearer ${s.apiKey}` }
           : {},
         enabled: true,
       });
