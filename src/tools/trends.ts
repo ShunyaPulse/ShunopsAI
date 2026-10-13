@@ -19,6 +19,60 @@ export interface CuratedTopicResult {
   value_hook: string;
   language: string;
   target_duration_minutes: number;
+  is_evergreen?: boolean | undefined;
+}
+
+export const MIN_TREND_TRAFFIC_THRESHOLD = 20_000;
+
+/**
+ * Parses numeric search traffic from string formats like "1,00,000+", "20,000+", "5,000+".
+ */
+export function parseApproxTrafficNumber(trafficStr: string): number {
+  if (!trafficStr) return 0;
+  const digitsOnly = trafficStr.replace(/[^0-9]/g, "");
+  const val = parseInt(digitsOnly, 10);
+  return isNaN(val) ? 0 : val;
+}
+
+/**
+ * Combinatorial Matrix: 3 orthogonal axes guaranteeing infinite unique,
+ * non-repetitive knowledge seeds across science, space, nature, and engineering.
+ */
+export const COMBINATORIAL_MATRIX = {
+  domains: [
+    "Deep Cosmos & Relativistic Astrophysics",
+    "Abyssal Ocean & Extreme Earth Geophysics",
+    "Quantum Computing & Next-Gen Clean Energy",
+    "Mega-Scale Civil Engineering & Extreme Infrastructure",
+    "Ancient Engineering Marvels & Archaeology",
+    "Planetary Exploration & Extreme Climates",
+  ],
+  mechanisms: [
+    "The Unexplained Gravitational or Physical Anomaly",
+    "Extreme Physical Pressure & Deep Environmental Survival",
+    "The Engineering Feat Ahead of Its Historical Era",
+    "The Surprising Chain Reaction That Contradicted Expectations",
+    "The 1% Design Choice That Prevented Catastrophic Failure",
+    "The Natural Force That Scientists Are Still Decoding",
+  ],
+  hooks: [
+    "What if conventional assumptions missed the real physical cause?",
+    "The exact mathematical precision that modern engineers analyze today",
+    "Why this phenomenon continues to puzzle researchers in peer-reviewed science",
+    "The hidden mechanics operating far beneath the visible surface",
+    "How ancient master-builders or pioneer scientists solved this without computers",
+  ],
+};
+
+export function sampleCombinatorialMatrix(): { domain: string; mechanism: string; hook: string } {
+  const dIdx = Math.floor(Math.random() * COMBINATORIAL_MATRIX.domains.length);
+  const mIdx = Math.floor(Math.random() * COMBINATORIAL_MATRIX.mechanisms.length);
+  const hIdx = Math.floor(Math.random() * COMBINATORIAL_MATRIX.hooks.length);
+  return {
+    domain: COMBINATORIAL_MATRIX.domains[dIdx] ?? "Deep Cosmos & Relativistic Astrophysics",
+    mechanism: COMBINATORIAL_MATRIX.mechanisms[mIdx] ?? "The Unexplained Gravitational or Physical Anomaly",
+    hook: COMBINATORIAL_MATRIX.hooks[hIdx] ?? "What if conventional assumptions missed the real physical cause?",
+  };
 }
 
 export const GOOGLE_TRENDS_CATEGORY_MAP: Record<number, string> = {
@@ -185,21 +239,110 @@ export function isBannedControversialTrend(item: TrendingItem): boolean {
 }
 
 /**
+ * Synthesizes an ultra-compelling Evergreen Concept Video topic using
+ * Combinatorial Matrix Sampling + Evol-Instruct (Mutation).
+ * Enforces STRICT FACT-GROUNDING & ZERO PSEUDO-SCIENCE GUARDRAILS.
+ */
+export async function generateEvergreenConceptTopic(preferredDomain?: string): Promise<CuratedTopicResult> {
+  const seed = sampleCombinatorialMatrix();
+  const domain = preferredDomain || seed.domain;
+  const mechanism = seed.mechanism;
+  const hook = seed.hook;
+
+  console.log(`[Trends/Evergreen] Matrix Seed sampled: [Domain: "${domain}"] + [Mechanism: "${mechanism}"] + [Hook: "${hook}"]`);
+
+  const prompt = `You are an elite scientific documentary director, investigative researcher, and lead script architect for a prestigious knowledge and engineering channel.
+We are executing EVOL-INSTRUCT (MUTATION) on a 3-dimensional combinatorial concept seed to generate a timeless, high-retention, evergreen documentary topic.
+
+COMBINATORIAL CONCEPT SEED:
+- Domain Axis: "${domain}"
+- Mechanism Axis: "${mechanism}"
+- Narrative Tension Hook: "${hook}"
+
+YOUR MISSION:
+Evolve (mutate) this abstract 3-part seed into a concrete, peer-reviewed, intellectually electrifying documentary topic.
+
+CRITICAL EDITORIAL & FACT-GROUNDING GUARDRAILS (STRICT COMPLIANCE MANDATORY):
+1. STRICT FACT-GROUNDING & ZERO PSEUDO-SCIENCE (NO MYTHS, NO CONSPIRACIES):
+   - ABSOLUTELY ZERO pseudo-science, pseudo-archaeology, conspiracy theories, or myth-mongering.
+   - NEVER make unverified claims like "aliens built it", "ancient laser technology", or debunked supernatural myths.
+   - Everything MUST be grounded in peer-reviewed scientific literature, verified historical records, Archaeological Survey of India (ASI) / UNESCO documentation, or established engineering specifications.
+   - The mystery MUST stem from REAL physical, mathematical, geological, or architectural challenges (e.g. top-down monolithic basalt excavation mechanics, structural load distribution, cosmic ray detection, quantum coherence limits).
+
+2. STRICT NON-PARTISAN & CONSTRUCTIVE POLICY:
+   - ZERO modern political controversy, elections, party clashes, or corruption drama.
+   - 100% objective, awe-inspiring, and intellectually curiosity-driven.
+
+3. EVOL-INSTRUCT MUTATION PROCESS:
+   - Step 1 (Concretize): Anchor this seed to a REAL physical entity (e.g., James Webb Deep Field, Kailash Temple Ellora, Mariana Trench Challenger Deep, ITER Fusion Tokamak, Chenab Rail Bridge, Antikythera Mechanism, Voyager Interstellar Boundary).
+   - Step 2 (Deepen): Highlight the exact engineering constraint, mathematical anomaly, or physical mechanism that scientists or master architects had to overcome.
+   - Step 3 (Curiosity Hook): Formulate an irresistible curiosity question grounded purely in authentic facts.
+
+4. OUTPUT FORMAT (OPTION A - HYBRID RULES):
+Return ONLY valid JSON matching this exact structure:
+{
+  "selected_trend": "EVERGREEN_CONCEPT",
+  "trend_reason": "<1-2 clear sentences explaining the timeless scientific or historical paradox and why it captivates minds>",
+  "documentary_topic": "<High-CTR topic strictly in English (Roman) alphabet. Hybrid format: [English Topic Keyword] : [Hinglish Curiosity Hook], NEVER Devanagari script>",
+  "category": "<Science | Space | Infrastructure & Development | Technology | Nature | History | Sports Milestone>",
+  "value_hook": "<1-2 sentences explaining educational/curiosity value in pure English>",
+  "language": "Hindi",
+  "target_duration_minutes": 3,
+  "is_evergreen": true
+}`;
+
+  const { text } = await geminiGenerate(prompt);
+  if (!text) throw new Error("Gemini returned empty response for evergreen concept generation.");
+
+  let result: CuratedTopicResult;
+  try {
+    result = JSON.parse(text) as CuratedTopicResult;
+  } catch {
+    const match = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if (match && match[1]) {
+      result = JSON.parse(match[1]) as CuratedTopicResult;
+    } else {
+      throw new Error(`Failed to parse Gemini evergreen concept response: ${text.slice(0, 200)}`);
+    }
+  }
+
+  result.is_evergreen = true;
+  result.selected_trend = result.selected_trend || "EVERGREEN_CONCEPT";
+  return result;
+}
+
+/**
  * Uses Gemini to evaluate the top trending items and pick the single best
  * documentary topic that provides genuine value addition to the viewer.
+ * Automatically pivots to an Evergreen Concept Video if trend strength is low (< 20K)
+ * or if no viable high-quality documentary trend exists.
  */
 export async function curateBestTrendTopic(items: TrendingItem[]): Promise<CuratedTopicResult> {
   if (!items.length) {
-    throw new Error("No trending items provided for curation.");
+    console.log("[Trends] ⚠️ No trending items provided. Falling back to Evergreen Concept Video...");
+    return await generateEvergreenConceptTopic();
   }
 
   // 1. Filter out banned sensationalist & negative controversial items (crimes, violence, arrests, scandal mudslinging)
   const cleanItems = items.filter((item) => !isBannedControversialTrend(item));
-  const candidatePool = cleanItems.length >= 5 ? cleanItems : items;
+  if (cleanItems.length === 0) {
+    console.log("[Trends] ⚠️ All trends filtered out by controversy rules. Falling back to Evergreen Concept Video...");
+    return await generateEvergreenConceptTopic();
+  }
 
-  // 2. Select strictly from the top 10-15 trending searches on the active leaderboard
-  const topItems = candidatePool.slice(0, 15);
-  const itemsListFormatted = topItems
+  // 2. Quantitative Trend Strength Check:
+  // If top clean candidate trends on the leaderboard have search traffic < 20K (e.g. 5K-10K),
+  // trend strength is too weak to justify breaking coverage. Pivot to Evergreen Concept Video!
+  const candidatePool = cleanItems.slice(0, 15);
+  const maxTraffic = Math.max(...candidatePool.map((it) => parseApproxTrafficNumber(it.approx_traffic)));
+  if (maxTraffic > 0 && maxTraffic < MIN_TREND_TRAFFIC_THRESHOLD) {
+    console.log(
+      `[Trends] ⚠️ Top trends have low strength (max traffic ${maxTraffic.toLocaleString("en-IN")} < ${MIN_TREND_TRAFFIC_THRESHOLD.toLocaleString("en-IN")} threshold). Automatically pivoting to Evergreen Combinatorial Matrix + Evol-Instruct...`
+    );
+    return await generateEvergreenConceptTopic();
+  }
+
+  const itemsListFormatted = candidatePool
     .map(
       (item, idx) =>
         `${idx + 1}. [Trend: "${item.title}"] (Traffic: ${item.approx_traffic}, Domain: ${item.categories?.join(", ") || "General"})\n` +
@@ -251,29 +394,49 @@ Return ONLY valid JSON matching this exact structure:
   "value_hook": "<1-2 sentences explaining educational/curiosity value in pure English>",
   "language": "Hindi",
   "target_duration_minutes": 3
+}
+
+6. QUALITY ESCAPE HATCH:
+If the candidate items in this list are exclusively frivolous celebrity gossip, lottery results, or low-retention noise that do NOT meet our documentary knowledge standards, return:
+{
+  "no_viable_trend": true,
+  "reason": "<explanation of why candidate trends lack documentary value>"
 }`;
 
   const { text } = await geminiGenerate(prompt);
   if (!text) throw new Error("Gemini returned empty response for trend curation.");
 
-  let result: CuratedTopicResult;
+  let parsed: any;
   try {
-    result = JSON.parse(text) as CuratedTopicResult;
+    parsed = JSON.parse(text);
   } catch {
     const match = text.match(/```(?:json)?\s*([\s\S]*?)```/);
     if (match && match[1]) {
-      result = JSON.parse(match[1]) as CuratedTopicResult;
+      parsed = JSON.parse(match[1]);
     } else {
       throw new Error(`Failed to parse Gemini trend curation response: ${text.slice(0, 200)}`);
     }
   }
 
-  return result;
+  // Handle Quality Escape Hatch: If Gemini evaluated that no candidate trend is viable, pivot to Evergreen!
+  if (parsed.no_viable_trend) {
+    console.log(`[Trends] 🌿 Gemini evaluated breaking candidates as low documentary value (${parsed.reason}). Pivoting to Evergreen Concept Video...`);
+    return await generateEvergreenConceptTopic();
+  }
+
+  return parsed as CuratedTopicResult;
 }
 
 // CLI test runner
-if (process.argv.includes("--test")) {
+if (process.argv.includes("--test") || process.argv.includes("--test-evergreen")) {
   (async () => {
+    if (process.argv.includes("--test-evergreen")) {
+      console.log("[Trends] Testing standalone Evergreen Concept Generation via Combinatorial Matrix + Evol-Instruct...");
+      const evergreen = await generateEvergreenConceptTopic();
+      console.log("[Trends] Generated Evergreen Result:\n", JSON.stringify(evergreen, null, 2));
+      return;
+    }
+
     console.log("[Trends] Fetching Google Trends India (Live Web UI with RSS fallback)...");
     const items = await fetchGoogleTrendsIndia();
     console.log(`[Trends] Fetched ${items.length} active Indian trends.`);

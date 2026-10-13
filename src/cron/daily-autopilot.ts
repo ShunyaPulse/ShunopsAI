@@ -110,9 +110,12 @@ export async function runAutonomousCycle(): Promise<AutopilotRunResult> {
       "[Autopilot] Step 2: Curating highest value-addition topic with Gemini...",
     );
     const curated = await curateBestTrendTopic(trends);
+    if (curated.is_evergreen) {
+      console.log(`[Autopilot] 🌿 Evergreen Concept Activated (Combinatorial Matrix + Evol-Instruct)`);
+    }
     console.log(`[Autopilot] 🎯 Curated Topic: "${curated.documentary_topic}"`);
     console.log(`[Autopilot] 🏷️ Category: ${curated.category}`);
-    console.log(`[Autopilot] ⚡ Trend Catalyst Event: "${curated.trend_reason}"`);
+    console.log(`[Autopilot] ⚡ Topic Core Driver: "${curated.trend_reason}"`);
     console.log(`[Autopilot] 💡 Value Hook: ${curated.value_hook}`);
 
     // 3. Launch Video Job on Kaggle GPU
