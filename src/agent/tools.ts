@@ -319,6 +319,7 @@ export const toolRegistry: Record<ToolName, ToolDefinition> = {
             operation: {
               type: "string",
               enum: [
+                "list_repos",
                 "list_issues",
                 "get_issue",
                 "create_issue",
@@ -327,11 +328,11 @@ export const toolRegistry: Record<ToolName, ToolDefinition> = {
                 "code_scanning_alerts",
                 "list_branches",
               ],
-              description: "GitHub action to perform",
+              description: "GitHub action to perform. Use 'list_repos' to see all repositories accessible with the token.",
             },
             repo: {
               type: "string",
-              description: "Target repository (owner/repo). Optional if inside git repo",
+              description: "Target repository (owner/repo). Defaults to 'ShunyaPulse/ShunopsAI' if not specified or if just 'shunopsAI' is given.",
             },
             issueNumber: { type: "number", description: "Issue number for get_issue" },
             prNumber: { type: "number", description: "Pull request number" },

@@ -114,7 +114,7 @@ export async function executeRedisCommand(
  * 3. GitHub Operations Tool (Issues, Pull Requests, Code Scanning Alerts, Branches)
  */
 export async function manageGitHub(action: {
-  operation: "list_issues" | "get_issue" | "create_issue" | "create_pr" | "list_prs" | "code_scanning_alerts" | "list_branches";
+  operation: "list_issues" | "get_issue" | "create_issue" | "create_pr" | "list_prs" | "code_scanning_alerts" | "list_branches" | "list_repos";
   repo?: string; // owner/repo
   issueNumber?: number;
   prNumber?: number;
@@ -127,7 +127,12 @@ export async function manageGitHub(action: {
   opts: { token?: string } = {}
 ): Promise<string> {
   const token = opts.token || process.env.GITHUB_PAT || process.env.GITHUB_TOKEN;
-  const targetRepo = action.repo || "ShunyaPulse/ShunopsAI";
+  let targetRepo = action.repo ? action.repo.trim() : "ShunyaPulse/ShunopsAI";
+
+  // If user passed just the repo name without owner (e.g. "shunopsAI" or "ShunopsAI"), auto-prefix with default organization
+  if (targetRepo.toLowerCase() === "shunopsai" || targetRepo.toLowerCase() === "shunops-ai") {
+    targetRepo = "ShunyaPulse/ShunopsAI";
+  }
 
   // When a token is available, execute directly via GitHub REST API (works in bare Docker, Cloud Run, and serverless without gh CLI or git)
   if (token) {
@@ -138,11 +143,26 @@ export async function manageGitHub(action: {
         "User-Agent": "ShunopsAI-Autonomous-Agent",
       };
 
+      if (action.operation === "list_repos") {
+        const userRes = await fetch("https://api.github.com/user", { headers });
+        const userData = userRes.ok ? ((await userRes.json()) as any) : null;
+        const reposRes = await fetch("https://api.github.com/user/repos?per_page=30&sort=updated", { headers });
+        if (!reposRes.ok) {
+          const errData = (await reposRes.json().catch(() => ({}))) as any;
+          return `GitHub API Error (${reposRes.status}): ${errData?.message || reposRes.statusText}`;
+        }
+        const repos = (await reposRes.json()) as any[];
+        const repoList = Array.isArray(repos)
+          ? repos.map((r: any) => `• ${r.full_name} (${r.private ? "private" : "public"}, default branch: ${r.default_branch})`).join("\n")
+          : "No repositories found.";
+        return `Connected GitHub User: @${userData?.login || "unknown"}\nAccessible Repositories (${Array.isArray(repos) ? repos.length : 0}):\n${repoList}`;
+      }
+
       if (action.operation === "list_branches") {
         const res = await fetch(`https://api.github.com/repos/${targetRepo}/branches?per_page=30`, { headers });
         if (!res.ok) {
           const errData = (await res.json().catch(() => ({}))) as any;
-          return `GitHub API Error (${res.status}): ${errData?.message || res.statusText}`;
+          return `GitHub API Error (${res.status}): ${errData?.message || res.statusText} for repo "${targetRepo}". Tip: Use operation "list_repos" to see all accessible repositories.`;
         }
         const data = (await res.json()) as any;
         const branchList = Array.isArray(data)
