@@ -193,35 +193,12 @@ export async function curateBestTrendTopic(items: TrendingItem[]): Promise<Curat
     throw new Error("No trending items provided for curation.");
   }
 
-  // 1. Filter out banned sensationalist & negative controversial items
+  // 1. Filter out banned sensationalist & negative controversial items (crimes, violence, arrests, scandal mudslinging)
   const cleanItems = items.filter((item) => !isBannedControversialTrend(item));
-  const candidatePool = cleanItems.length >= 3 ? cleanItems : items;
+  const candidatePool = cleanItems.length >= 5 ? cleanItems : items;
 
-  // 2. High-value knowledge domains (Science: 15, Tech: 18, Climate/Earth: 20, Auto: 1, Sports Milestone: 17)
-  const knowledgeCatCodes = [15, 18, 20, 1, 17];
-  const knowledgeItems = candidatePool.filter((item) =>
-    item.category_codes?.some((c) => knowledgeCatCodes.includes(c))
-  );
-
-  // Balance top knowledge items with top overall trends (up to 25 items total)
-  const combinedCandidates: TrendingItem[] = [];
-  const seenTitles = new Set<string>();
-
-  for (const it of knowledgeItems) {
-    if (!seenTitles.has(it.title.toLowerCase()) && combinedCandidates.length < 12) {
-      combinedCandidates.push(it);
-      seenTitles.add(it.title.toLowerCase());
-    }
-  }
-
-  for (const it of candidatePool) {
-    if (!seenTitles.has(it.title.toLowerCase()) && combinedCandidates.length < 25) {
-      combinedCandidates.push(it);
-      seenTitles.add(it.title.toLowerCase());
-    }
-  }
-
-  const topItems = combinedCandidates.length > 0 ? combinedCandidates : candidatePool.slice(0, 20);
+  // 2. Select strictly from the top 10-15 trending searches on the active leaderboard
+  const topItems = candidatePool.slice(0, 15);
   const itemsListFormatted = topItems
     .map(
       (item, idx) =>
@@ -250,10 +227,10 @@ CRITICAL EDITORIAL RULES:
    - If a politician, ministry, party, or government has achieved something genuinely positive, constructive, or beneficial for people/country (e.g., mega infrastructure projects, high-speed rail, expressways, public welfare schemes, healthcare access, clean water initiatives, green energy transitions, semiconductor fabs, space missions), that CAN be chosen and covered.
    - When covering good work: Focus 100% on the positive achievement, engineering marvel, scale of execution, and tangible public benefit—NEVER attack political rivals, critics, or opposition. Maintain a completely objective, uplifting, documentary style.
 
-3. STRONGLY PRIORITIZE High-Value Knowledge & Inspiring Progress:
+3. STRONGLY PRIORITIZE High-Value Knowledge, Inspiring Sports Milestones & Progress:
+   - Inspiring Sports Milestones & Major Matches: Asian football (AFC Champions League / East Bengal), historic cricket clashes, athlete records, tactical mastery.
    - Science, Space, Nature, Astronomy, and Deep Ocean phenomena.
    - Emerging technology, AI breakthroughs, Energy & Engineering marvels.
-   - Inspiring Sports Breakthroughs (historic victories, world records, athlete comeback stories).
    - Historical mysteries, archaeological discoveries, and cultural heritage.
 
 4. MANDATORY RULE - COVER THE EXACT REASON WHY IT IS TRENDING:

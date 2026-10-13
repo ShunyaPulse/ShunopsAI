@@ -514,6 +514,8 @@ class WanT4OptimizedEngine:
 # ==========================================
 async def main():
     script_path = find_script()
+    with open(script_path, "r", encoding="utf-8") as f:
+        script = json.load(f)
     voice = script.get("voice", "hi-IN-Neural2-B" if "hi" in script.get("language", "English").lower() else "en-IN-PrabhatNeural")
     rate = script.get("rate", "+0%")
     scenes = script["scenes"]
