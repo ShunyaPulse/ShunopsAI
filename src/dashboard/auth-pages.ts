@@ -33,8 +33,7 @@ export function getAuthPageHtml(mode: "login" | "register"): string {
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <!-- Google Sign-In SDK -->
   <script src="https://accounts.google.com/gsi/client" async defer></script>
-  <!-- Cloudflare Turnstile SDK -->
-  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" async defer></script>
+  ${!isLogin ? '<!-- Cloudflare Turnstile SDK -->\n  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" async defer></script>' : ""}
   <style>
 ${AUTH_PAGE_STYLES}
   </style>
@@ -151,7 +150,7 @@ ${AUTH_PAGE_STYLES}
       }
 
       <!-- Cloudflare Turnstile Bot Shield -->
-      <div class="turnstile-box" id="turnstile-container"></div>
+      ${!isLogin ? '<div class="turnstile-box" id="turnstile-container"></div>' : ""}
 
       <button type="submit" id="btn-submit" class="btn-primary">
         ${isLogin ? "Sign In" : "Click 'Send OTP' above to verify"}

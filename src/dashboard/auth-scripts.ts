@@ -12,16 +12,22 @@ export function authPageScripts(isLogin: boolean, turnstileSiteKey: string): str
 
     // Initialize Cloudflare Turnstile
     window.addEventListener("DOMContentLoaded", () => {
-      if (typeof turnstile !== "undefined" && turnstileSiteKey) {
+      const container = document.getElementById("turnstile-container");
+      if (container && typeof turnstile !== "undefined" && turnstileSiteKey) {
         try {
           turnstile.render("#turnstile-container", {
             sitekey: turnstileSiteKey,
             theme: "dark",
             callback: function(token) {
               turnstileToken = token;
+            },
+            "error-callback": function() {
+              if (container) container.style.display = "none";
             }
           });
-        } catch (e) {}
+        } catch (e) {
+          if (container) container.style.display = "none";
+        }
       }
 
       const urlParams = new URLSearchParams(window.location.search);
