@@ -138,7 +138,7 @@ export async function synthesizeGoogleCloudTTS(
 
       if (!res.ok) {
         const errBody = await res.text();
-        console.warn(`[GCP TTS] API Key HTTP ${res.status} Error: ${errBody.slice(0, 300)}`);
+        console.warn(`[GCP TTS] API Key HTTP ${res.status} Error: [REDACTED]`);
         return false;
       }
 
