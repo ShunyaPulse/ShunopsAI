@@ -95,8 +95,8 @@ const ENVELOPE_PREFIX = "v1";
 /**
  * Resolve the vault key. `CREDENTIALS_ENCRYPTION_KEY` is preferred (64 hex chars
  * or base64 for a raw 32-byte key); any other passphrase is stretched with
- * scrypt. When nothing is configured we fail closed rather than storing a
- * provider token in plaintext.
+ * scrypt. Falls back through available server secrets (ACTION_SECRET, AUTH_SECRET,
+ * ORIGIN_SECRET, GOOGLE_CLIENT_SECRET) before failing closed.
  */
 function getEncryptionKey(): Buffer | null {
   const raw = process.env.CREDENTIALS_ENCRYPTION_KEY;
@@ -110,7 +110,12 @@ function getEncryptionKey(): Buffer | null {
     return crypto.scryptSync(value, "shunops-credential-vault", 32);
   }
 
-  const fallback = process.env.ACTION_SECRET;
+  const fallback =
+    process.env.ACTION_SECRET ||
+    process.env.AUTH_SECRET ||
+    process.env.ORIGIN_SECRET ||
+    process.env.GOOGLE_CLIENT_SECRET;
+
   if (fallback && fallback.trim().length > 0) {
     return crypto.scryptSync(fallback.trim(), "shunops-credential-vault", 32);
   }
