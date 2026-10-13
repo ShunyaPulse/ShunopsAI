@@ -5,6 +5,25 @@ import { geminiGenerate, kaggle } from "../../tools/video.js";
 import { synthesizeGoogleCloudTTS } from "../../tools/gcp-tts.js";
 import { synthesizeKokoroTTS, synthesizeEdgeTTS } from "../../tools/kokoro-tts.js";
 
+export interface CharacterVisualDNA {
+  name: string;
+  role: string;
+  actorDnaPrompt: string;
+}
+
+export interface PeriodSettingResearch {
+  era: string;
+  location: string;
+  visualDetails?: string[];
+  bannedModernElements?: string[];
+}
+
+export interface ToneCalibrationResearch {
+  genre: string;
+  allowedEmotions?: string[];
+  strictlyBannedDepictions?: string[];
+}
+
 export interface ChapterResearch {
   title: string;
   author: string;
@@ -12,6 +31,9 @@ export interface ChapterResearch {
   board: string;
   targetClass: string;
   characters: Array<{ name: string; role: string; traits?: string }>;
+  characterVisualBible?: CharacterVisualDNA[];
+  periodAndSetting?: PeriodSettingResearch;
+  toneCalibration?: ToneCalibrationResearch;
   factualPlotPoints: string[];
   verbatimQuotes: string[];
   themesAndIrony: string[];
@@ -82,6 +104,18 @@ CRITICAL INVARIANTS:
    - Extract 8-10 chronological factual events, specific settings, and turning points without modern inventions.
 4. EXAM FLASHCARDS:
    - 3 high-yield board exam questions (Previous Years Questions / Board HOTS) with model answers.
+5. AUTONOMOUS CHARACTER VISUAL BIBLE (100% ACTOR DNA LOCK):
+   - For every major recurring character, establish an explicit, 100% Actor DNA descriptor that will remain locked across all shots:
+     * Exact age, gender, ethnicity/regional heritage, facial structure, skin tone, hair color/style, facial hair, eyewear, signature period garments, fabrics, textures, and accessories.
+     * Must be authentic to the author's story and period.
+6. AUTHENTIC PERIOD & SETTING RESEARCH:
+   - Identify the authentic historical era/decade, geographical location, and architectural environment of this story.
+   - List key authentic visual materials, lighting, and period-accurate props.
+   - List banned modern anachronisms that must NEVER appear (e.g. modern factories, airplane hangars, warehouses, modern vehicles, smartphones).
+7. TONE & EMOTIONAL CALIBRATION:
+   - Identify the story's genre (e.g. comedic satire, tragic realism, spiritual faith, lighthearted adventure, patriotic history).
+   - Define appropriate emotional body language and facial expressions (e.g. gentlemanly awkwardness, rustic reverence, quiet grief).
+   - List strictly banned depictions (e.g. zero horror/violence/choking in comedies, zero modern cynicism in earnest literature).
 
 Respond strictly in valid JSON matching this schema:
 {
@@ -93,6 +127,20 @@ Respond strictly in valid JSON matching this schema:
   "characters": [
     { "name": string, "role": string, "traits": string }
   ],
+  "characterVisualBible": [
+    { "name": string, "role": string, "actorDnaPrompt": string }
+  ],
+  "periodAndSetting": {
+    "era": string,
+    "location": string,
+    "visualDetails": [string],
+    "bannedModernElements": [string]
+  },
+  "toneCalibration": {
+    "genre": string,
+    "allowedEmotions": [string],
+    "strictlyBannedDepictions": [string]
+  },
   "factualPlotPoints": [string],
   "verbatimQuotes": [string],
   "themesAndIrony": [string],
@@ -132,6 +180,25 @@ export async function generateChapterScript(
 
   console.log(`\n🎬 [Script Generation] Producing cinematic dual-voice script for "${research.title}" (~${targetScenes} scenes)...`);
 
+  // Dynamically format character DNA bible from research
+  const characterBibleText = research.characterVisualBible?.length
+    ? research.characterVisualBible.map((c) => `     * ${c.name} (${c.role}): ${c.actorDnaPrompt}`).join("\n")
+    : research.characters.map((c) => `     * ${c.name} (${c.role}): ${c.traits || "Authentic period character appearance"}`).join("\n");
+
+  const settingText = research.periodAndSetting
+    ? `- Era & Location: ${research.periodAndSetting.era}, ${research.periodAndSetting.location}\n` +
+      `   - Authentic Architecture, Atmosphere & Props: ${research.periodAndSetting.visualDetails?.join(", ") || "Authentic period environment"}\n` +
+      `   - STRICTLY FORBIDDEN: ${research.periodAndSetting.bannedModernElements?.join(", ") || "Modern anachronisms, industrial factories, warehouses, airplane hangars, modern vehicles, digital screens"}`
+    : `- All scenes must strictly match the authentic historical era, location, and environment of the story.\n` +
+      `   - STRICTLY FORBIDDEN: Modern industrial warehouses, airplane hangars, modern factories, or out-of-period anachronisms.`;
+
+  const toneText = research.toneCalibration
+    ? `- Genre & Story Atmosphere: ${research.toneCalibration.genre}\n` +
+      `   - Appropriate Emotional Depictions: ${research.toneCalibration.allowedEmotions?.join(", ") || "Authentic to characters and narrative context"}\n` +
+      `   - STRICTLY FORBIDDEN: ${research.toneCalibration.strictlyBannedDepictions?.join(", ") || "Grotesque horror, physical assault, choking, strangling, gruesome violence"}`
+    : `- Visuals must strictly match the emotional tone and literary genre of the story.\n` +
+      `   - STRICTLY FORBIDDEN: Grotesque horror, physical assault, choking, strangling, or unnatural aggression unless explicitly in the textbook.`;
+
   const prompt = `You are a master educational filmmaker producing an authentic, cinematic educational adaptation of:
 "${research.title}" by ${research.author}
 Curriculum: ${research.board} ${research.targetClass} (Textbook: ${research.book})
@@ -145,7 +212,7 @@ STRICT FILMMAKING DIRECTIVES:
 2. DUAL-VOICE ARCHITECTURE:
    - Default Narrator voice: "hi-IN-Neural2-B" (Google Cloud Studio voice: speaks dramatic, captivating, crystal-clear Hindi narration explaining the scene and psychological depth).
    - Character dialogue scenes (speaking iconic textbook lines):
-     * Set "speaker" to the character's name (e.g. "${research.characters[0]?.name || "The Narrator"}" or "The Photographer")
+     * Set "speaker" to the character's name (e.g. "${research.characters[0]?.name || "Narrator"}" or "${research.characters[1]?.name || "Character"}")
      * Set "voice" to a Kokoro-82M voice: "am_adam" (for natural sincere male voice), "bm_george" (for cold/intellectual male technician), or "af_heart" (for female characters)
      * In "narration", write the verbatim English line from the textbook!
    - Exam Booster scenes (final 2-3 scenes):
@@ -154,28 +221,22 @@ STRICT FILMMAKING DIRECTIVES:
 3. SUBTITLES ("caption"):
    - Every single scene MUST have "caption" written in 100% pure, clean ENGLISH words.
 4. CHARACTER VISUAL BIBLE & 100% ACTOR CONSISTENCY:
-   - Establish and maintain a strict Character Visual DNA for recurring characters:
-     * Protagonist / Narrator DNA: Exact age, hair color/style, mustache, facial structure, skin tone, thin wire spectacles, dark brown wool tweed suit with pocket watch chain.
-     * The Photographer DNA: Exact age (elderly 60s), frail sallow face, sunken cheeks, wispy grey hair, round horn-rimmed glasses, dusty charcoal frock coat.
+   - Establish and maintain a strict Character Visual DNA across every shot:
+${characterBibleText}
    - MANDATORY: Whenever a character appears in a scene, their visual prompt MUST start with their exact DNA descriptor verbatim.
-   - NEVER introduce random people, unexpected ethnicities, or female characters unless explicitly in the textbook story. In waiting room scenes, the Narrator remains the sole focused subject.
+   - NEVER introduce random unscripted people, unexpected ethnicities, or unrelated extras unless explicitly in the textbook story. In focused scenes, the featured character remains the sole subject.
 
-5. TONE & EMOTION CALIBRATION (SATIRE & HUMOR, ZERO HORROR):
-   - This story is a celebrated British/Canadian comic satire mocking portrait vanity.
-   - Depict polite gentlemanly frustration, comical awkwardness, and rigid poses.
-   - STRICTLY FORBIDDEN: horror, choking, strangling, menacing aggression, physical assault, dark torture dungeon.
-   - When the photographer adjusts the client's head/camera: describe polite comical adjustments from beside the tripod. NEVER describe hands choking, grabbing, or twisting necks.
+5. TONE & EMOTION CALIBRATION:
+   ${toneText}
 
-6. AUTHENTIC PERIOD SETTING (COZY VICTORIAN STUDIO, ZERO HANGARS):
-   - All studio scenes must be an authentic, cozy 1890s-1900s Victorian-Edwardian London photography parlor:
-     * Mahogany wood wainscoting, floral damask wallpaper, draped velvet curtains, brass bellows camera on wooden tripod, soft natural light from an attic skylight.
-     * STRICTLY FORBIDDEN: modern industrial warehouse, airplane hangar, empty factory, modern concrete building.
+6. AUTHENTIC PERIOD SETTING:
+   ${settingText}
 
 7. ZERO-DIFFUSION TEXT RULE (NO GIBBERISH RUNES):
    - Diffusion models CANNOT spell words or render typography.
    - In all "visual_prompt" fields: STRICTLY ZERO text, ZERO bullet points, ZERO charts, ZERO written words.
-   - For reading scenes: describe "holding an aged illustrated Victorian paper with faint sepia engravings (no readable text)".
-   - For Exam Booster / summary scenes: describe cinematic symbolic study metaphors (e.g. "An ornate antique mahogany study desk, vintage open leather-bound book, brass reading lamp, fountain pen, warm library background with soft atmospheric lighting, clean text-free composition").
+   - For reading scenes: describe characters holding authentic period-appropriate books, letters, or newspapers with faint artistic illustrations, NO readable text.
+   - For Exam Booster / summary scenes: describe cinematic symbolic study metaphors authentic to the story's world (e.g. vintage study desk, open leather-bound book, reading lamp, thematic props with warm atmospheric lighting, clean text-free composition).
 
 8. ANTI-MORPHING & CAMERA RIGIDITY:
    - For all dialogue and close-up scenes, use: "Locked static tripod shot, eye-level framing, subtle natural breathing, still hands resting on lap, zero hand-to-face touching, crisp facial stability".
