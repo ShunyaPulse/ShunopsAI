@@ -4,8 +4,11 @@ export interface TrendingItem {
   title: string;
   approx_traffic: string;
   news_title: string;
-  news_snippet?: string;
-  news_url?: string;
+  news_snippet?: string | undefined;
+  news_url?: string | undefined;
+  category_codes?: number[] | undefined;
+  categories?: string[] | undefined;
+  source?: "web_ui" | "rss" | undefined;
 }
 
 export interface CuratedTopicResult {
@@ -18,11 +21,90 @@ export interface CuratedTopicResult {
   target_duration_minutes: number;
 }
 
+export const GOOGLE_TRENDS_CATEGORY_MAP: Record<number, string> = {
+  1: "Automotive & Mobility",
+  3: "Business & Finance",
+  4: "Entertainment",
+  6: "Gaming & Pop Culture",
+  7: "Local & Regional",
+  8: "Viral & Social Media",
+  9: "Education & Exams",
+  10: "Law & Governance",
+  11: "Sports & Leagues",
+  14: "Civic & Government",
+  15: "Science & Astronomy",
+  16: "Retail & Commerce",
+  17: "Sports Milestone",
+  18: "Technology & AI",
+  20: "Climate & Earth Science",
+};
+
 /**
- * Fetches real-time active search trends from Google Trends India RSS.
+ * Fetches real-time active search trends directly from the Google Trends Web UI.
+ * Extracts client hydration data (AF_initDataCallback with ds:0) containing ~300+ live trends.
  */
-export async function fetchGoogleTrendsIndia(): Promise<TrendingItem[]> {
-  const url = "https://trends.google.com/trending/rss?geo=IN";
+export async function fetchGoogleTrendsWebUI(geo: string = "IN"): Promise<TrendingItem[]> {
+  const url = `https://trends.google.com/trending?geo=${encodeURIComponent(geo)}&hours=24`;
+  const res = await fetch(url, {
+    headers: {
+      "User-Agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+      "Accept":
+        "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+      "Accept-Language": "en-US,en;q=0.9",
+    },
+  });
+
+  if (!res.ok) {
+    throw new Error(`Google Trends Web UI request failed: HTTP ${res.status}`);
+  }
+
+  const html = await res.text();
+  const match = html.match(/AF_initDataCallback\s*\(\s*\{key:\s*'ds:0'[\s\S]*?data:([\s\S]*?),\s*sideChannel:/);
+  if (!match || !match[1]) {
+    throw new Error("Could not locate ds:0 hydration data in Google Trends Web UI HTML");
+  }
+
+  const parsed = JSON.parse(match[1]);
+  const trendList: any[] = Array.isArray(parsed) && Array.isArray(parsed[1]) ? parsed[1] : [];
+
+  const items: TrendingItem[] = [];
+  for (const item of trendList) {
+    if (!Array.isArray(item)) continue;
+
+    const title = String(item[0] || "").trim();
+    if (!title) continue;
+
+    const rawTraffic = typeof item[6] === "number" ? item[6] : 0;
+    const approxTraffic = rawTraffic > 0 ? `${rawTraffic.toLocaleString("en-IN")}+` : "10,000+";
+
+    const queries: string[] = Array.isArray(item[9]) ? item[9].filter((q) => typeof q === "string") : [];
+    const catCodes: number[] = Array.isArray(item[10]) ? item[10].filter((c) => typeof c === "number") : [];
+    const catNames: string[] = catCodes.map((c) => GOOGLE_TRENDS_CATEGORY_MAP[c] || "General");
+
+    const newsTitle = queries[1] || queries[0] || title;
+    const newsSnippet = queries.slice(0, 5).join(" | ");
+
+    items.push({
+      title,
+      approx_traffic: approxTraffic,
+      news_title: newsTitle,
+      news_snippet: newsSnippet || undefined,
+      news_url: `https://trends.google.com/trending?geo=${encodeURIComponent(geo)}`,
+      category_codes: catCodes,
+      categories: catNames,
+      source: "web_ui",
+    });
+  }
+
+  return items;
+}
+
+/**
+ * Fetches search trends from Google Trends India RSS (legacy fallback).
+ */
+export async function fetchGoogleTrendsRss(geo: string = "IN"): Promise<TrendingItem[]> {
+  const url = `https://trends.google.com/trending/rss?geo=${encodeURIComponent(geo)}`;
   const res = await fetch(url, {
     headers: {
       "User-Agent":
@@ -31,7 +113,7 @@ export async function fetchGoogleTrendsIndia(): Promise<TrendingItem[]> {
   });
 
   if (!res.ok) {
-    throw new Error(`Failed to fetch Google Trends India RSS: HTTP ${res.status}`);
+    throw new Error(`Failed to fetch Google Trends RSS: HTTP ${res.status}`);
   }
 
   const xml = await res.text();
@@ -63,11 +145,27 @@ export async function fetchGoogleTrendsIndia(): Promise<TrendingItem[]> {
         news_title: newsTitle,
         news_snippet: newsSnippet,
         news_url: newsUrl,
+        source: "rss",
       });
     }
   }
 
   return items;
+}
+
+/**
+ * Primary trend fetcher: Queries Google Trends Web UI live trends with RSS fallback.
+ */
+export async function fetchGoogleTrendsIndia(): Promise<TrendingItem[]> {
+  try {
+    const webItems = await fetchGoogleTrendsWebUI("IN");
+    if (webItems.length > 0) {
+      return webItems;
+    }
+  } catch (err: any) {
+    console.warn(`[Trends] Google Trends Web UI fetch encountered error (${err?.message || err}), falling back to RSS...`);
+  }
+  return fetchGoogleTrendsRss("IN");
 }
 
 /**
@@ -97,12 +195,37 @@ export async function curateBestTrendTopic(items: TrendingItem[]): Promise<Curat
 
   // 1. Filter out banned sensationalist & negative controversial items
   const cleanItems = items.filter((item) => !isBannedControversialTrend(item));
-  const candidateItems = cleanItems.length >= 3 ? cleanItems : items;
-  const topItems = candidateItems.slice(0, 20);
+  const candidatePool = cleanItems.length >= 3 ? cleanItems : items;
+
+  // 2. High-value knowledge domains (Science: 15, Tech: 18, Climate/Earth: 20, Auto: 1, Sports Milestone: 17)
+  const knowledgeCatCodes = [15, 18, 20, 1, 17];
+  const knowledgeItems = candidatePool.filter((item) =>
+    item.category_codes?.some((c) => knowledgeCatCodes.includes(c))
+  );
+
+  // Balance top knowledge items with top overall trends (up to 25 items total)
+  const combinedCandidates: TrendingItem[] = [];
+  const seenTitles = new Set<string>();
+
+  for (const it of knowledgeItems) {
+    if (!seenTitles.has(it.title.toLowerCase()) && combinedCandidates.length < 12) {
+      combinedCandidates.push(it);
+      seenTitles.add(it.title.toLowerCase());
+    }
+  }
+
+  for (const it of candidatePool) {
+    if (!seenTitles.has(it.title.toLowerCase()) && combinedCandidates.length < 25) {
+      combinedCandidates.push(it);
+      seenTitles.add(it.title.toLowerCase());
+    }
+  }
+
+  const topItems = combinedCandidates.length > 0 ? combinedCandidates : candidatePool.slice(0, 20);
   const itemsListFormatted = topItems
     .map(
       (item, idx) =>
-        `${idx + 1}. [Trend: "${item.title}"] (Traffic: ${item.approx_traffic})\n` +
+        `${idx + 1}. [Trend: "${item.title}"] (Traffic: ${item.approx_traffic}, Domain: ${item.categories?.join(", ") || "General"})\n` +
         `   Event Headline: "${item.news_title}"\n` +
         `   Event Context: "${item.news_snippet || "N/A"}"`
     )
@@ -174,7 +297,7 @@ Return ONLY valid JSON matching this exact structure:
 // CLI test runner
 if (process.argv.includes("--test")) {
   (async () => {
-    console.log("[Trends] Fetching Google Trends India RSS...");
+    console.log("[Trends] Fetching Google Trends India (Live Web UI with RSS fallback)...");
     const items = await fetchGoogleTrendsIndia();
     console.log(`[Trends] Fetched ${items.length} active Indian trends.`);
     console.log("[Trends] Curating best value-addition topic with Gemini...");
