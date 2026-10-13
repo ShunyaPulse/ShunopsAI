@@ -68,7 +68,8 @@ export type ToolName =
   | "dual_model_consensus"
   | "resolve_code_scanning_alerts"
   | "search_knowledge_base"
-  | "index_knowledge_document";
+  | "index_knowledge_document"
+  | "execute_sandboxed_code";
 
 export const toolRegistry: Record<ToolName, ToolDefinition> = {
   run_shell_command: {
@@ -810,6 +811,45 @@ export const toolRegistry: Record<ToolName, ToolDefinition> = {
       } catch (err: any) {
         return `Error indexing knowledge document: ${err.message}`;
       }
+    },
+  },
+  execute_sandboxed_code: {
+    schema: {
+      type: "function",
+      function: {
+        name: "execute_sandboxed_code",
+        description:
+          "Executes arbitrary JavaScript in an isolated, memory-safe sandbox (zero host filesystem/network access). Use for math calculations, data transformations, parsing JSON, regex manipulation, or logic verification.",
+        parameters: {
+          type: "object",
+          properties: {
+            code: {
+              type: "string",
+              description: "JavaScript code to execute. Can return a value or log using console.log.",
+            },
+            timeoutMs: {
+              type: "number",
+              description: "Optional execution timeout in milliseconds (max 10000ms, default 3000ms).",
+            },
+          },
+          required: ["code"],
+        },
+      },
+    },
+    execute: async (args: { code: string; timeoutMs?: number }) => {
+      const { executeInSandbox } = await import("./sandbox/runner.js");
+      const res = await executeInSandbox(args.code, { timeoutMs: args.timeoutMs });
+      if (!res.success) {
+        return `Execution Failed (in ${res.executionTimeMs}ms):\nError: ${res.error}\nLogs: ${res.logs.join("\n") || "none"}`;
+      }
+      const output = [
+        `Executed successfully in ${res.executionTimeMs}ms.`,
+        res.result !== null ? `Return Value: ${JSON.stringify(res.result, null, 2)}` : "",
+        res.logs.length > 0 ? `Console Output:\n${res.logs.join("\n")}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n\n");
+      return output || "Code executed successfully with no output.";
     },
   },
 };

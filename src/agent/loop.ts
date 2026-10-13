@@ -79,12 +79,19 @@ export async function runAutonomousAgent(
   const scope = options.scope;
   const scopeAllowed = allowedToolsForScope(scope);
   const disabled = new Set<ToolName>(options.disabledTools ?? []);
-  const activeTools = registeredTools.filter(
+  const baseActiveTools = registeredTools.filter(
     (t) =>
       t.type === "function" &&
       scopeAllowed.has(t.function.name as ToolName) &&
       !disabled.has(t.function.name as ToolName)
   );
+
+  // Discover dynamic MCP tools from active servers (Zero-cost, lightweight JSON-RPC)
+  const { mcpRegistry } = await import("./mcp/registry.js");
+  const dynamicMcpTools = await mcpRegistry.getActiveTools(scope);
+  const mcpToolHandlers = new Map(dynamicMcpTools.map((t) => [t.name, t]));
+
+  const activeTools = [...baseActiveTools, ...dynamicMcpTools.map((t) => t.schema)];
   const allowedNames = new Set(
     activeTools.map((t) => (t.type === "function" ? t.function.name : ""))
   );
@@ -250,6 +257,13 @@ export async function runAutonomousAgent(
 
         if (!allowedNames.has(toolName)) {
           executionResult = `Error: Tool "${toolName}" is not permitted for this task. Allowed tools: ${[...allowedNames].join(", ")}`;
+        } else if (mcpToolHandlers.has(toolName)) {
+          const mcpTool = mcpToolHandlers.get(toolName)!;
+          try {
+            executionResult = await mcpTool.execute(parsedArgs);
+          } catch (mcpErr: any) {
+            executionResult = `Error executing MCP tool ${toolName}: ${mcpErr?.message || String(mcpErr)}`;
+          }
         } else if (!toolHandler) {
           executionResult = `Error: Unknown tool "${toolName}". Available tools: ${Object.keys(
             toolRegistry

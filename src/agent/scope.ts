@@ -121,6 +121,7 @@ const TOOL_TIER_REFERENCE: Record<ToolName, ToolTier> = {
   resolve_code_scanning_alerts: "host",
   search_knowledge_base: "safe",
   index_knowledge_document: "host",
+  execute_sandboxed_code: "safe",
 };
 
 // ==========================================
