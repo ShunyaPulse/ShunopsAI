@@ -148,7 +148,10 @@ function decryptValues(payload: string): Record<string, string> {
   const iv = Buffer.from(parts[1]!, "hex");
   const tag = Buffer.from(parts[2]!, "hex");
   const data = Buffer.from(parts[3]!, "hex");
-  const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
+  if (tag.length !== 16) {
+    throw new CredentialVaultError("Stored credential auth tag is invalid.");
+  }
+  const decipher = crypto.createDecipheriv(ALGORITHM, key, iv, { authTagLength: 16 });
   decipher.setAuthTag(tag);
   const plaintext = Buffer.concat([decipher.update(data), decipher.final()]).toString("utf8");
   return JSON.parse(plaintext);

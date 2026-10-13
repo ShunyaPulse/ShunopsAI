@@ -249,7 +249,7 @@ export async function requestHumanApproval(
   console.log(`\x1b[31m\x1b[1m⚠️  [HUMAN-IN-THE-LOOP APPROVAL REQUIRED]\x1b[0m`);
   if (tenantUserId !== null) {
     console.log(
-      `\x1b[33mTenant:\x1b[0m ${request.username ?? "user"} (id ${tenantUserId}) — awaiting approval in their own workspace (${id})`
+      `\x1b[33mTenant:\x1b[0m user_${tenantUserId} — awaiting approval in their own workspace (${id})`
     );
   }
   console.log(`\x1b[33mAction:\x1b[0m ${action}`);
