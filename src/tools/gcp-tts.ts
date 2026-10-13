@@ -147,7 +147,7 @@ export async function synthesizeGoogleCloudTTS(
       const audioBuffer = Buffer.from(data.audioContent, "base64");
       await fs.mkdir(path.dirname(outPath), { recursive: true });
       await fs.writeFile(outPath, audioBuffer);
-      console.log(`[GCP TTS] ✅ Synthesized ${audioBuffer.length} bytes using "${voiceMeta.name}" -> ${path.basename(outPath)}`);
+      console.log(`[GCP TTS] ✅ Synthesized ${audioBuffer.length} bytes to ${outPath}`);
       return true;
     }
 
