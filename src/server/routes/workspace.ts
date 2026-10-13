@@ -271,7 +271,10 @@ export async function workspaceRoutes(app: FastifyInstance, options: WorkspaceRo
         };
       }
 
-      const normalized = serverUrl.trim().replace(/\/+$/, "");
+      let normalized = serverUrl.trim();
+      while (normalized.endsWith("/")) {
+        normalized = normalized.slice(0, -1);
+      }
       const matchedEndpoint =
         ALLOWED_MCP_TARGET_ENDPOINTS[normalized] ||
         ALLOWED_MCP_TARGET_ENDPOINTS[serverUrl];

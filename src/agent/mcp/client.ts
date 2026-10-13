@@ -173,7 +173,10 @@ export class McpHttpClient {
         process.env.NODE_ENV === "development" ||
         !process.env.NODE_ENV;
 
-      const raw = this.config.url.trim().replace(/\/+$/, "");
+      let raw = this.config.url.trim();
+      while (raw.endsWith("/")) {
+        raw = raw.slice(0, -1);
+      }
       const matchedEndpoint =
         ALLOWED_MCP_TARGET_ENDPOINTS[raw] ||
         ALLOWED_MCP_TARGET_ENDPOINTS[this.config.url];
