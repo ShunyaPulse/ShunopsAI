@@ -49,9 +49,13 @@ export class McpHttpClient {
         "169.254.169.254",
         "metadata.google.internal",
         "metadata.platform",
+        "localhost",
+        "127.0.0.1",
+        "::1",
       ];
-      if (blockedHosts.includes(targetUrl.hostname) || targetUrl.hostname.endsWith(".internal")) {
-        throw new Error(`Disallowed internal metadata host: ${targetUrl.hostname}`);
+      const isPrivateIp = /^(10\.|127\.|169\.254\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.)/.test(targetUrl.hostname);
+      if (blockedHosts.includes(targetUrl.hostname) || targetUrl.hostname.endsWith(".internal") || isPrivateIp) {
+        throw new Error(`Disallowed internal or private host: ${targetUrl.hostname}`);
       }
 
       if (!['http:', 'https:'].includes(targetUrl.protocol)) {
