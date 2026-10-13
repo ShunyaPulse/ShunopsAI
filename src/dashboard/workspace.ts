@@ -172,7 +172,7 @@ ${WORKSPACE_STYLES}
               <line x1="5" y1="12" x2="19" y2="12"></line>
             </svg>
           </button>
-          <input type="text" id="user-chat-input" class="chat-input" placeholder="Type your message or follow-up question..." onkeydown="if(event.key==='Enter') sendUserChat()">
+          <input type="text" id="user-chat-input" class="chat-input" placeholder="Type your message or follow-up question..." onkeydown="if(event.key==='Enter') sendUserChat(true)">
           <button class="chat-send-btn" id="send-btn" onclick="sendUserChat()">Send</button>
         </div>
 

@@ -68,35 +68,43 @@ export async function actionConfirmRoutes(app: FastifyInstance): Promise<void> {
       const redis = getRedisClient();
       const consumedKey = `action_consumed:${actionId}`;
 
+      let replayBlocked = false;
+      const now = Date.now();
+
       if (redis) {
         try {
           const already = await redis.get(consumedKey);
           if (already) {
-            reply.status(409);
-            return {
-              success: false,
-              actionId,
-              status: "failed",
-              message: "Security validation error: Action token has already been consumed (replay prevention).",
-            };
+            replayBlocked = true;
+          } else {
+            await redis.set(consumedKey, "1", "EX", 86400); // 24-hour TTL
           }
-          await redis.set(consumedKey, "1", "EX", 86400); // 24-hour TTL
         } catch {
-          // Fallback to memory below if Redis operation throws
+          // Fallback to in-memory replay tracking if Redis is unreachable
+          const existing = consumedActionsMem.get(actionId);
+          if (existing && existing > now) {
+            replayBlocked = true;
+          } else {
+            consumedActionsMem.set(actionId, now + 86400 * 1000);
+          }
         }
       } else {
-        const now = Date.now();
         const existing = consumedActionsMem.get(actionId);
         if (existing && existing > now) {
-          reply.status(409);
-          return {
-            success: false,
-            actionId,
-            status: "failed",
-            message: "Security validation error: Action token has already been consumed (replay prevention).",
-          };
+          replayBlocked = true;
+        } else {
+          consumedActionsMem.set(actionId, now + 86400 * 1000);
         }
-        consumedActionsMem.set(actionId, now + 86400 * 1000);
+      }
+
+      if (replayBlocked) {
+        reply.status(409);
+        return {
+          success: false,
+          actionId,
+          status: "failed",
+          message: "Security validation error: Action token has already been consumed (replay prevention).",
+        };
       }
 
       // If user declined the action

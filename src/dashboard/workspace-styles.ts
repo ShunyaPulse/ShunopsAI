@@ -374,6 +374,29 @@ export const WORKSPACE_STYLES = `    :root {
       cursor: not-allowed;
       transform: none;
     }
+    .chat-send-btn.generating {
+      background: #ef4444;
+      color: #fff;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      cursor: pointer;
+      opacity: 1;
+      padding: 9px 15px;
+    }
+    .chat-send-btn.generating:hover {
+      background: #dc2626;
+      transform: translateY(-1px);
+    }
+    .stop-square {
+      width: 9px;
+      height: 9px;
+      background: #ffffff;
+      border-radius: 2px;
+      display: inline-block;
+      flex-shrink: 0;
+    }
 
     .quick-chips {
       display: flex;

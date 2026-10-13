@@ -380,20 +380,52 @@ export function workspaceScripts(safeUsername: string): string {
       return null;
     }
 
-    async function sendUserChat() {
-      const input = document.getElementById('user-chat-input');
+    let currentChatAbortController = null;
+
+    function stopChatGeneration() {
+      if (currentChatAbortController) {
+        currentChatAbortController.abort();
+        currentChatAbortController = null;
+      }
+    }
+
+    async function sendUserChat(isKeyEvent) {
       const sendBtn = document.getElementById('send-btn');
-      let msg = input.value.trim();
+
+      // If generation is actively in flight, clicking the button STOPS it immediately!
+      if (currentChatAbortController) {
+        if (isKeyEvent) return; // Prevent Enter key in input from triggering stop accidentally
+        stopChatGeneration();
+        removeThinkingIndicator();
+        appendMessageBubble('assistant', 'Generation stopped.');
+        if (sendBtn) {
+          sendBtn.classList.remove('generating');
+          sendBtn.disabled = false;
+          sendBtn.title = '';
+          sendBtn.innerHTML = 'Send';
+        }
+        return;
+      }
+
+      const input = document.getElementById('user-chat-input');
+      let msg = (input ? input.value : '').trim();
       const currentAttachedImage = attachedImageDataUri;
       if (!msg && !currentAttachedImage) return;
       if (!msg && currentAttachedImage) {
         msg = 'Analyze this image and explain what you see.';
       }
 
-      input.value = '';
+      if (input) input.value = '';
       clearAttachedImage();
-      sendBtn.disabled = true;
-      sendBtn.textContent = '...';
+
+      // Transform button to an interactive STOP button
+      currentChatAbortController = new AbortController();
+      if (sendBtn) {
+        sendBtn.classList.add('generating');
+        sendBtn.disabled = false;
+        sendBtn.title = 'Stop generation';
+        sendBtn.innerHTML = '<span class="stop-square"></span>Stop';
+      }
 
       // 1. Render User Message
       appendMessageBubble('user', msg, true, null, currentAttachedImage);
@@ -431,7 +463,7 @@ export function workspaceScripts(safeUsername: string): string {
         // Solve Proof-of-Work challenge in background (WebCrypto solves in ~20-30ms)
         let shieldSolution = null;
         try {
-          const chRes = await fetch('/api/shield/challenge');
+          const chRes = await fetch('/api/shield/challenge', { signal: currentChatAbortController.signal });
           if (chRes.ok) {
             const chData = await chRes.json();
             shieldSolution = await solveProofOfWork(chData);
@@ -444,6 +476,7 @@ export function workspaceScripts(safeUsername: string): string {
           method: 'POST',
           headers,
           credentials: 'same-origin',
+          signal: currentChatAbortController.signal,
           body: JSON.stringify({
             message: msg,
             history: historyPayload,
@@ -495,10 +528,19 @@ export function workspaceScripts(safeUsername: string): string {
 
       } catch (err) {
         removeThinkingIndicator();
+        if (err && (err.name === 'AbortError' || String(err).includes('aborted'))) {
+          // Intentionally stopped by user, already handled
+          return;
+        }
         appendMessageBubble('assistant', 'Sorry, could not connect right now. Please check your connection and try again.');
       } finally {
-        sendBtn.disabled = false;
-        sendBtn.textContent = 'Send';
+        currentChatAbortController = null;
+        if (sendBtn) {
+          sendBtn.classList.remove('generating');
+          sendBtn.disabled = false;
+          sendBtn.title = '';
+          sendBtn.innerHTML = 'Send';
+        }
       }
     }
 
