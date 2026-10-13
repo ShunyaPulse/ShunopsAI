@@ -700,7 +700,7 @@ export const POPULAR_100_MCP_PRESETS: McpPresetItem[] = [
     category: "Productivity & Ops",
     description: "Search files, read Google Docs spreadsheets, and manage Google Drive folders.",
     url: "https://www.googleapis.com/drive/mcp",
-    tokenPlaceholder: "ya29.a0...",
+    tokenPlaceholder: "google_oauth_token...",
     tokenLabel: "Google OAuth Token",
     docs: "developers.google.com/drive",
   },
