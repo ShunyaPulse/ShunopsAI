@@ -105,6 +105,11 @@ export class McpHttpClient {
 
     try {
       const targetUrl = validateOutboundMcpUrl(this.config.url);
+    // Ensure the URL points to an allowed MCP host to prevent SSRF
+    const allowedHosts = ["mcp.example.com", "api.mcp.example.com"]; // TODO: populate with real allowed hosts
+    if (!allowedHosts.includes(targetUrl.hostname)) {
+      throw new Error(`Disallowed MCP host: ${targetUrl.hostname}`);
+    }
       const res = await fetch(targetUrl.toString(), {
         method: "POST",
         headers,
