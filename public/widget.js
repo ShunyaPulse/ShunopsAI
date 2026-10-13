@@ -526,11 +526,58 @@
       color: #f8fafc;
     }
 
-    /* Model Attribution Tag */
-    .cf-model-tag {
-      display: inline-flex;
+    /* Quoted Selection Reference Bar */
+    .cf-quoted-bar {
+      display: none;
       align-items: center;
-      gap: 4px;
+      justify-content: space-between;
+      background: rgba(37, 99, 235, 0.15);
+      border-top: 1px solid rgba(59, 130, 246, 0.3);
+      padding: 6px 12px;
+      font-size: 11px;
+      color: #93c5fd;
+      gap: 8px;
+    }
+    .cf-quoted-content {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+      flex: 1;
+      min-width: 0;
+    }
+    .cf-quoted-content svg {
+      flex-shrink: 0;
+    }
+    .cf-quoted-text {
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+      font-style: italic;
+    }
+    .cf-quoted-close {
+      background: transparent;
+      border: none;
+      color: #94a3b8;
+      cursor: pointer;
+      font-size: 12px;
+      padding: 0 4px;
+      line-height: 1;
+      transition: color 0.15s;
+      flex-shrink: 0;
+    }
+    .cf-quoted-close:hover {
+      color: #ef4444;
+    }
+
+    /* Model Attribution Tag & Copy Button */
+    .cf-model-tag {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
       font-size: 10px;
       color: #94a3b8;
       margin-top: 6px;
@@ -538,6 +585,29 @@
       border-top: 1px solid rgba(255, 255, 255, 0.06);
       width: 100%;
       font-family: ui-monospace, SFMono-Regular, monospace;
+    }
+    .cf-copy-msg-btn {
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      color: #94a3b8;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 10px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      transition: all 0.15s ease;
+      font-family: inherit;
+      margin-left: auto;
+    }
+    .cf-copy-msg-btn:hover {
+      background: rgba(59, 130, 246, 0.25);
+      border-color: rgba(59, 130, 246, 0.4);
+      color: #fff;
+    }
+    .cf-copy-msg-btn svg {
+      flex-shrink: 0;
     }
 
     /* Code Block with Copy Button */
@@ -691,12 +761,27 @@
         <div class="cf-msg cf-msg-assistant">
           <div class="cf-bubble">
             <p>${escapeHtml(welcomeMessage)}</p>
+            <div class="cf-model-tag">
+              <span>Assistant</span>
+              <button class="cf-copy-msg-btn" type="button" title="Copy response">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                <span>Copy</span>
+              </button>
+            </div>
           </div>
         </div>
       </div>
 
       <div class="cf-chips">
         ${activeChips.map((c) => `<div class="cf-chip" data-prompt="${escapeHtml(c.prompt)}" title="${escapeHtml(c.prompt)}">${escapeHtml(c.label)}</div>`).join('')}
+      </div>
+
+      <div id="cf-quoted-bar" class="cf-quoted-bar">
+        <div class="cf-quoted-content">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0 7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
+          <span class="cf-quoted-text" id="cf-quoted-text"></span>
+        </div>
+        <button class="cf-quoted-close" id="cf-quoted-close" type="button" title="Remove quote">✕</button>
       </div>
 
       <div class="cf-footer">
@@ -729,6 +814,9 @@
   const sendBtn = document.getElementById('cf-send-btn');
   const activeModelLabel = document.getElementById('cf-active-model');
   const modeSelect = document.getElementById('cf-mode-select');
+  const quotedBar = document.getElementById('cf-quoted-bar');
+  const quotedTextEl = document.getElementById('cf-quoted-text');
+  const quotedCloseBtn = document.getElementById('cf-quoted-close');
 
   // Rolling Multi-Turn Context Memory
   const conversationHistory = [];
@@ -828,19 +916,119 @@
 
   bindChipEvents();
 
-  // One-click Code Copy Delegator
+  // Persistent Webpage Text Selection Tracking
+  let activeQuotedSelection = '';
+
+  function updateQuotedBar(text) {
+    activeQuotedSelection = text ? text.trim() : '';
+    if (activeQuotedSelection && activeQuotedSelection.length >= 2) {
+      if (quotedTextEl) {
+        const preview = activeQuotedSelection.length > 70
+          ? activeQuotedSelection.slice(0, 70) + '...'
+          : activeQuotedSelection;
+        quotedTextEl.textContent = `Referencing: "${preview}"`;
+      }
+      if (quotedBar) quotedBar.style.display = 'flex';
+    } else {
+      activeQuotedSelection = '';
+      if (quotedBar) quotedBar.style.display = 'none';
+    }
+  }
+
+  function clearQuotedBar() {
+    updateQuotedBar('');
+  }
+
+  if (quotedCloseBtn) {
+    quotedCloseBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      clearQuotedBar();
+    });
+  }
+
+  function capturePageSelection() {
+    if (typeof window === 'undefined' || !window.getSelection) return;
+    const sel = window.getSelection();
+    if (!sel || sel.isCollapsed || sel.rangeCount === 0) return;
+
+    // Do not capture if selection is within the chat widget itself
+    const anchor = sel.anchorNode;
+    const focus = sel.focusNode;
+    if (container && (container.contains(anchor) || container.contains(focus))) {
+      return;
+    }
+
+    const text = sel.toString().trim();
+    if (text && text.length >= 2 && text.length <= 1500) {
+      updateQuotedBar(text);
+    }
+  }
+
+  document.addEventListener('selectionchange', capturePageSelection);
+  document.addEventListener('mouseup', capturePageSelection);
+  document.addEventListener('touchend', capturePageSelection);
+
+  // Assistant Bubble Model Tag & Copy Button Helper
+  function attachModelTag(bubbleEl, compLabel = 'Assistant', modelName = 'Flash Edge') {
+    if (!bubbleEl || bubbleEl.querySelector('.cf-model-tag')) return;
+    const modelTag = document.createElement('div');
+    modelTag.className = 'cf-model-tag';
+    modelTag.innerHTML = `
+      <span>${escapeHtml(compLabel)} • ${escapeHtml(modelName)}</span>
+      <button class="cf-copy-msg-btn" type="button" title="Copy response">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+        <span>Copy</span>
+      </button>
+    `;
+    bubbleEl.appendChild(modelTag);
+  }
+
+  // Universal Click Delegator: Code Snippet Copy & Assistant Message Copy
   document.addEventListener('click', (e) => {
-    const btn = e.target.closest('.cf-copy-code-btn');
-    if (btn) {
-      const code = decodeURIComponent(btn.getAttribute('data-code') || '');
+    // 1. Markdown code block copy button
+    const codeBtn = e.target.closest('.cf-copy-code-btn');
+    if (codeBtn) {
+      const code = decodeURIComponent(codeBtn.getAttribute('data-code') || '');
       if (code && navigator.clipboard) {
         navigator.clipboard.writeText(code).then(() => {
-          const orig = btn.textContent;
-          btn.textContent = 'Copied!';
-          btn.style.color = '#34d399';
+          const orig = codeBtn.textContent;
+          codeBtn.textContent = 'Copied!';
+          codeBtn.style.color = '#34d399';
           setTimeout(() => {
-            btn.textContent = orig;
-            btn.style.color = '';
+            codeBtn.textContent = orig;
+            codeBtn.style.color = '';
+          }, 2000);
+        });
+      }
+      return;
+    }
+
+    // 2. Assistant message copy button
+    const msgBtn = e.target.closest('.cf-copy-msg-btn');
+    if (msgBtn) {
+      const bubble = msgBtn.closest('.cf-bubble');
+      if (!bubble) return;
+      const clone = bubble.cloneNode(true);
+      const tag = clone.querySelector('.cf-model-tag');
+      if (tag) tag.remove();
+      const actionCard = clone.querySelector('.cf-action-card');
+      if (actionCard) actionCard.remove();
+      const toolPills = clone.querySelectorAll('.cf-tool-pill');
+      toolPills.forEach((p) => p.remove());
+      const textToCopy = (clone.innerText || clone.textContent || '').trim();
+      if (textToCopy && navigator.clipboard) {
+        navigator.clipboard.writeText(textToCopy).then(() => {
+          const span = msgBtn.querySelector('span');
+          const orig = span ? span.textContent : msgBtn.textContent;
+          if (span) span.textContent = 'Copied!';
+          else msgBtn.textContent = 'Copied!';
+          msgBtn.style.color = '#34d399';
+          msgBtn.style.borderColor = 'rgba(52, 211, 153, 0.4)';
+          setTimeout(() => {
+            if (span) span.textContent = orig;
+            else msgBtn.textContent = orig;
+            msgBtn.style.color = '';
+            msgBtn.style.borderColor = '';
           }, 2000);
         });
       }
@@ -851,10 +1039,18 @@
     conversationHistory.length = 0;
     sessionId = generateSessionId();
     localStorage.setItem(STORAGE_KEY, sessionId);
+    clearQuotedBar();
     messagesBox.innerHTML = `
       <div class="cf-msg cf-msg-assistant">
         <div class="cf-bubble">
           <p>Conversation reset. How can I help you today?</p>
+          <div class="cf-model-tag">
+            <span>Assistant</span>
+            <button class="cf-copy-msg-btn" type="button" title="Copy response">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+              <span>Copy</span>
+            </button>
+          </div>
         </div>
       </div>
     `;
@@ -1017,10 +1213,14 @@
       const modelPreference = (modeSelect && modeSelect.value) ? modeSelect.value : 'auto';
 
       let contextualMessage = text;
-      if (typeof window !== 'undefined' && window.getSelection) {
+      const quote = activeQuotedSelection;
+      if (quote && quote.length >= 2) {
+        contextualMessage = `[Referenced page text: "${quote}"]\n${text}`;
+        clearQuotedBar();
+      } else if (typeof window !== 'undefined' && window.getSelection) {
         try {
           const selection = window.getSelection().toString().trim();
-          if (selection && selection.length > 0 && selection.length < 600) {
+          if (selection && selection.length >= 2 && selection.length < 1500) {
             contextualMessage = `[Referenced page text: "${selection}"]\n${text}`;
           }
         } catch {}
@@ -1046,6 +1246,7 @@
           const errData = await response.json();
           cursor.remove();
           assistantBubble.innerHTML = renderMarkdown(errData.reply || errData.error || `Error HTTP ${response.status}`);
+          attachModelTag(assistantBubble, 'System', 'Error');
           scrollToBottom();
           return;
         }
@@ -1071,13 +1272,10 @@
           activeModelLabel.textContent = `${isDeep ? '🧠' : '⚡'} ${modelClean}`;
         }
 
-        // Add model signature pill to bubble
-        const modelTag = document.createElement('div');
-        modelTag.className = 'cf-model-tag';
+        // Add model signature pill to bubble with one-click copy button
         const modelName = data.usedModel || (data.routedComplexity === 'complex' ? 'Reasoning Core' : 'Flash Edge');
         const compLabel = data.routedComplexity === 'complex' ? 'Deep Reasoning' : 'Fast Edge';
-        modelTag.innerHTML = `<span>${compLabel}</span> • <span>${escapeHtml(modelName)}</span>`;
-        assistantBubble.appendChild(modelTag);
+        attachModelTag(assistantBubble, compLabel, modelName);
 
         // Update contextual follow-up chips
         updateFollowUpChips(replyText);
@@ -1161,6 +1359,8 @@
                 if (accumulatedText) {
                   conversationHistory.push({ role: 'user', content: text });
                   conversationHistory.push({ role: 'assistant', content: accumulatedText });
+                  const modelClean = activeModelLabel ? activeModelLabel.textContent.replace(/[🧠⚡]/g, '').trim() : 'Flash Edge';
+                  attachModelTag(assistantBubble, 'Edge AI', modelClean || 'Flash Edge');
                   updateFollowUpChips(accumulatedText);
                 }
               }
@@ -1177,6 +1377,7 @@
       errorMsg.style.fontSize = '12px';
       errorMsg.innerHTML = `⚠️ <em>Connection interrupted. Please verify edge connectivity and retry.</em>`;
       assistantBubble.appendChild(errorMsg);
+      attachModelTag(assistantBubble, 'System', 'Error');
     } finally {
       cursor.remove();
       isStreaming = false;
