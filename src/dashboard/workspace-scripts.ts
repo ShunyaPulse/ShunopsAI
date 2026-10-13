@@ -5,9 +5,10 @@
  * into the empty-state greeting. Kept as a plain string so the page stays a
  * zero-build, single-response HTML document.
  */
-export function workspaceScripts(safeUsername: string): string {
+export function workspaceScripts(safeUsername: string, presetsJson = '[]'): string {
   return `    let conversationHistory = [];
     let attachedImageDataUri = null;
+    const MCP_PRESETS = ${presetsJson};
 
     function handleImageAttach(input) {
       if (!input.files || !input.files[0]) return;
@@ -1091,69 +1092,6 @@ export function workspaceScripts(safeUsername: string): string {
     }
 
     // 9. MCP Directory & 1-Click Presets Explorer
-    const MCP_PRESETS = [
-      {
-        id: 'brave-search',
-        name: '🌐 Brave Web Search MCP',
-        category: 'Web & Research',
-        description: 'Enables live internet web search, latest documentation lookup, and news retrieval.',
-        url: 'https://mcp.brave.com/v1',
-        tokenPlaceholder: 'BSA... (Brave Search API Key)',
-        tokenLabel: 'Brave API Key',
-        docs: 'brave.com/search/api',
-      },
-      {
-        id: 'neon-postgres',
-        name: '🗄️ Neon Serverless Postgres MCP',
-        category: 'Databases',
-        description: 'Direct SQL query engine, table schema inspection, and database management.',
-        url: 'https://mcp.neon.tech/v1',
-        tokenPlaceholder: 'postgresql://user:pass@ep-xyz.neon.tech/neondb',
-        tokenLabel: 'Postgres Connection String',
-        docs: 'neon.tech/docs',
-      },
-      {
-        id: 'github-actions',
-        name: '🐙 GitHub Operations MCP',
-        category: 'DevOps & Git',
-        description: 'Manage PRs, branches, trigger GitHub actions workflows, and inspect commit diffs.',
-        url: 'https://api.githubcopilot.com/mcp',
-        tokenPlaceholder: 'ghp_... (GitHub Personal Access Token)',
-        tokenLabel: 'GitHub Token',
-        docs: 'github.com/settings/tokens',
-      },
-      {
-        id: 'cloudflare-kv',
-        name: '⚡ Cloudflare Workers & D1 MCP',
-        category: 'Serverless Edge',
-        description: 'Serverless edge computing, D1 SQL queries, and KV store operations.',
-        url: 'https://mcp.cloudflare.com/v1',
-        tokenPlaceholder: 'cf_api_token...',
-        tokenLabel: 'Cloudflare API Token',
-        docs: 'developers.cloudflare.com',
-      },
-      {
-        id: 'memory-graph',
-        name: '🧠 Knowledge Graph Memory MCP',
-        category: 'State & Memory',
-        description: 'Persistent knowledge graph memory across agent runs and multi-turn sessions.',
-        url: 'https://mcp-memory.internal/v1',
-        tokenPlaceholder: 'Optional secret key',
-        tokenLabel: 'Access Key (Optional)',
-        docs: 'github.com/modelcontextprotocol/servers',
-      },
-      {
-        id: 'custom-mcp',
-        name: '⚙️ Custom Remote MCP Server',
-        category: 'Custom & Private',
-        description: 'Connect any remote or self-hosted Fastify/Express/Python JSON-RPC MCP server.',
-        url: '',
-        tokenPlaceholder: 'Bearer token or secret API key',
-        tokenLabel: 'Authorization Token (Optional)',
-        docs: 'modelcontextprotocol.io',
-      },
-    ];
-
     function toggleMcpDirectoryModal(show) {
       const modal = document.getElementById('mcp-directory-modal');
       if (!modal) return;
@@ -1190,6 +1128,10 @@ export function workspaceScripts(safeUsername: string): string {
 
     function renderMcpPresets(presets) {
       const grid = document.getElementById('mcp-presets-grid');
+      const countBadge = document.getElementById('mcp-count-badge');
+      if (countBadge) {
+        countBadge.textContent = presets.length + ' Presets';
+      }
       if (!grid) return;
       if (!presets.length) {
         grid.innerHTML = '<div style="grid-column:1/-1; text-align:center; padding:30px; color:#94a3b8; font-size:12.5px;">No matching MCP presets found. Use "Custom Remote MCP Server" to connect your own endpoint.</div>';
@@ -1199,13 +1141,13 @@ export function workspaceScripts(safeUsername: string): string {
         <div style="background:#090d16; border:1px solid #1e293b; border-radius:10px; padding:12px; display:flex; flex-direction:column; justify-content:space-between; transition:all 0.15s ease;" onmouseover="this.style.borderColor='#38bdf8'" onmouseout="this.style.borderColor='#1e293b'">
           <div>
             <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:4px;">
-              <strong style="font-size:13px; color:#fff;">\${escapeHtmlText(p.name)}</strong>
-              <span style="font-size:10px; background:rgba(56,189,248,0.1); color:#38bdf8; border:1px solid rgba(56,189,248,0.25); padding:1px 6px; border-radius:10px; white-space:nowrap;">\${escapeHtmlText(p.category)}</span>
+              <strong style="font-size:12.5px; color:#fff; word-break:break-word;">\${escapeHtmlText(p.name)}</strong>
+              <span style="font-size:9.5px; background:rgba(56,189,248,0.1); color:#38bdf8; border:1px solid rgba(56,189,248,0.25); padding:1px 6px; border-radius:10px; white-space:nowrap; margin-left:4px;">\${escapeHtmlText(p.category)}</span>
             </div>
-            <p style="font-size:11.5px; color:#94a3b8; line-height:1.45; margin:6px 0 10px;">\${escapeHtmlText(p.description)}</p>
+            <p style="font-size:11px; color:#94a3b8; line-height:1.4; margin:6px 0 10px;">\${escapeHtmlText(p.description)}</p>
           </div>
           <div style="display:flex; justify-content:space-between; align-items:center; border-top:1px solid rgba(255,255,255,0.05); padding-top:8px; margin-top:4px;">
-            <span style="font-size:10px; color:#64748b; font-family:monospace;">\${escapeHtmlText(p.docs)}</span>
+            <span style="font-size:10px; color:#64748b; font-family:monospace; text-overflow:ellipsis; overflow:hidden; white-space:nowrap; max-width:140px;">\${escapeHtmlText(p.docs)}</span>
             <button class="btn-sub" style="font-size:11px; padding:4px 10px; background:#2563eb; color:#fff; border:none;" onclick="selectMcpPreset('\${escapeHtmlAttr(p.id)}')">Use Preset ⚡</button>
           </div>
         </div>

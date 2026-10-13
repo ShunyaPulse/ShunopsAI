@@ -1,6 +1,7 @@
 import { escapeHtml } from "./scripts.js";
 import { WORKSPACE_STYLES } from "./workspace-styles.js";
 import { workspaceScripts } from "./workspace-scripts.js";
+import { POPULAR_100_MCP_PRESETS } from "./mcp-presets-catalog.js";
 
 /**
  * Multi-Tenant User Workspace Dashboard HTML.
@@ -357,24 +358,25 @@ ${WORKSPACE_STYLES}
       </div>
   <!-- MCP Directory & Presets Explorer Modal -->
   <div id="mcp-directory-modal" class="modal-overlay" onclick="if(event.target === this) toggleMcpDirectoryModal(false)" style="z-index:1100;">
-    <div class="modal-dialog" style="max-width:680px;">
+    <div class="modal-dialog" style="max-width:980px; width:95vw;">
       <div class="modal-header">
         <div style="display:flex; align-items:center; gap:8px;">
-          <span style="font-size:20px;">⚡</span>
+          <span style="font-size:22px;">⚡</span>
           <div>
             <h2 style="font-size:16px; margin:0;">Model Context Protocol (MCP) Directory</h2>
-            <div style="font-size:11px; color:#94a3b8;">Discover &amp; connect popular verified MCP servers with 1-click presets</div>
+            <div style="font-size:11px; color:#94a3b8;">Discover 100+ popular verified MCP servers with 1-click presets</div>
           </div>
         </div>
         <button class="modal-close-btn" onclick="toggleMcpDirectoryModal(false)" title="Close">&times;</button>
       </div>
       <div class="modal-body" style="padding:16px 20px;">
-        <!-- Search bar -->
-        <div style="position:relative; margin-bottom:14px;">
-          <input type="text" id="mcp-search-input" oninput="filterMcpDirectory()" placeholder="🔍 Search MCP servers (e.g. search, postgres, github, memory, docker)..." style="width:100%; background:#090d16; border:1px solid #1e293b; border-radius:8px; padding:10px 14px; color:#fff; font-size:12.5px; outline:none;" />
+        <!-- Search bar & Count badge -->
+        <div style="display:flex; gap:10px; align-items:center; margin-bottom:14px;">
+          <input type="text" id="mcp-search-input" oninput="filterMcpDirectory()" placeholder="🔍 Search 100+ MCP servers (e.g. search, postgres, github, docker, slack, aws, redis)..." style="flex:1; background:#090d16; border:1px solid #1e293b; border-radius:8px; padding:10px 14px; color:#fff; font-size:12.5px; outline:none;" />
+          <span id="mcp-count-badge" style="font-size:11px; background:rgba(56,189,248,0.12); color:#38bdf8; border:1px solid rgba(56,189,248,0.3); padding:7px 12px; border-radius:8px; font-weight:600; white-space:nowrap;">100 Presets</span>
         </div>
-        <!-- MCP Presets Grid -->
-        <div id="mcp-presets-grid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(280px, 1fr)); gap:10px; max-height:400px; overflow-y:auto; padding-right:4px;">
+        <!-- MCP Presets Grid: Exactly 3 items per row (3 ke neeche 3) -->
+        <div id="mcp-presets-grid" style="display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:12px; max-height:540px; overflow-y:auto; padding-right:6px;">
           <!-- Dynamically populated via JS -->
         </div>
       </div>
@@ -392,7 +394,7 @@ ${WORKSPACE_STYLES}
   </div>
 
   <script>
-${workspaceScripts(safeUsername)}
+${workspaceScripts(safeUsername, JSON.stringify(POPULAR_100_MCP_PRESETS))}
   </script>
 </body>
 </html>`;
