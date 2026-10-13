@@ -21,12 +21,12 @@ export function authPageScripts(isLogin: boolean, turnstileSiteKey: string): str
             callback: function(token) {
               turnstileToken = token;
             },
-            "error-callback": function() {
-              if (container) container.style.display = "none";
+            "error-callback": function(code) {
+              console.warn("Turnstile notice:", code);
             }
           });
         } catch (e) {
-          if (container) container.style.display = "none";
+          console.warn("Turnstile initialization notice:", e);
         }
       }
 
