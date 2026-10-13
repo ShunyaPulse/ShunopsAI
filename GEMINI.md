@@ -98,6 +98,27 @@
 - **Core Priority Domains:**
   - High-value knowledge domains must remain primary: Science, Space exploration, Deep Ocean / Nature, Technology / AI breakthroughs, Engineering marvels, History, and Inspiring Sports achievements.
 
+## 12. Autonomous Video Production Quality & Aesthetic Invariants
+- **Mandatory Character Visual Bible & 100% Actor DNA Lock:**
+  - Every recurring character across any storyline, educational chapter, or historical dramatization must have a fixed, explicit Character Visual DNA established in research (exact age, facial structure, skin tone, hairstyle, facial hair, eyewear, signature period garments and fabrics).
+  - Every scene visual prompt featuring the character MUST strictly prepend their exact DNA descriptor verbatim to ensure unbroken cross-shot model consistency.
+  - STRICTLY FORBIDDEN: Introducing random unrelated characters, unscripted magazine readers, modern crowd extras, or shifting ethnicities across scene cuts.
+- **Tone, Emotion & Period Setting Calibration:**
+  - Visuals must strictly match the emotional tone and historical setting of the story or topic.
+  - STRICTLY FORBIDDEN: Grotesque, violent, or horror depictions in lighthearted, educational, or satirical contexts (e.g. comic head-adjustments must never be depicted as choking, strangling, or physical distress).
+  - Indoor settings must strictly match the authentic historical period and location (e.g. cozy Victorian parlors with dark wainscoting and brass bellows cameras; never modern industrial airplane hangars or empty warehouses).
+- **Zero-Diffusion Text Rule (Elimination of Corrupt/Gibberish AI Glyphs):**
+  - DiT and Diffusion models must NEVER be instructed to generate readable text, bulleted study cards, presentation slides, or infographic charts directly in diffusion latents.
+  - Educational takeaways and summary chapters must be depicted exclusively through text-free cinematic visual metaphors (e.g., antique study desk with vintage leather-bound book, brass reading lamp, and fountain pen) with clean typography composited via 2D subtitle/motion graphics overlays in post-production.
+- **Anti-Morphing Standard (Linear Blend vs MCI):**
+  - Video interpolation in rendering pipelines must strictly employ linear frame blending (`minterpolate=mi_mode=blend`) rather than optical-flow block matching (`mi_mode=mci`), eliminating warped anatomy, melting skin, and distorted hands across adjacent frames.
+  - Visual prompts for character dialogue must mandate locked static tripod camera framing, subtle natural breathing, and still hands to avoid complex hand-to-face interaction artifacts.
+- **Mathematical Outro Hold & Fade Timing Invariant:**
+  - Videos must NEVER begin fading to black or attenuating narration audio while speech is still playing.
+  - The fade-out must strictly be calculated from the conclusion of dialogue:
+    `fade_start = speech_end_time + 2.0s` with a 1.0s fade duration.
+  - The final scene visual and background music must hold at 100% brightness and full volume for a full 2.0 seconds AFTER the last spoken word ends before executing a 1.0s cinematic fade-out to black.
+
 
 
 

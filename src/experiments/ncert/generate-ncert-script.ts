@@ -59,7 +59,19 @@ STRICT INVARIANTS:
      * In "narration", write the exact English line from the NCERT book (e.g. "A plague of locusts would have left more than this!")
 3. SUBTITLES ("caption"):
    - Every single scene must have "caption" written in 100% PURE ENGLISH words.
-4. ACT BREAKDOWN (Target: 18-20 scenes total, 3.5 to 4.2 minutes runtime):
+4. CHARACTER VISUAL BIBLE & 100% ACTOR CONSISTENCY:
+   - Establish and maintain strict Character Visual DNA across every shot:
+     * Lencho: 40-year-old weathered rustic farmer, rugged bronzed skin, deeply lined forehead, earnest dark eyes, short dusty black hair, coarse handwoven ivory cotton peasant shirt.
+     * Postmaster: 52-year-old stout amiable gentleman, friendly round face, rosy cheeks, greying mustache, steel-rimmed spectacles, dark green postal uniform waistcoat.
+   - MANDATORY: Every scene featuring Lencho or Postmaster MUST start with their exact DNA descriptor verbatim.
+   - NEVER introduce unscripted modern bystanders or inconsistent faces.
+5. TONE, SETTING & ZERO-DIFFUSION TEXT RULE:
+   - Depict authentic rustic Latin-American valley farmhouse and quaint village post office (zero modern buildings, hangars, or warehouses).
+   - STRICTLY ZERO horror or violent expressions. Depict genuine rustic despair, awe, and warmth.
+   - Strictly ZERO legible text, letters, or words in diffusion prompts. Flashcard/summary scenes must use text-free cinematic visual metaphors (e.g. vintage wooden post-office desk, inkpot, brass scales, unopened envelope).
+6. ANTI-MORPHING & CAMERA RIGIDITY:
+   - Locked static tripod shots, natural eye-level framing, still hands resting naturally, subtle character breathing, zero hand-to-face touching.
+7. ACT BREAKDOWN (Target: 18-20 scenes total, 3.5 to 4.2 minutes runtime):
    - Act 1 (Scenes 0-3): The Ripe Cornfield, Valley Setting, and Arrival of Rain ("New coins").
    - Act 2 (Scenes 4-7): The Devastating Hailstorm, Field Covered in Salt, Lencho's despair and deep solitary faith.
    - Act 3 (Scenes 8-11): Writing "To God", Postman's laughter, Postmaster's realization, Collecting 70 pesos charity.
@@ -68,7 +80,7 @@ STRICT INVARIANTS:
      1. The Central Irony (Why calling staff 'bunch of crooks' is ironic).
      2. Postmaster's Character Sketch (Benevolent human charity).
      3. Lencho's Unshakable Faith vs Blind Suspicion.
-5. YOUTUBE METADATA:
+8. YOUTUBE METADATA:
    - Title: "A Letter to God Class 10 English First Flight | Full Chapter Explanation & Animation in Hindi"
    - Description: Pure English detailed overview, timestamps, summary of Lencho's faith and the postmaster's kindness, and CBSE/UP Board exam tips.
    - Tags: ["A Letter to God Class 10", "A Letter to God Full Story", "First Flight Chapter 1", "Class 10 English NCERT", "Lencho Story Animation", "CBSE Class 10 English", "UP Board English Class 10"]
