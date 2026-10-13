@@ -356,9 +356,12 @@ ${WORKSPACE_STYLES}
           </div>
         </div>
       </div>
+    </div>
+  </div>
+
   <!-- MCP Directory & Presets Explorer Modal -->
   <div id="mcp-directory-modal" class="modal-overlay" onclick="if(event.target === this) toggleMcpDirectoryModal(false)" style="z-index:1100;">
-    <div class="modal-dialog" style="max-width:980px; width:95vw;">
+    <div class="modal-dialog mcp-modal-dialog">
       <div class="modal-header">
         <div style="display:flex; align-items:center; gap:8px;">
           <span style="font-size:22px;">⚡</span>
@@ -369,14 +372,14 @@ ${WORKSPACE_STYLES}
         </div>
         <button class="modal-close-btn" onclick="toggleMcpDirectoryModal(false)" title="Close">&times;</button>
       </div>
-      <div class="modal-body" style="padding:16px 20px;">
+      <div class="mcp-modal-body">
         <!-- Search bar & Count badge -->
-        <div style="display:flex; gap:10px; align-items:center; margin-bottom:14px;">
-          <input type="text" id="mcp-search-input" oninput="filterMcpDirectory()" placeholder="🔍 Search 100+ MCP servers (e.g. search, postgres, github, docker, slack, aws, redis)..." style="flex:1; background:#090d16; border:1px solid #1e293b; border-radius:8px; padding:10px 14px; color:#fff; font-size:12.5px; outline:none;" />
-          <span id="mcp-count-badge" style="font-size:11px; background:rgba(56,189,248,0.12); color:#38bdf8; border:1px solid rgba(56,189,248,0.3); padding:7px 12px; border-radius:8px; font-weight:600; white-space:nowrap;">100 Presets</span>
+        <div style="display:flex; gap:10px; align-items:center; margin-bottom:14px; position:sticky; top:0; z-index:5; background:#0b1120; padding-bottom:8px;">
+          <input type="text" id="mcp-search-input" oninput="filterMcpDirectory()" placeholder="🔍 Search 100+ MCP servers (e.g. search, postgres, github, docker, slack, aws, redis)..." style="flex:1; background:#060a12; border:1px solid #1e293b; border-radius:8px; padding:10px 14px; color:#fff; font-size:13px; outline:none;" />
+          <span id="mcp-count-badge" style="font-size:11px; background:rgba(56,189,248,0.12); color:#38bdf8; border:1px solid rgba(56,189,248,0.3); padding:8px 12px; border-radius:8px; font-weight:600; white-space:nowrap;">100 Presets</span>
         </div>
         <!-- MCP Presets Grid: Exactly 3 items per row (3 ke neeche 3) -->
-        <div id="mcp-presets-grid" style="display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:12px; max-height:540px; overflow-y:auto; padding-right:6px;">
+        <div id="mcp-presets-grid" style="display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:12px;">
           <!-- Dynamically populated via JS -->
         </div>
       </div>

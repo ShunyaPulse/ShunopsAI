@@ -497,6 +497,35 @@ export const WORKSPACE_STYLES = `    :root {
       transform: translateY(15px) scale(0.98);
       transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
     }
+    .modal-dialog.mcp-modal-dialog {
+      max-width: 1100px !important;
+      width: 95vw !important;
+      max-height: 88vh !important;
+      overflow: hidden !important;
+      display: flex !important;
+      flex-direction: column !important;
+    }
+    .mcp-modal-body {
+      padding: 18px 22px !important;
+      overflow-y: auto !important;
+      flex: 1 !important;
+    }
+    .mcp-card {
+      background: #060a12;
+      border: 1px solid #1e293b;
+      border-radius: 12px;
+      padding: 14px 16px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      min-width: 0;
+      transition: all 0.2s ease;
+    }
+    .mcp-card:hover {
+      border-color: #38bdf8;
+      transform: translateY(-2px);
+      box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
+    }
     .modal-overlay.active .modal-dialog {
       transform: translateY(0) scale(1);
     }

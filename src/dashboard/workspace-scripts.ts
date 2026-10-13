@@ -1138,17 +1138,17 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]'): stri
         return;
       }
       grid.innerHTML = presets.map(p => \`
-        <div style="background:#090d16; border:1px solid #1e293b; border-radius:10px; padding:12px; display:flex; flex-direction:column; justify-content:space-between; transition:all 0.15s ease;" onmouseover="this.style.borderColor='#38bdf8'" onmouseout="this.style.borderColor='#1e293b'">
+        <div class="mcp-card">
           <div>
-            <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:4px;">
-              <strong style="font-size:12.5px; color:#fff; word-break:break-word;">\${escapeHtmlText(p.name)}</strong>
-              <span style="font-size:9.5px; background:rgba(56,189,248,0.1); color:#38bdf8; border:1px solid rgba(56,189,248,0.25); padding:1px 6px; border-radius:10px; white-space:nowrap; margin-left:4px;">\${escapeHtmlText(p.category)}</span>
+            <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px; margin-bottom:6px;">
+              <strong style="font-size:13px; color:#fff; font-weight:700; line-height:1.3;">\${escapeHtmlText(p.name)}</strong>
+              <span style="font-size:9.5px; background:rgba(56,189,248,0.12); color:#38bdf8; border:1px solid rgba(56,189,248,0.25); padding:2px 7px; border-radius:10px; white-space:nowrap; flex-shrink:0;">\${escapeHtmlText(p.category)}</span>
             </div>
-            <p style="font-size:11px; color:#94a3b8; line-height:1.4; margin:6px 0 10px;">\${escapeHtmlText(p.description)}</p>
+            <p style="font-size:11.5px; color:#94a3b8; line-height:1.45; margin:6px 0 12px;">\${escapeHtmlText(p.description)}</p>
           </div>
-          <div style="display:flex; justify-content:space-between; align-items:center; border-top:1px solid rgba(255,255,255,0.05); padding-top:8px; margin-top:4px;">
-            <span style="font-size:10px; color:#64748b; font-family:monospace; text-overflow:ellipsis; overflow:hidden; white-space:nowrap; max-width:140px;">\${escapeHtmlText(p.docs)}</span>
-            <button class="btn-sub" style="font-size:11px; padding:4px 10px; background:#2563eb; color:#fff; border:none;" onclick="selectMcpPreset('\${escapeHtmlAttr(p.id)}')">Use Preset ⚡</button>
+          <div style="display:flex; justify-content:space-between; align-items:center; border-top:1px solid rgba(255,255,255,0.06); padding-top:10px; margin-top:auto;">
+            <span style="font-size:10px; color:#64748b; font-family:'JetBrains Mono', monospace; text-overflow:ellipsis; overflow:hidden; white-space:nowrap; max-width:130px;">\${escapeHtmlText(p.docs)}</span>
+            <button class="btn-sub" style="font-size:11px; padding:5px 12px; background:#2563eb; color:#fff; border:none; font-weight:600; border-radius:6px;" onclick="selectMcpPreset('\${escapeHtmlAttr(p.id)}')">Use Preset ⚡</button>
           </div>
         </div>
       \`).join('');
