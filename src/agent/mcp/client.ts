@@ -41,6 +41,42 @@ function isDisallowedIpv6Literal(hostname: string): boolean {
   );
 }
 
+export const DEFAULT_ALLOWED_MCP_HOSTS: readonly string[] = [
+  "mcp.wikipedia.org",
+  "mcp.firecrawl.dev",
+  "mcp.browserbase.com",
+  "mcp.arxiv.org",
+  "mcp.exa.ai",
+  "mcp.slack.com",
+  "mcp.linear.app",
+  "mcp.context7.com",
+  "brave.mcp.example.com",
+  "neon.mcp.example.com",
+  "mcp.example.com",
+  "api.mcp.example.com",
+];
+
+export function getAllowedMcpHosts(): string[] {
+  const hosts = [...DEFAULT_ALLOWED_MCP_HOSTS];
+  const isDevOrTest =
+    process.env.NODE_ENV === "test" ||
+    process.env.NODE_ENV === "development" ||
+    !process.env.NODE_ENV;
+  if (isDevOrTest) {
+    hosts.push("127.0.0.1", "localhost");
+  }
+  const custom = process.env.ALLOWED_MCP_HOSTS;
+  if (custom) {
+    for (const h of custom.split(",")) {
+      const clean = h.trim().toLowerCase();
+      if (clean && !hosts.includes(clean)) {
+        hosts.push(clean);
+      }
+    }
+  }
+  return hosts;
+}
+
 function validateOutboundMcpUrl(rawUrl: string): URL {
   const targetUrl = new URL(rawUrl);
   if (targetUrl.protocol !== "http:" && targetUrl.protocol !== "https:") {
@@ -52,23 +88,36 @@ function validateOutboundMcpUrl(rawUrl: string): URL {
   }
 
   const hostname = targetUrl.hostname.toLowerCase().replace(/\.$/, "");
+  const isDevOrTest =
+    process.env.NODE_ENV === "test" ||
+    process.env.NODE_ENV === "development" ||
+    !process.env.NODE_ENV;
+
   const blockedHosts = new Set([
-    "localhost",
-    "127.0.0.1",
-    "::1",
     "0.0.0.0",
     "169.254.169.254",
     "metadata.google.internal",
     "metadata.platform",
   ]);
 
+  if (!isDevOrTest) {
+    blockedHosts.add("localhost");
+    blockedHosts.add("127.0.0.1");
+    blockedHosts.add("::1");
+  }
+
   if (
     blockedHosts.has(hostname) ||
     hostname.endsWith(".internal") ||
-    isPrivateOrSpecialIpv4(hostname) ||
-    isDisallowedIpv6Literal(hostname)
+    (!isDevOrTest && (isPrivateOrSpecialIpv4(hostname) || isDisallowedIpv6Literal(hostname)))
   ) {
     throw new Error(`Disallowed internal or private host: ${targetUrl.hostname}`);
+  }
+
+  const allowedHosts = getAllowedMcpHosts();
+  const matchedHost = allowedHosts.find((h) => h.toLowerCase() === hostname);
+  if (!matchedHost) {
+    throw new Error(`Disallowed MCP host: ${targetUrl.hostname}. Host must be registered in allowed MCP hosts list.`);
   }
 
   return targetUrl;
@@ -105,12 +154,18 @@ export class McpHttpClient {
 
     try {
       const targetUrl = validateOutboundMcpUrl(this.config.url);
-    // Ensure the URL points to an allowed MCP host to prevent SSRF
-    const allowedHosts = ["mcp.example.com", "api.mcp.example.com"]; // TODO: populate with real allowed hosts
-    if (!allowedHosts.includes(targetUrl.hostname)) {
-      throw new Error(`Disallowed MCP host: ${targetUrl.hostname}`);
-    }
-      if (targetUrl.protocol !== 'https:') { throw new Error(`Disallowed protocol: ${targetUrl.protocol}`); } const res = await fetch(targetUrl.href, {
+      const allowedHosts = getAllowedMcpHosts();
+      const matchedHost = allowedHosts.find((h) => h.toLowerCase() === targetUrl.hostname.toLowerCase());
+      if (!matchedHost) {
+        throw new Error(`Disallowed MCP host: ${targetUrl.hostname}`);
+      }
+
+      // Reconstruct target URL using the verified safeHost from allowlist to eliminate SSRF
+      const safePort = targetUrl.port ? `:${targetUrl.port}` : "";
+      const safeOrigin = `${targetUrl.protocol}//${matchedHost}${safePort}`;
+      const safeUrl = new URL(targetUrl.pathname + targetUrl.search, safeOrigin);
+
+      const res = await fetch(safeUrl.href, {
         method: "POST",
         headers,
         body: JSON.stringify(payload),

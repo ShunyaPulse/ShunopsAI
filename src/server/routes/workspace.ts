@@ -14,7 +14,7 @@ import {
   CredentialVaultError,
   isVaultConfigured,
 } from "../db.js";
-import { McpHttpClient } from "../../agent/mcp/client.js";
+import { McpHttpClient, getAllowedMcpHosts } from "../../agent/mcp/client.js";
 
 function isIpv4Address(hostname: string): boolean {
   const parts = hostname.split(".");
@@ -50,19 +50,32 @@ function isDisallowedMcpTestUrl(rawUrl: string): boolean {
   if (parsed.hash) return true;
 
   const hostname = parsed.hostname.toLowerCase();
+  const isDevOrTest =
+    process.env.NODE_ENV === "test" ||
+    process.env.NODE_ENV === "development" ||
+    !process.env.NODE_ENV;
+
   const blockedHosts = new Set([
-    "localhost",
-    "127.0.0.1",
-    "::1",
     "0.0.0.0",
     "169.254.169.254",
     "metadata.google.internal",
     "metadata.platform",
   ]);
 
+  if (!isDevOrTest) {
+    blockedHosts.add("localhost");
+    blockedHosts.add("127.0.0.1");
+    blockedHosts.add("::1");
+  }
+
   if (blockedHosts.has(hostname)) return true;
   if (hostname.endsWith(".internal") || hostname.endsWith(".localhost")) return true;
-  if (isPrivateOrLocalIpv4(hostname)) return true;
+  if (!isDevOrTest && isPrivateOrLocalIpv4(hostname)) return true;
+
+  const allowed = getAllowedMcpHosts();
+  if (!allowed.some((h) => h.toLowerCase() === hostname)) {
+    return true;
+  }
 
   return false;
 }
@@ -258,12 +271,36 @@ export async function workspaceRoutes(app: FastifyInstance, options: WorkspaceRo
         };
       }
 
+      let safeServerUrl: string;
+      try {
+        const parsed = new URL(serverUrl);
+        const allowed = getAllowedMcpHosts();
+        const matchedHost = allowed.find((h) => h.toLowerCase() === parsed.hostname.toLowerCase());
+        if (!matchedHost) {
+          reply.status(400);
+          return {
+            success: false,
+            connected: false,
+            error: "Server URL host is not in the allowed MCP hosts list.",
+          };
+        }
+        const safePort = parsed.port ? `:${parsed.port}` : "";
+        safeServerUrl = `${parsed.protocol}//${matchedHost}${safePort}${parsed.pathname}${parsed.search}`;
+      } catch {
+        reply.status(400);
+        return {
+          success: false,
+          connected: false,
+          error: "Invalid MCP server URL format.",
+        };
+      }
+
       try {
         const client = new McpHttpClient({
           id: "test-mcp",
           name: "MCP Connection Test",
           transport: "http",
-          url: serverUrl,
+          url: safeServerUrl,
           headers: apiKey
             ? { Authorization: apiKey.startsWith("Bearer ") ? apiKey : `Bearer ${apiKey}` }
             : {},

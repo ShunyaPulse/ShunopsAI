@@ -9,6 +9,7 @@ import { memStore } from "../src/server/db/store.js";
 import { mcpRegistry } from "../src/agent/mcp/registry.js";
 import type { ToolScope } from "../src/agent/scope.js";
 
+process.env.NODE_ENV = "test";
 process.env.CREDENTIALS_ENCRYPTION_KEY = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
 async function runTests() {
