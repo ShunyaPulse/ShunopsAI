@@ -9,8 +9,18 @@
   const currentScript =
     document.currentScript ||
     document.querySelector('script[src*="widget.js"]');
+  // The widget must call the server that served it, not the page it happens to
+  // be embedded on. Without this, the embed on a customer's site would POST to
+  // that site's own /api/chat and fail. An explicit data-api-url always wins.
+  let scriptOrigin = '';
+  try {
+    scriptOrigin = new URL(currentScript?.src || '', window.location.href).origin;
+  } catch {
+    scriptOrigin = '';
+  }
   const apiUrl =
     currentScript?.getAttribute('data-api-url') ||
+    scriptOrigin ||
     window.location.origin;
   const siteKey = currentScript?.getAttribute('data-turnstile-sitekey') || '';
   const rawTitle = currentScript?.getAttribute('data-title');

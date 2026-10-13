@@ -364,7 +364,7 @@ ${PORTAL_STYLES}
                   <span class="btn-label">Copy code</span>
                 </button>
               </div>
-              <pre class="code-snippet-content"><code id="portal-widget-snippet">&lt;script src="https://edge-agent-widget.shunopsai.workers.dev/widget.js" defer&gt;&lt;/script&gt;</code></pre>
+              <pre class="code-snippet-content"><code id="portal-widget-snippet">&lt;script src="https://edge-agent-widget.shunopsai.workers.dev/widget.js" data-api-url="https://edge-agent-widget.shunopsai.workers.dev" defer&gt;&lt;/script&gt;</code></pre>
             </div>
           </div>
         </div>

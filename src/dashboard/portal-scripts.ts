@@ -213,7 +213,7 @@ export const PORTAL_SCRIPTS = `    // State
 
     
     function copyWidgetSnippet(btn) {
-      const code = '<' + 'script src="https://edge-agent-widget.shunopsai.workers.dev/widget.js" defer><' + '/script>';
+      const code = '<' + 'script src="https://edge-agent-widget.shunopsai.workers.dev/widget.js" data-api-url="https://edge-agent-widget.shunopsai.workers.dev" defer><' + '/script>';
       if (!code) return;
       navigator.clipboard.writeText(code).then(() => {
         const label = btn.querySelector('.btn-label');
