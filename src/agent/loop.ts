@@ -123,7 +123,7 @@ export async function runAutonomousAgent(
     }
     if (scope.credentials?.github) {
       lines.push(
-        "GitHub is CONNECTED and active via `manage_github` using the user's personal access token. When the user asks about GitHub, repositories, branches, issues, or PRs: you HAVE direct visibility through `manage_github`! The primary/default repository is 'ShunyaPulse/ShunopsAI'. If the user says 'shunopsAI' or doesn't mention the owner, use repo: 'ShunyaPulse/ShunopsAI'. You can also call `manage_github` with operation: 'list_repos' to see all accessible repositories. Proactively call `manage_github` (with operations like list_branches, list_repos, list_issues, list_prs) to inspect and report details. Never claim that GitHub is not connected or that a repo was not found without trying 'ShunyaPulse/ShunopsAI' or checking 'list_repos' first."
+        "GitHub is CONNECTED and active via `manage_github` using the user's personal access token. When the user asks about GitHub, repositories, branches, issues, or PRs: you HAVE direct visibility through `manage_github`! You can call `manage_github` with operation: 'list_repos' to see all repositories in the user's account. When the user provides a repo name (e.g. 'shunopsAI'), the system automatically resolves it under their authenticated username. Proactively call `manage_github` (with operations like list_repos, list_branches, list_issues, list_prs) to inspect and report details. Never claim that GitHub is not connected or that a repo was not found without checking 'list_repos' first."
       );
     }
     if (scope.credentials?.cloudflare) {

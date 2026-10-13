@@ -127,12 +127,8 @@ export async function manageGitHub(action: {
   opts: { token?: string } = {}
 ): Promise<string> {
   const token = opts.token || process.env.GITHUB_PAT || process.env.GITHUB_TOKEN;
-  let targetRepo = action.repo ? action.repo.trim() : "ShunyaPulse/ShunopsAI";
-
-  // If user passed just the repo name without owner (e.g. "shunopsAI" or "ShunopsAI"), auto-prefix with default organization
-  if (targetRepo.toLowerCase() === "shunopsai" || targetRepo.toLowerCase() === "shunops-ai") {
-    targetRepo = "ShunyaPulse/ShunopsAI";
-  }
+  let rawRepo = (action.repo || "").trim();
+  let targetRepo = rawRepo;
 
   // When a token is available, execute directly via GitHub REST API (works in bare Docker, Cloud Run, and serverless without gh CLI or git)
   if (token) {
@@ -143,9 +139,37 @@ export async function manageGitHub(action: {
         "User-Agent": "ShunopsAI-Autonomous-Agent",
       };
 
+      // Helper to dynamically get authenticated user's login username from their token
+      const getAuthUsername = async (): Promise<string | null> => {
+        try {
+          const userRes = await fetch("https://api.github.com/user", { headers });
+          if (userRes.ok) {
+            const userData: any = await userRes.json();
+            return userData?.login || null;
+          }
+        } catch {}
+        return null;
+      };
+
+      // If repo does not include owner ("owner/repo"), dynamically resolve using the user's authenticated username
+      if (rawRepo && !rawRepo.includes("/")) {
+        const username = await getAuthUsername();
+        targetRepo = username ? `${username}/${rawRepo}` : rawRepo;
+      } else if (!rawRepo) {
+        // If no repo provided at all, find the first accessible repository for this user
+        try {
+          const reposRes = await fetch("https://api.github.com/user/repos?per_page=1&sort=updated", { headers });
+          if (reposRes.ok) {
+            const reposData: any = await reposRes.json();
+            if (Array.isArray(reposData) && reposData[0]?.full_name) {
+              targetRepo = reposData[0].full_name;
+            }
+          }
+        } catch {}
+      }
+
       if (action.operation === "list_repos") {
-        const userRes = await fetch("https://api.github.com/user", { headers });
-        const userData = userRes.ok ? ((await userRes.json()) as any) : null;
+        const username = await getAuthUsername();
         const reposRes = await fetch("https://api.github.com/user/repos?per_page=30&sort=updated", { headers });
         if (!reposRes.ok) {
           const errData = (await reposRes.json().catch(() => ({}))) as any;
@@ -155,7 +179,7 @@ export async function manageGitHub(action: {
         const repoList = Array.isArray(repos)
           ? repos.map((r: any) => `• ${r.full_name} (${r.private ? "private" : "public"}, default branch: ${r.default_branch})`).join("\n")
           : "No repositories found.";
-        return `Connected GitHub User: @${userData?.login || "unknown"}\nAccessible Repositories (${Array.isArray(repos) ? repos.length : 0}):\n${repoList}`;
+        return `Connected GitHub User: @${username || "user"}\nAccessible Repositories (${Array.isArray(repos) ? repos.length : 0}):\n${repoList}`;
       }
 
       if (action.operation === "list_branches") {

@@ -332,7 +332,7 @@ export const toolRegistry: Record<ToolName, ToolDefinition> = {
             },
             repo: {
               type: "string",
-              description: "Target repository (owner/repo). Defaults to 'ShunyaPulse/ShunopsAI' if not specified or if just 'shunopsAI' is given.",
+              description: "Target repository (e.g. 'owner/repo' or just 'repo'). If only the repo name is given, it is automatically resolved using the user's authenticated GitHub account.",
             },
             issueNumber: { type: "number", description: "Issue number for get_issue" },
             prNumber: { type: "number", description: "Pull request number" },
