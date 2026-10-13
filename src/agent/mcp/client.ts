@@ -14,9 +14,11 @@ import type {
 function isPrivateOrSpecialIpv4(hostname: string): boolean {
   if (!/^\d{1,3}(?:\.\d{1,3}){3}$/.test(hostname)) return false;
   const parts = hostname.split(".").map((p) => Number(p));
-  if (parts.some((n) => Number.isNaN(n) || n < 0 || n > 255)) return true;
+  if (parts.length !== 4 || parts.some((n) => Number.isNaN(n) || n < 0 || n > 255)) return true;
 
-  const [a, b] = parts;
+  const a = parts[0];
+  const b = parts[1];
+  if (a === undefined || b === undefined) return false;
   return (
     a === 10 || // RFC1918
     a === 127 || // loopback
