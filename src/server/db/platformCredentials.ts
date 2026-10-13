@@ -12,7 +12,9 @@ import { getSql, memStore } from "./store.js";
 // Secrets are encrypted with AES-256-GCM before they are persisted. The UI only
 // ever receives a masked hint; plaintext is decrypted on demand for one run.
 
-export type PlatformId = "neon" | "redis" | "github" | "cloudflare" | "mcp" | string;
+export type PlatformId = "neon" | "redis" | "github" | "cloudflare" | "brave" | "tavily" | "gcp" | "supabase" | "upstash" | "local_bridge" | "mcp" | string;
+
+export type PlatformTier = "native" | "local_bridge" | "mcp";
 
 export interface PlatformFieldSpec {
   key: string;
@@ -27,14 +29,17 @@ export interface PlatformSpec {
   id: PlatformId;
   label: string;
   description: string;
+  tier: PlatformTier;
   fields: PlatformFieldSpec[];
 }
 
 export const PLATFORM_SPECS: Record<string, PlatformSpec> = {
+  // ── Tier 1: Direct Native Drivers (Zero-Daemon, Direct APIs) ──
   neon: {
     id: "neon",
     label: "Neon Postgres",
-    description: "Lets the assistant run read/write SQL in your own Neon database.",
+    description: "Lets the assistant run read/write SQL queries in your Neon serverless database.",
+    tier: "native",
     fields: [
       {
         key: "connectionString",
@@ -46,8 +51,9 @@ export const PLATFORM_SPECS: Record<string, PlatformSpec> = {
   },
   redis: {
     id: "redis",
-    label: "Redis",
-    description: "Lets the assistant run data commands against your own Redis instance.",
+    label: "Redis Cache & Store",
+    description: "Lets the assistant execute in-memory cache and data commands against Redis.",
+    tier: "native",
     fields: [
       { key: "url", label: "Redis URL", secret: true, placeholder: "rediss://default:pass@host:6379" },
     ],
@@ -56,6 +62,7 @@ export const PLATFORM_SPECS: Record<string, PlatformSpec> = {
     id: "github",
     label: "GitHub",
     description: "Lets the assistant read issues/PRs and open issues/PRs in your repositories.",
+    tier: "native",
     fields: [
       { key: "token", label: "Personal access token", secret: true, placeholder: "ghp_..." },
     ],
@@ -64,17 +71,80 @@ export const PLATFORM_SPECS: Record<string, PlatformSpec> = {
     id: "cloudflare",
     label: "Cloudflare",
     description: "Lets the assistant run Workers AI inference on your own Cloudflare account.",
+    tier: "native",
     fields: [
       { key: "accountId", label: "Account ID", secret: false, placeholder: "023e105f4ecef8ad9ca31a8372d0c353" },
       { key: "apiToken", label: "API token", secret: true, placeholder: "cf_..." },
     ],
   },
+  brave: {
+    id: "brave",
+    label: "Brave Web Search",
+    description: "Lets the assistant perform live internet search and documentation lookup via Brave Search API.",
+    tier: "native",
+    fields: [
+      { key: "apiKey", label: "Brave API Key", secret: true, placeholder: "BSA..." },
+    ],
+  },
+  tavily: {
+    id: "tavily",
+    label: "Tavily AI Search",
+    description: "Lets the assistant execute agentic research queries with direct citations via Tavily API.",
+    tier: "native",
+    fields: [
+      { key: "apiKey", label: "Tavily API Key", secret: true, placeholder: "tvly-..." },
+    ],
+  },
+  gcp: {
+    id: "gcp",
+    label: "Google Cloud Platform (GCP)",
+    description: "Lets the assistant inspect Cloud Run services, query BigQuery, and read Cloud Logging.",
+    tier: "native",
+    fields: [
+      { key: "projectId", label: "GCP Project ID", secret: false, placeholder: "my-gcp-project" },
+      { key: "token", label: "OAuth Access Token / Service Account Key", secret: true, placeholder: "ya29... or Service Account token" },
+    ],
+  },
+  supabase: {
+    id: "supabase",
+    label: "Supabase Postgres",
+    description: "Lets the assistant execute read/write database queries directly in your Supabase project.",
+    tier: "native",
+    fields: [
+      { key: "connectionString", label: "Connection URI", secret: true, placeholder: "postgresql://postgres:pass@db.xxx.supabase.co:5432/postgres" },
+    ],
+  },
+  upstash: {
+    id: "upstash",
+    label: "Upstash Serverless Redis",
+    description: "Lets the assistant execute Redis commands over low-latency HTTPS REST API.",
+    tier: "native",
+    fields: [
+      { key: "url", label: "Upstash REST URL", secret: false, placeholder: "https://xxx.upstash.io" },
+      { key: "token", label: "Upstash REST Token", secret: true, placeholder: "AX..." },
+    ],
+  },
+
+  // ── Tier 2: Self-Hosted / Local Bridge (Localhost, On-Prem, Private VPC) ──
+  local_bridge: {
+    id: "local_bridge",
+    label: "Self-Hosted / Local Bridge",
+    description: "Connect to a bridge running on your machine (e.g. Docker daemon, Local SQLite, Local Git, Ollama) on http://127.0.0.1:8000/sse.",
+    tier: "local_bridge",
+    fields: [
+      { key: "bridgeUrl", label: "Local Bridge URL", secret: false, placeholder: "http://127.0.0.1:8000/sse or http://localhost:8000" },
+      { key: "apiKey", label: "Local Auth Token (Optional)", secret: true, placeholder: "Optional secret token", optional: true },
+    ],
+  },
+
+  // ── Tier 3: Remote Cloud Model Context Protocol (MCP) ──
   mcp: {
     id: "mcp",
-    label: "Model Context Protocol (MCP)",
-    description: "Connect any remote or local MCP server to dynamically discover and run custom external tools.",
+    label: "Model Context Protocol (Remote MCP)",
+    description: "Connect any remote or cloud-hosted MCP server to dynamically discover and run custom external tools.",
+    tier: "mcp",
     fields: [
-      { key: "serverUrl", label: "MCP Server URL", secret: false, placeholder: "https://your-mcp-server.com/sse or http://127.0.0.1:8000" },
+      { key: "serverUrl", label: "Remote MCP Server URL", secret: false, placeholder: "https://your-mcp-server.com/sse or http://127.0.0.1:8000" },
       { key: "apiKey", label: "Authorization Token / Header (Optional)", secret: true, placeholder: "Bearer token or secret key", optional: true },
     ],
   },
@@ -85,6 +155,7 @@ export interface PlatformCredentialSummary {
   label: string;
   hint: string;
   updatedAt: string;
+  tier?: PlatformTier | undefined;
   /**
    * Field keys actually readable inside the stored secret — not the spec's wish
    * list — so the UI can show a complete/incomplete state.
@@ -96,7 +167,7 @@ export interface PlatformCredentialSummary {
 
 export interface McpServerConfigEntry {
   id: string;
-  name?: string;
+  name?: string | undefined;
   serverUrl: string;
   apiKey?: string | undefined;
 }
@@ -107,6 +178,12 @@ export interface PlatformCredentialBundle {
   redis?: { url: string };
   github?: { token: string };
   cloudflare?: { accountId: string; apiToken: string };
+  brave?: { apiKey: string };
+  tavily?: { apiKey: string };
+  gcp?: { projectId?: string | undefined; token: string };
+  supabase?: { connectionString: string };
+  upstash?: { url: string; token: string };
+  localBridge?: { bridgeUrl: string; apiKey?: string | undefined };
   mcp?: { serverUrl: string; apiKey?: string | undefined };
   mcpServers?: McpServerConfigEntry[];
 }
@@ -203,6 +280,7 @@ export function getPlatformSpec(platform: string): PlatformSpec | null {
       id: platform,
       label: base.label,
       description: base.description,
+      tier: base.tier,
       fields: base.fields,
     };
   }
@@ -286,6 +364,7 @@ export async function upsertUserPlatformCredential(
       label: record.label,
       hint: record.hint,
       updatedAt: record.updatedAt,
+      tier: spec.tier,
       fields: spec.fields.map((f) => f.key),
       readable: true,
     };
@@ -308,6 +387,7 @@ export async function upsertUserPlatformCredential(
     label: cleanLabel,
     hint,
     updatedAt: rows?.[0]?.updated_at ?? new Date().toISOString(),
+    tier: spec.tier,
     fields: spec.fields.map((f) => f.key),
     readable: true,
   };
@@ -320,11 +400,13 @@ export async function listUserPlatformCredentials(userId: number): Promise<Platf
       .filter((c) => c.userId === userId)
       .map((c) => {
         const stored = inspectStoredPayload(c.platform, c.payload);
+        const spec = getPlatformSpec(c.platform);
         return {
           platform: c.platform as PlatformId,
           label: c.label ?? "",
           hint: c.hint,
           updatedAt: c.updatedAt,
+          tier: spec?.tier,
           fields: stored.fields,
           readable: stored.readable,
         };
@@ -338,11 +420,13 @@ export async function listUserPlatformCredentials(userId: number): Promise<Platf
 
   return (rows || []).map((row: any) => {
     const stored = inspectStoredPayload(row.platform, String(row.secret_payload ?? ""));
+    const spec = getPlatformSpec(row.platform);
     return {
       platform: row.platform as PlatformId,
       label: row.label ?? "",
       hint: row.secret_hint ?? "",
       updatedAt: row.updated_at ?? "",
+      tier: spec?.tier,
       fields: stored.fields,
       readable: stored.readable,
     };
@@ -401,6 +485,26 @@ export async function getUserCredentialBundle(userId: number): Promise<PlatformC
       } else if (row.platform === "cloudflare") {
         if (values.accountId && values.apiToken) {
           bundle.cloudflare = { accountId: values.accountId, apiToken: values.apiToken };
+        }
+      } else if (row.platform === "brave") {
+        if (values.apiKey) bundle.brave = { apiKey: values.apiKey };
+      } else if (row.platform === "tavily") {
+        if (values.apiKey) bundle.tavily = { apiKey: values.apiKey };
+      } else if (row.platform === "gcp") {
+        if (values.token) bundle.gcp = { projectId: values.projectId, token: values.token };
+      } else if (row.platform === "supabase") {
+        if (values.connectionString) bundle.supabase = { connectionString: values.connectionString };
+      } else if (row.platform === "upstash") {
+        if (values.url && values.token) bundle.upstash = { url: values.url, token: values.token };
+      } else if (row.platform === "local_bridge") {
+        if (values.bridgeUrl) {
+          bundle.localBridge = { bridgeUrl: values.bridgeUrl, apiKey: values.apiKey };
+          mcpServers.push({
+            id: "local_bridge",
+            name: row.label || "Self-Hosted Local Bridge",
+            serverUrl: values.bridgeUrl,
+            apiKey: values.apiKey || undefined,
+          });
         }
       } else if (row.platform === "mcp" || row.platform.startsWith("mcp:")) {
         if (values.serverUrl) {

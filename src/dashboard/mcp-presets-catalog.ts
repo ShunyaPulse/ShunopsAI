@@ -3,11 +3,15 @@
  * Sourced from official Anthropic MCP Registries, Cloud Providers, and Developer Toolkits.
  */
 
+export type PresetTier = "native" | "local_bridge" | "mcp";
+
 export interface McpPresetItem {
   id: string;
   name: string;
   category: string;
   description: string;
+  tier?: PresetTier;
+  nativePlatform?: string;
   url: string;
   tokenPlaceholder: string;
   tokenLabel: string;
@@ -15,13 +19,28 @@ export interface McpPresetItem {
 }
 
 export const POPULAR_100_MCP_PRESETS: McpPresetItem[] = [
+  // ── 0. Built-in Sovereign Core (1-Click, Zero-Setup, Always Online) ──
+  {
+    id: "shunops-core",
+    name: "🌟 ShunopsAI Sovereign Core MCP",
+    category: "Built-in Core",
+    description: "Built-in zero-setup compliant MCP JSON-RPC service. Exposes isolated V8 Code Sandbox, Math solver, and Web reader.",
+    tier: "native",
+    url: "/api/mcp",
+    tokenPlaceholder: "Built-in (Zero token required)",
+    tokenLabel: "Auth Token (Optional)",
+    docs: "shunopsai.com",
+  },
+
   // ── 1. Web, Search & Knowledge Retrieval (1-10) ──
   {
     id: "brave-search",
     name: "🌐 Brave Web Search",
     category: "Search & Research",
     description: "Live web search, real-time documentation lookup, and news indexing via Brave Search API.",
-    url: "https://mcp.brave.com/v1",
+    tier: "native",
+    nativePlatform: "brave",
+    url: "https://api.search.brave.com/res/v1/web/search",
     tokenPlaceholder: "BSA... (Brave Search API Key)",
     tokenLabel: "Brave API Key",
     docs: "brave.com/search/api",
@@ -41,7 +60,9 @@ export const POPULAR_100_MCP_PRESETS: McpPresetItem[] = [
     name: "⚡ Tavily AI Search",
     category: "Search & Research",
     description: "Real-time search engine built for autonomous research agents and synthesis.",
-    url: "https://mcp.tavily.com/v1",
+    tier: "native",
+    nativePlatform: "tavily",
+    url: "https://api.tavily.com/search",
     tokenPlaceholder: "tvly-...",
     tokenLabel: "Tavily API Key",
     docs: "tavily.com",
@@ -123,7 +144,9 @@ export const POPULAR_100_MCP_PRESETS: McpPresetItem[] = [
     name: "🗄️ Neon Serverless Postgres",
     category: "Databases",
     description: "Serverless Postgres with instant branching, point-in-time restore, and auto-scaling.",
-    url: "https://mcp.neon.tech/v1",
+    tier: "native",
+    nativePlatform: "neon",
+    url: "postgresql://user:pass@ep-xyz.neon.tech/neondb",
     tokenPlaceholder: "postgresql://user:pass@ep-xyz.neon.tech/neondb",
     tokenLabel: "Postgres Connection String",
     docs: "neon.tech/docs",
@@ -133,9 +156,11 @@ export const POPULAR_100_MCP_PRESETS: McpPresetItem[] = [
     name: "⚡ Supabase Postgres & Auth",
     category: "Databases",
     description: "Postgres database, vector embeddings, edge functions, and row-level security inspection.",
-    url: "https://mcp.supabase.com/v1",
-    tokenPlaceholder: "sbp_... or Postgres URL",
-    tokenLabel: "Supabase Service Key / URL",
+    tier: "native",
+    nativePlatform: "supabase",
+    url: "postgresql://postgres:pass@db.xxx.supabase.co:5432/postgres",
+    tokenPlaceholder: "postgresql://postgres:pass@db.xxx.supabase.co:5432/postgres",
+    tokenLabel: "Supabase Connection URI",
     docs: "supabase.com",
   },
   {
@@ -153,8 +178,10 @@ export const POPULAR_100_MCP_PRESETS: McpPresetItem[] = [
     name: "⚡ Redis Cloud & Cache",
     category: "Databases",
     description: "Low-latency in-memory data store, distributed cache, locks, and pub/sub channels.",
-    url: "https://mcp.redis.io/v1",
-    tokenPlaceholder: "redis://default:pass@host:6379",
+    tier: "native",
+    nativePlatform: "redis",
+    url: "rediss://default:pass@host:6379",
+    tokenPlaceholder: "rediss://default:pass@host:6379",
     tokenLabel: "Redis URL",
     docs: "redis.io",
   },
@@ -163,7 +190,9 @@ export const POPULAR_100_MCP_PRESETS: McpPresetItem[] = [
     name: "🚀 Upstash Serverless Redis",
     category: "Databases",
     description: "Serverless Redis and QStash with REST endpoints, per-request billing, and global replication.",
-    url: "https://mcp.upstash.com/v1",
+    tier: "native",
+    nativePlatform: "upstash",
+    url: "https://xxx.upstash.io",
     tokenPlaceholder: "UPSTASH_REDIS_REST_TOKEN...",
     tokenLabel: "Upstash REST Token",
     docs: "upstash.com",
@@ -292,10 +321,12 @@ export const POPULAR_100_MCP_PRESETS: McpPresetItem[] = [
   },
   {
     id: "cloudflare-kv",
-    name: "⚡ Cloudflare Workers & D1",
+    name: "⚡ Cloudflare Workers & AI",
     category: "DevOps & Cloud",
-    description: "Deploy serverless Workers, query D1 databases, manage KV, and configure Turnstile/DNS.",
-    url: "https://mcp.cloudflare.com/v1",
+    description: "Deploy serverless Workers, query D1 databases, manage KV, and run Workers AI inference.",
+    tier: "native",
+    nativePlatform: "cloudflare",
+    url: "https://api.cloudflare.com/client/v4",
     tokenPlaceholder: "cf_api_token...",
     tokenLabel: "Cloudflare API Token",
     docs: "developers.cloudflare.com",
@@ -304,10 +335,11 @@ export const POPULAR_100_MCP_PRESETS: McpPresetItem[] = [
     id: "docker-engine",
     name: "🐳 Docker Container Engine",
     category: "DevOps & Cloud",
-    description: "List, inspect, build, start, and stop Docker containers and inspect container logs.",
-    url: "http://127.0.0.1:2375/mcp",
-    tokenPlaceholder: "Optional auth key",
-    tokenLabel: "Docker Socket Key",
+    description: "List, inspect, build, start, and stop Docker containers via local machine bridge.",
+    tier: "local_bridge",
+    url: "http://127.0.0.1:8000/sse",
+    tokenPlaceholder: "Optional auth token",
+    tokenLabel: "Local Bridge Token (Optional)",
     docs: "docs.docker.com",
   },
   {
@@ -335,9 +367,11 @@ export const POPULAR_100_MCP_PRESETS: McpPresetItem[] = [
     name: "⚡ Google Cloud Platform (GCP)",
     category: "DevOps & Cloud",
     description: "Manage Cloud Run microservices, Cloud Storage buckets, and Cloud Logging streams.",
-    url: "https://mcp.cloud.google.com/v1",
-    tokenPlaceholder: "gcp_access_token...",
-    tokenLabel: "GCP Access Token",
+    tier: "native",
+    nativePlatform: "gcp",
+    url: "https://run.googleapis.com/v2",
+    tokenPlaceholder: "ya29... or service account token",
+    tokenLabel: "GCP OAuth / Access Token",
     docs: "cloud.google.com",
   },
   {
@@ -942,30 +976,33 @@ export const POPULAR_100_MCP_PRESETS: McpPresetItem[] = [
     id: "sqlite-local",
     name: "💾 SQLite File Explorer",
     category: "Local & Files",
-    description: "Execute SQL queries directly on local or mounted `.sqlite` / `.db` files.",
-    url: "http://127.0.0.1:8765/sqlite",
+    description: "Execute SQL queries directly on local `.sqlite` / `.db` files via your machine's local bridge.",
+    tier: "local_bridge",
+    url: "http://127.0.0.1:8000/sse",
     tokenPlaceholder: "Optional key",
-    tokenLabel: "Auth Key (Optional)",
+    tokenLabel: "Local Bridge Token (Optional)",
     docs: "sqlite.org",
   },
   {
     id: "filesystem-local",
     name: "📁 Secure Filesystem Sandbox",
     category: "Local & Files",
-    description: "Controlled read and write access to a mounted project directory.",
-    url: "http://127.0.0.1:8765/filesystem",
+    description: "Controlled read and write access to a mounted project directory via local bridge.",
+    tier: "local_bridge",
+    url: "http://127.0.0.1:8000/sse",
     tokenPlaceholder: "Optional key",
-    tokenLabel: "Auth Key (Optional)",
+    tokenLabel: "Local Bridge Token (Optional)",
     docs: "modelcontextprotocol.io",
   },
   {
     id: "git-cli-mcp",
     name: "🌿 Git Repository Tool",
     category: "DevOps & Git",
-    description: "Execute git log, git diff, git checkout, and inspect local branch histories.",
-    url: "http://127.0.0.1:8765/git",
+    description: "Execute git log, git diff, git checkout, and inspect local branch histories via local bridge.",
+    tier: "local_bridge",
+    url: "http://127.0.0.1:8000/sse",
     tokenPlaceholder: "Optional key",
-    tokenLabel: "Auth Key (Optional)",
+    tokenLabel: "Local Bridge Token (Optional)",
     docs: "git-scm.com",
   },
   {

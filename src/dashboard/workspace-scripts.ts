@@ -949,19 +949,38 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]'): stri
       const select = document.getElementById('platform-select');
       if (!select) return;
       const previous = select.value;
-      const options = platformSpecs.map(function (spec) {
+
+      const nativeOptions = [];
+      const bridgeOptions = [];
+      const mcpOptions = [];
+
+      platformSpecs.forEach(function (spec) {
         const suffix = platformIsConnected(spec.id) ? ' ✓ connected' : '';
-        return '<option value="' + escapeHtmlAttr(spec.id) + '">' + escapeHtmlText(spec.label + suffix) + '</option>';
+        const optHtml = '<option value="' + escapeHtmlAttr(spec.id) + '">' + escapeHtmlText(spec.label + suffix) + '</option>';
+        if (spec.tier === 'native') nativeOptions.push(optHtml);
+        else if (spec.tier === 'local_bridge') bridgeOptions.push(optHtml);
+        else mcpOptions.push(optHtml);
       });
 
-      // Also include any connected MCP preset platforms
+      // Also include any connected custom MCP preset platforms
       platformConnected.forEach(function (conn) {
         if (conn.platform.startsWith('mcp:') && !platformSpecs.some(function (s) { return s.id === conn.platform; })) {
-          options.push('<option value="' + escapeHtmlAttr(conn.platform) + '">' + escapeHtmlText((conn.label || conn.platform) + ' ✓ connected') + '</option>');
+          mcpOptions.push('<option value="' + escapeHtmlAttr(conn.platform) + '">' + escapeHtmlText((conn.label || conn.platform) + ' ✓ connected') + '</option>');
         }
       });
 
-      select.innerHTML = options.join('');
+      let html = '';
+      if (nativeOptions.length) {
+        html += '<optgroup label="⚡ Direct Native Drivers (Zero-Daemon)">' + nativeOptions.join('') + '</optgroup>';
+      }
+      if (bridgeOptions.length) {
+        html += '<optgroup label="💻 Self-Hosted / Local Bridge (Localhost)">' + bridgeOptions.join('') + '</optgroup>';
+      }
+      if (mcpOptions.length) {
+        html += '<optgroup label="🌐 Remote Model Context Protocol (MCP)">' + mcpOptions.join('') + '</optgroup>';
+      }
+
+      select.innerHTML = html;
       if (previous && (platformSpecs.some(function (s) { return s.id === previous; }) || platformConnected.some(function (c) { return c.platform === previous; }))) {
         select.value = previous;
       }
@@ -1289,14 +1308,52 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]'): stri
       toggleMcpDirectoryModal(true);
     }
 
+    let currentTierFilter = 'all';
+
+    function setPresetTierFilter(tier) {
+      currentTierFilter = tier;
+      ['all', 'native', 'local_bridge', 'mcp'].forEach(t => {
+        const btnId = 'tier-tab-' + (t === 'local_bridge' ? 'local' : t);
+        const btn = document.getElementById(btnId);
+        if (!btn) return;
+        if (t === tier) {
+          btn.style.background = 'rgba(255,255,255,0.22)';
+          btn.style.borderColor = '#fff';
+          btn.style.fontWeight = '700';
+        } else {
+          btn.style.fontWeight = '500';
+          if (t === 'all') {
+            btn.style.background = 'rgba(255,255,255,0.08)';
+            btn.style.borderColor = 'rgba(255,255,255,0.2)';
+          } else if (t === 'native') {
+            btn.style.background = 'rgba(16,185,129,0.08)';
+            btn.style.borderColor = 'rgba(16,185,129,0.35)';
+          } else if (t === 'local_bridge') {
+            btn.style.background = 'rgba(245,158,11,0.08)';
+            btn.style.borderColor = 'rgba(245,158,11,0.35)';
+          } else {
+            btn.style.background = 'rgba(56,189,248,0.08)';
+            btn.style.borderColor = 'rgba(56,189,248,0.35)';
+          }
+        }
+      });
+      filterMcpDirectory();
+    }
+
     function filterMcpDirectory() {
       const query = (document.getElementById('mcp-search-input')?.value || '').toLowerCase().trim();
-      const filtered = MCP_PRESETS.filter(p =>
-        p.name.toLowerCase().includes(query) ||
-        p.description.toLowerCase().includes(query) ||
-        p.category.toLowerCase().includes(query) ||
-        p.id.toLowerCase().includes(query)
-      );
+      const filtered = MCP_PRESETS.filter(p => {
+        const pTier = p.tier || 'mcp';
+        const tierMatch = currentTierFilter === 'all' || pTier === currentTierFilter;
+        if (!tierMatch) return false;
+        if (!query) return true;
+        return (
+          p.name.toLowerCase().includes(query) ||
+          p.description.toLowerCase().includes(query) ||
+          p.category.toLowerCase().includes(query) ||
+          p.id.toLowerCase().includes(query)
+        );
+      });
       renderMcpPresets(filtered);
     }
 
@@ -1304,28 +1361,40 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]'): stri
       const grid = document.getElementById('mcp-presets-grid');
       const countBadge = document.getElementById('mcp-count-badge');
       if (countBadge) {
-        countBadge.textContent = presets.length + ' Presets';
+        countBadge.textContent = presets.length + ' Connectors';
       }
       if (!grid) return;
       if (!presets.length) {
-        grid.innerHTML = '<div style="grid-column:1/-1; text-align:center; padding:30px; color:#94a3b8; font-size:12.5px;">No matching MCP presets found. Use "Custom Remote MCP Server" to connect your own endpoint.</div>';
+        grid.innerHTML = '<div style="grid-column:1/-1; text-align:center; padding:30px; color:#94a3b8; font-size:12.5px;">No matching connectors found in this category.</div>';
         return;
       }
-      grid.innerHTML = presets.map(p => \`
-        <div class="mcp-card">
-          <div>
-            <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px; margin-bottom:6px;">
-              <strong style="font-size:13px; color:#fff; font-weight:700; line-height:1.3;">\${escapeHtmlText(p.name)}</strong>
-              <span style="font-size:9.5px; background:rgba(56,189,248,0.12); color:#38bdf8; border:1px solid rgba(56,189,248,0.25); padding:2px 7px; border-radius:10px; white-space:nowrap; flex-shrink:0;">\${escapeHtmlText(p.category)}</span>
-            </div>
-            <p style="font-size:11.5px; color:#94a3b8; line-height:1.45; margin:6px 0 12px;">\${escapeHtmlText(p.description)}</p>
-          </div>
-          <div style="display:flex; justify-content:space-between; align-items:center; border-top:1px solid rgba(255,255,255,0.06); padding-top:10px; margin-top:auto;">
-            <span style="font-size:10px; color:#64748b; font-family:'JetBrains Mono', monospace; text-overflow:ellipsis; overflow:hidden; white-space:nowrap; max-width:130px;">\${escapeHtmlText(p.docs)}</span>
-            <button class="btn-sub" style="font-size:11px; padding:5px 12px; background:#2563eb; color:#fff; border:none; font-weight:600; border-radius:6px;" onclick="selectMcpPreset('\${escapeHtmlAttr(p.id)}')">Use Preset ⚡</button>
-          </div>
-        </div>
-      \`).join('');
+      grid.innerHTML = presets.map(p => {
+        const pTier = p.tier || 'mcp';
+        let tierBadge = '<span style="font-size:9px; background:rgba(56,189,248,0.12); color:#38bdf8; border:1px solid rgba(56,189,248,0.25); padding:2px 6px; border-radius:10px; font-weight:600;">🌐 Remote MCP</span>';
+        let actionBtn = '<button class="btn-sub" style="font-size:11px; padding:5px 12px; background:#2563eb; color:#fff; border:none; font-weight:600; border-radius:6px;" data-preset-id="' + escapeHtmlAttr(p.id) + '" onclick="selectMcpPreset(this.dataset.presetId)">Use Preset 🌐</button>';
+
+        if (pTier === 'native') {
+          tierBadge = '<span style="font-size:9px; background:rgba(16,185,129,0.15); color:#10b981; border:1px solid rgba(16,185,129,0.35); padding:2px 6px; border-radius:10px; font-weight:700;">⚡ Native Driver</span>';
+          actionBtn = '<button class="btn-sub" style="font-size:11px; padding:5px 12px; background:#10b981; color:#fff; border:none; font-weight:600; border-radius:6px;" data-preset-id="' + escapeHtmlAttr(p.id) + '" onclick="selectMcpPreset(this.dataset.presetId)">Connect Native ⚡</button>';
+        } else if (pTier === 'local_bridge') {
+          tierBadge = '<span style="font-size:9px; background:rgba(245,158,11,0.15); color:#f59e0b; border:1px solid rgba(245,158,11,0.35); padding:2px 6px; border-radius:10px; font-weight:700;">💻 Local Bridge</span>';
+          actionBtn = '<button class="btn-sub" style="font-size:11px; padding:5px 12px; background:#d97706; color:#fff; border:none; font-weight:600; border-radius:6px;" data-preset-id="' + escapeHtmlAttr(p.id) + '" onclick="selectMcpPreset(this.dataset.presetId)">Use Bridge 💻</button>';
+        }
+
+        return '<div class="mcp-card">'
+          + '<div>'
+          + '<div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px; margin-bottom:6px;">'
+          + '<strong style="font-size:13px; color:#fff; font-weight:700; line-height:1.3;">' + escapeHtmlText(p.name) + '</strong>'
+          + tierBadge
+          + '</div>'
+          + '<p style="font-size:11.5px; color:#94a3b8; line-height:1.45; margin:6px 0 12px;">' + escapeHtmlText(p.description) + '</p>'
+          + '</div>'
+          + '<div style="display:flex; justify-content:space-between; align-items:center; border-top:1px solid rgba(255,255,255,0.06); padding-top:10px; margin-top:auto;">'
+          + '<span style="font-size:10px; color:#64748b; font-family:monospace; text-overflow:ellipsis; overflow:hidden; white-space:nowrap; max-width:120px;">' + escapeHtmlText(p.docs) + '</span>'
+          + actionBtn
+          + '</div>'
+          + '</div>';
+      }).join('');
     }
 
     function selectMcpPreset(presetId) {
@@ -1334,38 +1403,70 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]'): stri
       toggleMcpDirectoryModal(false);
 
       const platformSelect = document.getElementById('platform-select');
-      if (platformSelect) {
-        const customPlatformId = 'mcp:' + preset.id;
-        let opt = platformSelect.querySelector('option[value="' + customPlatformId + '"]');
-        if (!opt) {
-          opt = document.createElement('option');
-          opt.value = customPlatformId;
-          opt.textContent = '⚡ ' + preset.name + ' (MCP Preset)' + (platformIsConnected(customPlatformId) ? ' ✓ connected' : '');
-          platformSelect.appendChild(opt);
-        }
-        platformSelect.value = customPlatformId;
+      if (!platformSelect) return;
+
+      // Tier 1: Direct Native Driver available
+      if (preset.tier === 'native' && preset.nativePlatform) {
+        platformSelect.value = preset.nativePlatform;
         activeMcpPreset = preset;
         onPlatformSelectChange();
 
-        // Auto-fill values
+        setTimeout(() => {
+          const firstInput = document.querySelector('#platform-field-inputs input');
+          if (firstInput) firstInput.focus();
+          setPlatformStatus('Selected ⚡ Direct Native Driver for ' + preset.name + '. Enter your connection credentials directly.', true);
+        }, 50);
+        return;
+      }
+
+      // Tier 2: Self-Hosted / Local Bridge
+      if (preset.tier === 'local_bridge') {
+        const bridgePlatformId = 'mcp:' + preset.id;
+        let opt = platformSelect.querySelector('option[value="' + bridgePlatformId + '"]');
+        if (!opt) {
+          opt = document.createElement('option');
+          opt.value = bridgePlatformId;
+          opt.textContent = '💻 ' + preset.name + ' (Local Bridge)' + (platformIsConnected(bridgePlatformId) ? ' ✓ connected' : '');
+          platformSelect.appendChild(opt);
+        }
+        platformSelect.value = bridgePlatformId;
+        activeMcpPreset = preset;
+        onPlatformSelectChange();
+
         setTimeout(() => {
           const urlInput = document.querySelector('[data-cred-field="serverUrl"]');
-          const tokenInput = document.querySelector('[data-cred-field="apiKey"]');
-          const tokenLabel = document.querySelector('[data-cred-label="apiKey"]');
-
-          if (urlInput && preset.url) {
-            urlInput.value = preset.url;
-          }
-          if (tokenInput && preset.tokenPlaceholder) {
-            tokenInput.placeholder = preset.tokenPlaceholder;
-            tokenInput.focus();
-          }
-          if (tokenLabel && preset.tokenLabel) {
-            tokenLabel.textContent = preset.tokenLabel;
-          }
-          setPlatformStatus('Configured ' + preset.name + '. Click "Test Connection 🔌" to verify, then "Connect Account".', true);
+          if (urlInput) urlInput.value = preset.url || 'http://127.0.0.1:8000/sse';
+          setPlatformStatus('Configured 💻 Local Bridge for ' + preset.name + '. Click "Test Connection 🔌" to verify, then "Connect Account".', true);
         }, 50);
+        return;
       }
+
+      // Tier 3: Remote Cloud MCP Server
+      const customPlatformId = 'mcp:' + preset.id;
+      let opt = platformSelect.querySelector('option[value="' + customPlatformId + '"]');
+      if (!opt) {
+        opt = document.createElement('option');
+        opt.value = customPlatformId;
+        opt.textContent = '🌐 ' + preset.name + ' (MCP Server)' + (platformIsConnected(customPlatformId) ? ' ✓ connected' : '');
+        platformSelect.appendChild(opt);
+      }
+      platformSelect.value = customPlatformId;
+      activeMcpPreset = preset;
+      onPlatformSelectChange();
+
+      setTimeout(() => {
+        const urlInput = document.querySelector('[data-cred-field="serverUrl"]');
+        const tokenInput = document.querySelector('[data-cred-field="apiKey"]');
+        const tokenLabel = document.querySelector('[data-cred-label="apiKey"]');
+
+        if (urlInput && preset.url) urlInput.value = preset.url;
+        if (tokenInput && preset.tokenPlaceholder) {
+          tokenInput.placeholder = preset.tokenPlaceholder;
+          tokenInput.focus();
+        }
+        if (tokenLabel && preset.tokenLabel) tokenLabel.textContent = preset.tokenLabel;
+        setPlatformStatus('Configured ' + preset.name + '. Click "Test Connection 🔌" to verify, then "Connect Account".', true);
+      }, 50);
     }
 
     window.addEventListener('DOMContentLoaded', () => {

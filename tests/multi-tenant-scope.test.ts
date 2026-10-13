@@ -355,7 +355,19 @@ async function runSuite(): Promise<void> {
     assert.equal(body.vaultReady, true, "the form needs to know storage is configured");
 
     const ids = body.available.map((spec: any) => spec.id).sort();
-    assert.deepEqual(ids, ["cloudflare", "github", "mcp", "neon", "redis"]);
+    assert.deepEqual(ids, [
+      "brave",
+      "cloudflare",
+      "gcp",
+      "github",
+      "local_bridge",
+      "mcp",
+      "neon",
+      "redis",
+      "supabase",
+      "tavily",
+      "upstash",
+    ]);
     for (const spec of body.available) {
       assert.ok(spec.description.length > 10, `${spec.id} needs a description`);
       assert.ok(spec.fields.length > 0, `${spec.id} needs fields`);

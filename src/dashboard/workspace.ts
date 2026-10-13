@@ -377,10 +377,19 @@ ${WORKSPACE_STYLES}
         <button class="modal-close-btn" onclick="toggleMcpDirectoryModal(false)" title="Close">&times;</button>
       </div>
       <div class="mcp-modal-body">
-        <!-- Search bar & Count badge -->
-        <div style="display:flex; gap:10px; align-items:center; margin-bottom:14px; position:sticky; top:0; z-index:5; background:#0b1120; padding-bottom:8px;">
-          <input type="text" id="mcp-search-input" oninput="filterMcpDirectory()" placeholder="🔍 Search 100+ MCP servers (e.g. search, postgres, github, docker, slack, aws, redis)..." style="flex:1; background:#060a12; border:1px solid #1e293b; border-radius:8px; padding:10px 14px; color:#fff; font-size:13px; outline:none;" />
-          <span id="mcp-count-badge" style="font-size:11px; background:rgba(56,189,248,0.12); color:#38bdf8; border:1px solid rgba(56,189,248,0.3); padding:8px 12px; border-radius:8px; font-weight:600; white-space:nowrap;">100 Presets</span>
+        <!-- Search bar, Tier Filter Chips & Count badge -->
+        <div style="position:sticky; top:0; z-index:5; background:#0b1120; padding-bottom:12px;">
+          <div style="display:flex; gap:10px; align-items:center; margin-bottom:10px;">
+            <input type="text" id="mcp-search-input" oninput="filterMcpDirectory()" placeholder="🔍 Search 100+ connectors (e.g. search, postgres, github, docker, gcp, redis, sqlite)..." style="flex:1; background:#060a12; border:1px solid #1e293b; border-radius:8px; padding:10px 14px; color:#fff; font-size:13px; outline:none;" />
+            <span id="mcp-count-badge" style="font-size:11px; background:rgba(56,189,248,0.12); color:#38bdf8; border:1px solid rgba(56,189,248,0.3); padding:8px 12px; border-radius:8px; font-weight:600; white-space:nowrap;">100 Connectors</span>
+          </div>
+          <!-- 3-Tier Filter Chips -->
+          <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+            <button type="button" class="btn-sub" id="tier-tab-all" onclick="setPresetTierFilter('all')" style="font-size:11px; padding:4px 12px; border-radius:14px; background:rgba(255,255,255,0.08); color:#fff; border-color:rgba(255,255,255,0.2);">All Connectors</button>
+            <button type="button" class="btn-sub" id="tier-tab-native" onclick="setPresetTierFilter('native')" style="font-size:11px; padding:4px 12px; border-radius:14px; border-color:rgba(16,185,129,0.35); color:#10b981; background:rgba(16,185,129,0.08);">⚡ Direct Native Drivers</button>
+            <button type="button" class="btn-sub" id="tier-tab-local" onclick="setPresetTierFilter('local_bridge')" style="font-size:11px; padding:4px 12px; border-radius:14px; border-color:rgba(245,158,11,0.35); color:#f59e0b; background:rgba(245,158,11,0.08);">💻 Self-Hosted / Local Bridge</button>
+            <button type="button" class="btn-sub" id="tier-tab-mcp" onclick="setPresetTierFilter('mcp')" style="font-size:11px; padding:4px 12px; border-radius:14px; border-color:rgba(56,189,248,0.35); color:#38bdf8; background:rgba(56,189,248,0.08);">🌐 Remote MCP Servers</button>
+          </div>
         </div>
         <!-- MCP Presets Grid: Exactly 3 items per row (3 ke neeche 3) -->
         <div id="mcp-presets-grid" style="display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:12px;">
