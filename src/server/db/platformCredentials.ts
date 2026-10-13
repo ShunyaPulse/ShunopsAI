@@ -377,7 +377,7 @@ export async function getUserCredentialBundle(userId: number): Promise<PlatformC
           break;
       }
     } catch (err: any) {
-      console.warn(`[Vault] Could not decrypt ${row.platform} credential for user ${userId}:`, err?.message || err);
+      console.warn("[Vault] Could not decrypt %s credential for user %s:", row.platform, userId, err?.message || err);
     }
   }
 
