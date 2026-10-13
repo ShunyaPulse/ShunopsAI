@@ -153,12 +153,38 @@ STRICT FILMMAKING DIRECTIVES:
      * Summarize high-yield board exam takeaways and questions.
 3. SUBTITLES ("caption"):
    - Every single scene MUST have "caption" written in 100% pure, clean ENGLISH words.
-4. SCENE VISUAL PROMPTS:
-   - Detailed, 8k photographic descriptions for Wan 2.1 video generation.
-   - Describe period clothing, authentic lighting, camera distance (close-up, medium shot, wide shot), and subtle facial expressions.
-5. LENGTH:
+4. CHARACTER VISUAL BIBLE & 100% ACTOR CONSISTENCY:
+   - Establish and maintain a strict Character Visual DNA for recurring characters:
+     * Protagonist / Narrator DNA: Exact age, hair color/style, mustache, facial structure, skin tone, thin wire spectacles, dark brown wool tweed suit with pocket watch chain.
+     * The Photographer DNA: Exact age (elderly 60s), frail sallow face, sunken cheeks, wispy grey hair, round horn-rimmed glasses, dusty charcoal frock coat.
+   - MANDATORY: Whenever a character appears in a scene, their visual prompt MUST start with their exact DNA descriptor verbatim.
+   - NEVER introduce random people, unexpected ethnicities, or female characters unless explicitly in the textbook story. In waiting room scenes, the Narrator remains the sole focused subject.
+
+5. TONE & EMOTION CALIBRATION (SATIRE & HUMOR, ZERO HORROR):
+   - This story is a celebrated British/Canadian comic satire mocking portrait vanity.
+   - Depict polite gentlemanly frustration, comical awkwardness, and rigid poses.
+   - STRICTLY FORBIDDEN: horror, choking, strangling, menacing aggression, physical assault, dark torture dungeon.
+   - When the photographer adjusts the client's head/camera: describe polite comical adjustments from beside the tripod. NEVER describe hands choking, grabbing, or twisting necks.
+
+6. AUTHENTIC PERIOD SETTING (COZY VICTORIAN STUDIO, ZERO HANGARS):
+   - All studio scenes must be an authentic, cozy 1890s-1900s Victorian-Edwardian London photography parlor:
+     * Mahogany wood wainscoting, floral damask wallpaper, draped velvet curtains, brass bellows camera on wooden tripod, soft natural light from an attic skylight.
+     * STRICTLY FORBIDDEN: modern industrial warehouse, airplane hangar, empty factory, modern concrete building.
+
+7. ZERO-DIFFUSION TEXT RULE (NO GIBBERISH RUNES):
+   - Diffusion models CANNOT spell words or render typography.
+   - In all "visual_prompt" fields: STRICTLY ZERO text, ZERO bullet points, ZERO charts, ZERO written words.
+   - For reading scenes: describe "holding an aged illustrated Victorian paper with faint sepia engravings (no readable text)".
+   - For Exam Booster / summary scenes: describe cinematic symbolic study metaphors (e.g. "An ornate antique mahogany study desk, vintage open leather-bound book, brass reading lamp, fountain pen, warm library background with soft atmospheric lighting, clean text-free composition").
+
+8. ANTI-MORPHING & CAMERA RIGIDITY:
+   - For all dialogue and close-up scenes, use: "Locked static tripod shot, eye-level framing, subtle natural breathing, still hands resting on lap, zero hand-to-face touching, crisp facial stability".
+   - Avoid complex multi-hand interactions or close-up finger movements that cause AI morphing.
+
+9. LENGTH:
    - Generate approximately ${targetScenes} scenes total (runtime 3.5 to 4.5 minutes).
-6. YOUTUBE METADATA:
+
+10. YOUTUBE METADATA:
    - High-CTR click-worthy educational Title including Chapter name, Class, Board, and "Full Explanation in Hindi".
    - High-ranking SEO Tags, structured Description, and a high-contrast Thumbnail concept prompt.
 

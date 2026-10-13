@@ -310,7 +310,11 @@ class WanT4OptimizedEngine:
                 f"unlabeled telemetry displays, zero text, zero letters, zero numbers"
             )
             neg_prompt = (
-                "text, letters, words, writing, numbers, labels, charts, line graphs, pseudo-code, glyphs, "
+                "horror, choking, strangling, neck grabbing, violence, assault, aggression, threat, painful grimace, distress, screaming, blood, "
+                "warehouse, airplane hangar, modern factory, industrial hall, industrial interior, modern architecture, "
+                "inconsistent face, multiple different faces, female model, woman reading magazine, modern clothing, casual clothing, t-shirt, jeans, hoodie, "
+                "mutated hands, extra fingers, missing fingers, fused fingers, distorted hands, morphing face, melting skin, warped anatomy, "
+                "text, letters, words, writing, numbers, labels, charts, line graphs, pseudo-code, glyphs, bullet points, presentation slide, document, page with text, "
                 "garbled ui, blurry text, watermarks, symbols, subtitles, hud text, "
                 "temporal morphing, surface rippling, breathing walls, gelatinous motion, boiling edges, "
                 "whip pan, fast zoom, motion smear, extreme motion blur, "
@@ -388,15 +392,15 @@ class WanT4OptimizedEngine:
             raw_d = duration(raw_clip)
             pts_mult = shot_dur / max(raw_d, 0.4)
 
-            # RIFE Motion-Compensated Interpolation + Modern Digital Cinema Grade:
-            # 1. Optical-flow Motion Interpolation (minterpolate): Bi-directional MCI + AOBMC + VSBMC
-            #    converts frames to smooth 24 FPS with authentic motion vectors (Zero AI stutter).
+            # Frame Blend Interpolation + Modern Digital Cinema Grade:
+            # 1. Linear Frame Blend Interpolation (minterpolate mi_mode=blend):
+            #    converts frames to smooth 24 FPS without block-matching optical-flow skin/hand morphing.
             # 2. Modern 1080p Lanczos Scaling: 1920x1080
             # 3. Clean digital edge enhancement: unsharp
             # 4. Filmic dynamic color space: contrast 1.06, saturation 1.12
             vf_pipeline = (
                 f"setpts={pts_mult:.4f}*PTS,"
-                f"minterpolate=fps=24:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1,"
+                f"minterpolate=fps=24:mi_mode=blend,"
                 f"scale=1920:1080:flags=lanczos,"
                 f"unsharp=5:5:0.5:5:5:0.2,"
                 f"eq=contrast=1.06:brightness=0.01:saturation=1.12,"
@@ -611,33 +615,50 @@ async def main():
         raise RuntimeError("No scenes were rendered!")
 
     # Robust Cinematic Outro Buffer:
-    # 1. Pad final video clip directly with 2.5s last-frame clone (tpad without fragile -sseof seeking)
-    print("\nAdding 2.5s cinematic outro freeze buffer to final video clip...")
+    # 1. Determine exact timestamp where narration speech completes
+    speech_end_time = master_cues[-1]["end"] if master_cues else sum(duration(f) for f in narr_files)
+    print(f"[Outro] Spoken narration dialogue concludes at {speech_end_time:.2f}s.")
+
+    # 2. Add guaranteed 3.5s freeze buffer to final video clip
+    print("\nAdding 3.5s cinematic outro freeze buffer to final video clip...")
     last_v = clips[-1]
     padded_v = f"{TMP}/v_final_padded.mp4"
     ok_v = run([
         "ffmpeg", "-y", "-i", last_v,
-        "-vf", "tpad=stop_mode=clone:stop_duration=2.5",
+        "-vf", "tpad=stop_mode=clone:stop_duration=3.5",
         "-c:v", "libx264", "-preset", "veryfast", padded_v
     ])
-    if ok_v and os.path.exists(padded_v) and os.path.getsize(padded_v) > 1000:
-        clips[-1] = padded_v
-    else:
-        print("[Warning] Outro video tpad padding failed, keeping original final clip.")
+    if not (ok_v and os.path.exists(padded_v) and os.path.getsize(padded_v) > 1000):
+        # Bulletproof fallback: extract last frame and generate freeze loop clip
+        freeze_img = f"{TMP}/outro_last_frame.png"
+        run(["ffmpeg", "-y", "-sseof", "-0.1", "-i", last_v, "-frames:v", "1", "-update", "1", freeze_img])
+        freeze_clip = f"{TMP}/outro_freeze_clip.mp4"
+        ok_freeze = run([
+            "ffmpeg", "-y", "-loop", "1", "-i", freeze_img,
+            "-c:v", "libx264", "-t", "3.5", "-pix_fmt", "yuv420p", "-r", "24", freeze_clip
+        ])
+        if ok_freeze and os.path.exists(freeze_clip):
+            sub_list = f"{TMP}/outro_sublist.txt"
+            open(sub_list, "w").write(f"file '{last_v}'\nfile '{freeze_clip}'\n")
+            run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", sub_list, "-c", "copy", padded_v])
 
-    # 2. Pad final narration audio with 2.0s trailing silence buffer so dialogue never ends mid-word
-    print("Adding 2.0s silence buffer to final narration audio...")
+    if os.path.exists(padded_v) and os.path.getsize(padded_v) > 1000:
+        clips[-1] = padded_v
+        print("[Outro] Final video clip padded with 3.5s freeze hold.")
+    else:
+        print("[Warning] Outro video padding failed, keeping original final clip.")
+
+    # 3. Pad final narration audio with 3.5s trailing silence so dialogue never ends abruptly
+    print("Adding 3.5s silence buffer to final narration audio...")
     last_a = narr_files[-1]
     padded_a = f"{TMP}/a_final_padded.mp3"
     ok_a = run([
         "ffmpeg", "-y", "-i", last_a,
-        "-af", "apad=pad_dur=2.0",
+        "-af", "apad=pad_dur=3.5",
         "-c:a", "libmp3lame", "-b:a", "192k", padded_a
     ])
     if ok_a and os.path.exists(padded_a) and os.path.getsize(padded_a) > 500:
         narr_files[-1] = padded_a
-    else:
-        print("[Warning] Outro audio apad padding failed, keeping original final audio.")
 
     # Assemble concatenated master scenes and narration
     print("\nConcatenating master continuous scenes...")
@@ -647,20 +668,33 @@ async def main():
     run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", f"{TMP}/vlist.txt", "-c", "copy", f"{TMP}/video_raw.mp4"])
     run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", f"{TMP}/alist.txt", "-c:a", "libmp3lame", f"{TMP}/narration.mp3"])
 
-    # Ensure audio length matches video length exactly so -shortest never clips speech
+    # Synchronize total durations so -shortest never prematurely cuts dialogue or holds
     v_raw_dur = duration(f"{TMP}/video_raw.mp4")
     a_raw_dur = duration(f"{TMP}/narration.mp3")
     print(f"Master assembly duration check: Video = {v_raw_dur:.2f}s, Audio = {a_raw_dur:.2f}s")
-    if v_raw_dur > a_raw_dur + 0.05:
+    target_master_dur = max(v_raw_dur, a_raw_dur, round(speech_end_time + 3.0, 2))
+
+    if target_master_dur > a_raw_dur + 0.05:
         a_matched = f"{TMP}/narration_matched.mp3"
         run([
             "ffmpeg", "-y", "-i", f"{TMP}/narration.mp3",
-            "-af", f"apad=whole_dur={v_raw_dur:.3f}",
+            "-af", f"apad=whole_dur={target_master_dur:.3f}",
             "-c:a", "libmp3lame", "-b:a", "192k", a_matched
         ])
         if os.path.exists(a_matched) and os.path.getsize(a_matched) > 1000:
             shutil.move(a_matched, f"{TMP}/narration.mp3")
             a_raw_dur = duration(f"{TMP}/narration.mp3")
+
+    if target_master_dur > v_raw_dur + 0.05:
+        v_matched = f"{TMP}/video_raw_matched.mp4"
+        run([
+            "ffmpeg", "-y", "-i", f"{TMP}/video_raw.mp4",
+            "-vf", f"tpad=stop_mode=clone:stop_duration={target_master_dur - v_raw_dur + 0.1:.3f}",
+            "-c:v", "libx264", "-preset", "veryfast", v_matched
+        ])
+        if os.path.exists(v_matched) and os.path.getsize(v_matched) > 1000:
+            shutil.move(v_matched, f"{TMP}/video_raw.mp4")
+            v_raw_dur = duration(f"{TMP}/video_raw.mp4")
 
     # 4. Generate Master SRT Subtitles from Edge-TTS WordBoundaries
     print(f"Generating master subtitles from {len(master_cues)} WordBoundary cues...")
@@ -679,6 +713,7 @@ async def main():
 
     # 5. Master Grade Burn-In & Film Cohesion:
     # Pristine 1080p Digital Cinema clarity with clean typography and smooth outro fade
+    # Anti-Premature Fade: Screen remains 100% bright for 2.0s AFTER speech completes before 1.0s fade-out
     style = (
         "FontName=DejaVu Sans,FontSize=20,Bold=1,"
         "PrimaryColour=&H00FFFFFF,SecondaryColour=&H0000FFFF,"
@@ -686,12 +721,17 @@ async def main():
         "BorderStyle=1,Outline=2,Shadow=1,Alignment=2,MarginV=42"
     )
     print("Mastering final crisp modern video with burn-in captions and cinematic outro fade...")
-    fade_start = max(0.0, v_raw_dur - 0.8)
+    fade_start = round(max(speech_end_time + 2.0, v_raw_dur - 1.2), 2)
+    fade_dur = 1.0
+    if fade_start + fade_dur > v_raw_dur:
+        fade_start = max(speech_end_time + 0.5, v_raw_dur - 1.0)
+        fade_dur = max(0.5, v_raw_dur - fade_start)
+
     master_vf = (
-        f"fade=t=out:st={fade_start:.2f}:d=0.8,"
+        f"fade=t=out:st={fade_start:.2f}:d={fade_dur:.2f},"
         f"subtitles={OUT}/captions.srt:force_style='{style}'"
     )
-    master_af = f"afade=t=out:st={fade_start:.2f}:d=0.8"
+    master_af = f"afade=t=out:st={fade_start:.2f}:d={fade_dur:.2f}"
     ok = run([
         "ffmpeg", "-y", "-i", f"{TMP}/video_raw.mp4", "-i", f"{TMP}/narration.mp3",
         "-vf", master_vf,
