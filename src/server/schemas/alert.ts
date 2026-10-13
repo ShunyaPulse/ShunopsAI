@@ -57,6 +57,7 @@ export const ChatRequestSchema = Type.Object({
   message: Type.String({ minLength: 1, maxLength: 4000 }),
   history: Type.Optional(Type.String({ maxLength: 8000 })),
   modelPreference: Type.Optional(Type.String({ maxLength: 50 })),
+  image: Type.Optional(Type.String({ maxLength: 8 * 1024 * 1024 })),
   // Layer 1: Honeypot trap (Kanban-Cloud pattern: bots fill this, humans don't)
   hp_website: Type.Optional(Type.String()),
   // Layer 2: Cloudflare Turnstile token

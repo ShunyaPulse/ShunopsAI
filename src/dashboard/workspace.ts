@@ -167,8 +167,22 @@ ${WORKSPACE_STYLES}
           </div>
         </div>
 
+        <!-- Attached Image Preview Container -->
+        <div id="attached-image-container" style="display:none; align-items:center; gap:8px; padding:6px 10px; background:#0c1220; border:1px solid #1e293b; border-radius:8px; margin-bottom:8px; width:fit-content;">
+          <img id="attached-image-thumb" src="" alt="Attached preview" style="max-height:48px; max-width:64px; border-radius:4px; object-fit:cover; border:1px solid #334155;">
+          <div style="font-size:11px; color:#cbd5e1;">
+            <div id="attached-image-name" style="font-weight:600; max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">image.png</div>
+            <div id="attached-image-size" style="color:#64748b; font-size:10px;"></div>
+          </div>
+          <button type="button" onclick="clearAttachedImage()" style="background:transparent; border:none; color:#ef4444; font-size:14px; cursor:pointer; padding:2px 6px; border-radius:4px;" title="Remove image">&times;</button>
+        </div>
+
         <!-- Input Row -->
         <div class="chat-input-wrapper">
+          <input type="file" id="chat-image-input" accept="image/*" style="display:none;" onchange="handleImageAttach(this)">
+          <button type="button" id="attach-image-btn" onclick="document.getElementById('chat-image-input').click()" style="background:transparent; border:none; color:#94a3b8; font-size:16px; cursor:pointer; padding:4px 6px; border-radius:6px; display:flex; align-items:center; justify-content:center; transition:all 0.15s;" title="Attach Image (PNG, JPG, WEBP)">
+            📎
+          </button>
           <input type="text" id="user-chat-input" class="chat-input" placeholder="Type your message or follow-up question..." onkeydown="if(event.key==='Enter') sendUserChat()">
           <button class="chat-send-btn" id="send-btn" onclick="sendUserChat()">Send</button>
         </div>

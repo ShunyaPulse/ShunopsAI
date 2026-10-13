@@ -7,6 +7,42 @@
  */
 export function workspaceScripts(safeUsername: string): string {
   return `    let conversationHistory = [];
+    let attachedImageDataUri = null;
+
+    function handleImageAttach(input) {
+      if (!input.files || !input.files[0]) return;
+      const file = input.files[0];
+      if (file.size > 5 * 1024 * 1024) {
+        alert('Image must be under 5MB to ensure fast processing.');
+        input.value = '';
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        attachedImageDataUri = e.target.result;
+        const container = document.getElementById('attached-image-container');
+        const thumb = document.getElementById('attached-image-thumb');
+        const nameEl = document.getElementById('attached-image-name');
+        const sizeEl = document.getElementById('attached-image-size');
+        if (container && thumb && nameEl && sizeEl) {
+          thumb.src = attachedImageDataUri;
+          nameEl.textContent = file.name;
+          sizeEl.textContent = (file.size / 1024).toFixed(1) + ' KB';
+          container.style.display = 'inline-flex';
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+
+    function clearAttachedImage() {
+      attachedImageDataUri = null;
+      const input = document.getElementById('chat-image-input');
+      if (input) input.value = '';
+      const container = document.getElementById('attached-image-container');
+      if (container) container.style.display = 'none';
+      const thumb = document.getElementById('attached-image-thumb');
+      if (thumb) thumb.src = '';
+    }
 
     async function logout() {
       await fetch('/api/auth/logout', { method: 'POST' });
@@ -208,7 +244,7 @@ export function workspaceScripts(safeUsername: string): string {
       return div.innerHTML;
     }
 
-    function appendMessageBubble(role, content, autoScroll = true, meta = null) {
+    function appendMessageBubble(role, content, autoScroll = true, meta = null, imageUri = null) {
       const emptyState = document.getElementById('empty-state');
       if (emptyState) emptyState.remove();
 
@@ -246,12 +282,25 @@ export function workspaceScripts(safeUsername: string): string {
         }
         header.appendChild(badge);
       }
+      bubble.appendChild(header);
+
+      if (imageUri) {
+        const img = document.createElement('img');
+        img.src = imageUri;
+        img.style.maxWidth = '220px';
+        img.style.maxHeight = '180px';
+        img.style.borderRadius = '8px';
+        img.style.marginTop = '6px';
+        img.style.marginBottom = '6px';
+        img.style.display = 'block';
+        img.style.border = '1px solid rgba(255,255,255,0.15)';
+        bubble.appendChild(img);
+      }
 
       const body = document.createElement('div');
       body.className = 'msg-body';
       body.textContent = content;
 
-      bubble.appendChild(header);
       bubble.appendChild(body);
       thread.appendChild(bubble);
       if (autoScroll) thread.scrollTop = thread.scrollHeight;
@@ -334,15 +383,20 @@ export function workspaceScripts(safeUsername: string): string {
     async function sendUserChat() {
       const input = document.getElementById('user-chat-input');
       const sendBtn = document.getElementById('send-btn');
-      const msg = input.value.trim();
-      if (!msg) return;
+      let msg = input.value.trim();
+      const currentAttachedImage = attachedImageDataUri;
+      if (!msg && !currentAttachedImage) return;
+      if (!msg && currentAttachedImage) {
+        msg = 'Analyze this image and explain what you see.';
+      }
 
       input.value = '';
+      clearAttachedImage();
       sendBtn.disabled = true;
       sendBtn.textContent = '...';
 
       // 1. Render User Message
-      appendMessageBubble('user', msg);
+      appendMessageBubble('user', msg, true, null, currentAttachedImage);
       showThinkingIndicator();
 
       // 2. Build multi-turn context
@@ -393,6 +447,7 @@ export function workspaceScripts(safeUsername: string): string {
           body: JSON.stringify({
             message: msg,
             history: historyPayload,
+            image: currentAttachedImage || undefined,
             modelPreference,
             shield: shieldSolution || undefined,
           })
