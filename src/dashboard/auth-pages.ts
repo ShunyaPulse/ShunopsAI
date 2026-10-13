@@ -44,6 +44,17 @@ ${AUTH_PAGE_STYLES}
     <div class="auth-header">
       <div class="brand-title">ShunopsAI</div>
       <div class="brand-subtitle">${title}</div>
+      ${
+        !isLogin
+          ? `
+      <div class="models-highlight">
+        <div class="models-badge">⚡ Multi-Model Intelligence</div>
+        <p class="models-text">
+          Chat with <strong>Gemini 3.8 Flash</strong>, <strong>GPT-4o</strong>, <strong>Groq 120B</strong>, <strong>Nemotron 550B</strong>, and <strong>14 other frontier models</strong> &mdash; unified in one workspace.
+        </p>
+      </div>`
+          : ""
+      }
     </div>
 
     <div class="oauth-section">

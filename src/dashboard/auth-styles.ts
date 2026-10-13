@@ -51,6 +51,36 @@ export const AUTH_PAGE_STYLES = `    :root {
       font-size: 13px;
       color: var(--muted);
     }
+    .models-highlight {
+      margin-top: 14px;
+      padding: 10px 14px;
+      background: linear-gradient(135deg, rgba(56, 189, 248, 0.07) 0%, rgba(139, 92, 246, 0.07) 100%);
+      border: 1px solid rgba(56, 189, 248, 0.22);
+      border-radius: 12px;
+      text-align: center;
+    }
+    .models-badge {
+      display: inline-block;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.6px;
+      text-transform: uppercase;
+      color: #38bdf8;
+      background: rgba(56, 189, 248, 0.12);
+      padding: 2px 8px;
+      border-radius: 12px;
+      margin-bottom: 6px;
+    }
+    .models-text {
+      font-size: 12.5px;
+      line-height: 1.5;
+      color: #cbd5e1;
+      margin: 0;
+    }
+    .models-text strong {
+      color: #ffffff;
+      font-weight: 600;
+    }
     .google-btn-wrapper {
       margin-bottom: 12px;
       display: flex;
