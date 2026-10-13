@@ -309,8 +309,8 @@ export const WORKSPACE_STYLES = `    :root {
     .chat-input-wrapper {
       background: #090d16;
       border: 1px solid #1e293b;
-      border-radius: 12px;
-      padding: 8px 8px 8px 16px;
+      border-radius: 14px;
+      padding: 6px 8px 6px 10px;
       display: flex;
       align-items: center;
       gap: 10px;
@@ -319,6 +319,30 @@ export const WORKSPACE_STYLES = `    :root {
     .chat-input-wrapper:focus-within {
       border-color: var(--accent);
       box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.15);
+    }
+    .attach-plus-btn {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      color: #94a3b8;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      flex-shrink: 0;
+      padding: 0;
+    }
+    .attach-plus-btn:hover {
+      background: rgba(56, 189, 248, 0.15);
+      border-color: rgba(56, 189, 248, 0.4);
+      color: #38bdf8;
+      transform: scale(1.05);
+    }
+    .attach-plus-btn:active {
+      transform: scale(0.95);
     }
     .chat-input {
       flex: 1;

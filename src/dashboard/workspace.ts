@@ -160,7 +160,14 @@ ${WORKSPACE_STYLES}
         <!-- Optional Context / Notes Drawer -->
         <div style="margin-bottom:10px;">
           <button type="button" onclick="toggleContextDrawer()" style="background:transparent; border:none; color:#38bdf8; font-size:12px; cursor:pointer; display:flex; align-items:center; gap:6px; padding:2px 0;">
-            <span id="context-toggle-arrow">▸</span> 📎 <span>Add Custom Context or Notes (Optional)</span>
+            <span id="context-toggle-arrow">▸</span>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="opacity:0.85;">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+              <polyline points="14 2 14 8 20 8"></polyline>
+              <line x1="16" y1="13" x2="8" y2="13"></line>
+              <line x1="16" y1="17" x2="8" y2="17"></line>
+            </svg>
+            <span>Add Custom Context or Notes (Optional)</span>
           </button>
           <div id="custom-context-drawer" style="display:none; margin-top:8px;">
             <textarea id="custom-context-input" placeholder="Paste background notes, document snippet, code, or special instructions here to give your assistant extra context for this chat session..." style="width:100%; height:64px; background:#070a12; border:1px solid #1e293b; border-radius:8px; padding:8px 10px; color:#fff; font-size:12px; font-family:inherit; resize:vertical; outline:none;"></textarea>
@@ -180,8 +187,11 @@ ${WORKSPACE_STYLES}
         <!-- Input Row -->
         <div class="chat-input-wrapper">
           <input type="file" id="chat-image-input" accept="image/*" style="display:none;" onchange="handleImageAttach(this)">
-          <button type="button" id="attach-image-btn" onclick="document.getElementById('chat-image-input').click()" style="background:transparent; border:none; color:#94a3b8; font-size:16px; cursor:pointer; padding:4px 6px; border-radius:6px; display:flex; align-items:center; justify-content:center; transition:all 0.15s;" title="Attach Image (PNG, JPG, WEBP)">
-            📎
+          <button type="button" id="attach-image-btn" class="attach-plus-btn" onclick="document.getElementById('chat-image-input').click()" title="Add image or file (PNG, JPG, WEBP)">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="12" y1="5" x2="12" y2="19"></line>
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
           </button>
           <input type="text" id="user-chat-input" class="chat-input" placeholder="Type your message or follow-up question..." onkeydown="if(event.key==='Enter') sendUserChat()">
           <button class="chat-send-btn" id="send-btn" onclick="sendUserChat()">Send</button>
