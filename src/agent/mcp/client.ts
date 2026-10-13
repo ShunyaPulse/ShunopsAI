@@ -42,6 +42,9 @@ export class McpHttpClient {
 
     try {
       const targetUrl = new URL(this.config.url);
+if (!['allowed.example.com', 'api.example.com'].includes(targetUrl.hostname)) {
+  throw new Error(`Disallowed MCP host: ${targetUrl.hostname}`);
+}
       if (targetUrl.protocol !== "http:" && targetUrl.protocol !== "https:") {
         throw new Error(`Invalid MCP URL protocol: ${targetUrl.protocol}`);
       }
