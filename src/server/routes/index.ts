@@ -14,6 +14,7 @@ import { adminRoutes } from "./admin.js";
 import { workspaceRoutes } from "./workspace.js";
 import { billingRoutes } from "./billing.js";
 import { knowledgeRoutes } from "./knowledge.js";
+import { actionConfirmRoutes } from "./actionConfirm.js";
 
 export interface MountRoutesDeps {
   requireAuth: preHandlerHookHandler;
@@ -45,4 +46,5 @@ export async function registerRoutes(app: FastifyInstance, deps: MountRoutesDeps
   await app.register(approvalsRoutes, { requireAuth: deps.requireAuth });
   await app.register(webhookRoutes);
   await app.register(widgetRoutes);
+  await app.register(actionConfirmRoutes);
 }

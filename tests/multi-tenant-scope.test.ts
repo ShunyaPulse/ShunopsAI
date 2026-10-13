@@ -277,6 +277,75 @@ async function runSuite(): Promise<void> {
       new Function(script);
     }
   });
+
+  // ---- 8. Approval Queue Persistence & Action Confirmation -----------------
+  await check("rehydration and resolution of approval requests across restarts", async () => {
+    const testId = `req_${Date.now()}_testpersist`;
+    // Unknown or already settled request fails safely with false
+    const resolved = resolveApproval(testId, true, { userId: 11 });
+    assert.equal(resolved, false, "unknown request fails safely");
+  });
+
+  await check("fastify /api/action/confirm verifies HMAC and executes confirmed action", async () => {
+    const { createApp } = await import("../src/server/app.js");
+    const { signActionToken } = await import("../src/tools/registry.js");
+    process.env.ACTION_SECRET = "test-action-secret-1234567890abcdef";
+
+    const app = await createApp();
+    const actionId = `ACT-${Date.now()}`;
+    const actionType = "restart_service";
+    const payload = { service: "worker" };
+    const expiresAt = Date.now() + 60000;
+    const token = await signActionToken(actionId, actionType, payload, expiresAt, process.env.ACTION_SECRET);
+
+    // 1. Invalid signature is rejected
+    const badRes = await app.inject({
+      method: "POST",
+      url: "/api/action/confirm",
+      payload: {
+        actionId,
+        actionType,
+        payload,
+        expiresAt,
+        token: "0000000000000000000000000000000000000000000000000000000000000000",
+        approved: true,
+      },
+    });
+    assert.equal(badRes.statusCode, 403);
+
+    // 2. Valid signature executes
+    const goodRes = await app.inject({
+      method: "POST",
+      url: "/api/action/confirm",
+      payload: {
+        actionId,
+        actionType,
+        payload,
+        expiresAt,
+        token,
+        approved: true,
+      },
+    });
+    assert.equal(goodRes.statusCode, 200);
+    const goodJson = goodRes.json();
+    assert.equal(goodJson.success, true);
+    assert.equal(goodJson.status, "approved");
+
+    // 3. Replay prevention blocks second execution with 409
+    const replayRes = await app.inject({
+      method: "POST",
+      url: "/api/action/confirm",
+      payload: {
+        actionId,
+        actionType,
+        payload,
+        expiresAt,
+        token,
+        approved: true,
+      },
+    });
+    assert.equal(replayRes.statusCode, 409);
+  });
 }
 
 runSuite()

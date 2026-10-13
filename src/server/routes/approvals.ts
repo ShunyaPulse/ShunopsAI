@@ -1,5 +1,5 @@
 import type { FastifyInstance, preHandlerHookHandler } from "fastify";
-import { listPendingApprovals, resolveApproval } from "../../tools/safety.js";
+import { listPendingApprovals, resolveApproval, rehydratePendingApprovalsFromRedis } from "../../tools/safety.js";
 import { isAdminUser, tenantUserId, type AuthenticatedUser } from "../scope.js";
 import { ApproveRequestSchema, type ApproveRequest } from "../schemas/alert.js";
 
@@ -28,6 +28,7 @@ export async function approvalsRoutes(app: FastifyInstance, options: ApprovalsRo
       preHandler: [requireAuth],
     },
     async (req) => {
+      await rehydratePendingApprovalsFromRedis().catch(() => {});
       const { userId, isAdmin } = viewer(req);
       return {
         success: true,
@@ -48,6 +49,11 @@ export async function approvalsRoutes(app: FastifyInstance, options: ApprovalsRo
     async (req, reply) => {
       const { id, approved } = req.body;
       const { userId, isAdmin } = viewer(req);
+
+      // If not in current memory, rehydrate from Redis in case of restart or multi-instance
+      if (!listPendingApprovals().some((r) => r.id === id)) {
+        await rehydratePendingApprovalsFromRedis().catch(() => {});
+      }
 
       const success = resolveApproval(id, approved, isAdmin ? { isAdmin: true } : { userId });
       if (success) {

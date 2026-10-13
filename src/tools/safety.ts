@@ -2,6 +2,8 @@ import * as readline from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import { randomInt } from "node:crypto";
 
+import { getRedisClient } from "../server/redis.js";
+
 export interface ApprovalRequest {
   id: string;
   action: string;
@@ -26,6 +28,66 @@ export interface ApprovalRequester {
 const pendingApprovals = new Map<string, ApprovalRequest>();
 const approvalResolvers = new Map<string, (approved: boolean) => void>();
 
+const REDIS_APPROVAL_PREFIX = "shunops:approvals:";
+const REDIS_ACTIVE_SET = "shunops:approvals:active";
+
+/** Persist approval request to distributed Redis cache with 5-minute TTL. */
+async function persistApprovalToRedis(request: ApprovalRequest): Promise<void> {
+  const redis = getRedisClient();
+  if (!redis) return;
+  try {
+    const key = `${REDIS_APPROVAL_PREFIX}${request.id}`;
+    await redis.set(key, JSON.stringify(request), "EX", 300);
+    await redis.sadd(REDIS_ACTIVE_SET, request.id);
+  } catch {
+    // Non-fatal, local memory map continues safely
+  }
+}
+
+/** Clear active approval key from distributed Redis cache. */
+async function settleApprovalInRedis(id: string): Promise<void> {
+  const redis = getRedisClient();
+  if (!redis) return;
+  try {
+    const key = `${REDIS_APPROVAL_PREFIX}${id}`;
+    await redis.srem(REDIS_ACTIVE_SET, id);
+    await redis.del(key);
+  } catch {
+    // Non-fatal
+  }
+}
+
+/** Rehydrate any pending approval requests stored in Redis across instance restarts. */
+export async function rehydratePendingApprovalsFromRedis(): Promise<void> {
+  const redis = getRedisClient();
+  if (!redis) return;
+  try {
+    const activeIds = await redis.smembers(REDIS_ACTIVE_SET);
+    if (!activeIds || activeIds.length === 0) return;
+
+    for (const id of activeIds) {
+      if (pendingApprovals.has(id)) continue;
+      const raw = await redis.get(`${REDIS_APPROVAL_PREFIX}${id}`);
+      if (!raw) {
+        await redis.srem(REDIS_ACTIVE_SET, id);
+        continue;
+      }
+      try {
+        const parsed = JSON.parse(raw) as ApprovalRequest;
+        if (parsed.status === "pending") {
+          pendingApprovals.set(parsed.id, parsed);
+        } else {
+          await redis.srem(REDIS_ACTIVE_SET, id);
+        }
+      } catch {
+        await redis.srem(REDIS_ACTIVE_SET, id);
+      }
+    }
+  } catch {
+    // Non-fatal
+  }
+}
+
 /**
  * Terminal state for an approval request: record the verdict and remove the
  * entry from the pending queue so the maps cannot grow without bound over the
@@ -35,6 +97,7 @@ function settleApproval(request: ApprovalRequest, approved: boolean): void {
   request.status = approved ? "approved" : "rejected";
   pendingApprovals.delete(request.id);
   approvalResolvers.delete(request.id);
+  settleApprovalInRedis(request.id).catch(() => {});
 }
 
 /**
@@ -235,6 +298,7 @@ export async function requestHumanApproval(
   };
 
   pendingApprovals.set(id, request);
+  persistApprovalToRedis(request).catch(() => {});
 
   // Fire the alert without awaiting it: the non-interactive resolver below must
   // be registered in this same tick. Awaiting first left a window where the
@@ -317,9 +381,8 @@ export function resolveApproval(
   if (typeof id !== "string") return false;
   const resolver = approvalResolvers.get(id);
   const request = pendingApprovals.get(id);
-  // Both must exist: a resolver without a pending entry (or vice versa) means
-  // the request already settled (approved, rejected, or timed out).
-  if (!resolver || !request) return false;
+  // Settle if request exists (either with live local resolver, or rehydrated from Redis across restarts)
+  if (!request) return false;
 
   // Tenant isolation: a signed-in user may only settle their own request. An
   // internal caller that passes no userId keeps admin power (CLI/cron/admin).

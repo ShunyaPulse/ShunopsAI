@@ -96,6 +96,7 @@ const CSRF_EXEMPT_MUTATION_PREFIXES = [
   "/api/chat",
   "/api/shield/",
   "/api/widget",
+  "/api/action/confirm",
 ];
 
 const MALICIOUS_PROBE_REGEX =
