@@ -21,6 +21,8 @@ export interface AgentOptions {
   disabledTools?: ToolName[];
   /** Optional request-scoped BYOK provider key overrides. */
   keyOverrides?: ProviderKeyOverrides | undefined;
+  /** Optional validated base64 image data URI for multimodal vision turns. */
+  image?: string | undefined;
   /**
    * Whose accounts this run may touch. Defaults to the operator scope, which is
    * what internal CLI/cron/admin callers have always used.
@@ -76,7 +78,12 @@ export async function runAutonomousAgent(
   // Least-privilege: restrict the toolset exposed to the model for this run.
   // A user scope never even sees host-tier tools, and its platform tools can
   // only act on the accounts that user connected themselves.
-  const scope = options.scope;
+  const scope: ToolScope | undefined = options.scope
+    ? {
+        ...options.scope,
+        ...(options.keyOverrides ? { keyOverrides: options.keyOverrides } : {}),
+      }
+    : undefined;
   const scopeAllowed = allowedToolsForScope(scope);
   const disabled = new Set<ToolName>(options.disabledTools ?? []);
   const baseActiveTools = registeredTools.filter(
@@ -159,7 +166,17 @@ export async function runAutonomousAgent(
     });
   }
 
-  messages.push({ role: "user", content: userGoal });
+  if (options.image) {
+    messages.push({
+      role: "user",
+      content: [
+        { type: "text", text: userGoal },
+        { type: "image_url", image_url: { url: options.image } },
+      ],
+    });
+  } else {
+    messages.push({ role: "user", content: userGoal });
+  }
 
   console.log(`\n${colors.green}${colors.bold}========================================${colors.reset}`);
   console.log(`${colors.green}${colors.bold}🎯 Autonomous Agent Initiated${colors.reset}`);

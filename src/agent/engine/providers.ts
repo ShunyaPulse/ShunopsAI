@@ -368,13 +368,28 @@ const OPENROUTER_FALLBACK_MODELS = [
 export async function* cascadeStream(
   history: ChatMessage[],
   systemPrompt: string,
-  env: Env
+  env: Env,
+  modelPreference: string = 'auto'
 ): AsyncGenerator<StreamChunk & { provider: string; model: string }> {
   const geminiKeys = getPermutedKeys(env.GEMINI_KEYS, env.GEMINI_API_KEY);
   const primaryModel = env.PRIMARY_MODEL || 'gemini-3.8-flash';
   const groqModel = env.GROQ_FALLBACK_MODEL || 'openai/gpt-oss-120b';
 
   let lastError: Error | null = null;
+  const preferDeepReasoning =
+    modelPreference === 'deep-reasoning' || modelPreference === 'groq-120b';
+
+  // 0. When caller explicitly selected Deep Reasoning mode and Groq is configured, prioritize Groq 120B first
+  if (preferDeepReasoning && env.GROQ_API_KEY) {
+    try {
+      for await (const chunk of streamGroq(history, systemPrompt, env.GROQ_API_KEY, groqModel)) {
+        yield { ...chunk, provider: 'Groq LPU', model: groqModel };
+      }
+      return;
+    } catch (err: unknown) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+    }
+  }
 
   // 1. Try the Gemini key pool with rotation.
   const maxGeminiAttempts = Math.min(2, geminiKeys.length);

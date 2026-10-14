@@ -27,6 +27,17 @@ export const memStore = {
   usersByGoogleId: new Map<string, any>(),
   usersByGithubId: new Map<string, any>(),
   sessions: new Map<string, { userId: number; expiresAt: Date }>(),
+  emailOtps: new Map<
+    string,
+    {
+      email: string;
+      otp: string;
+      attempts: number;
+      expiresAt: number;
+      usedAt: number | null;
+      createdAt: number;
+    }
+  >(),
   tasks: new Map<string, any>(),
   chatMessages: [] as Array<{ id: number; userId: number; role: string; message: string; createdAt: string }>,
   apiKeys: new Map<string, { id: number; userId: number; prefix: string; name: string; createdAt: string; lastUsedAt: string | null }>(),

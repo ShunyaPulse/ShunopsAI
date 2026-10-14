@@ -44,7 +44,7 @@ interface SendOtpBody {
   hp_website?: string;
 }
 
-/** 1. Send a 6-digit OTP to an email for registration verification or OTP login. */
+/** 1. Send a 6-digit OTP to an email for registration verification, OTP login, or password reset. */
 async function handleSendEmailOtp(req: FastifyRequest, reply: FastifyReply) {
   const { email, purpose, turnstileToken, hp_website } = (req.body as SendOtpBody) || {};
 
@@ -86,8 +86,8 @@ async function handleSendEmailOtp(req: FastifyRequest, reply: FastifyReply) {
     }
   }
 
-  // If purpose is login, only send code if user exists, but return identical message to avoid enumeration
-  if (purpose === "login") {
+  // If purpose is login or password reset, only send code if user exists, but return identical message to avoid enumeration
+  if (purpose === "login" || purpose === "reset") {
     const existing = await findUserByEmail(cleanEmail);
     if (!existing) {
       // Return uniform success response so attackers cannot probe valid accounts

@@ -355,6 +355,7 @@ export const tools: Record<string, ToolDefinition> = {
         actionType: {
           type: 'string',
           enum: [
+            'check_status',
             'restart_service',
             'flush_cache',
             'deploy_preview',
@@ -376,6 +377,7 @@ export const tools: Record<string, ToolDefinition> = {
       const payload = (args['payload'] as Record<string, unknown>) || {};
 
       const allowedActions = [
+        'check_status',
         'restart_service',
         'flush_cache',
         'deploy_preview',
@@ -405,6 +407,7 @@ export const tools: Record<string, ToolDefinition> = {
       const token = await signActionToken(actionId, actionType, payload, expiresAt, secret);
 
       const descriptions: Record<string, string> = {
+        check_status: `Run deep edge & origin cluster health verification for: ${JSON.stringify(payload)}`,
         restart_service: `Restart edge microservices & warm cold containers for: ${JSON.stringify(payload)}`,
         flush_cache: `Purge edge CDN & KV cache keys matching: ${JSON.stringify(payload)}`,
         deploy_preview: `Trigger zero-downtime deployment for branch/tag: ${payload['branch'] || 'main'}`,
@@ -454,6 +457,7 @@ export async function executeConfirmedAction(
   const actionId = `EXEC-${Date.now().toString(36).toUpperCase()}`;
 
   const allowedActions = [
+    'check_status',
     'restart_service',
     'flush_cache',
     'deploy_preview',

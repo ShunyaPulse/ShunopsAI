@@ -201,11 +201,12 @@ export async function taskRoutes(app: FastifyInstance, options: TaskRouteOptions
     { preHandler: [requireAuth] },
     async (req) => {
       const user = (req as any).user;
+      const isAdmin = isAdminUser(user);
       const userId = typeof user?.id === "number" && user.id > 0 ? user.id : 0;
-      if (!isAdminUser(user) && userId <= 0) {
+      if (!isAdmin && userId <= 0) {
         return { success: true, tasks: [] };
       }
-      const tasks = await listUserTasks(userId);
+      const tasks = await listUserTasks(userId, 50, { isAdmin });
       return { success: true, tasks };
     }
   );

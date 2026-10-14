@@ -1,5 +1,5 @@
 import * as fs from "node:fs/promises";
-import { execSync } from "node:child_process";
+import { runTypecheck } from "../auditor/consensus.js";
 import OpenAI from "openai";
 import { colors } from "../../core/colors.js";
 import { extractJsonObject } from "../../core/json.js";
@@ -193,7 +193,8 @@ async function remediateBotComment(comment: PRReviewComment): Promise<boolean> {
 function commitAndPushRemediations(pr: PullRequestItem, fixedCount: number): boolean {
   console.log(`${colors.cyan}Verifying TypeScript compilation (npm run typecheck)...${colors.reset}`);
   try {
-    execSync("npm run typecheck", { stdio: "pipe" });
+    const tcResult = runTypecheck(process.cwd());
+    if (!tcResult.ok) throw new Error(tcResult.error);
     gitSilent(["add", "-A"]);
     gitSilent([
       "commit",

@@ -7,6 +7,7 @@
 export function authPageScripts(isLogin: boolean, turnstileSiteKey: string): string {
   return `    let turnstileToken = "";
     let isOtpSent = false;
+    let isResetPasswordMode = false;
     const isLoginMode = ${isLogin};
     const turnstileSiteKey = "${turnstileSiteKey}";
 
@@ -138,6 +139,43 @@ export function authPageScripts(isLogin: boolean, turnstileSiteKey: string): str
       }
     }
 
+    // 3b. Toggle Forgotten Password Reset Mode
+    function toggleResetPasswordMode(e) {
+      if (e) e.preventDefault();
+      isResetPasswordMode = !isResetPasswordMode;
+
+      const passGroup = document.getElementById('password-group');
+      const otpGroup = document.getElementById('otp-group');
+      const newPassGroup = document.getElementById('new-password-group');
+      const sendOtpBtn = document.getElementById('btn-send-otp');
+      const otpToggleRow = document.getElementById('otp-toggle-row');
+      const idLabel = document.getElementById('identifier-label');
+      const submitBtn = document.getElementById('btn-submit');
+      const chkOtp = document.getElementById('chk-otp-mode');
+
+      if (isResetPasswordMode) {
+        if (chkOtp) chkOtp.checked = false;
+        if (passGroup) passGroup.style.display = 'none';
+        if (otpToggleRow) otpToggleRow.style.display = 'none';
+        if (sendOtpBtn) sendOtpBtn.style.display = 'block';
+        if (otpGroup) otpGroup.style.display = 'block';
+        if (newPassGroup) newPassGroup.style.display = 'block';
+        if (idLabel) idLabel.textContent = 'Account Email Address';
+        if (submitBtn) submitBtn.textContent = 'Reset Password';
+        document.getElementById('password').required = false;
+        showMsg('Enter your email, click Send OTP, and choose a new password.', 'success');
+      } else {
+        if (passGroup) passGroup.style.display = 'block';
+        if (otpToggleRow) otpToggleRow.style.display = 'flex';
+        if (sendOtpBtn) sendOtpBtn.style.display = 'none';
+        if (otpGroup) otpGroup.style.display = 'none';
+        if (newPassGroup) newPassGroup.style.display = 'none';
+        if (idLabel) idLabel.textContent = 'Email Address or Username';
+        if (submitBtn) submitBtn.textContent = 'Sign In';
+        document.getElementById('password').required = true;
+      }
+    }
+
     // 4. Form Submission
     async function handleFormSubmit(e) {
       e.preventDefault();
@@ -182,6 +220,44 @@ export function authPageScripts(isLogin: boolean, turnstileSiteKey: string): str
           showMsg('Network error.', 'error');
           btn.disabled = false;
           btn.textContent = 'Create Account';
+        }
+      } else if (isResetPasswordMode) {
+        // Forgotten Password Reset flow
+        const email = document.getElementById('identifier').value.trim();
+        const emailOtp = document.getElementById('otp').value.trim();
+        const newPassword = document.getElementById('new-password').value;
+
+        if (!email || !email.includes('@') || !emailOtp || !newPassword) {
+          showMsg('Please enter your email, 6-digit OTP code, and a new password (min 8 chars).', 'error');
+          btn.disabled = false;
+          btn.textContent = 'Reset Password';
+          return;
+        }
+
+        try {
+          const res = await fetch('/api/auth/reset-password', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, emailOtp, newPassword, turnstileToken, hp_website })
+          });
+          const data = await res.json();
+
+          if (!res.ok) {
+            showMsg(data.error || 'Password reset failed.', 'error');
+            btn.disabled = false;
+            btn.textContent = 'Reset Password';
+            return;
+          }
+
+          showMsg(data.message || 'Password reset successfully! You can now sign in.', 'success');
+          document.getElementById('password').value = newPassword;
+          toggleResetPasswordMode();
+          btn.disabled = false;
+          btn.textContent = 'Sign In';
+        } catch (err) {
+          showMsg('Network error while resetting password.', 'error');
+          btn.disabled = false;
+          btn.textContent = 'Reset Password';
         }
       } else {
         // Login flow

@@ -1,12 +1,6 @@
 import crypto from "crypto";
 import nodemailer from "nodemailer";
-import { neon } from "@neondatabase/serverless";
-
-function getSql() {
-  const dbUrl = process.env.DATABASE_URL;
-  if (!dbUrl) throw new Error("DATABASE_URL is not set.");
-  return neon(dbUrl);
-}
+import { getSql, memStore } from "./db/store.js";
 
 let transporter: ReturnType<typeof nodemailer.createTransport> | null = null;
 
@@ -42,10 +36,51 @@ export function generateNumericOTP(): string {
 
 /**
  * Send 6-Digit Email OTP to recipient with Neon PostgreSQL persistence
+ * and automatic in-memory fallback when DATABASE_URL is not configured.
  */
 export async function sendEmailOTP(email: string): Promise<{ success: boolean; message: string }> {
   const cleanEmail = email.trim().toLowerCase();
   const sql = getSql();
+  const now = Date.now();
+
+  if (!sql) {
+    const existing = memStore.emailOtps.get(cleanEmail);
+    if (existing && now - existing.createdAt < 30_000) {
+      return {
+        success: false,
+        message: "Please wait 30 seconds before requesting another OTP.",
+      };
+    }
+    const otp = generateNumericOTP();
+    memStore.emailOtps.set(cleanEmail, {
+      email: cleanEmail,
+      otp,
+      attempts: 0,
+      expiresAt: now + 10 * 60 * 1000,
+      usedAt: null,
+      createdAt: now,
+    });
+
+    const mailTransporter = getTransporter();
+    if (!mailTransporter) {
+      if (process.env.NODE_ENV === "test" || process.env.NODE_ENV === "development" || !process.env.NODE_ENV) {
+        return { success: true, message: "Verification code generated (local development mode)." };
+      }
+      return { success: false, message: "Mail server not configured." };
+    }
+    try {
+      const fromAddress = process.env.SMTP_FROM || '"ShunopsAI Security" <shunyapulse42@gmail.com>';
+      await mailTransporter.sendMail({
+        from: fromAddress,
+        to: cleanEmail,
+        subject: `[ShunopsAI] ${otp} is your verification code`,
+        text: `Your ShunopsAI verification code is: ${otp}. It expires in 10 minutes.`,
+      });
+      return { success: true, message: "Verification code sent to your email." };
+    } catch {
+      return { success: false, message: "Failed to send email OTP. Please check email address." };
+    }
+  }
 
   // Rate limit: 1 OTP request per email per 30 seconds
   const recentCheck = await (sql as any).query(
@@ -136,6 +171,28 @@ export async function verifyEmailOTP(email: string, code: string): Promise<{ suc
   }
 
   const sql = getSql();
+  if (!sql) {
+    const record = memStore.emailOtps.get(cleanEmail);
+    if (!record) {
+      return { success: false, message: "No OTP was requested for this email. Please request a new code." };
+    }
+    if (record.usedAt !== null) {
+      return { success: false, message: "OTP has already been used. Please request a new OTP." };
+    }
+    if (Date.now() > record.expiresAt) {
+      return { success: false, message: "OTP has expired. Please request a new OTP." };
+    }
+    if (record.attempts >= 5) {
+      return { success: false, message: "Too many failed attempts. Please request a new OTP." };
+    }
+    if (record.otp === cleanCode) {
+      record.usedAt = Date.now();
+      return { success: true, message: "OTP verified successfully." };
+    }
+    record.attempts += 1;
+    const remaining = Math.max(0, 5 - record.attempts);
+    return { success: false, message: `Incorrect verification code. ${remaining} attempt(s) remaining.` };
+  }
 
   try {
     // Atomically consume the OTP: this succeeds only when the code matches, has

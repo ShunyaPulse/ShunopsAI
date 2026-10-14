@@ -1,5 +1,6 @@
 import type { PlatformCredentialBundle } from "../server/db/platformCredentials.js";
 import type { ToolName } from "./tools.js";
+import type { ProviderKeyOverrides } from "./models.js";
 
 /**
  * Multi-tenant execution scope for one agent run.
@@ -15,6 +16,8 @@ export interface ToolScope {
   username?: string;
   /** Decrypted, per-user credentials. */
   credentials: PlatformCredentialBundle;
+  /** Request-scoped BYOK provider key overrides for sub-agents (e.g. dual_model_consensus). */
+  keyOverrides?: ProviderKeyOverrides | undefined;
 }
 
 /** Operator scope: server credentials, host tools allowed. */

@@ -206,6 +206,7 @@ ${WORKSPACE_STYLES}
             <button class="btn-action" style="flex:1;" onclick="runAutonomousTask()">▶ Run Task</button>
           </div>
           <div id="task-run-status" style="display:none; margin-top:10px; font-size:12px; line-height:1.5; background:#090d16; border:1px solid #1e293b; border-radius:8px; padding:10px; white-space:pre-wrap; word-break:break-word;"></div>
+          <div id="workspace-recent-tasks" style="margin-top:10px; font-size:11.5px; color:#94a3b8;"></div>
         </div>
 
         <!-- Plan & Token Usage Meter -->

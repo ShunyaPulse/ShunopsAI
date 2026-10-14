@@ -17,6 +17,8 @@ const MAX_EDGE_REACT_ROUNDS = 4;
 interface EdgeRunContext {
   sessionId: string;
   message: string;
+  clientHistory?: string | undefined;
+  modelPreference?: string | undefined;
   systemPrompt: string;
   maxTurns: number;
   ttlSeconds: number;
@@ -41,7 +43,8 @@ async function streamInference(
   systemPrompt: string,
   env: Env,
   sendEvent: EdgeRunContext['sendEvent'],
-  onFirstChunk: (provider: string, model: string) => Promise<void>
+  onFirstChunk: (provider: string, model: string) => Promise<void>,
+  modelPreference?: string
 ): Promise<InferenceResult> {
   let provider = 'Unknown';
   let model = 'Unknown';
@@ -49,7 +52,7 @@ async function streamInference(
   const toolCalls: ToolCall[] = [];
   let isFirstChunk = true;
 
-  for await (const chunk of cascadeStream(history, systemPrompt, env)) {
+  for await (const chunk of cascadeStream(history, systemPrompt, env, modelPreference)) {
     if (isFirstChunk) {
       provider = chunk.provider;
       model = chunk.model;
@@ -137,9 +140,18 @@ async function executeToolCalls(
  * (or raises an interactive action confirmation card), then KV persistence.
  */
 async function runEdgeAgentLoop(context: EdgeRunContext): Promise<void> {
-  const { sessionId, message, systemPrompt, maxTurns, ttlSeconds, env, sendEvent } = context;
+  const { sessionId, message, clientHistory, modelPreference, systemPrompt, maxTurns, ttlSeconds, env, sendEvent } = context;
 
   const conversationHistory = await loadSessionHistory(sessionId, env, maxTurns);
+  if (conversationHistory.length === 0 && clientHistory && typeof clientHistory === 'string') {
+    for (const line of clientHistory.split('\n').slice(-12)) {
+      if (line.startsWith('User: ')) {
+        conversationHistory.push({ role: 'user', content: line.slice(6).trim().slice(0, 1500) });
+      } else if (line.startsWith('Assistant: ')) {
+        conversationHistory.push({ role: 'model', content: line.slice(11).trim().slice(0, 1500) });
+      }
+    }
+  }
 
   // Append new user message
   conversationHistory.push({
@@ -162,7 +174,8 @@ async function runEdgeAgentLoop(context: EdgeRunContext): Promise<void> {
           emittedStartEvent = true;
           await sendEvent('start', { provider, model, sessionId });
         }
-      }
+      },
+      modelPreference
     );
 
     if (round.toolCalls.length === 0) {
@@ -200,7 +213,8 @@ async function runEdgeAgentLoop(context: EdgeRunContext): Promise<void> {
         systemPrompt,
         env,
         sendEvent,
-        async () => {}
+        async () => {},
+        modelPreference
       );
       conversationHistory.push({
         role: 'model',
@@ -267,7 +281,17 @@ export async function executeAgentStream(
   };
 
   // Run the ReAct agent loop asynchronously on the edge
-  void runEdgeAgentLoop({ sessionId, message, systemPrompt, maxTurns, ttlSeconds, env, sendEvent })
+  void runEdgeAgentLoop({
+    sessionId,
+    message,
+    clientHistory: requestBody.history,
+    modelPreference: requestBody.modelPreference,
+    systemPrompt,
+    maxTurns,
+    ttlSeconds,
+    env,
+    sendEvent,
+  })
     .catch((err: unknown) => emitEdgeFailure(sendEvent, sessionId, err))
     .finally(async () => {
       try {

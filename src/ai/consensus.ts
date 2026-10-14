@@ -2,11 +2,17 @@ import OpenAI from "openai";
 import * as dotenv from "dotenv";
 import { randomInt } from "node:crypto";
 import { colors } from "../core/colors.js";
+import type { ProviderKeyOverrides } from "../agent/models.js";
+import {
+  isModelDegraded,
+  recordCircuitBreakerFailure,
+  recordCircuitBreakerSuccess,
+} from "../agent/circuitBreaker.js";
 
 dotenv.config();
 
 export interface ModelEndpoint {
-  provider: "groq" | "gemini" | "openrouter";
+  provider: "groq" | "gemini" | "openrouter" | "github" | "cloudflare";
   model: string;
   name?: string;
 }
@@ -27,6 +33,8 @@ export interface ConsensusOptions {
   context?: string | undefined; // Optional context (code, schema, logs, git diff)
   temperature?: number | undefined; // Sampling temp (default: 0.2)
   requireUnanimous?: boolean | undefined;
+  /** Optional request-scoped BYOK or platform key overrides. */
+  keyOverrides?: ProviderKeyOverrides | undefined;
 }
 
 export interface ConsensusResult {
@@ -51,7 +59,11 @@ export const PROPOSER_MODELS_CHAIN: ModelEndpoint[] = [
   { provider: "groq", model: "openai/gpt-oss-120b", name: "Groq GPT-OSS 120B (High Reasoning 120B)" },
   { provider: "groq", model: "qwen/qwen3.8-27b", name: "Groq Qwen 3.8 27B (LPU Fast Tool Calling)" },
 
-  // 3. OpenRouter High-Capability Free Models (550B, 120B, 70B Heavyweights)
+  // 3. GitHub Models & Cloudflare Workers AI (When connected or configured)
+  { provider: "github", model: "gpt-4o", name: "OpenAI GPT-4o (GitHub Models)" },
+  { provider: "cloudflare", model: "@cf/meta/llama-3.3-70b-instruct-fp8-fast", name: "Llama 3.3 70B Fast (Cloudflare AI)" },
+
+  // 4. OpenRouter High-Capability Free Models (550B, 120B, 70B Heavyweights)
   { provider: "openrouter", model: "nvidia/nemotron-3-ultra-550b-a55b:free", name: "Nemotron 3 Ultra 550B (Primary #1)" },
   { provider: "openrouter", model: "nvidia/nemotron-3.5-lightning:free", name: "Nemotron 3.5 Lightning (1M Context)" },
   { provider: "openrouter", model: "meta-llama/llama-3.3-70b-instruct:free", name: "Llama 3.3 70B Instruct" },
@@ -71,7 +83,11 @@ export const AUDITOR_MODELS_CHAIN: ModelEndpoint[] = [
   { provider: "gemini", model: "gemini-3.8-flash", name: "Gemini 3.8 Flash (Audit Backup)" },
   { provider: "gemini", model: "gemini-3-flash-preview", name: "Gemini 3 Flash" },
 
-  // 3. OpenRouter High-Capability Free Models (Specialized Code & Reasoning)
+  // 3. GitHub Models & Cloudflare Workers AI (When connected or configured)
+  { provider: "github", model: "gpt-4o", name: "OpenAI GPT-4o (GitHub Audit)" },
+  { provider: "cloudflare", model: "@cf/meta/llama-3.3-70b-instruct-fp8-fast", name: "Llama 3.3 70B Fast (Cloudflare Audit)" },
+
+  // 4. OpenRouter High-Capability Free Models (Specialized Code & Reasoning)
   { provider: "openrouter", model: "cohere/north-mini-code:free", name: "Cohere North Mini Code (Audit)" },
   { provider: "openrouter", model: "nvidia/nemotron-3-super-120b-a12b:free", name: "Nemotron 3 Super 120B" },
   { provider: "openrouter", model: "meta-llama/llama-3.3-70b-instruct:free", name: "Llama 3.3 70B Instruct" },
@@ -81,7 +97,7 @@ export const AUDITOR_MODELS_CHAIN: ModelEndpoint[] = [
 
 export const DEFAULT_PROPOSER = PROPOSER_MODELS_CHAIN[0]!;
 export const DEFAULT_AUDITOR = AUDITOR_MODELS_CHAIN[0]!;
-export const BACKUP_PROPOSER = PROPOSER_MODELS_CHAIN[4]!;
+export const BACKUP_PROPOSER = PROPOSER_MODELS_CHAIN[6]!;
 export const BACKUP_OPENROUTER_PROPOSER = BACKUP_PROPOSER;
 export const BACKUP_GROQ_AUDITOR = AUDITOR_MODELS_CHAIN[1]!;
 
@@ -116,26 +132,49 @@ export function getOpenRouterKeys(): string[] {
 }
 
 /**
- * Whether usable credentials exist for a provider.
- *
- * Without this guard a chain containing an unconfigured provider is attempted
- * with a placeholder key, and each attempt costs a round trip that can only
- * return 400 Bad Request before the next model is tried (GEMINI.md Rule 3 keeps
- * the chain ordered, so skipping is strictly faster and equally correct).
+ * Whether usable credentials exist for a provider (honoring BYOK isolation when overrides are supplied).
  */
-export function hasProviderCredentials(provider: ModelEndpoint["provider"]): boolean {
-  if (provider === "gemini") return getGeminiKeys().length > 0;
-  if (provider === "groq") return getGroqKeys().length > 0;
-  return getOpenRouterKeys().length > 0;
+export function hasProviderCredentials(
+  provider: ModelEndpoint["provider"],
+  overrides?: ProviderKeyOverrides
+): boolean {
+  const isBYOK = Boolean(
+    overrides?.groqApiKey || overrides?.geminiApiKey || overrides?.openrouterApiKey
+  );
+  if (isBYOK) {
+    if (provider === "gemini") return Boolean(overrides?.geminiApiKey);
+    if (provider === "groq") return Boolean(overrides?.groqApiKey);
+    if (provider === "openrouter") return Boolean(overrides?.openrouterApiKey);
+    if (provider === "github") return Boolean(overrides?.githubToken);
+    if (provider === "cloudflare") {
+      return Boolean(overrides?.cloudflareAccountId && overrides?.cloudflareApiToken);
+    }
+    return false;
+  }
+
+  if (provider === "gemini") return Boolean(overrides?.geminiApiKey || getGeminiKeys().length > 0);
+  if (provider === "groq") return Boolean(overrides?.groqApiKey || getGroqKeys().length > 0);
+  if (provider === "github") {
+    return Boolean(overrides?.githubToken || process.env.GITHUB_PAT || process.env.GITHUB_TOKEN);
+  }
+  if (provider === "cloudflare") {
+    return Boolean(
+      (overrides?.cloudflareAccountId && overrides?.cloudflareApiToken) ||
+        (process.env.CLOUDFLARE_ACCOUNT_ID && process.env.CLOUDFLARE_API_TOKEN)
+    );
+  }
+  return Boolean(overrides?.openrouterApiKey || getOpenRouterKeys().length > 0);
 }
 
 // Fast failover timeout for automated consensus inference (15s max)
 const CONSENSUS_TIMEOUT_MS = 15000;
 
-export function createClient(target: ModelEndpoint): OpenAI {
+export function createClient(target: ModelEndpoint, overrides?: ProviderKeyOverrides): OpenAI {
   if (target.provider === "groq") {
     const keys = getGroqKeys();
-    const key = keys.length > 0 ? keys[randomInt(0, keys.length)] : (process.env.GROQ_API_KEY || "dummy-groq-key");
+    const key =
+      overrides?.groqApiKey ||
+      (keys.length > 0 ? keys[randomInt(0, keys.length)] : process.env.GROQ_API_KEY || "dummy-groq-key");
     return new OpenAI({
       baseURL: "https://api.groq.com/openai/v1",
       apiKey: key,
@@ -146,7 +185,9 @@ export function createClient(target: ModelEndpoint): OpenAI {
 
   if (target.provider === "gemini") {
     const keys = getGeminiKeys();
-    const key = keys.length > 0 ? keys[randomInt(0, keys.length)] : "dummy-gemini-key";
+    const key =
+      overrides?.geminiApiKey ||
+      (keys.length > 0 ? keys[randomInt(0, keys.length)] : "dummy-gemini-key");
     return new OpenAI({
       baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/",
       apiKey: key,
@@ -155,8 +196,31 @@ export function createClient(target: ModelEndpoint): OpenAI {
     });
   }
 
+  if (target.provider === "github") {
+    const key = overrides?.githubToken || process.env.GITHUB_PAT || process.env.GITHUB_TOKEN || "dummy-gh-key";
+    return new OpenAI({
+      baseURL: "https://models.inference.ai.azure.com",
+      apiKey: key,
+      timeout: CONSENSUS_TIMEOUT_MS,
+      maxRetries: 0,
+    });
+  }
+
+  if (target.provider === "cloudflare") {
+    const accountId = overrides?.cloudflareAccountId || process.env.CLOUDFLARE_ACCOUNT_ID || "dummy";
+    const key = overrides?.cloudflareApiToken || process.env.CLOUDFLARE_API_TOKEN || "dummy-cf-key";
+    return new OpenAI({
+      baseURL: `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/v1`,
+      apiKey: key,
+      timeout: CONSENSUS_TIMEOUT_MS,
+      maxRetries: 0,
+    });
+  }
+
   const keys = getOpenRouterKeys();
-  const key = keys.length > 0 ? keys[randomInt(0, keys.length)] : (process.env.OPENROUTER_API_KEY || "dummy-openrouter-key");
+  const key =
+    overrides?.openrouterApiKey ||
+    (keys.length > 0 ? keys[randomInt(0, keys.length)] : process.env.OPENROUTER_API_KEY || "dummy-openrouter-key");
   return new OpenAI({
     baseURL: "https://openrouter.ai/api/v1",
     apiKey: key,
@@ -171,11 +235,13 @@ export function createClient(target: ModelEndpoint): OpenAI {
 
 /**
  * Execute chat completion iterating across an ordered multi-provider fallback chain
+ * with passive circuit-breaker awareness and optional BYOK key overrides.
  */
 export async function callModelWithChain(
   chain: ModelEndpoint[],
   messages: OpenAI.ChatCompletionMessageParam[],
-  temperature = 0.2
+  temperature = 0.2,
+  overrides?: ProviderKeyOverrides
 ): Promise<{ text: string; modelName: string }> {
   let lastErr: any = null;
 
@@ -183,20 +249,22 @@ export async function callModelWithChain(
     const target = chain[i]!;
 
     // Skip providers with no credentials instead of burning attempts on a dummy key.
-    if (!hasProviderCredentials(target.provider)) {
+    if (!hasProviderCredentials(target.provider, overrides)) {
       lastErr = new Error(`${target.provider} credentials are not configured`);
-      console.warn(
-        `${colors.yellow}[Fallback Chain]${colors.reset} Skipping [${target.provider}] ${target.model}: no credentials configured.`
-      );
       continue;
     }
 
-    // For Gemini, attempt with up to 3 different keys from the pool before moving to next model
-    const attempts = target.provider === "gemini" ? 3 : 1;
+    // Skip models currently in passive circuit-breaker cooldown
+    if (await isModelDegraded(target.provider, target.model)) {
+      continue;
+    }
+
+    // For Gemini pool, attempt with up to 2 different keys before moving to next model
+    const attempts = !overrides?.geminiApiKey && target.provider === "gemini" ? Math.min(2, Math.max(1, getGeminiKeys().length)) : 1;
 
     for (let att = 0; att < attempts; att++) {
       try {
-        const client = createClient(target);
+        const client = createClient(target, overrides);
         const res = await client.chat.completions.create({
           model: target.model,
           messages,
@@ -204,16 +272,18 @@ export async function callModelWithChain(
         });
         const text = res.choices[0]?.message?.content?.trim() || "";
         if (text) {
+          recordCircuitBreakerSuccess(target.provider, target.model).catch(() => {});
           return { text, modelName: `${target.provider.toUpperCase()}:${target.model}` };
         }
       } catch (err: any) {
         lastErr = err;
         const status = err?.status || err?.statusCode || "err";
+        recordCircuitBreakerFailure(target.provider, target.model, status, err?.message).catch(() => {});
         console.warn(
           `${colors.yellow}[Fallback Chain]${colors.reset} [${target.provider}] ${target.model} attempt ${att + 1}/${attempts} failed (${status}: ${err.message}). Trying next fallback...`
         );
-        if (err?.status === 404) break; // Model does not exist, advance to next model in chain immediately
-        await new Promise((r) => setTimeout(r, 250));
+        if (err?.status === 404 || err?.status === 503) break;
+        await new Promise((r) => setTimeout(r, 200));
       }
     }
   }
@@ -228,7 +298,8 @@ export async function callModel(
   target: ModelEndpoint,
   messages: OpenAI.ChatCompletionMessageParam[],
   backupTarget?: ModelEndpoint,
-  temperature = 0.2
+  temperature = 0.2,
+  overrides?: ProviderKeyOverrides
 ): Promise<{ text: string; modelName: string }> {
   // Determine whether this target behaves more like a proposer or auditor and load its chain
   const isAuditor = target.provider === "groq" || target.model.includes("oss");
@@ -250,7 +321,7 @@ export async function callModel(
     chain.push(backupTarget);
   }
 
-  return callModelWithChain(chain, messages, temperature);
+  return callModelWithChain(chain, messages, temperature, overrides);
 }
 
 /**
@@ -265,6 +336,7 @@ export async function runDualModelConsensus(
   const auditorTarget = options.model2 ?? DEFAULT_AUDITOR;
   const context = options.context ? `\n\n### Task Context & Details:\n${options.context}` : "";
   const transcript: DebateTurn[] = [];
+  const overrides = options.keyOverrides;
 
   console.log(`\n${colors.cyan}${colors.bold}====================================================${colors.reset}`);
   console.log(`${colors.cyan}${colors.bold}🤝 ShunopsAI Dual-Model Consensus Engine Initiated${colors.reset}`);
@@ -302,7 +374,8 @@ Please provide your comprehensive proposal. Be structured, precise, and practica
     proposerTarget,
     proposerRound1Prompt,
     BACKUP_OPENROUTER_PROPOSER,
-    options.temperature
+    options.temperature,
+    overrides
   );
 
   transcript.push({
@@ -351,7 +424,8 @@ Provide your rigorous peer-review and specific corrections now.`,
     auditorTarget,
     auditorRound1Prompt,
     BACKUP_GROQ_AUDITOR,
-    options.temperature
+    options.temperature,
+    overrides
   );
 
   transcript.push({
@@ -404,7 +478,8 @@ Deliver the FINAL AUTHORITATIVE DECISION now.`,
     proposerTarget,
     finalConsensusPrompt,
     BACKUP_OPENROUTER_PROPOSER,
-    options.temperature
+    options.temperature,
+    overrides
   );
 
   transcript.push({

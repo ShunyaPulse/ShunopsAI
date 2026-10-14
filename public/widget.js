@@ -1114,6 +1114,8 @@
       if (!data.success) {
         statusDiv.textContent = `⚠️ Error: ${data.message || 'Verification failed'}`;
         statusDiv.className = 'cf-action-resolved rejected';
+      } else if (data.message) {
+        statusDiv.textContent = (approved ? '✓ ' : '✕ ') + data.message;
       }
     } catch {
       statusDiv.textContent = '⚠️ Network error during action execution.';

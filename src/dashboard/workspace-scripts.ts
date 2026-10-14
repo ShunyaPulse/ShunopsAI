@@ -481,9 +481,15 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]'): stri
         const headers = { 'Content-Type': 'application/json' };
         const vault = await loadVaultKeys();
         if (vault) {
-          if (vault.groq) headers['x-groq-key'] = vault.groq;
-          if (vault.gemini) headers['x-gemini-key'] = vault.gemini;
+          if (vault.aiMode !== 'shared') {
+            if (vault.groq) headers['x-groq-key'] = vault.groq;
+            if (vault.gemini) headers['x-gemini-key'] = vault.gemini;
+          }
+          if (vault.monitorUrl && (!vault.services || vault.services.sentinel !== false)) {
+            historyItems.unshift('Configured Sentinel Monitored Website URL: ' + vault.monitorUrl);
+          }
         }
+        const finalHistoryPayload = historyItems.length > 0 ? historyItems.join('\\n\\n') : undefined;
 
         // Solve Proof-of-Work challenge in background (WebCrypto solves in ~20-30ms)
         let shieldSolution = null;
@@ -504,7 +510,7 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]'): stri
           signal: currentChatAbortController.signal,
           body: JSON.stringify({
             message: msg,
-            history: historyPayload,
+            history: finalHistoryPayload,
             image: currentAttachedImage || undefined,
             modelPreference,
             shield: shieldSolution || undefined,
@@ -833,11 +839,11 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]'): stri
 
     const LOCAL_BRIDGE_PRESETS = [
       { id: 'local_bridge', name: 'Custom Local Bridge (127.0.0.1:8000)', url: 'http://127.0.0.1:8000/sse' },
-      { id: 'mcp:docker', name: 'Docker Engine (Local Bridge)', url: 'http://127.0.0.1:8000/sse' },
-      { id: 'mcp:sqlite', name: 'SQLite Database (Local Bridge)', url: 'http://127.0.0.1:8000/sse' },
-      { id: 'mcp:git', name: 'Local Git Repository (Local Bridge)', url: 'http://127.0.0.1:8000/sse' },
-      { id: 'mcp:ollama', name: 'Ollama Local LLMs (Local Bridge)', url: 'http://127.0.0.1:8000/sse' },
-      { id: 'mcp:filesystem', name: 'Local Filesystem (Local Bridge)', url: 'http://127.0.0.1:8000/sse' }
+      { id: 'local_bridge:docker', name: 'Docker Engine (Local Bridge)', url: 'http://127.0.0.1:8000/sse' },
+      { id: 'local_bridge:sqlite', name: 'SQLite Database (Local Bridge)', url: 'http://127.0.0.1:8000/sse' },
+      { id: 'local_bridge:git', name: 'Local Git Repository (Local Bridge)', url: 'http://127.0.0.1:8000/sse' },
+      { id: 'local_bridge:ollama', name: 'Ollama Local LLMs (Local Bridge)', url: 'http://127.0.0.1:8000/sse' },
+      { id: 'local_bridge:filesystem', name: 'Local Filesystem (Local Bridge)', url: 'http://127.0.0.1:8000/sse' }
     ];
 
     const REMOTE_MCP_POPULAR_PRESETS = [
@@ -1247,9 +1253,10 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]'): stri
         return;
       }
       const platformId = select.value;
-      const isMcp = platformId === 'mcp' || platformId.startsWith('mcp:');
+      const isLocalBridge = currentInlineTier === 'local_bridge' || platformId === 'local_bridge' || platformId.startsWith('local_bridge:');
+      const isMcp = !isLocalBridge && (platformId === 'mcp' || platformId.startsWith('mcp:'));
       const spec = platformSpecs.filter(function (s) {
-        return s.id === platformId || (isMcp && s.id === 'mcp');
+        return s.id === platformId || (isLocalBridge && s.id === 'local_bridge') || (isMcp && s.id === 'mcp');
       })[0];
       if (!spec) {
         setPlatformStatus('Choose a platform to connect.', false);
@@ -1275,8 +1282,11 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]'): stri
       setPlatformStatus(updating ? 'Updating...' : 'Connecting...', true);
 
       let customLabel = '';
-      if (activeMcpPreset && platformId === ('mcp:' + activeMcpPreset.id)) {
-        customLabel = activeMcpPreset.name + ' MCP';
+      if (activeMcpPreset && (platformId === ('mcp:' + activeMcpPreset.id) || platformId === ('local_bridge:' + activeMcpPreset.id))) {
+        customLabel = activeMcpPreset.name + (isLocalBridge ? ' (Local Bridge)' : ' MCP');
+      } else if (isLocalBridge && platformId !== 'local_bridge') {
+        const bridgePreset = LOCAL_BRIDGE_PRESETS.filter(function (b) { return b.id === platformId; })[0];
+        customLabel = bridgePreset ? bridgePreset.name : (platformId.replace(/^local_bridge:/, '') + ' (Local Bridge)');
       } else if (isMcp && platformId !== 'mcp') {
         customLabel = platformId.replace(/^mcp:/, '') + ' MCP';
       }
@@ -1349,9 +1359,15 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]'): stri
       try {
         const headers = { 'Content-Type': 'application/json' };
         const vault = await loadVaultKeys();
+        let taskContext = undefined;
         if (vault) {
-          if (vault.groq) headers['x-groq-key'] = vault.groq;
-          if (vault.gemini) headers['x-gemini-key'] = vault.gemini;
+          if (vault.aiMode !== 'shared') {
+            if (vault.groq) headers['x-groq-key'] = vault.groq;
+            if (vault.gemini) headers['x-gemini-key'] = vault.gemini;
+          }
+          if (vault.monitorUrl && (!vault.services || vault.services.sentinel !== false)) {
+            taskContext = 'Configured Sentinel Monitored Website URL: ' + vault.monitorUrl;
+          }
         }
 
         // Async dispatch keeps the page responsive while the agent works and
@@ -1362,6 +1378,7 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]'): stri
           credentials: 'same-origin',
           body: JSON.stringify({
             goal: goal,
+            context: taskContext,
             maxSteps: Number((stepsSelect && stepsSelect.value) || 6),
             async: true,
           }),
@@ -1413,6 +1430,7 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]'): stri
           const steps = (task.result && task.result.stepsTaken) ? (' (' + task.result.stepsTaken + ' step(s))') : '';
           statusBox.textContent = '✅ Completed' + steps + ':\\n' + answer;
           fetchBillingUsage();
+          loadWorkspaceTasks();
           return;
         }
 
@@ -1421,6 +1439,7 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]'): stri
           const errText = task.error || (task.result && task.result.finalAnswer) || 'Task failed.';
           statusBox.textContent = '❌ Task failed: ' + errText;
           fetchBillingUsage();
+          loadWorkspaceTasks();
           return;
         }
 
@@ -1430,6 +1449,41 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]'): stri
       } catch (e) {
         setTimeout(function () { pollTaskResult(taskId, statusBox, attempt + 1); }, 2500);
       }
+    }
+
+
+    async function loadWorkspaceTasks(resumeActive = false) {
+      const box = document.getElementById('workspace-recent-tasks');
+      if (!box) return;
+      try {
+        const res = await fetch('/api/tasks', { credentials: 'same-origin' });
+        if (!res.ok) return;
+        const data = await res.json();
+        const tasks = (data && Array.isArray(data.tasks)) ? data.tasks.slice(0, 4) : [];
+        if (!tasks.length) {
+          box.innerHTML = '';
+          return;
+        }
+        if (resumeActive && (tasks[0].status === 'QUEUED' || tasks[0].status === 'RUNNING')) {
+          const statusBox = document.getElementById('task-run-status');
+          if (statusBox && statusBox.style.display === 'none') {
+            statusBox.style.display = 'block';
+            statusBox.style.color = '#38bdf8';
+            statusBox.textContent = '⏳ Active task ' + tasks[0].id + ' (' + tasks[0].status + ')...';
+            pollTaskResult(tasks[0].id, statusBox, 0);
+          }
+        }
+        box.innerHTML = '<div style="font-size:10.5px; font-weight:700; color:#64748b; text-transform:uppercase; margin-bottom:6px; letter-spacing:0.5px;">Recent Tasks</div>'
+          + tasks.map(function (t) {
+            const st = String(t.status || 'COMPLETED').toUpperCase();
+            const color = st === 'COMPLETED' ? '#10b981' : (st === 'FAILED' ? '#f87171' : '#38bdf8');
+            const goalPreview = String(t.goal || '').slice(0, 65) + (String(t.goal || '').length > 65 ? '...' : '');
+            return '<div style="display:flex; justify-content:space-between; align-items:center; gap:6px; padding:5px 7px; background:#070a12; border:1px solid #1e293b; border-radius:6px; margin-bottom:4px;">'
+              + '<span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#cbd5e1; font-size:11px;" title="' + escapeHtmlAttr(t.goal || '') + '">' + escapeHtmlText(goalPreview) + '</span>'
+              + '<span style="font-size:9.5px; font-weight:700; color:' + color + '; flex-shrink:0;">' + escapeHtmlText(st) + '</span>'
+              + '</div>';
+          }).join('');
+      } catch (e) {}
     }
 
     // 9. MCP Directory & 1-Click Presets Explorer
@@ -1572,7 +1626,7 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]'): stri
       // Tier 2: Self-Hosted / Local Bridge
       if (preset.tier === 'local_bridge') {
         setInlineTierFilter('local_bridge');
-        const bridgePlatformId = 'mcp:' + preset.id;
+        const bridgePlatformId = 'local_bridge:' + preset.id;
         let opt = platformSelect.querySelector('option[value="' + bridgePlatformId + '"]');
         if (!opt) {
           opt = document.createElement('option');
@@ -1628,6 +1682,7 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]'): stri
       loadApiKeys();
       fetchModelStatus();
       loadPlatformCredentials();
+      loadWorkspaceTasks(true);
       setInterval(fetchWorkspaceApprovals, 4000); // Live approvals polling
     });`;
 }

@@ -1,4 +1,5 @@
-import { execFileSync, execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
+import { runTypecheck } from "./auditor/consensus.js";
 import * as fs from "node:fs/promises";
 import * as dotenv from "dotenv";
 import { assertAccessible } from "../agent/sandbox.js";
@@ -231,15 +232,15 @@ Do NOT include any text outside the JSON.`;
     const patchedCode = fileContent.replace(searchTarget, replaceTarget);
     await fs.writeFile(fullPath, patchedCode, "utf-8");
 
-    // Verify typecheck
-    try {
-      execSync("npm run typecheck", { stdio: "pipe" });
+    // Verify typecheck safely via execFileSync tsc (no shell)
+    const tcResult = runTypecheck(process.cwd());
+    if (tcResult.ok) {
       console.log(`${colors.green}✓ Alert #${alert.number} successfully patched & verified via Dual-Model Consensus (${m1Response.modelName} + ${m2Response.modelName})!${colors.reset}`);
       return { success: true, message: `Patched ${filePath} for ${ruleId} via Consensus` };
-    } catch (typeErr: any) {
+    } else {
       console.warn(`${colors.yellow}⚠️ Typecheck failed after patch. Rolling back file ${filePath}...${colors.reset}`);
       await fs.writeFile(fullPath, fileContent, "utf-8");
-      return { success: false, message: `Typecheck failed: ${typeErr.message}` };
+      return { success: false, message: `Typecheck failed: ${tcResult.error}` };
     }
   } catch (err: any) {
     return { success: false, message: `Consensus inference or parse failed: ${err.message}` };

@@ -687,10 +687,20 @@ export const toolRegistry: Record<ToolName, ToolDefinition> = {
         },
       },
     },
-    execute: async (args: { taskGoal: string; context?: string; maxRounds?: number }) => {
+    execute: async (args: { taskGoal: string; context?: string; maxRounds?: number }, scope?: ToolScope) => {
+      const keyOverrides =
+        scope?.keyOverrides ||
+        (scope?.credentials?.github?.token || scope?.credentials?.cloudflare
+          ? {
+              githubToken: scope.credentials.github?.token,
+              cloudflareAccountId: scope.credentials.cloudflare?.accountId,
+              cloudflareApiToken: scope.credentials.cloudflare?.apiToken,
+            }
+          : undefined);
       const result = await runDualModelConsensus(args.taskGoal, {
         context: args.context,
         maxRounds: args.maxRounds ?? 2,
+        keyOverrides,
       });
       return JSON.stringify({
         consensusReached: result.consensusReached,

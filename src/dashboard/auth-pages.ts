@@ -5,9 +5,9 @@ import { authPageScripts } from "./auth-scripts.js";
  * Authentication HTML pages (Login & Register).
  * Matches the Kanban-Cloud production UI and security features:
  * - Google Sign-In button
- * - Email + OTP registration / login
+ * - Email + OTP registration / login / password reset
  * - Username + Password registration with required Email OTP verification
- * - Cloudflare Turnstile bot verification
+ * - Cloudflare Turnstile bot verification (active on both login & register for OTP/reset flows)
  * - Client-side WebCrypto Proof-of-Work solver
  * - Honeypot traps
  *
@@ -33,7 +33,8 @@ export function getAuthPageHtml(mode: "login" | "register"): string {
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <!-- Google Sign-In SDK -->
   <script src="https://accounts.google.com/gsi/client" async defer></script>
-  ${!isLogin ? '<!-- Cloudflare Turnstile SDK -->\n  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" async defer></script>' : ""}
+  <!-- Cloudflare Turnstile SDK (Required for Signup, OTP Login, and Password Reset) -->
+  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" async defer></script>
   <style>
 ${AUTH_PAGE_STYLES}
   </style>
@@ -123,17 +124,20 @@ ${AUTH_PAGE_STYLES}
       </div>
       `
           : `
-      <!-- Sign In Form -->
+      <!-- Sign In / Password Reset Form -->
       <div class="form-group">
-        <label for="identifier">Email Address or Username</label>
+        <label for="identifier" id="identifier-label">Email Address or Username</label>
         <div class="input-row">
           <input type="text" id="identifier" required autocomplete="username" placeholder="you@example.com" />
-          <button type="button" id="btn-send-otp" class="btn-secondary" style="display:none;" onclick="sendVerificationOTP('login')">Send OTP</button>
+          <button type="button" id="btn-send-otp" class="btn-secondary" style="display:none;" onclick="sendVerificationOTP(isResetPasswordMode ? 'reset' : 'login')">Send OTP</button>
         </div>
       </div>
 
       <div class="form-group" id="password-group">
-        <label for="password">Password</label>
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <label for="password" id="password-label">Password</label>
+          <a href="#" id="forgot-password-link" onclick="toggleResetPasswordMode(event)" style="font-size:11.5px; color:#38bdf8; text-decoration:none;">Forgot password?</a>
+        </div>
         <input type="password" id="password" autocomplete="current-password" placeholder="••••••••" />
       </div>
 
@@ -142,7 +146,12 @@ ${AUTH_PAGE_STYLES}
         <input type="text" id="otp" maxlength="6" placeholder="123456" autocomplete="one-time-code" style="font-family: monospace; letter-spacing: 4px; font-weight: 700;" />
       </div>
 
-      <div class="toggle-row">
+      <div class="form-group" id="new-password-group" style="display:none;">
+        <label for="new-password">New Password (min 8 chars)</label>
+        <input type="password" id="new-password" minlength="8" autocomplete="new-password" placeholder="Enter your new password" />
+      </div>
+
+      <div class="toggle-row" id="otp-toggle-row">
         <input type="checkbox" id="chk-otp-mode" onchange="toggleOtpMode()" />
         <label for="chk-otp-mode" style="margin:0; cursor:pointer;">Sign in with Email OTP Code instead</label>
       </div>
@@ -150,7 +159,7 @@ ${AUTH_PAGE_STYLES}
       }
 
       <!-- Cloudflare Turnstile Bot Shield -->
-      ${!isLogin ? '<div class="turnstile-box" id="turnstile-container"></div>' : ""}
+      <div class="turnstile-box" id="turnstile-container"></div>
 
       <button type="submit" id="btn-submit" class="btn-primary">
         ${isLogin ? "Sign In" : "Click 'Send OTP' above to verify"}

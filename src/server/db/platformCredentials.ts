@@ -281,6 +281,17 @@ function buildHint(spec: PlatformSpec, values: Record<string, string>): string {
 }
 
 export function getPlatformSpec(platform: string): PlatformSpec | null {
+  if (platform === "local_bridge" || platform.startsWith("local_bridge:")) {
+    const base = PLATFORM_SPECS.local_bridge;
+    if (!base) return null;
+    return {
+      id: platform,
+      label: base.label,
+      description: base.description,
+      tier: base.tier,
+      fields: base.fields,
+    };
+  }
   if (platform === "mcp" || platform.startsWith("mcp:")) {
     const base = PLATFORM_SPECS.mcp;
     if (!base) return null;
@@ -313,7 +324,9 @@ function inspectStoredPayload(
     const fields = spec.fields
       .map((field) => field.key)
       .filter((key) => {
-        const value = values[key];
+        const value =
+          values[key] ??
+          (key === "serverUrl" ? values.bridgeUrl : key === "bridgeUrl" ? values.serverUrl : undefined);
         return typeof value === "string" && value.trim().length > 0;
       });
     return { fields, readable: true };
@@ -326,7 +339,13 @@ function inspectStoredPayload(
 function normalizeValues(spec: PlatformSpec, values: Record<string, unknown>): Record<string, string> {
   const normalized: Record<string, string> = {};
   for (const field of spec.fields) {
-    const raw = values?.[field.key];
+    let raw = values?.[field.key];
+    // Allow seamless interop between `bridgeUrl` and `serverUrl` for Local Bridge & MCP presets
+    if (raw === undefined && field.key === "serverUrl" && typeof values?.bridgeUrl === "string") {
+      raw = values.bridgeUrl;
+    } else if (raw === undefined && field.key === "bridgeUrl" && typeof values?.serverUrl === "string") {
+      raw = values.serverUrl;
+    }
     const value = typeof raw === "string" ? raw.trim() : "";
     if (!value && !field.optional) {
       throw new CredentialVaultError(`${field.label} is required for ${spec.label}.`);
@@ -374,7 +393,7 @@ export async function upsertUserPlatformCredential(
       hint: record.hint,
       updatedAt: record.updatedAt,
       tier: spec.tier,
-      fields: spec.fields.map((f) => f.key),
+      fields: Object.keys(normalized),
       readable: true,
     };
   }
@@ -397,7 +416,7 @@ export async function upsertUserPlatformCredential(
     hint,
     updatedAt: rows?.[0]?.updated_at ?? new Date().toISOString(),
     tier: spec.tier,
-    fields: spec.fields.map((f) => f.key),
+    fields: Object.keys(normalized),
     readable: true,
   };
 }
@@ -505,25 +524,29 @@ export async function getUserCredentialBundle(userId: number): Promise<PlatformC
         if (values.connectionString) bundle.supabase = { connectionString: values.connectionString };
       } else if (row.platform === "upstash") {
         if (values.url && values.token) bundle.upstash = { url: values.url, token: values.token };
-      } else if (row.platform === "local_bridge") {
-        if (values.bridgeUrl) {
-          bundle.localBridge = { bridgeUrl: values.bridgeUrl, apiKey: values.apiKey };
+      } else if (row.platform === "local_bridge" || row.platform.startsWith("local_bridge:")) {
+        const bridgeUrl = values.bridgeUrl || values.serverUrl;
+        if (bridgeUrl) {
+          if (!bundle.localBridge) {
+            bundle.localBridge = { bridgeUrl, apiKey: values.apiKey };
+          }
           mcpServers.push({
-            id: "local_bridge",
+            id: row.platform,
             name: row.label || "Self-Hosted Local Bridge",
-            serverUrl: values.bridgeUrl,
+            serverUrl: bridgeUrl,
             apiKey: values.apiKey || undefined,
           });
         }
       } else if (row.platform === "mcp" || row.platform.startsWith("mcp:")) {
-        if (values.serverUrl) {
+        const serverUrl = values.serverUrl || values.bridgeUrl;
+        if (serverUrl) {
           if (row.platform === "mcp" && !bundle.mcp) {
-            bundle.mcp = { serverUrl: values.serverUrl, apiKey: values.apiKey };
+            bundle.mcp = { serverUrl, apiKey: values.apiKey };
           }
           mcpServers.push({
             id: row.platform,
             name: row.label || row.platform,
-            serverUrl: values.serverUrl,
+            serverUrl,
             apiKey: values.apiKey || undefined,
           });
         }

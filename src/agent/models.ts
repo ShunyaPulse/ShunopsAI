@@ -191,6 +191,41 @@ export interface ProviderKeyOverrides {
 }
 
 /**
+ * Flatten multimodal content arrays (`[{ type: 'text' }, { type: 'image_url' }]`) into
+ * plain text for text-only fallback models (such as Cloudflare Workers AI 7B/8B or o1-mini).
+ */
+function flattenMultimodalMessages(
+  messages: OpenAI.ChatCompletionMessageParam[]
+): OpenAI.ChatCompletionMessageParam[] {
+  return messages.map((msg) => {
+    if (msg.role === "user" && Array.isArray(msg.content)) {
+      const textParts = msg.content
+        .map((part: any) => {
+          if (part?.type === "text") return String(part.text || "");
+          if (part?.type === "image_url") return "[User attached an image]";
+          return "";
+        })
+        .filter(Boolean)
+        .join("\n");
+      return { role: "user", content: textParts };
+    }
+    return msg;
+  });
+}
+
+function hasMultimodalContent(messages: OpenAI.ChatCompletionMessageParam[]): boolean {
+  return messages.some((m) => m.role === "user" && Array.isArray(m.content));
+}
+
+function isTextOnlyModel(target: ModelTarget): boolean {
+  return (
+    target.provider === "cloudflare" ||
+    target.model === "o1-mini" ||
+    target.model.includes("north-mini-code")
+  );
+}
+
+/**
  * Create an OpenAI-compatible client for a provider target, with optional request-scoped BYOK overrides.
  */
 export function createClientForTarget(target: ModelTarget, overrides?: ProviderKeyOverrides): OpenAI {
@@ -306,6 +341,7 @@ export async function callChatCompletionWithFailover(
   }
 
   let lastError: any = null;
+  const isMultimodal = hasMultimodalContent(messages);
 
   for (const target of eligibleTargets) {
     // Proactively skip models that recently tripped circuit-breaker cooldown
@@ -330,12 +366,15 @@ export async function callChatCompletionWithFailover(
           `${colors.gray}[Requesting Model]${colors.reset} [${target.provider.toUpperCase()}] ${target.model}`
         );
 
+        const effectiveMessages =
+          isMultimodal && isTextOnlyModel(target) ? flattenMultimodalMessages(messages) : messages;
+
         // Providers reject an empty `tools` array (`tools: Array must have at
         // least 1 item`), so tool-less runs (e.g. the public /api/chat bot)
         // must omit the parameters entirely instead of sending an empty list.
         const params: OpenAI.ChatCompletionCreateParamsNonStreaming = {
           model: target.model,
-          messages,
+          messages: effectiveMessages,
           temperature,
         };
         if (tools.length > 0) {
@@ -343,7 +382,20 @@ export async function callChatCompletionWithFailover(
           params.tool_choice = "auto";
         }
 
-        const response = await client.chat.completions.create(params);
+        let response: OpenAI.ChatCompletion;
+        try {
+          response = await client.chat.completions.create(params);
+        } catch (innerErr: any) {
+          // If a model rejected multimodal array content with 400/422, retry once with flattened text
+          if (isMultimodal && effectiveMessages === messages && (innerErr?.status === 400 || innerErr?.status === 422)) {
+            response = await client.chat.completions.create({
+              ...params,
+              messages: flattenMultimodalMessages(messages),
+            });
+          } else {
+            throw innerErr;
+          }
+        }
 
         if (response.choices && response.choices.length > 0 && response.choices[0]) {
           recordCircuitBreakerSuccess(target.provider, target.model).catch(() => {});

@@ -130,6 +130,8 @@ export interface ShieldSolutionPayload {
 export interface ChatRequestBody {
   sessionId: string;
   message: string;
+  history?: string;
+  modelPreference?: string;
   turnstileToken?: string;
   systemPrompt?: string;
   shield?: ShieldSolutionPayload;

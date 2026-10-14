@@ -9,6 +9,7 @@ import type {
   ShieldSolutionPayload,
 } from './types.js';
 import { executeAgentStream } from './agent/engine.js';
+import { loadSessionHistory, saveSessionHistory } from './agent/engine/session.js';
 import { verifyActionToken, executeConfirmedAction } from './tools/registry.js';
 import { WIDGET_JS_CONTENT } from './widget-script.js';
 
@@ -394,6 +395,17 @@ app.post('/api/action/confirm', async (c) => {
 
   // If user declined the action
   if (!approved) {
+    if (sessionId && /^[A-Za-z0-9_-]{6,64}$/.test(sessionId)) {
+      try {
+        const hist = await loadSessionHistory(sessionId, c.env);
+        hist.push({
+          role: 'user',
+          content: `[System Action Update: User REJECTED action "${actionType}" (ID: ${actionId}).]`,
+          timestamp: Date.now(),
+        });
+        await saveSessionHistory(sessionId, hist, c.env);
+      } catch {}
+    }
     return c.json({
       success: true,
       actionId,
@@ -409,6 +421,18 @@ app.post('/api/action/confirm', async (c) => {
     c.env,
     sessionId || 'unknown'
   );
+
+  if (sessionId && /^[A-Za-z0-9_-]{6,64}$/.test(sessionId)) {
+    try {
+      const hist = await loadSessionHistory(sessionId, c.env);
+      hist.push({
+        role: 'user',
+        content: `[System Action Update: User APPROVED and executed action "${actionType}" (ID: ${actionId}). Result: ${outcome.message}]`,
+        timestamp: Date.now(),
+      });
+      await saveSessionHistory(sessionId, hist, c.env);
+    } catch {}
+  }
 
   return c.json(outcome);
 });

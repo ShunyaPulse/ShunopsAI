@@ -129,7 +129,7 @@ async function callBuiltInMcpTool(
  * "connected" row for a server the agent could never reach.
  */
 function mcpCredentialRejection(platform: string, values: Record<string, unknown>): string | null {
-  if (platform !== "mcp" && platform !== "local_bridge" && !platform.startsWith("mcp:")) {
+  if (platform !== "mcp" && platform !== "local_bridge" && !platform.startsWith("mcp:") && !platform.startsWith("local_bridge:")) {
     return null;
   }
 

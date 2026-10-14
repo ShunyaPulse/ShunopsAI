@@ -158,7 +158,7 @@ Return ONLY valid JSON:
  * which would execute arbitrary shell commands defined in a cloned repo's
  * `package.json` scripts with host secrets in `process.env`).
  */
-function runTypecheck(rootDir: string): { ok: true } | { ok: false; error: string } {
+export function runTypecheck(rootDir: string = process.cwd()): { ok: true } | { ok: false; error: string } {
   const hostTscJs = path.resolve(process.cwd(), "node_modules", "typescript", "bin", "tsc");
   const minimalEnv: NodeJS.ProcessEnv = {
     PATH: process.env.PATH,
