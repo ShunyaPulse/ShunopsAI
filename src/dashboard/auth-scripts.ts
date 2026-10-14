@@ -12,25 +12,40 @@ export function authPageScripts(isLogin: boolean, turnstileSiteKey: string): str
     const turnstileSiteKey = "${turnstileSiteKey}";
 
     // Initialize Cloudflare Turnstile
-    window.addEventListener("DOMContentLoaded", () => {
+    window.onTurnstileSuccess = function(token) {
+      turnstileToken = token;
+    };
+
+    window.onloadTurnstileCallback = function() {
       const container = document.getElementById("turnstile-container");
       if (container && typeof turnstile !== "undefined" && turnstileSiteKey) {
-        try {
-          turnstile.render("#turnstile-container", {
-            sitekey: turnstileSiteKey,
-            theme: "dark",
-            callback: function(token) {
-              turnstileToken = token;
-            },
-            "error-callback": function(code) {
-              console.warn("Turnstile notice:", code);
-            }
-          });
-        } catch (e) {
-          console.warn("Turnstile initialization notice:", e);
+        if (!container.hasChildNodes()) {
+          try {
+            turnstile.render("#turnstile-container", {
+              sitekey: turnstileSiteKey,
+              theme: "dark",
+              callback: function(token) {
+                turnstileToken = token;
+              },
+              "error-callback": function(code) {
+                console.warn("Turnstile notice:", code);
+              }
+            });
+          } catch (e) {
+            console.warn("Turnstile initialization notice:", e);
+          }
         }
       }
+    };
 
+    if (typeof turnstile !== "undefined") {
+      window.onloadTurnstileCallback();
+    }
+
+    window.addEventListener("DOMContentLoaded", () => {
+      if (typeof turnstile !== "undefined") {
+        window.onloadTurnstileCallback();
+      }
       const urlParams = new URLSearchParams(window.location.search);
       const urlErr = urlParams.get('error');
       if (urlErr) {
@@ -38,7 +53,7 @@ export function authPageScripts(isLogin: boolean, turnstileSiteKey: string): str
       }
     });
 
-    // 1. Google OAuth Callback
+    // 1. Google OAuth Callback (One-Tap / GSI)
     async function handleGoogleCallback(response) {
       if (!response.credential) return;
       showMsg('Authenticating with Google...', 'success');
@@ -58,6 +73,53 @@ export function authPageScripts(isLogin: boolean, turnstileSiteKey: string): str
         setTimeout(() => { window.location.href = '/workspace'; }, 600);
       } catch (err) {
         showMsg('Failed to connect to authentication server.', 'error');
+      }
+    }
+
+    // 1b. Interactive Google Sign-In (Token Client / Prompt)
+    function initiateGoogleLogin() {
+      showMsg('Connecting to Google...', 'success');
+      const gClientEl = document.getElementById('g_id_onload');
+      const gClientId = (gClientEl && gClientEl.getAttribute('data-client_id')) || '685823552970-phqjqt3cc613h69kat0rljbaikf8k6kd.apps.googleusercontent.com';
+
+      if (typeof google !== "undefined" && google.accounts && google.accounts.oauth2) {
+        try {
+          const client = google.accounts.oauth2.initTokenClient({
+            client_id: gClientId,
+            scope: 'email profile openid',
+            callback: async (tokenResponse) => {
+              if (tokenResponse && tokenResponse.access_token) {
+                showMsg('Verifying Google credentials...', 'success');
+                try {
+                  const res = await fetch('/api/auth/google', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ access_token: tokenResponse.access_token })
+                  });
+                  const data = await res.json();
+                  if (res.ok) {
+                    showMsg('Login successful! Redirecting...', 'success');
+                    setTimeout(() => { window.location.href = '/workspace'; }, 600);
+                  } else {
+                    showMsg(data.error || 'Google login failed.', 'error');
+                  }
+                } catch (e) {
+                  showMsg('Authentication server connection error.', 'error');
+                }
+              }
+            }
+          });
+          client.requestAccessToken();
+          return;
+        } catch (e) {
+          console.warn('OAuth2 client init exception:', e);
+        }
+      }
+
+      if (typeof google !== "undefined" && google.accounts && google.accounts.id) {
+        google.accounts.id.prompt();
+      } else {
+        showMsg('Google Sign-In is blocked by browser shields or extensions. Please allow accounts.google.com or use Email OTP / GitHub login.', 'error');
       }
     }
 

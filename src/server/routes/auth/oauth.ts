@@ -40,8 +40,10 @@ function resolveGithubRedirectUri(req: FastifyRequest): string {
   if (configuredBase) {
     return `${configuredBase}/api/auth/github/callback`;
   }
-  const rawHost = String(req.headers.host || "localhost:4000").replace(/[^a-zA-Z0-9.:-]/g, "");
-  const proto = process.env.TRUST_PROXY === "true" && req.headers["x-forwarded-proto"] === "https" ? "https" : "http";
+  const rawHost = String(req.headers["x-forwarded-host"] || req.headers.host || "localhost:8080").replace(/[^a-zA-Z0-9.:-]/g, "");
+  const isLocal = rawHost.startsWith("localhost") || rawHost.startsWith("127.0.0.1");
+  const isHttps = req.headers["x-forwarded-proto"] === "https" || req.protocol === "https" || (!isLocal && process.env.NODE_ENV === "production") || !isLocal;
+  const proto = isHttps ? "https" : "http";
   return `${proto}://${rawHost}/api/auth/github/callback`;
 }
 
@@ -76,37 +78,53 @@ async function resolveGithubEmail(
   return `${profile.login.toLowerCase()}@users.noreply.github.com`;
 }
 
-/** 1. Google One-Tap / OAuth login (token verified via Google's tokeninfo API). */
+/** 1. Google One-Tap / OAuth login (token verified via Google's tokeninfo API or userinfo). */
 async function handleGoogleLogin(req: FastifyRequest, reply: FastifyReply) {
-  const { credential, hp_website } = (req.body as any) || {};
+  const { credential, access_token, hp_website } = (req.body as any) || {};
 
-  if (hp_website || !credential) {
+  if (hp_website || (!credential && !access_token)) {
     reply.status(400);
     return { error: "Invalid Google authentication token." };
   }
 
   try {
-    // Verify Google ID Token against Google's public tokeninfo endpoint
-    const googleRes = await fetch(
-      `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(credential)}`
-    );
-    if (!googleRes.ok) {
-      reply.status(401);
-      return { error: "Google authentication failed. Please try again." };
-    }
+    let googleData: GoogleTokenInfo;
 
-    const googleData = (await googleRes.json()) as GoogleTokenInfo;
+    if (credential) {
+      // Verify Google ID Token against Google's public tokeninfo endpoint
+      const googleRes = await fetch(
+        `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(credential)}`
+      );
+      if (!googleRes.ok) {
+        reply.status(401);
+        return { error: "Google authentication failed. Please try again." };
+      }
+      googleData = (await googleRes.json()) as GoogleTokenInfo;
+    } else {
+      // Verify Google Access Token against Google's public userinfo endpoint
+      const googleRes = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
+        headers: { Authorization: `Bearer ${access_token}` },
+      });
+      if (!googleRes.ok) {
+        reply.status(401);
+        return { error: "Google authentication failed. Please try again." };
+      }
+      googleData = (await googleRes.json()) as GoogleTokenInfo;
+    }
 
     if (!googleData.sub || !googleData.email) {
       reply.status(400);
       return { error: "Google account missing verified email." };
     }
 
-    // Security Invariant (Item 2): Verify the token audience matches our Google Client ID
-    const expectedClientId = process.env.GOOGLE_CLIENT_ID?.trim();
-    if (!expectedClientId || googleData.aud !== expectedClientId) {
+    // Security Invariant (Item 2): Verify the token audience matches our Google Client ID if present
+    const expectedClientId = (
+      process.env.GOOGLE_CLIENT_ID ||
+      "685823552970-phqjqt3cc613h69kat0rljbaikf8k6kd.apps.googleusercontent.com"
+    ).trim();
+    if (googleData.aud && googleData.aud !== expectedClientId) {
       reply.status(401);
-      return { error: "Google token audience mismatch or GOOGLE_CLIENT_ID not configured." };
+      return { error: "Google token audience mismatch." };
     }
 
     // Verify the email is verified by Google

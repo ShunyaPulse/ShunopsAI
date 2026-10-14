@@ -81,12 +81,7 @@ export const AUTH_PAGE_STYLES = `    :root {
       color: #ffffff;
       font-weight: 600;
     }
-    .google-btn-wrapper {
-      margin-bottom: 12px;
-      display: flex;
-      justify-content: center;
-    }
-    .github-oauth-btn {
+    .oauth-btn {
       width: 100%;
       display: flex;
       align-items: center;
@@ -101,11 +96,16 @@ export const AUTH_PAGE_STYLES = `    :root {
       text-decoration: none;
       padding: 10px 16px;
       box-sizing: border-box;
+      cursor: pointer;
+      font-family: inherit;
       transition: background 0.15s, border-color 0.15s;
     }
-    .github-oauth-btn:hover {
+    .oauth-btn:hover {
       background: #334155;
       border-color: rgba(255, 255, 255, 0.25);
+    }
+    .google-oauth-btn {
+      margin-bottom: 10px;
     }
     .divider {
       display: flex;
@@ -244,4 +244,5 @@ export const AUTH_PAGE_STYLES = `    :root {
       display: flex;
       justify-content: center;
       margin: 14px 0 6px;
+      min-height: 65px;
     }`;

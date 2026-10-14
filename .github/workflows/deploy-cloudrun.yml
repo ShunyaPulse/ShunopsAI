@@ -100,7 +100,7 @@ jobs:
             --cpu=1 \
             --min-instances=0 \
             --max-instances=2 \
-            --update-env-vars=NODE_ENV=production,HOST=0.0.0.0,GOOGLE_CLIENT_ID=685823552970-phqjqt3cc613h69kat0rljbaikf8k6kd.apps.googleusercontent.com,CLOUDFLARE_TURNSTILE_SITE_KEY=0x4AAAAAAFVaFzGbMCgv2_Kr
+            --update-env-vars=NODE_ENV=production,HOST=0.0.0.0,PUBLIC_BASE_URL=https://shunopsai-685823552970.asia-south1.run.app,TRUST_PROXY=true,GOOGLE_CLIENT_ID=685823552970-phqjqt3cc613h69kat0rljbaikf8k6kd.apps.googleusercontent.com,CLOUDFLARE_TURNSTILE_SITE_KEY=0x4AAAAAAFVaFzGbMCgv2_Kr
 
           echo "✅ Traffic switch to latest revision..."
           gcloud run services update-traffic shunopsai \
