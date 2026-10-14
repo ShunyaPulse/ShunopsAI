@@ -249,7 +249,15 @@ export class McpHttpClient {
         );
       }
 
-      const res = await fetch(destinationUrl, {
+      const url = new URL(destinationUrl);
+if (!['https:', 'http:'].includes(url.protocol)) {
+  throw new Error(`Invalid protocol for MCP endpoint: ${url.protocol}`);
+}
+const allowedHosts = Object.values(ALLOWED_MCP_TARGET_ENDPOINTS).map(u => new URL(u).hostname);
+if (!allowedHosts.includes(url.hostname)) {
+  throw new Error(`Disallowed MCP endpoint hostname: ${url.hostname}`);
+}
+const res = await fetch(url.toString(), {
         method: "POST",
         headers,
         body: JSON.stringify(payload),
