@@ -294,13 +294,20 @@ export async function runAutoAlertResolver(
       ], { env: authEnv });
       const pat = process.env.GH_PAT || process.env.GITHUB_PAT;
       if (pat) {
+        const basicAuth = Buffer.from(`x-access-token:${pat}`).toString("base64");
         execFileSync(
           "git",
-          ["push", `https://${pat}@github.com/ShunyaPulse/ShunopsAI.git`, "main:main"],
-          { stdio: "inherit", env: authEnv }
+          [
+            "-c",
+            `http.https://github.com/.extraheader=AUTHORIZATION: basic ${basicAuth}`,
+            "push",
+            "https://github.com/ShunyaPulse/ShunopsAI.git",
+            "main:main",
+          ],
+          { stdio: "pipe", env: authEnv }
         );
       } else {
-        execFileSync("git", ["push", "origin", "main"], { stdio: "inherit", env: authEnv });
+        execFileSync("git", ["push", "origin", "main"], { stdio: "pipe", env: authEnv });
       }
       console.log(`${colors.green}✓ All patches pushed to GitHub main successfully!${colors.reset}`);
     } catch (pushErr: any) {

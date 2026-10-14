@@ -738,9 +738,9 @@ export async function startVideoJob(
   await fs.writeFile(
     path.join(dsDir, "config.json"),
     JSON.stringify({
-      groq_api_key: process.env.GROQ_API_KEY || "",
-      hf_token: process.env.HF_TOKEN || "",
-    }, null, 2)
+      hf_token: process.env.KAGGLE_BUNDLE_HF_TOKEN === "true" ? (process.env.HF_TOKEN || "") : "",
+    }, null, 2),
+    { mode: 0o600 }
   );
   await fs.copyFile(RENDER_SRC, path.join(kDir, "render.py"));
   await fs.writeFile(
@@ -907,10 +907,16 @@ import * as fsSync from "node:fs";
  * Automatically publishes a rendered video job to YouTube with private visibility.
  */
 export async function publishJobToYouTube(jobDirOrId: string, privacy: "private" | "unlisted" | "public" = "private"): Promise<string> {
-  const isDirect = path.isAbsolute(jobDirOrId) || jobDirOrId.includes("/") || jobDirOrId.includes("\\");
+  const cleanInput = jobDirOrId.trim();
+  const isDirect = path.isAbsolute(cleanInput) || cleanInput.includes("/") || cleanInput.includes("\\");
   const targetDir = isDirect
-    ? path.resolve(process.cwd(), jobDirOrId)
-    : path.join(JOBS_DIR, jobDirOrId, "output");
+    ? path.resolve(JOBS_DIR, cleanInput)
+    : path.resolve(JOBS_DIR, cleanInput.replace(/[^a-zA-Z0-9_-]/g, ""), "output");
+
+  const relToJobs = path.relative(JOBS_DIR, targetDir);
+  if (relToJobs.startsWith("..") || path.isAbsolute(relToJobs)) {
+    throw new Error("Refused: target video job directory must reside inside the jobs directory.");
+  }
 
   const videoPath = path.join(targetDir, "video.mp4");
   const metaPath = path.join(targetDir, "meta.json");
@@ -921,10 +927,12 @@ export async function publishJobToYouTube(jobDirOrId: string, privacy: "private"
   // Fail-safe: If no thumbnail exists locally, generate one from video.mp4 via Python cv2/PIL
   if (!thumbnailPath && fsSync.existsSync(videoPath)) {
     try {
+      const outThumbPath = path.join(targetDir, "thumbnail.jpg");
       const genScript = `
-import cv2, os
-from PIL import Image, ImageDraw, ImageFont
-cap = cv2.VideoCapture(r'${videoPath.replace(/\\/g, "/")}')
+import cv2, sys
+from PIL import Image, ImageDraw
+video_p, out_p = sys.argv[1], sys.argv[2]
+cap = cv2.VideoCapture(video_p)
 fps = cap.get(cv2.CAP_PROP_FPS) or 24.0
 cap.set(cv2.CAP_PROP_POS_FRAMES, int(fps * 15))
 ret, frame = cap.read()
@@ -936,12 +944,10 @@ if ret:
     for y in range(480, 720):
         odraw.line([(0, y), (1280, y)], fill=(0, 0, 0, int((y - 480) / 240 * 185)))
     img = Image.alpha_composite(img.convert('RGBA'), overlay).convert('RGB')
-    out_p = r'${path.join(targetDir, "thumbnail.jpg").replace(/\\/g, "/")}'
     img.save(out_p, quality=95)
-    print('Generated fallback thumbnail:', out_p)
 `;
       const { execFileSync } = await import("node:child_process");
-      execFileSync("python", ["-c", genScript]);
+      execFileSync("python", ["-c", genScript, videoPath, outThumbPath]);
       const genPath = path.join(targetDir, "thumbnail.jpg");
       if (fsSync.existsSync(genPath)) {
         thumbnailPath = genPath;

@@ -391,14 +391,7 @@ export async function launchChapterJob(
       is_private: true,
     }, null, 2)
   );
-  await fs.writeFile(
-    path.join(dsDir, "config.json"),
-    JSON.stringify({
-      groq_api_key: process.env.GROQ_API_KEY || "",
-      hf_token: process.env.HF_TOKEN || "",
-      gcp_tts_api_key: process.env.GCP_TTS_API_KEY || process.env.GOOGLE_TTS_API_KEY || process.env.GEMINI_API_KEY?.split(",")[0] || "",
-    }, null, 2)
-  );
+  await fs.writeFile(path.join(dsDir, "config.json"), JSON.stringify({ hf_token: process.env.KAGGLE_BUNDLE_HF_TOKEN === "true" ? (process.env.HF_TOKEN || "") : "" }, null, 2), { mode: 0o600 });
 
   // Copy Wan2.1 DiT + Edge-TTS GPU runner
   await fs.copyFile(EXPERIMENT_RENDER_SRC, path.join(kDir, "render.py"));

@@ -13,7 +13,7 @@
     }
   ],
   "vars": {
-    "ALLOWED_ORIGIN": "*",
+    "ALLOWED_ORIGIN": "https://shunopsai.workers.dev",
     "PRIMARY_MODEL": "gemini-3.8-flash",
     "FALLBACK_MODEL": "openai/gpt-oss-120b",
     "GROQ_FALLBACK_MODEL": "openai/gpt-oss-120b",

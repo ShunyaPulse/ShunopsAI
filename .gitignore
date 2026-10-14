@@ -21,6 +21,8 @@ test_output/
 output/
 -p/
 *.sarif
+*.zip
+*.patch
 
 # OS / editor
 .DS_Store

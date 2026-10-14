@@ -678,17 +678,24 @@
   `;
   document.head.appendChild(styleEl);
 
+  function sanitizeUrl(rawUrl) {
+    const trimmed = String(rawUrl || '').trim();
+    if (/^(https?:\/\/|mailto:|\/|#)/i.test(trimmed) && !/^\/\//.test(trimmed)) {
+      return trimmed.replace(/"/g, '%22').replace(/'/g, '%27');
+    }
+    return '#';
+  }
+
   // Markdown parser helper
   function renderMarkdown(md) {
     if (!md) return '';
-    // Neutralize dangerous URL schemes before any markdown link is rendered,
-    // otherwise model output like [x](javascript:...) becomes an XSS vector.
-    md = String(md).replace(/\]\(\s*(javascript|data|vbscript|file):[^)]*\)/gi, '](#)');
-    let html = md
-      // Escape basic HTML
+    let html = String(md)
+      // Escape basic HTML & quotes to prevent attribute breakout
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;')
       // Code blocks with one-click copy button
       .replace(/```([a-z0-9_-]*)\n([\s\S]*?)```/gi, (_, lang, code) => {
         const cleanCode = code.trim();
@@ -711,7 +718,10 @@
       // Wrap consecutive li in ul
       .replace(/(<li>[\s\S]*?<\/li>)/g, '<ul>$1</ul>')
       // Links
-      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" style="color:#60a5fa;text-decoration:underline;">$1</a>')
+      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, label, url) => {
+        const safeHref = sanitizeUrl(url.replace(/&quot;/g, '"').replace(/&#39;/g, "'"));
+        return `<a href="${safeHref}" target="_blank" rel="noopener noreferrer" style="color:#60a5fa;text-decoration:underline;">${label}</a>`;
+      })
       // Newlines
       .replace(/\n\n/g, '<br><br>')
       .replace(/\n/g, '<br>');

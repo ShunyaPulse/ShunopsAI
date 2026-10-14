@@ -1,10 +1,12 @@
 import crypto from "crypto";
 
+const PROCESS_FALLBACK_SECRET = crypto.randomBytes(32).toString("hex");
+
 function getShieldSecret(): string {
   const secret = process.env.ACTION_SECRET || process.env.AGENT_API_TOKEN;
   if (secret) return secret;
-  // If not configured, derive from machine/process salt instead of a static guessable string
-  return "shunops-shield-" + (process.env.HOSTNAME || "local-runtime-salt-2026");
+  // Ephemeral per-process CSPRNG secret when unconfigured so signatures cannot be forged offline
+  return PROCESS_FALLBACK_SECRET;
 }
 
 export interface ShieldChallenge {

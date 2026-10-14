@@ -1,7 +1,7 @@
 import * as http from "node:http";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import { exec } from "node:child_process";
+import { execFile } from "node:child_process";
 import "dotenv/config";
 
 const PORT = 8085;
@@ -136,7 +136,7 @@ async function main() {
     console.log(`Waiting for browser authorization on http://localhost:${PORT}...`);
     console.log(`(Alternatively, paste the code or full redirect URL below if opened elsewhere)`);
 
-    exec(`start "" "${authUrl}"`);
+    execFile("cmd.exe", ["/c", "start", "", authUrl]);
 
     rl.question("\nPaste code or redirect URL here: ", async (answer) => {
       let code = answer.trim();

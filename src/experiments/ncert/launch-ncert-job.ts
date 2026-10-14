@@ -32,13 +32,7 @@ export async function launchNCERTJob(): Promise<{ jobId: string; kernel: string;
       is_private: true,
     })
   );
-  await fs.writeFile(
-    path.join(dsDir, "config.json"),
-    JSON.stringify({
-      groq_api_key: process.env.GROQ_API_KEY || "",
-      hf_token: process.env.HF_TOKEN || "",
-    }, null, 2)
-  );
+  await fs.writeFile(path.join(dsDir, "config.json"), JSON.stringify({ hf_token: process.env.KAGGLE_BUNDLE_HF_TOKEN === "true" ? (process.env.HF_TOKEN || "") : "" }, null, 2), { mode: 0o600 });
 
   // Copy experimental renderer (leaving video/kernel/render.py completely untouched)
   await fs.copyFile(EXPERIMENT_RENDER_SRC, path.join(kDir, "render.py"));

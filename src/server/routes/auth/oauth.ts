@@ -36,9 +36,13 @@ function getGithubClientCredentials(): { clientId?: string | undefined; clientSe
 
 /** Build the OAuth redirect URI from the incoming request's host and protocol. */
 function resolveGithubRedirectUri(req: FastifyRequest): string {
-  const host = req.headers.host || "shunopsai-685823552970.asia-south1.run.app";
-  const protocol = req.headers["x-forwarded-proto"] || "https";
-  return `${protocol}://${host}/api/auth/github/callback`;
+  const configuredBase = (process.env.PUBLIC_BASE_URL || process.env.SHUNOPS_BASE_URL || "").trim().replace(/\/$/, "");
+  if (configuredBase) {
+    return `${configuredBase}/api/auth/github/callback`;
+  }
+  const rawHost = String(req.headers.host || "localhost:4000").replace(/[^a-zA-Z0-9.:-]/g, "");
+  const proto = process.env.TRUST_PROXY === "true" && req.headers["x-forwarded-proto"] === "https" ? "https" : "http";
+  return `${proto}://${rawHost}/api/auth/github/callback`;
 }
 
 /** Fetch a GitHub profile's email, falling back to /user/emails then noreply. */
@@ -99,12 +103,10 @@ async function handleGoogleLogin(req: FastifyRequest, reply: FastifyReply) {
     }
 
     // Security Invariant (Item 2): Verify the token audience matches our Google Client ID
-    const expectedClientId =
-      process.env.GOOGLE_CLIENT_ID ||
-      "685823552970-phqjqt3cc613h69kat0rljbaikf8k6kd.apps.googleusercontent.com";
-    if (googleData.aud !== expectedClientId) {
+    const expectedClientId = process.env.GOOGLE_CLIENT_ID?.trim();
+    if (!expectedClientId || googleData.aud !== expectedClientId) {
       reply.status(401);
-      return { error: "Google token audience mismatch. Unauthorized OAuth client." };
+      return { error: "Google token audience mismatch or GOOGLE_CLIENT_ID not configured." };
     }
 
     // Verify the email is verified by Google

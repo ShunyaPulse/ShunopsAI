@@ -1,3 +1,4 @@
+import * as crypto from "node:crypto";
 import Fastify, { type FastifyInstance } from "fastify";
 import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
@@ -77,9 +78,14 @@ export async function createApp(config: AppConfig = loadAppConfig()): Promise<Fa
   });
 
   // Secure HTTP-Only Cookie Support for User Authentication
+  const ephemeralCookieSecret = crypto.randomBytes(32).toString("hex");
   await app.register(fastifyCookie, {
-    secret: config.apiToken || "shunops-cookie-signing-secret-2026",
-    parseOptions: {},
+    secret: config.apiToken || process.env.ACTION_SECRET || ephemeralCookieSecret,
+    parseOptions: {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+    },
   });
 
   // Malicious URL probe filter (blocks vulnerability scanners, traversal, SQLi, and shell probes)

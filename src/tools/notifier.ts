@@ -2,6 +2,15 @@ import nodemailer from "nodemailer";
 import * as path from "node:path";
 import * as fs from "node:fs";
 
+function escapeHtml(value: unknown): string {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 export interface VideoNotificationDetails {
   title: string;
   videoUrl: string;
@@ -39,8 +48,14 @@ export async function sendVideoReadyEmail(details: VideoNotificationDetails): Pr
 
   const hasThumbnail = Boolean(details.thumbnailPath && fs.existsSync(details.thumbnailPath));
   const durationMin = details.durationSec ? `${(details.durationSec / 60).toFixed(1)} mins` : "3.0 mins";
+  const safeTitle = escapeHtml(details.title);
+  const safeCategory = escapeHtml(details.category || "General Curiosity");
+  const safeValueHook = details.valueHook ? escapeHtml(details.valueHook) : "";
+  const safeEngine = escapeHtml(details.engine || "Wan2.1 DiT + RIFE");
+  const safeVideoUrl = /^https:\/\//i.test(details.videoUrl) ? escapeHtml(details.videoUrl) : "#";
+  const safeStudioUrl = /^https:\/\//i.test(details.studioUrl) ? escapeHtml(details.studioUrl) : "#";
   const chaptersHtml = (details.chapters || [])
-    .map((c, i) => `<li style="margin-bottom: 4px;"><strong>Scene ${c.start_scene + 1}:</strong> ${c.title}</li>`)
+    .map((c) => `<li style="margin-bottom: 4px;"><strong>Scene ${Number(c.start_scene) + 1}:</strong> ${escapeHtml(c.title)}</li>`)
     .join("");
 
   const html = `
@@ -48,7 +63,7 @@ export async function sendVideoReadyEmail(details: VideoNotificationDetails): Pr
 <html>
 <head>
   <meta charset="utf-8">
-  <title>Video Ready: ${details.title}</title>
+  <title>Video Ready: ${safeTitle}</title>
 </head>
 <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #0f172a; color: #f8fafc; margin: 0; padding: 24px;">
   <div style="max-width: 620px; margin: 0 auto; background-color: #1e293b; border-radius: 12px; overflow: hidden; border: 1px solid #334155; box-shadow: 0 10px 25px rgba(0,0,0,0.5);">
@@ -69,14 +84,14 @@ export async function sendVideoReadyEmail(details: VideoNotificationDetails): Pr
       }
 
       <div style="background-color: #0f172a; border-left: 4px solid #38bdf8; padding: 14px 16px; border-radius: 6px; margin-bottom: 20px;">
-        <span style="font-size: 11px; font-weight: 700; color: #38bdf8; text-transform: uppercase; letter-spacing: 1px;">Trend Category: ${details.category || "General Curiosity"}</span>
-        <h2 style="margin: 6px 0 0 0; font-size: 18px; color: #f8fafc; line-height: 1.4;">${details.title}</h2>
+        <span style="font-size: 11px; font-weight: 700; color: #38bdf8; text-transform: uppercase; letter-spacing: 1px;">Trend Category: ${safeCategory}</span>
+        <h2 style="margin: 6px 0 0 0; font-size: 18px; color: #f8fafc; line-height: 1.4;">${safeTitle}</h2>
       </div>
 
       ${
         details.valueHook
           ? `<p style="font-size: 14px; line-height: 1.6; color: #cbd5e1; margin-bottom: 20px;">
-              <strong>💡 Value Addition:</strong> ${details.valueHook}
+              <strong>💡 Value Addition:</strong> ${safeValueHook}
              </p>`
           : ""
       }
@@ -93,17 +108,17 @@ export async function sendVideoReadyEmail(details: VideoNotificationDetails): Pr
           </tr>
           <tr>
             <td style="padding: 4px 0;"><strong>Likes Visible:</strong> Off</td>
-            <td style="padding: 4px 0;"><strong>Engine:</strong> ${details.engine || "Wan2.1 DiT + RIFE"}</td>
+            <td style="padding: 4px 0;"><strong>Engine:</strong> ${safeEngine}</td>
           </tr>
         </table>
       </div>
 
       <!-- Action Buttons -->
       <div style="text-align: center; margin: 30px 0 24px 0;">
-        <a href="${details.videoUrl}" style="background-color: #ef4444; color: #ffffff; text-decoration: none; padding: 12px 24px; border-radius: 8px; font-weight: 600; font-size: 15px; display: inline-block; margin-right: 12px; box-shadow: 0 4px 12px rgba(239,68,68,0.4);">
+        <a href="${safeVideoUrl}" style="background-color: #ef4444; color: #ffffff; text-decoration: none; padding: 12px 24px; border-radius: 8px; font-weight: 600; font-size: 15px; display: inline-block; margin-right: 12px; box-shadow: 0 4px 12px rgba(239,68,68,0.4);">
           ▶️ Watch on YouTube (Private)
         </a>
-        <a href="${details.studioUrl}" style="background-color: #3b82f6; color: #ffffff; text-decoration: none; padding: 12px 24px; border-radius: 8px; font-weight: 600; font-size: 15px; display: inline-block;">
+        <a href="${safeStudioUrl}" style="background-color: #3b82f6; color: #ffffff; text-decoration: none; padding: 12px 24px; border-radius: 8px; font-weight: 600; font-size: 15px; display: inline-block;">
           ⚙️ Edit in YouTube Studio
         </a>
       </div>
