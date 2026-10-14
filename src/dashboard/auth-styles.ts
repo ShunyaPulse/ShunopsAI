@@ -242,7 +242,8 @@ export const AUTH_PAGE_STYLES = `    :root {
     }
     .turnstile-box {
       display: flex;
+      flex-direction: column;
+      align-items: center;
       justify-content: center;
-      margin: 14px 0 6px;
-      min-height: 65px;
+      margin: 12px 0 6px;
     }`;

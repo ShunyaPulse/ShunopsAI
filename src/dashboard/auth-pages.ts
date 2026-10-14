@@ -36,10 +36,16 @@ export function getAuthPageHtml(mode: "login" | "register"): string {
   <title>${isLogin ? "Sign In" : "Sign Up"} • ShunopsAI</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script>
+    window.turnstileToken = "";
+    function onTurnstileSuccess(token) {
+      window.turnstileToken = token;
+    }
+  </script>
   <!-- Google Sign-In SDK -->
   <script src="https://accounts.google.com/gsi/client" async defer></script>
   <!-- Cloudflare Turnstile SDK (Required for Signup, OTP Login, and Password Reset) -->
-  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js?onload=onloadTurnstileCallback" async defer></script>
+  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
   <style>
 ${AUTH_PAGE_STYLES}
   </style>
@@ -159,7 +165,12 @@ ${AUTH_PAGE_STYLES}
       }
 
       <!-- Cloudflare Turnstile Bot Shield -->
-      <div class="turnstile-box cf-turnstile" id="turnstile-container" data-sitekey="${turnstileSiteKey}" data-theme="dark" data-callback="onTurnstileSuccess"></div>
+      <div class="turnstile-box">
+        <div class="cf-turnstile" id="turnstile-widget" data-sitekey="${turnstileSiteKey}" data-theme="dark" data-callback="onTurnstileSuccess"></div>
+        <div id="turnstile-shield-notice" style="display:none; font-size:11.5px; color:#94a3b8; text-align:center; padding:6px 0; line-height:1.4;">
+          🛡️ If captcha is blocked by Brave Shields or adblocker, password login works directly.
+        </div>
+      </div>
 
       <button type="submit" id="btn-submit" class="btn-primary">
         ${isLogin ? "Sign In" : "Click 'Send OTP' above to verify"}

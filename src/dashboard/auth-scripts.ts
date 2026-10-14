@@ -14,38 +14,25 @@ export function authPageScripts(isLogin: boolean, turnstileSiteKey: string): str
     // Initialize Cloudflare Turnstile
     window.onTurnstileSuccess = function(token) {
       turnstileToken = token;
+      window.turnstileToken = token;
     };
 
-    window.onloadTurnstileCallback = function() {
-      const container = document.getElementById("turnstile-container");
-      if (container && typeof turnstile !== "undefined" && turnstileSiteKey) {
-        if (!container.hasChildNodes()) {
-          try {
-            turnstile.render("#turnstile-container", {
-              sitekey: turnstileSiteKey,
-              theme: "dark",
-              callback: function(token) {
-                turnstileToken = token;
-              },
-              "error-callback": function(code) {
-                console.warn("Turnstile notice:", code);
-              }
-            });
-          } catch (e) {
-            console.warn("Turnstile initialization notice:", e);
-          }
-        }
-      }
-    };
-
-    if (typeof turnstile !== "undefined") {
-      window.onloadTurnstileCallback();
+    function getTurnstileToken() {
+      const hiddenInput = document.querySelector('input[name="cf-turnstile-response"]');
+      return (hiddenInput && hiddenInput.value) || turnstileToken || window.turnstileToken || "";
     }
 
     window.addEventListener("DOMContentLoaded", () => {
-      if (typeof turnstile !== "undefined") {
-        window.onloadTurnstileCallback();
-      }
+      // Check after 2.5 seconds if turnstile was blocked by adblockers/Brave shields
+      setTimeout(() => {
+        const widget = document.getElementById("turnstile-widget");
+        const token = getTurnstileToken();
+        if (widget && (!widget.hasChildNodes() || widget.children.length === 0) && !token && typeof turnstile === "undefined") {
+          const shieldNotice = document.getElementById("turnstile-shield-notice");
+          if (shieldNotice) shieldNotice.style.display = "block";
+        }
+      }, 2500);
+
       const urlParams = new URLSearchParams(window.location.search);
       const urlErr = urlParams.get('error');
       if (urlErr) {
@@ -143,7 +130,7 @@ export function authPageScripts(isLogin: boolean, turnstileSiteKey: string): str
         const res = await fetch('/api/auth/email-otp/send', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email, purpose, turnstileToken, hp_website })
+          body: JSON.stringify({ email, purpose, turnstileToken: getTurnstileToken(), hp_website })
         });
         const data = await res.json();
 
@@ -265,7 +252,7 @@ export function authPageScripts(isLogin: boolean, turnstileSiteKey: string): str
           const res = await fetch('/api/auth/register', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username, email, password, emailOtp, turnstileToken, hp_website })
+            body: JSON.stringify({ username, email, password, emailOtp, turnstileToken: getTurnstileToken(), hp_website })
           });
           const data = await res.json();
 
@@ -300,7 +287,7 @@ export function authPageScripts(isLogin: boolean, turnstileSiteKey: string): str
           const res = await fetch('/api/auth/reset-password', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email, emailOtp, newPassword, turnstileToken, hp_website })
+            body: JSON.stringify({ email, emailOtp, newPassword, turnstileToken: getTurnstileToken(), hp_website })
           });
           const data = await res.json();
 
