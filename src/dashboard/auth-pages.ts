@@ -1,6 +1,9 @@
 import { AUTH_PAGE_STYLES } from "./auth-styles.js";
 import { authPageScripts } from "./auth-scripts.js";
 
+import * as dotenv from "dotenv";
+dotenv.config();
+
 /**
  * Authentication HTML pages (Login & Register).
  * Matches the Kanban-Cloud production UI and security features:
@@ -17,11 +20,13 @@ import { authPageScripts } from "./auth-scripts.js";
 export function getAuthPageHtml(mode: "login" | "register"): string {
   const isLogin = mode === "login";
   const title = isLogin ? "Welcome back" : "Create verified private workspace";
-  const googleClientId = process.env.GOOGLE_CLIENT_ID || "";
+  const googleClientId =
+    process.env.GOOGLE_CLIENT_ID ||
+    "685823552970-phqjqt3cc613h69kat0rljbaikf8k6kd.apps.googleusercontent.com";
   const turnstileSiteKey =
     process.env.CLOUDFLARE_TURNSTILE_SITE_KEY ||
     process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ||
-    "";
+    "0x4AAAAAAFVaFzGbMCgv2_Kr";
 
   return `<!DOCTYPE html>
 <html lang="en">
