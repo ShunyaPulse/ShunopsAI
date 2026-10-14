@@ -173,20 +173,30 @@ const MALICIOUS_PROBE_REGEX =
     reply.header("X-XSS-Protection", "0");
     // Restrict powerful browser features
     reply.header("Permissions-Policy", "camera=(), microphone=(), geolocation=(), browsing-topics=()");
-    // Modern isolation headers (COOP, CORP)
+    // Modern isolation headers (COOP, CORP, COEP)
     reply.header("Cross-Origin-Opener-Policy", "same-origin");
+    // Cross-Origin-Embedder-Policy: require-corp (or credentialless for safe embedding)
+    reply.header("Cross-Origin-Embedder-Policy", "credentialless");
     // Cross-Origin-Resource-Policy: Allow cross-origin for public widget.js while keeping same-origin for others
     if (reply.request?.url?.startsWith("/widget.js") || reply.request?.url?.startsWith("/api/widget")) {
       reply.header("Cross-Origin-Resource-Policy", "cross-origin");
     } else {
       reply.header("Cross-Origin-Resource-Policy", "same-origin");
     }
-    // Hardened CSP with script-src, style-src, frame-ancestors, object-src
+    // Hardened CSP: Pure JSON/API routes have no scripts (script-src 'none')
     if (!reply.hasHeader("Content-Security-Policy")) {
-      reply.header(
-        "Content-Security-Policy",
-        "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: https:; frame-ancestors 'none'; object-src 'none'; base-uri 'self'"
-      );
+      const isHtml = reply.getHeader("content-type")?.toString().includes("text/html");
+      if (isHtml) {
+        reply.header(
+          "Content-Security-Policy",
+          "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: https:; frame-ancestors 'none'; object-src 'none'; base-uri 'self'"
+        );
+      } else {
+        reply.header(
+          "Content-Security-Policy",
+          "default-src 'none'; frame-ancestors 'none'; object-src 'none'; base-uri 'none'"
+        );
+      }
     }
     return payload;
   });
