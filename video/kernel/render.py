@@ -284,7 +284,7 @@ class WanT4OptimizedEngine:
             except Exception:
                 pass
 
-    def generate_scene_montage(self, prompt, target_dur, out_mp4, scene_idx):
+    def generate_scene_montage(self, prompt, target_dur, out_mp4, scene_idx, domain="general"):
         """
         Generates continuous, non-repeating video for a scene with Wan2.1 DiT.
         Token Slicing: Uses 640x384 widescreen @ 33 frames (~30k tokens) to fit T4 16GB VRAM.
@@ -299,6 +299,13 @@ class WanT4OptimizedEngine:
             ("close-up detailed perspective, gentle optical push-in, rigid stable architecture, modern cinema", scene_idx * 19 + 7),
         ]
 
+        if domain in ["science", "space", "technology", "nature", "history"]:
+            domain_neg = "sports, stadium, athletics, cricket, football, soccer, baseball helmet, american football helmet, sports jersey, scoreboard, crowd cheering, referee, match, ball, bat, pads, wickets, "
+        elif domain == "sports":
+            domain_neg = "baseball helmet, american football helmet, cartoon, anime, manga, comic, caricature, "
+        else:
+            domain_neg = "baseball helmet, american football helmet, cartoon, anime, "
+
         for s_idx in range(num_shots):
             var_text, seed = shot_variations[s_idx]
             sub_clip = f"{TMP}/sub_{scene_idx}_{s_idx}.mp4"
@@ -310,6 +317,7 @@ class WanT4OptimizedEngine:
                 f"unlabeled telemetry displays, zero text, zero letters, zero numbers"
             )
             neg_prompt = (
+                f"{domain_neg}"
                 "horror, choking, strangling, neck grabbing, violence, assault, aggression, threat, painful grimace, distress, screaming, blood, "
                 "warehouse, airplane hangar, modern factory, industrial hall, industrial interior, modern architecture, "
                 "inconsistent face, multiple different faces, female model, woman reading magazine, modern clothing, casual clothing, t-shirt, jeans, hoodie, "
@@ -401,7 +409,7 @@ class WanT4OptimizedEngine:
             vf_pipeline = (
                 f"setpts={pts_mult:.4f}*PTS,"
                 f"minterpolate=fps=24:mi_mode=blend,"
-                f"scale=1920:1080:flags=lanczos,"
+                f"scale=1920:1080:force_original_aspect_ratio=increase:flags=lanczos,crop=1920:1080,"
                 f"unsharp=5:5:0.5:5:5:0.2,"
                 f"eq=contrast=1.06:brightness=0.01:saturation=1.12,"
                 f"format=yuv420p"
@@ -429,7 +437,7 @@ class WanT4OptimizedEngine:
             raise RuntimeError(f"Failed to produce video clip for {out_mp4}")
         return True
 
-    def generate_hero_thumbnail_diffusion(self, visual_prompt, out_jpg):
+    def generate_hero_thumbnail_diffusion(self, visual_prompt, out_jpg, domain="general"):
         """
         OPTION A: Dedicated Concept Diffusion Pass on Kaggle T4 GPU.
         Generates a pristine, high-resolution, high-dynamic-range hero visual
@@ -442,7 +450,15 @@ class WanT4OptimizedEngine:
             f"hyper-detailed textures, sharp focus, 8k resolution, completely clean composition with lower negative space, "
             f"zero text, zero words, zero letters, zero watermarks"
         )
+        if domain in ["science", "space", "technology", "nature", "history"]:
+            domain_neg = "sports, stadium, athletics, cricket, football, soccer, baseball helmet, american football helmet, sports jersey, scoreboard, crowd cheering, referee, match, ball, bat, pads, wickets, "
+        elif domain == "sports":
+            domain_neg = "baseball helmet, american football helmet, cartoon, anime, manga, comic, caricature, "
+        else:
+            domain_neg = "baseball helmet, american football helmet, cartoon, anime, "
+
         neg_prompt = (
+            f"{domain_neg}"
             "text, letters, words, writing, numbers, labels, typography, logos, watermark, title, signature, "
             "blurry, low resolution, bad anatomy, deformed, distorted, cartoon, anime, plastic, 3d render"
         )
@@ -516,10 +532,11 @@ async def main():
     script_path = find_script()
     with open(script_path, "r", encoding="utf-8") as f:
         script = json.load(f)
+    domain = script.get("domain", "general")
     voice = script.get("voice", "hi-IN-Neural2-B" if "hi" in script.get("language", "English").lower() else "en-IN-PrabhatNeural")
-    rate = script.get("rate", "+0%")
+    rate = script.get("rate", "+4%" if domain == "sports" else "+0%")
     scenes = script["scenes"]
-    print(f"Loaded script: '{script.get('title')}' with {len(scenes)} scenes. Voice: {voice}, Rate: {rate}")
+    print(f"Loaded script: '{script.get('title')}' with {len(scenes)} scenes. Domain: {domain}, Voice: {voice}, Rate: {rate}")
 
     # Check if all scenes already have pre-packaged audio
     audio_dir = os.path.join(os.path.dirname(script_path), "audio")
@@ -596,7 +613,7 @@ async def main():
         current_time_offset += d
 
         # 3. Generate non-repeating continuous video montage on GPU
-        diffusion.generate_scene_montage(sc["visual_prompt"], d, v_path, scene_idx=i)
+        diffusion.generate_scene_montage(sc["visual_prompt"], d, v_path, scene_idx=i, domain=domain)
 
         # Synchronize audio and video precisely:
         # Avoid artificial silence delays between sentences while preventing sub-frame audio drift
@@ -718,6 +735,72 @@ async def main():
     open(f"{OUT}/captions.srt", "w", encoding="utf-8").write("\n".join(srt))
     open(f"{OUT}/transcript.txt", "w", encoding="utf-8").write(" ".join(txt))
 
+    # 4.5. Domain-Adapted Atmospheric Sound Design:
+    # Eliminates awkward silence behind spoken dialogue with a subtle, non-intrusive cinematic ambient bed.
+    bgm_path = os.path.join(os.path.dirname(script_path), "audio", "bgm.mp3")
+    ambient_mp3 = f"{TMP}/ambient_drone.mp3"
+    has_ambient = False
+
+    if os.path.exists(bgm_path) and os.path.getsize(bgm_path) > 1000:
+        print(f"[Audio] Using packaged background audio track from {bgm_path}...")
+        ok_bgm = run([
+            "ffmpeg", "-y", "-stream_loop", "-1", "-i", bgm_path,
+            "-t", f"{target_master_dur:.3f}",
+            "-af", "volume=0.18,afade=t=in:st=0:d=1.5",
+            "-c:a", "libmp3lame", "-b:a", "192k", ambient_mp3
+        ])
+        if ok_bgm and os.path.exists(ambient_mp3) and os.path.getsize(ambient_mp3) > 1000:
+            has_ambient = True
+    else:
+        print(f"[Audio] Synthesizing domain-calibrated cinematic ambient drone for domain '{domain}'...")
+        if domain in ["science", "space", "technology"]:
+            # Deep cosmic/cleanroom sub-bass drone: 55Hz + 110Hz + 165Hz subtle harmonics + binaural beat (54.5Hz)
+            aeval = (
+                "sin(55*2*PI*t)*0.16 + sin(110*2*PI*t)*0.09 + "
+                "sin(165*2*PI*t)*0.04 + sin(54.5*2*PI*t)*0.10"
+            )
+            bg_filter = "lowpass=f=320,volume=0.14,afade=t=in:st=0:d=2.0"
+        elif domain == "sports":
+            # Dynamic rhythmic pulse drone: 65Hz fundamental with subtle low-end resonance
+            aeval = (
+                "sin(65*2*PI*t)*0.18 + sin(130*2*PI*t)*0.08 + "
+                "sin(195*2*PI*t)*0.03 + sin(64.5*2*PI*t)*0.09"
+            )
+            bg_filter = "lowpass=f=450,volume=0.16,afade=t=in:st=0:d=1.0"
+        else:
+            # Warm documentary pad drone
+            aeval = (
+                "sin(60*2*PI*t)*0.16 + sin(120*2*PI*t)*0.08 + "
+                "sin(180*2*PI*t)*0.04 + sin(59.5*2*PI*t)*0.10"
+            )
+            bg_filter = "lowpass=f=360,volume=0.15,afade=t=in:st=0:d=1.5"
+
+        ok_amb = run([
+            "ffmpeg", "-y", "-f", "lavfi",
+            "-i", f"aevalsrc={aeval}:s=44100:d={target_master_dur:.3f}",
+            "-af", bg_filter,
+            "-c:a", "libmp3lame", "-b:a", "192k", ambient_mp3
+        ])
+        if ok_amb and os.path.exists(ambient_mp3) and os.path.getsize(ambient_mp3) > 1000:
+            has_ambient = True
+
+    master_audio = f"{TMP}/master_audio_mixed.mp3"
+    if has_ambient:
+        print("[Audio] Mixing narration with cinematic atmospheric drone...")
+        ok_mix = run([
+            "ffmpeg", "-y",
+            "-i", f"{TMP}/narration.mp3",
+            "-i", ambient_mp3,
+            "-filter_complex", "[0:a]volume=1.0[a0];[1:a]volume=1.0[a1];[a0][a1]amix=inputs=2:duration=first:dropout_transition=2[aout]",
+            "-map", "[aout]",
+            "-c:a", "libmp3lame", "-b:a", "192k", master_audio
+        ])
+        if not (ok_mix and os.path.exists(master_audio) and os.path.getsize(master_audio) > 1000):
+            print("[Audio] Mix failed, falling back to clean narration...")
+            master_audio = f"{TMP}/narration.mp3"
+    else:
+        master_audio = f"{TMP}/narration.mp3"
+
     # 5. Master Grade Burn-In & Film Cohesion:
     # Pristine 1080p Digital Cinema clarity with clean typography and smooth outro fade
     # Anti-Premature Fade: Screen remains 100% bright for 2.0s AFTER speech completes before 1.0s fade-out
@@ -740,7 +823,7 @@ async def main():
     )
     master_af = f"afade=t=out:st={fade_start:.2f}:d={fade_dur:.2f}"
     ok = run([
-        "ffmpeg", "-y", "-i", f"{TMP}/video_raw.mp4", "-i", f"{TMP}/narration.mp3",
+        "ffmpeg", "-y", "-i", f"{TMP}/video_raw.mp4", "-i", master_audio,
         "-vf", master_vf,
         "-af", master_af,
         "-map", "0:v", "-map", "1:a",
@@ -769,7 +852,7 @@ async def main():
 
         # Attempt Option A: Dedicated GPU diffusion pass
         try:
-            generated_diffusion = diffusion.generate_hero_thumbnail_diffusion(custom_prompt, concept_img_path)
+            generated_diffusion = diffusion.generate_hero_thumbnail_diffusion(custom_prompt, concept_img_path, domain=domain)
         except Exception as diff_e:
             print(f"Diffusion thumbnail attempt note: {diff_e}")
 

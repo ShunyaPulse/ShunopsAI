@@ -65,6 +65,8 @@ export async function kaggle(args: string[], timeout = 120000): Promise<string> 
   }
 }
 
+export type VideoDomain = "science" | "space" | "technology" | "nature" | "history" | "sports" | "general";
+
 export interface VideoScript {
   title: string;
   description: string;
@@ -72,6 +74,7 @@ export interface VideoScript {
   voice: string;
   rate?: string;
   language?: string;
+  domain?: VideoDomain;
   chapters: { title: string; start_scene: number }[];
   scenes: { narration: string; caption?: string; visual_prompt: string }[];
   thumbnail?: {
@@ -290,6 +293,115 @@ export async function geminiGenerate(prompt: string, preferredModel?: string): P
 }
 
 /**
+ * Detects the intellectual domain of the topic to enforce strict authentic aesthetics,
+ * prevent inappropriate cross-domain tropes (e.g. sports gear in science videos),
+ * and calibrate narration tone and pacing.
+ */
+export function detectVideoDomain(topic: string, trendReason?: string): VideoDomain {
+  const combined = `${topic} ${trendReason || ""}`.toLowerCase();
+
+  // Sports pattern
+  if (/\b(cricket|football|soccer|fifa|ipl|match|score|wicket|batsman|bowler|century|ronaldo|messi|kusal mendis|virat kohli|babar|rohit sharma|champions trophy|world cup|olympics|tennis|badminton|f1|formula 1|formula one|stadium|championship|tournament|league|athlete)\b/i.test(combined)) {
+    return "sports";
+  }
+
+  // Space pattern
+  if (/\b(space|isro|nasa|jwst|james webb|telescope|black hole|astronomy|galaxy|nebula|pulsar|supernova|exoplanet|mars|moon|chandrayaan|artemis|voyager|spacex|cosmos|orbit|interstellar|asteroid|meteor|comet)\b/i.test(combined)) {
+    return "space";
+  }
+
+  // Science / Physics / Biology pattern
+  if (/\b(science|physics|quantum|particle|atom|molecule|biology|dna|gene|crispr|genetics|vaccine|virus|chemistry|laboratory|microscope|fusion|cern|hadron|nobel|gravitational wave|relativity|evolution|neuroscience)\b/i.test(combined)) {
+    return "science";
+  }
+
+  // Technology / Engineering pattern
+  if (/\b(semiconductor|microchip|gpu|nvidia|robot|robotics|artificial intelligence|\bai\b|llm|supercomputer|algorithm|cyber|tunnel|bridge|megaproject|battery|lithium|ev\b|nuclear reactor|engine|photolithography|fab\b|nanometer)\b/i.test(combined)) {
+    return "technology";
+  }
+
+  // Nature / Earth pattern
+  if (/\b(ocean|deep sea|abyss|marianas trench|volcano|earthquake|wildlife|glacier|antarctica|ecosystem|biodiversity|forest|coral reef|species|amazon rainforest|geology)\b/i.test(combined)) {
+    return "nature";
+  }
+
+  // History / Archaeology pattern
+  if (/\b(history|ancient|civilization|archaeology|excavation|dynasty|temple|kailash temple|pyramid|empire|monument|ruins|century|medieval|bronze age|indus valley|harappa|mohenjo|sculpture|inscriptions)\b/i.test(combined)) {
+    return "history";
+  }
+
+  return "general";
+}
+
+/**
+ * Returns strict visual and tonal prompt directives tailored to the domain.
+ */
+export function getDomainPromptDirectives(domain: VideoDomain): string {
+  switch (domain) {
+    case "science":
+    case "space":
+    case "technology":
+      return `CRITICAL DOMAIN DIRECTIVES (${domain.toUpperCase()} INTELLECTUAL DOCUMENTARY):
+- STRICT BAN ON SPORTS, ATHLETICS & CARTOONS:
+  * ABSOLUTELY ZERO sports footage, cricket bats, balls, pads, wickets, footballs, American football or baseball helmets, athletic jerseys, referee uniforms, scoreboards, or stadium crowds.
+  * ABSOLUTELY ZERO anime, cartoon, manga, or comic caricature characters.
+- CINEMATIC REALISM & VISUAL MOTIFS:
+  * Visuals MUST authentically depict real physical science: ${domain === "space" ? "golden beryllium telescope mirrors (JWST style), radio telescope dishes pointing at the stars, deep cosmic nebulae with accurate gravitational lensing, orbital mechanics, planetary surfaces, solar flare magnetic loops" : domain === "technology" ? "sub-nanometer photolithography cleanrooms with deep ultraviolet illumination, silicon wafer inspection, superconducting quantum processor dilution refrigerators, sleek industrial robotics, high-speed fiber-optic data switches" : "particle collision tracks, cryogenic electron microscopy, laser interferometry, glowing plasma chambers, 3D molecular protein folding models, sterile laboratory cleanrooms"}.
+- ELIMINATION OF CHARACTER WARPING & FACE MORPHING:
+  * For science and space documentaries, NEVER generate recurring human face close-ups across cuts (which causes horrific AI face warping, eye distortion, and melting skin).
+  * Keep visuals focused on the physical phenomenon, cosmic structures, instruments, cleanroom robots, or silhouetted researchers seen from a wide angle or from behind in cleanroom bunny suits.
+- ZERO AI TEXT IN DIFFUSION RULE (MANDATORY):
+  * Diffusion models must NEVER attempt to render legible text, letters, numerals, words, or pseudocode in the image (which creates gibberish distorted glyphs).
+  * Every monitor, telemetry screen, or laboratory readout MUST be described as: "unlabeled glowing abstract cyan and amber telemetry monitors, clean holographic data visualization, ambient volumetric HUD glow with zero text, zero letters, zero numbers".
+- AUDIO TONE, CADENCE & INTELLIGENT ENERGY:
+  * Voiceover tone must be measured, cerebral, awe-inspiring, and authoritative (in the style of Cosmos / Veritasium / Think School / Brian Cox).
+  * NOT screaming sports commentary or shallow reel hype. Deliver an intellectual thrill with dynamic pitch variation, thoughtful pauses before major revelations, and deep respect for the viewer's intelligence.`;
+
+    case "sports":
+      return `CRITICAL DOMAIN DIRECTIVES (SPORTS DOCUMENTARY):
+- AUTHENTIC ATHLETIC REALISM:
+  * Visuals must accurately depict the specific sport being discussed. If cricket, depict green pitch, authentic cricket bats, red/white leather cricket ball, three wooden stumps. NEVER confuse cricket with baseball or American football helmets.
+  * Ban cartoon/anime faces and distorted crowds. Use dynamic steadycam motion tracking athlete movements.
+- ZERO AI TEXT IN DIFFUSION RULE:
+  * NEVER render text on jerseys, scoreboards, or stadium hoardings. Describe them as: "unlabeled athletic team jerseys with clean solid color panels, glowing stadium floodlights, dynamic out-of-focus crowd with zero legible text or letters".
+- HIGH ENERGY & PASSIONATE CADENCE:
+  * Voiceover tone must be energetic, thrilling, and punchy, capturing the high-stakes drama of the match or tournament with rising pitch on clutch moments.`;
+
+    case "history":
+      return `CRITICAL DOMAIN DIRECTIVES (HISTORICAL INQUIRY):
+- AUTHENTIC ARCHITECTURAL & PERIOD REALISM:
+  * Ancient stonework, weathered monolithic architecture, archaeological excavation trenches, atmospheric dust motes in stone corridors, warm volumetric sunlight.
+  * Zero modern sports gear, zero plastic, zero cartoon aesthetics.
+- ELIMINATION OF CHARACTER MORPHING:
+  * Focus on monolithic structures, ancient tools, geological strata, carved stone relief without modern facial close-ups.
+- ZERO AI TEXT IN DIFFUSION:
+  * Abstract ancient chisel marks and weathered hieroglyphic silhouettes with zero modern legible letters or text.
+- REVERENT, IMMERSIVE TONE:
+  * Deep, resonant, captivating storytelling with deliberate pacing.`;
+
+    case "nature":
+      return `CRITICAL DOMAIN DIRECTIVES (NATURE & DEEP EARTH):
+- NATURAL MAJESTY & MACRO/MICRO TEXTURES:
+  * Deep ocean abyss, bioluminescent creatures, volcanic basalt lava flows, massive Antarctic ice shelves, pristine untouched geological landscapes.
+  * Zero sports gear, zero cartoon aesthetics.
+- ZERO TEXT IN DIFFUSION:
+  * Pure untouched nature, zero artificial text.
+- AWE-INSPIRING TONE:
+  * Contemplative, immersive documentary narration.`;
+
+    default:
+      return `CRITICAL DOMAIN DIRECTIVES (GENERAL DOCUMENTARY):
+- AUTHENTIC CINEMATIC REALISM:
+  * Modern digital documentary cinematography, authentic textures, balanced natural lighting.
+  * Zero sports gear unless the topic is sports; zero cartoon/anime aesthetics.
+- ZERO AI TEXT IN DIFFUSION:
+  * Zero legible text, letters, or numbers inside the generated video frame.
+- ENGAGING, DYNAMIC TONE:
+  * Clear, authoritative, intelligent pacing.`;
+  }
+}
+
+/**
  * Stage 1-2: Brainstorm-to-script using the Gemini key pool and quality degradation.
  */
 export async function generateScript(
@@ -301,18 +413,30 @@ export async function generateScript(
   const preferredModel = process.env.GEMINI_MODEL;
   const targetWords = Math.round(minutes * 150);
   const sceneCount = Math.round(targetWords / 16);
+
+  const domain = detectVideoDomain(topic, trendReason);
+  const domainDirectives = getDomainPromptDirectives(domain);
+
   // Curated documentary voices:
-  // hi-IN-Neural2-B: Google Cloud Neural2 documentary studio narrator (Priority Tier 1 for Hindi)
+  // hi-IN-Neural2-C: Authoritative documentary studio narrator (Priority for Science/Space/Tech/History)
+  // hi-IN-Neural2-B: Dynamic, energetic narrator (Priority for Sports/General)
   // en-IN-PrabhatNeural: authentic Indian intellectual documentary narrator
-  const voice = /hindi/i.test(language) ? "hi-IN-Neural2-B" : "en-IN-PrabhatNeural";
+  const voice = /hindi/i.test(language)
+    ? (domain === "sports" ? "hi-IN-Neural2-B" : "hi-IN-Neural2-C")
+    : "en-IN-PrabhatNeural";
+
+  const rate = domain === "sports" ? "+4%" : "+0%";
 
   const prompt = `You are an elite investigative documentary filmmaker and YouTube director (Vox, Johnny Harris, Think School style).
 Write a gripping, 100% factual, highly engaging video script with hard synchronization between spoken narration and cinematic footage.
 
 Topic: ${topic}
 ${trendReason ? `BREAKING EVENT / EXACT REASON WHY IT IS TRENDING TODAY: "${trendReason}"` : ""}
+Domain: ${domain.toUpperCase()}
 Language: ${language}
 Target Length: about ${targetWords} spoken words (${minutes} minutes) divided into about ${sceneCount} tightly-paced scenes (12-20 words each).
+
+${domainDirectives}
 
 CRITICAL DIRECTIVES:
 1. MANDATORY - COVER THE ACTUAL BREAKING EVENT (WHY IT IS TRENDING):
@@ -339,7 +463,7 @@ CRITICAL DIRECTIVES:
      NEVER use Devanagari script. Maximum 70 characters.
    - DESCRIPTION (PURE ENGLISH): Must be written in 100% PURE ENGLISH (English language & Roman letters). Include detailed SEO overview of the event, key technical keywords, and timestamps/chapters. No Devanagari script.
    - CHAPTER TITLES & TAGS: Must be strictly in English (Roman) alphabet.
-   - NARRATION (Spoken Audio): Natural, engaging Hindi dialogue spoken by studio documentary voice hi-IN-Neural2-B.
+   - NARRATION (Spoken Audio): Natural, engaging Hindi dialogue spoken by studio documentary voice ${voice}.
    - CAPTIONS (On-Screen Subtitles): Must be in 100% PURE ENGLISH (both English letters AND English language words). For every single scene, provide the exact English translation in "caption" to be displayed on-screen.
 4. Visual Prompt Engineering for True Continuous Video & Flaw-Free Execution:
    - For EVERY scene, write a "visual_prompt" that describes a real, continuous cinematic video shot — NOT a static photo or generic concept.
@@ -373,7 +497,7 @@ CRITICAL DIRECTIVES:
   },
   "scenes": [
     {
-      "narration": "<Exact words spoken in Hindi by voice hi-IN-Neural2-B>",
+      "narration": "<Exact words spoken in Hindi by voice ${voice}>",
       "caption": "<Exact English translation in pure English language and Roman alphabet for on-screen subtitles>",
       "visual_prompt": "<Ultra-detailed cinematic video prompt in English: camera move (slow dolly/steadicam), lens, subject action matching narration, lighting, locked rigid background geometry, clean text-free screens>"
     }
@@ -400,8 +524,9 @@ CRITICAL DIRECTIVES:
   if (!script.scenes?.length) throw new Error("Gemini returned a script with no scenes");
   script.voice = voice;
   script.language = language;
-  script.rate = script.rate || "+0%";
-  console.log(`[Video] Script generated with model "${modelUsed}" via Gemini key pool (${pool.length} keys). Title: ${script.title}`);
+  script.domain = domain;
+  script.rate = script.rate || rate;
+  console.log(`[Video] Script generated with model "${modelUsed}" for domain "${domain}" via Gemini key pool (${pool.length} keys). Title: ${script.title}`);
   return script;
 }
 
@@ -410,22 +535,26 @@ CRITICAL DIRECTIVES:
  */
 export function resolveEdgeVoice(
   requestedVoice?: string,
-  language = "Hindi"
-): { name: string; pitch: string } {
+  language = "Hindi",
+  domain: VideoDomain = "general"
+): { name: string; pitch: string; rate: string } {
   const isHindi = /hindi/i.test(language) || (requestedVoice && requestedVoice.toLowerCase().includes("hi"));
+  const defaultRate = domain === "sports" ? "+4%" : "+0%";
+  const defaultPitch = domain === "sports" ? "+0Hz" : (domain === "science" || domain === "space" || domain === "technology" || domain === "history" ? "-2Hz" : "+0Hz");
+
   if (isHindi) {
     if (requestedVoice && (requestedVoice.toLowerCase().includes("swara") || requestedVoice.toLowerCase().includes("female"))) {
-      return { name: "hi-IN-SwaraNeural", pitch: "+0Hz" };
+      return { name: "hi-IN-SwaraNeural", pitch: defaultPitch, rate: defaultRate };
     }
     // Natural, crisp male Hindi voice
-    return { name: "hi-IN-MadhurNeural", pitch: "+0Hz" };
+    return { name: "hi-IN-MadhurNeural", pitch: defaultPitch, rate: defaultRate };
   }
 
   // English
   if (requestedVoice && (requestedVoice.toLowerCase().includes("neerja") || requestedVoice.toLowerCase().includes("female"))) {
-    return { name: "en-IN-NeerjaExpressiveNeural", pitch: "+0Hz" };
+    return { name: "en-IN-NeerjaExpressiveNeural", pitch: defaultPitch, rate: defaultRate };
   }
-  return { name: "en-IN-PrabhatNeural", pitch: "+0Hz" };
+  return { name: "en-IN-PrabhatNeural", pitch: defaultPitch, rate: defaultRate };
 }
 
 /**
@@ -436,12 +565,13 @@ export async function synthesizeLocalEdgeTTS(
   text: string,
   outPath: string,
   voice = "hi-IN-MadhurNeural",
-  pitch = "+0Hz"
+  pitch = "+0Hz",
+  rate = "+0%"
 ): Promise<boolean> {
   const tmpTxt = path.join(os.tmpdir(), `edge_tts_${Date.now()}_${Math.random().toString(36).slice(2)}.txt`);
   try {
     await fs.writeFile(tmpTxt, text, "utf-8");
-    const args = ["-m", "edge_tts", "-f", tmpTxt, "-v", voice, "--pitch", pitch, "--write-media", outPath];
+    const args = ["-m", "edge_tts", "-f", tmpTxt, "-v", voice, "--pitch", pitch, "--rate", rate, "--write-media", outPath];
     await execFileAsync("python", args, { timeout: 30000 });
     const stat = await fs.stat(outPath);
     return stat.size > 500;
@@ -479,12 +609,12 @@ export async function startVideoJob(
 
   const gcpAvailable = isGoogleCloudTTSAvailable(options?.gcpKey);
   const gcpVoice = gcpAvailable ? resolveGCPVoice(script.voice, language) : null;
-  const edgeVoice = resolveEdgeVoice(script.voice, language);
+  const edgeVoice = resolveEdgeVoice(script.voice, language, script.domain || "general");
 
   console.log(
     gcpAvailable
       ? `[Video] 🎙️ Google Cloud Neural2 detected as Tier 1 Priority (${gcpVoice?.name}). Best-to-worst fallback: Tier 1 (Google Cloud Neural2) ➔ Tier 2 (Edge-TTS)...`
-      : `[Video] 🎙️ No Google Cloud credentials. Running Tier 1 (Edge-TTS pre-synthesis)...`
+      : `[Video] 🎙️ No Google Cloud credentials. Running Tier 1 (Edge-TTS pre-synthesis [${edgeVoice.name}, pitch=${edgeVoice.pitch}, rate=${edgeVoice.rate}])...`
   );
 
   let gcpSuccessCount = 0;
@@ -513,7 +643,7 @@ export async function startVideoJob(
           synthesized = await synthesizeGoogleCloudTTS(sc.narration, outMp3, {
             voiceName: gcpVoice.name,
             language,
-            speakingRate: 1.0,
+            speakingRate: script.domain === "sports" ? 1.04 : 1.0,
             gcpKey: options?.gcpKey,
           });
           if (synthesized) {
@@ -535,7 +665,7 @@ export async function startVideoJob(
     // Edge-TTS (Local host fallback if GCP unavailable/failed)
     if (!synthesized) {
       for (let attempt = 1; attempt <= 3; attempt++) {
-        synthesized = await synthesizeLocalEdgeTTS(sc.narration, outMp3, edgeVoice.name, edgeVoice.pitch);
+        synthesized = await synthesizeLocalEdgeTTS(sc.narration, outMp3, edgeVoice.name, edgeVoice.pitch, edgeVoice.rate);
         if (synthesized) {
           edgeSuccessCount++;
           break;
