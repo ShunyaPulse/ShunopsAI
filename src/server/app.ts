@@ -173,12 +173,19 @@ const MALICIOUS_PROBE_REGEX =
     reply.header("X-XSS-Protection", "0");
     // Restrict powerful browser features
     reply.header("Permissions-Policy", "camera=(), microphone=(), geolocation=(), browsing-topics=()");
-    // Deliberately minimal CSP: it restricts framing/objects without breaking
-    // the dashboard's inline styles/scripts (no default-src directive).
+    // Modern isolation headers (COOP, CORP)
+    reply.header("Cross-Origin-Opener-Policy", "same-origin");
+    // Cross-Origin-Resource-Policy: Allow cross-origin for public widget.js while keeping same-origin for others
+    if (reply.request?.url?.startsWith("/widget.js") || reply.request?.url?.startsWith("/api/widget")) {
+      reply.header("Cross-Origin-Resource-Policy", "cross-origin");
+    } else {
+      reply.header("Cross-Origin-Resource-Policy", "same-origin");
+    }
+    // Hardened CSP with script-src, style-src, frame-ancestors, object-src
     if (!reply.hasHeader("Content-Security-Policy")) {
       reply.header(
         "Content-Security-Policy",
-        "frame-ancestors 'none'; object-src 'none'; base-uri 'self'"
+        "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: https:; frame-ancestors 'none'; object-src 'none'; base-uri 'self'"
       );
     }
     return payload;
