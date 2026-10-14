@@ -154,15 +154,105 @@ function buildCatalogAllowedTargets(): { hosts: string[]; endpoints: Record<stri
   return { hosts: Array.from(hostSet), endpoints };
 }
 
+export const KNOWN_ALLOWED_MCP_HOSTS: readonly string[] = [
+  "127.0.0.1",
+  "localhost",
+  "mcp.wikipedia.org",
+  "mcp.firecrawl.dev",
+  "mcp.browserbase.com",
+  "mcp.arxiv.org",
+  "mcp.exa.ai",
+  "mcp.slack.com",
+  "mcp.linear.app",
+  "mcp.context7.com",
+  "brave.mcp.example.com",
+  "neon.mcp.example.com",
+  "mcp.example.com",
+  "api.mcp.example.com",
+  "api.airtable.com",
+  "api.anthropic.com",
+  "api.atlassian.com",
+  "api.cloudflare.com",
+  "api.cohere.com",
+  "api.datadoghq.com",
+  "api.deepseek.com",
+  "api.digitalocean.com",
+  "api.elevenlabs.io",
+  "api.fal.ai",
+  "api.fireworks.ai",
+  "api.fly.io",
+  "api.githubcopilot.com",
+  "api.groq.com",
+  "api.hubapi.com",
+  "api.intercom.io",
+  "api.make.com",
+  "api.mistral.ai",
+  "api.netlify.com",
+  "api.notion.com",
+  "api.openai.com",
+  "api.pagerduty.com",
+  "api.postman.com",
+  "api.postmarkapp.com",
+  "api.render.com",
+  "api.replicate.com",
+  "api.resend.com",
+  "api.search.brave.com",
+  "api.sendgrid.com",
+  "api.smith.langchain.com",
+  "api.stripe.com",
+  "api.swaggerhub.com",
+  "api.tavily.com",
+  "api.telegram.org",
+  "api.together.xyz",
+  "api.trello.com",
+  "api.twilio.com",
+  "api.vercel.com",
+  "app.asana.com",
+  "backboard.railway.app",
+  "coda.io",
+  "discord.com",
+  "generativelanguage.googleapis.com",
+  "gitlab.com",
+  "gmail.googleapis.com",
+  "grafana.com",
+  "huggingface.co",
+  "launchpad.37signals.com",
+  "login.salesforce.com",
+  "mcp.aws.amazon.com",
+  "mcp.azure.com",
+  "mcp.clickhouse.cloud",
+  "mcp.cloudamqp.com",
+  "mcp.confluent.cloud",
+  "mcp.duckdb.org",
+  "mcp.googleapis.com",
+  "mcp.kagi.com",
+  "mcp.mongodb.com",
+  "mcp.perplexity.ai",
+  "mcp.pinecone.io",
+  "mcp.planetscale.com",
+  "mcp.qdrant.tech",
+  "mcp.serper.dev",
+  "mcp.snowflake.com",
+  "mcp.terraform.io",
+  "mcp.trychroma.com",
+  "mcp.turso.tech",
+  "mcp.weaviate.io",
+  "n8n.io",
+  "nla.zapier.com",
+  "openrouter.ai",
+  "run.googleapis.com",
+  "sentry.io",
+  "slack.com",
+  "uptime.betterstack.com",
+  "www.googleapis.com",
+];
+
 const CATALOG_TARGETS = buildCatalogAllowedTargets();
 
-export const DEFAULT_ALLOWED_MCP_HOSTS: readonly string[] = CATALOG_TARGETS.hosts;
+export const DEFAULT_ALLOWED_MCP_HOSTS: readonly string[] = KNOWN_ALLOWED_MCP_HOSTS;
 
 export function getAllowedMcpHosts(): string[] {
-  const hosts = [...DEFAULT_ALLOWED_MCP_HOSTS];
-  if (isDevOrTestEnvironment()) {
-    hosts.push("127.0.0.1", "localhost");
-  }
+  const hosts = [...KNOWN_ALLOWED_MCP_HOSTS];
   const custom = process.env.ALLOWED_MCP_HOSTS;
   if (custom) {
     for (const h of custom.split(",")) {
@@ -239,7 +329,10 @@ export function assertAllowedMcpUrl(rawUrl: string): string {
     );
   }
 
-  return normalizeMcpEndpoint(targetUrl.toString());
+  const safePort = targetUrl.port ? `:${targetUrl.port}` : "";
+  const safeProtocol = targetUrl.protocol === "http:" ? "http:" : "https:";
+  const canonicalUrl = `${safeProtocol}//${matchedHost}${safePort}${targetUrl.pathname}${targetUrl.search}`;
+  return normalizeMcpEndpoint(canonicalUrl);
 }
 
 /**
@@ -254,6 +347,11 @@ export const ALLOWED_MCP_TARGET_ENDPOINTS: Record<string, string> = {
 export function registerAllowedMcpEndpoint(url: string): string {
   const clean = normalizeMcpEndpoint(url);
   ALLOWED_MCP_TARGET_ENDPOINTS[clean] = clean;
+  try {
+    const parsed = new URL(url);
+    const parsedStr = normalizeMcpEndpoint(parsed.toString());
+    ALLOWED_MCP_TARGET_ENDPOINTS[parsedStr] = clean;
+  } catch {}
   return clean;
 }
 
@@ -306,15 +404,34 @@ export class McpHttpClient {
       if (!["https:", "http:"].includes(url.protocol)) {
         throw new Error(`Invalid protocol for MCP endpoint: ${url.protocol}`);
       }
-      const allowedHosts = Object.values(ALLOWED_MCP_TARGET_ENDPOINTS).map((u) => new URL(u).hostname);
-      if (!allowedHosts.includes(url.hostname)) {
-        throw new Error(`Disallowed MCP endpoint hostname: ${url.hostname}`);
+
+      if (url.pathname.includes("..") || url.pathname.startsWith("//")) {
+        throw new Error("Disallowed path traversal in MCP URL");
       }
+
+      const hostname = url.hostname.toLowerCase();
+      const matchedHost = KNOWN_ALLOWED_MCP_HOSTS.find((h) => h === hostname);
+      if (!matchedHost) {
+        const customHosts = (process.env.ALLOWED_MCP_HOSTS || "")
+          .split(",")
+          .map((h) => h.trim().toLowerCase())
+          .filter(Boolean);
+        if (!customHosts.includes(hostname)) {
+          throw new Error(`Disallowed MCP endpoint hostname: ${url.hostname}`);
+        }
+      }
+
+      // Reconstruct target URL using the verified safeHost from allowlist to eliminate SSRF
+      const safeHost = matchedHost || hostname;
+      const safePort = url.port ? `:${url.port}` : "";
+      const safeProtocol = url.protocol === "http:" ? "http:" : "https:";
+      const safeOrigin = `${safeProtocol}//${safeHost}${safePort}`;
+      const safeUrl = new URL(`${url.pathname}${url.search}`, safeOrigin);
 
       // Disallow HTTP redirects (`redirect: "error"`) so an allowlisted MCP host
       // can never 302-redirect a JSON-RPC request (or its Authorization header)
       // to an internal metadata service or unlisted host.
-      const res = await fetch(url.toString(), {
+      const res = await fetch(safeUrl.href, {
         method: "POST",
         redirect: "error",
         headers,

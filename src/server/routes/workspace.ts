@@ -19,6 +19,7 @@ import {
   allowMcpEndpoint,
   assertAllowedMcpUrl,
   isBuiltInMcpEndpoint,
+  KNOWN_ALLOWED_MCP_HOSTS,
 } from "../../agent/mcp/client.js";
 
 /**
@@ -346,12 +347,35 @@ export async function workspaceRoutes(app: FastifyInstance, options: WorkspaceRo
         };
       }
 
+      const testUrl = new URL(matchedEndpoint);
+      const testHost = testUrl.hostname.toLowerCase();
+      const matchedTestHost = KNOWN_ALLOWED_MCP_HOSTS.find((h) => h === testHost);
+      if (!matchedTestHost) {
+        const customHosts = (process.env.ALLOWED_MCP_HOSTS || "")
+          .split(",")
+          .map((h) => h.trim().toLowerCase())
+          .filter(Boolean);
+        if (!customHosts.includes(testHost)) {
+          reply.status(400);
+          return {
+            success: false,
+            connected: false,
+            error: `Disallowed MCP host: ${testUrl.hostname}`,
+          };
+        }
+      }
+
+      const safePort = testUrl.port ? `:${testUrl.port}` : "";
+      const safeProtocol = testUrl.protocol === "http:" ? "http:" : "https:";
+      const safeOrigin = `${safeProtocol}//${matchedTestHost || testHost}${safePort}`;
+      const safeTestEndpoint = new URL(`${testUrl.pathname}${testUrl.search}`, safeOrigin).href;
+
       try {
         const client = new McpHttpClient({
           id: "test-mcp",
           name: "MCP Connection Test",
           transport: "http",
-          url: matchedEndpoint,
+          url: safeTestEndpoint,
           headers: apiKey
             ? { Authorization: apiKey.startsWith("Bearer ") ? apiKey : `Bearer ${apiKey}` }
             : {},
