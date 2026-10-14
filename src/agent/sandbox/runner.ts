@@ -98,7 +98,9 @@ const SANDBOX_RUNNER_SOURCE =
 function resolveTimeout(timeoutMs: number | undefined): number {
   const requested = Number(timeoutMs);
   if (!Number.isFinite(requested) || requested <= 0) return DEFAULT_TIMEOUT_MS;
-  return Math.min(Math.floor(requested), MAX_TIMEOUT_MS);
+  if (requested < 100) return 100;
+  if (requested > MAX_TIMEOUT_MS) return MAX_TIMEOUT_MS;
+  return Math.floor(requested);
 }
 
 function resolveMemoryLimitMb(memoryLimitMb: number | undefined): number {
@@ -272,19 +274,23 @@ async function executeInWorkerIsolate(
       },
     });
 
+    // Security Invariant (CodeQL Alert 173): Strictly clamp timer delay with constant bounds
+    const boundedTimeoutMs = Math.min(Math.max(100, Math.floor(Number(timeoutMs) || DEFAULT_TIMEOUT_MS)), MAX_TIMEOUT_MS);
+    const safeTimerDelayMs = Math.min(boundedTimeoutMs + 250, MAX_TIMEOUT_MS + 500);
+
     const timer = setTimeout(() => {
       if (settled) return;
       settled = true;
       worker.terminate().catch(() => {});
       resolve({
         success: false,
-        error: `Script execution timed out after ${timeoutMs}ms`,
+        error: `Script execution timed out after ${boundedTimeoutMs}ms`,
         logs: [],
         executionTimeMs: Date.now() - startTime,
         engine: "worker-v8-isolate",
         memoryLimitMb,
       });
-    }, timeoutMs + 250);
+    }, safeTimerDelayMs);
     if (typeof timer.unref === "function") timer.unref();
 
     worker.on("message", (msg: any) => {

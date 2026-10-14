@@ -83,7 +83,9 @@ async function callBuiltInMcpTool(
     if (!code.trim()) {
       return { text: "Refused: 'code' is required.", isError: true };
     }
-    const res = await executeInSandbox(code, { timeoutMs: Number(args.timeoutMs) });
+    const rawTimeout = Number(args.timeoutMs);
+    const safeTimeout = Number.isFinite(rawTimeout) && rawTimeout > 0 ? Math.min(Math.max(500, Math.floor(rawTimeout)), 10_000) : 3000;
+    const res = await executeInSandbox(code, { timeoutMs: safeTimeout });
     if (!res.success) {
       return { text: `Execution failed in ${res.executionTimeMs}ms: ${res.error}`, isError: true };
     }

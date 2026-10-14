@@ -132,17 +132,11 @@ export async function runAutonomousAgent(
         { role: "system", content: buildSystemPrompt() },
       ];
 
-      if (options.initialContext) {
-        messages.push({
-          role: "system",
-          content: `Initial Workspace Context:\n${options.initialContext}`,
-        });
-      }
-
       if (scope) {
         const connected = Object.keys(scope.credentials ?? {});
+        const safeUsername = (scope.username || "").replace(/[^a-zA-Z0-9_.-]/g, "");
         const lines = [
-          `Workspace Execution Scope: running as "${scope.username || (scope.kind === "admin" ? "admin" : `user_${scope.userId}`)}" (role: ${scope.kind}).`,
+          `Workspace Execution Scope: running as "${safeUsername || (scope.kind === "admin" ? "admin" : `user_${scope.userId}`)}" (role: ${scope.kind}).`,
           `Connected platforms: ${connected.length > 0 ? connected.join(", ") : "none"}.`,
         ];
         if (scope.credentials?.neon || scope.credentials?.supabase) {
@@ -196,16 +190,24 @@ export async function runAutonomousAgent(
         });
       }
 
+      // Security Invariant (CodeQL Alert 174): User-provided context must be supplied
+      // in the user message role, never interpolated into the system prompt.
+      let effectiveUserGoal = userGoal;
+      if (options.initialContext && typeof options.initialContext === "string") {
+        const sanitizedContext = options.initialContext.slice(0, 4000);
+        effectiveUserGoal = `[Context Reference Material]:\n${sanitizedContext}\n\n[User Goal]:\n${userGoal}`;
+      }
+
       if (options.image) {
         messages.push({
           role: "user",
           content: [
-            { type: "text", text: userGoal },
+            { type: "text", text: effectiveUserGoal },
             { type: "image_url", image_url: { url: options.image } },
           ],
         });
       } else {
-        messages.push({ role: "user", content: userGoal });
+        messages.push({ role: "user", content: effectiveUserGoal });
       }
 
       console.log(`\n${colors.green}${colors.bold}========================================${colors.reset}`);
