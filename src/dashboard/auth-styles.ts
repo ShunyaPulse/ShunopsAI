@@ -246,4 +246,5 @@ export const AUTH_PAGE_STYLES = `    :root {
       align-items: center;
       justify-content: center;
       margin: 12px 0 6px;
+      min-height: 65px;
     }`;

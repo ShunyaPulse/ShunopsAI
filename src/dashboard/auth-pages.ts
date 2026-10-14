@@ -41,10 +41,13 @@ export function getAuthPageHtml(mode: "login" | "register"): string {
     function onTurnstileSuccess(token) {
       window.turnstileToken = token;
     }
+    function onTurnstileExpired() {
+      window.turnstileToken = "";
+    }
   </script>
   <!-- Google Sign-In SDK -->
   <script src="https://accounts.google.com/gsi/client" async defer></script>
-  <!-- Cloudflare Turnstile SDK (Required for Signup, OTP Login, and Password Reset) -->
+  <!-- Cloudflare Turnstile SDK (Required for Login, Signup, OTP, and Password Reset) -->
   <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
   <style>
 ${AUTH_PAGE_STYLES}
@@ -166,10 +169,7 @@ ${AUTH_PAGE_STYLES}
 
       <!-- Cloudflare Turnstile Bot Shield -->
       <div class="turnstile-box">
-        <div class="cf-turnstile" id="turnstile-widget" data-sitekey="${turnstileSiteKey}" data-theme="dark" data-callback="onTurnstileSuccess"></div>
-        <div id="turnstile-shield-notice" style="display:none; font-size:11.5px; color:#94a3b8; text-align:center; padding:6px 0; line-height:1.4;">
-          🛡️ If captcha is blocked by Brave Shields or adblocker, password login works directly.
-        </div>
+        <div class="cf-turnstile" id="turnstile-widget" data-sitekey="${turnstileSiteKey}" data-theme="dark" data-callback="onTurnstileSuccess" data-expired-callback="onTurnstileExpired"></div>
       </div>
 
       <button type="submit" id="btn-submit" class="btn-primary">

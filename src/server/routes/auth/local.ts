@@ -202,16 +202,26 @@ interface LoginBody {
   identifier?: string;
   password?: string;
   emailOtp?: string;
+  turnstileToken?: string;
   hp_website?: string;
 }
 
 /** 3. Login via email/username + password, or email + OTP code. */
 async function handleLogin(req: FastifyRequest, reply: FastifyReply) {
-  const { identifier, password, emailOtp, hp_website } = (req.body as LoginBody) || {};
+  const { identifier, password, emailOtp, turnstileToken, hp_website } = (req.body as LoginBody) || {};
 
   if (hp_website) {
     reply.status(400);
     return { error: "Login rejected." };
+  }
+
+  const clientIp = getClientIp(req);
+
+  // Security Invariant: Require Cloudflare Turnstile bot verification on login
+  const isHuman = await verifyCloudflareTurnstile(turnstileToken || "", clientIp);
+  if (!isHuman) {
+    reply.status(400);
+    return { error: "Security check failed. Please complete the captcha." };
   }
 
   if (!identifier || typeof identifier !== "string") {
@@ -220,7 +230,6 @@ async function handleLogin(req: FastifyRequest, reply: FastifyReply) {
   }
 
   const cleanId = identifier.trim().toLowerCase();
-  const clientIp = getClientIp(req);
   const clientSubnet = getClientSubnet(clientIp);
 
   // Rate limit: 10 login attempts per 5 minutes per subnet

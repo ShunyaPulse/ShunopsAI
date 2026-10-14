@@ -23,16 +23,6 @@ export function authPageScripts(isLogin: boolean, turnstileSiteKey: string): str
     }
 
     window.addEventListener("DOMContentLoaded", () => {
-      // Check after 2.5 seconds if turnstile was blocked by adblockers/Brave shields
-      setTimeout(() => {
-        const widget = document.getElementById("turnstile-widget");
-        const token = getTurnstileToken();
-        if (widget && (!widget.hasChildNodes() || widget.children.length === 0) && !token && typeof turnstile === "undefined") {
-          const shieldNotice = document.getElementById("turnstile-shield-notice");
-          if (shieldNotice) shieldNotice.style.display = "block";
-        }
-      }, 2500);
-
       const urlParams = new URLSearchParams(window.location.search);
       const urlErr = urlParams.get('error');
       if (urlErr) {
@@ -106,7 +96,7 @@ export function authPageScripts(isLogin: boolean, turnstileSiteKey: string): str
       if (typeof google !== "undefined" && google.accounts && google.accounts.id) {
         google.accounts.id.prompt();
       } else {
-        showMsg('Google Sign-In is blocked by browser shields or extensions. Please allow accounts.google.com or use Email OTP / GitHub login.', 'error');
+        showMsg('Google Sign-In is initializing. Please try again in a moment or use Email / GitHub login.', 'error');
       }
     }
 
@@ -260,6 +250,9 @@ export function authPageScripts(isLogin: boolean, turnstileSiteKey: string): str
             showMsg(data.error || 'Registration failed.', 'error');
             btn.disabled = false;
             btn.textContent = 'Create Account';
+            if (typeof turnstile !== "undefined" && turnstile.reset) {
+              try { turnstile.reset(); } catch (e) {}
+            }
             return;
           }
 
@@ -269,6 +262,9 @@ export function authPageScripts(isLogin: boolean, turnstileSiteKey: string): str
           showMsg('Network error.', 'error');
           btn.disabled = false;
           btn.textContent = 'Create Account';
+          if (typeof turnstile !== "undefined" && turnstile.reset) {
+            try { turnstile.reset(); } catch (e) {}
+          }
         }
       } else if (isResetPasswordMode) {
         // Forgotten Password Reset flow
@@ -295,6 +291,9 @@ export function authPageScripts(isLogin: boolean, turnstileSiteKey: string): str
             showMsg(data.error || 'Password reset failed.', 'error');
             btn.disabled = false;
             btn.textContent = 'Reset Password';
+            if (typeof turnstile !== "undefined" && turnstile.reset) {
+              try { turnstile.reset(); } catch (e) {}
+            }
             return;
           }
 
@@ -307,6 +306,9 @@ export function authPageScripts(isLogin: boolean, turnstileSiteKey: string): str
           showMsg('Network error while resetting password.', 'error');
           btn.disabled = false;
           btn.textContent = 'Reset Password';
+          if (typeof turnstile !== "undefined" && turnstile.reset) {
+            try { turnstile.reset(); } catch (e) {}
+          }
         }
       } else {
         // Login flow
@@ -314,12 +316,20 @@ export function authPageScripts(isLogin: boolean, turnstileSiteKey: string): str
         const isOtp = document.getElementById('chk-otp-mode').checked;
         const password = document.getElementById('password').value;
         const emailOtp = isOtp ? document.getElementById('otp').value.trim() : undefined;
+        const token = getTurnstileToken();
+
+        if (!token) {
+          showMsg('Please complete the security captcha check above before signing in.', 'error');
+          btn.disabled = false;
+          btn.textContent = 'Sign In';
+          return;
+        }
 
         try {
           const res = await fetch('/api/auth/login', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ identifier, password, emailOtp, hp_website })
+            body: JSON.stringify({ identifier, password, emailOtp, turnstileToken: token, hp_website })
           });
           const data = await res.json();
 
@@ -327,6 +337,9 @@ export function authPageScripts(isLogin: boolean, turnstileSiteKey: string): str
             showMsg(data.error || 'Sign in failed.', 'error');
             btn.disabled = false;
             btn.textContent = 'Sign In';
+            if (typeof turnstile !== "undefined" && turnstile.reset) {
+              try { turnstile.reset(); } catch (e) {}
+            }
             return;
           }
 
@@ -336,6 +349,9 @@ export function authPageScripts(isLogin: boolean, turnstileSiteKey: string): str
           showMsg('Network error.', 'error');
           btn.disabled = false;
           btn.textContent = 'Sign In';
+          if (typeof turnstile !== "undefined" && turnstile.reset) {
+            try { turnstile.reset(); } catch (e) {}
+          }
         }
       }
     }
