@@ -201,21 +201,19 @@ async function runEdgeAgentLoop(context: EdgeRunContext): Promise<void> {
   });
 }
 
-/** Emit the bilingual fallback events used when the edge run fails. */
+/** Emit the bilingual fallback events used when the edge run fails (never leak raw errMsg). */
 async function emitEdgeFailure(
   sendEvent: EdgeRunContext['sendEvent'],
   sessionId: string,
-  err: unknown
+  _err: unknown
 ): Promise<void> {
-  const errMsg = err instanceof Error ? err.message : String(err);
-  // Emit user-friendly bilingual fallback message
+  // Emit user-friendly bilingual fallback message without exposing internal URLs or keys
   const friendlyMessage =
     'We experienced a temporary connectivity delay at the edge. Please try again. / तकनीकी समस्या के कारण सेवा में विलंब हो रहा है, कृपया पुनः प्रयास करें।';
 
   await sendEvent('chunk', { text: `\n\n> ⚠️ *${friendlyMessage}*` });
   await sendEvent('error', {
     message: friendlyMessage,
-    detail: errMsg.slice(0, 100),
   });
   await sendEvent('done', { sessionId, error: true });
 }

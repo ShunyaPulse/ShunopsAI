@@ -6,18 +6,22 @@ import type {
   ActionConfirmResponse,
 } from '../types.js';
 
+const MAX_CANONICALIZE_DEPTH = 24;
+
 /**
- * Deterministic (canonical) JSON serialization. Object key order must not
- * affect the signed payload, otherwise a client that round-trips the payload
- * would produce a different signature than the server computed.
+ * Deterministic (canonical) JSON serialization with recursion depth bounding
+ * so deeply nested user payloads cannot trigger a call-stack overflow DoS.
  */
-function canonicalize(value: unknown): string {
+function canonicalize(value: unknown, depth = 0): string {
+  if (depth > MAX_CANONICALIZE_DEPTH) {
+    throw new RangeError('Payload exceeds maximum nesting depth.');
+  }
   if (value === null || value === undefined) return 'null';
   if (typeof value !== 'object') return JSON.stringify(value) ?? 'null';
-  if (Array.isArray(value)) return `[${value.map(canonicalize).join(',')}]`;
+  if (Array.isArray(value)) return `[${value.map((v) => canonicalize(v, depth + 1)).join(',')}]`;
   const obj = value as Record<string, unknown>;
   const keys = Object.keys(obj).sort();
-  return `{${keys.map((k) => `${JSON.stringify(k)}:${canonicalize(obj[k])}`).join(',')}}`;
+  return `{${keys.map((k) => `${JSON.stringify(k)}:${canonicalize(obj[k], depth + 1)}`).join(',')}}`;
 }
 
 /** Constant-time comparison for hex signatures. */
@@ -31,9 +35,8 @@ function timingSafeEqualHex(a: string, b: string): boolean {
 /**
  * Generate cryptographic HMAC-SHA256 signature for action confirmation tokens.
  *
- * The signature binds the action id, type, expiry, and a canonical hash of the
- * payload so that a token cannot be replayed with a different payload or after
- * it has expired. `secret` is mandatory — there is no insecure default.
+ * Uses length-delimited JSON array framing (`canonicalize([actionId, actionType, expiresAt, payload])`)
+ * so colons inside `actionId` or `actionType` can never cause field-boundary collisions.
  */
 export async function signActionToken(
   actionId: string,
@@ -52,7 +55,7 @@ export async function signActionToken(
     ['sign']
   );
   const data = encoder.encode(
-    `${actionId}:${actionType}:${expiresAt}:${canonicalize(payload)}`
+    canonicalize([String(actionId), String(actionType), Number(expiresAt), payload || {}])
   );
   const signature = await crypto.subtle.sign('HMAC', key, data);
   return Array.from(new Uint8Array(signature))
@@ -117,10 +120,10 @@ export const tools: Record<string, ToolDefinition> = {
       required: ['name', 'email', 'requirements'],
     },
     handler: async (args, env): Promise<ToolExecutionResult> => {
-      const name = String(args['name'] || '').trim();
-      const email = String(args['email'] || '').trim();
-      const phone = args['phone'] ? String(args['phone']).trim() : undefined;
-      const requirements = String(args['requirements'] || '').trim();
+      const name = String(args['name'] || '').trim().slice(0, 200);
+      const email = String(args['email'] || '').trim().slice(0, 254);
+      const phone = args['phone'] ? String(args['phone']).trim().slice(0, 40) : undefined;
+      const requirements = String(args['requirements'] || '').trim().slice(0, 4000);
 
       if (!name || !email || !requirements) {
         return {
@@ -147,13 +150,15 @@ export const tools: Record<string, ToolDefinition> = {
         createdAt: new Date().toISOString(),
       };
 
-      // If webhook is configured, dispatch asynchronously
+      // If webhook is configured, dispatch asynchronously with redirect block & timeout
       if (env.ACTION_WEBHOOK_URL) {
         try {
           const webhookRes = await fetch(env.ACTION_WEBHOOK_URL, {
             method: 'POST',
+            redirect: 'error',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ event: 'lead_captured', data: leadPayload }),
+            signal: AbortSignal.timeout(8000),
           });
           if (!webhookRes.ok) {
             return {
@@ -198,12 +203,12 @@ export const tools: Record<string, ToolDefinition> = {
     },
     handler: async (args, env): Promise<ToolExecutionResult> => {
       const rawRef = String(args['referenceId'] || '').trim();
-      const referenceId = rawRef.replace(/^#/, '');
+      const referenceId = rawRef.replace(/^#/, '').slice(0, 64);
 
-      if (!referenceId) {
+      if (!referenceId || !/^[A-Za-z0-9_-]+$/.test(referenceId)) {
         return {
           success: false,
-          error: 'A reference ID or tracking number is required.',
+          error: 'A valid alphanumeric reference ID or tracking number is required.',
         };
       }
 
@@ -211,7 +216,9 @@ export const tools: Record<string, ToolDefinition> = {
       if (env.EXTERNAL_API_BASE_URL) {
         try {
           const res = await fetch(`${env.EXTERNAL_API_BASE_URL}/status/${encodeURIComponent(referenceId)}`, {
+            redirect: 'error',
             headers: { Accept: 'application/json' },
+            signal: AbortSignal.timeout(8000),
           });
           if (res.ok) {
             const data = await res.json();
@@ -287,10 +294,10 @@ export const tools: Record<string, ToolDefinition> = {
       required: ['date', 'time', 'contact'],
     },
     handler: async (args, env): Promise<ToolExecutionResult> => {
-      const date = String(args['date'] || '').trim();
-      const time = String(args['time'] || '').trim();
-      const contact = String(args['contact'] || '').trim();
-      const notes = args['notes'] ? String(args['notes']).trim() : 'General Consultation';
+      const date = String(args['date'] || '').trim().slice(0, 64);
+      const time = String(args['time'] || '').trim().slice(0, 64);
+      const contact = String(args['contact'] || '').trim().slice(0, 256);
+      const notes = args['notes'] ? String(args['notes']).trim().slice(0, 1000) : 'General Consultation';
 
       if (!date || !time || !contact) {
         return {
@@ -317,8 +324,10 @@ export const tools: Record<string, ToolDefinition> = {
         try {
           await fetch(env.ACTION_WEBHOOK_URL, {
             method: 'POST',
+            redirect: 'error',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ event: 'appointment_scheduled', data: appointmentDetails }),
+            signal: AbortSignal.timeout(8000),
           });
         } catch {
           // Non-blocking
@@ -468,6 +477,7 @@ export async function executeConfirmedAction(
     try {
       await fetch(env.ACTION_WEBHOOK_URL, {
         method: 'POST',
+        redirect: 'error',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           event: 'action_executed',
@@ -476,6 +486,7 @@ export async function executeConfirmedAction(
           sessionId: safeSession,
           timestamp: new Date().toISOString(),
         }),
+        signal: AbortSignal.timeout(8000),
       });
     } catch {
       // Non-blocking

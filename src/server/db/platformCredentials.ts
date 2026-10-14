@@ -9,8 +9,10 @@ import { getSql, memStore } from "./store.js";
 // with THESE, never with the operator's server credentials, so a task started
 // by a customer can only ever touch the customer's own account.
 //
-// Secrets are encrypted with AES-256-GCM before they are persisted. The UI only
-// ever receives a masked hint; plaintext is decrypted on demand for one run.
+// Secrets are encrypted with AES-256-GCM before they are persisted, with the
+// owning `(userId, platform)` pair bound into the GCM Additional Authenticated
+// Data (AAD) so ciphertext from one tenant row can never be transplanted to
+// another tenant or platform row.
 
 export type PlatformId = "neon" | "redis" | "github" | "cloudflare" | "brave" | "tavily" | "gcp" | "supabase" | "upstash" | "local_bridge" | "mcp" | string;
 
@@ -191,13 +193,14 @@ export interface PlatformCredentialBundle {
 export class CredentialVaultError extends Error {}
 
 const ALGORITHM = "aes-256-gcm";
-const ENVELOPE_PREFIX = "v1";
+const LEGACY_ENVELOPE_PREFIX = "v1";
+const AAD_ENVELOPE_PREFIX = "v2";
 
 /**
  * Resolve the vault key. `CREDENTIALS_ENCRYPTION_KEY` is preferred (64 hex chars
  * or base64 for a raw 32-byte key); any other passphrase is stretched with
- * scrypt. Falls back through available server secrets (ACTION_SECRET, AUTH_SECRET,
- * ORIGIN_SECRET, GOOGLE_CLIENT_SECRET) before failing closed.
+ * scrypt. Falls back only to high-entropy server secrets (ACTION_SECRET, AUTH_SECRET)
+ * before failing closed.
  */
 function getEncryptionKey(): Buffer | null {
   const raw = process.env.CREDENTIALS_ENCRYPTION_KEY;
@@ -211,11 +214,7 @@ function getEncryptionKey(): Buffer | null {
     return crypto.scryptSync(value, "shunops-credential-vault", 32);
   }
 
-  const fallback =
-    process.env.ACTION_SECRET ||
-    process.env.AUTH_SECRET ||
-    process.env.ORIGIN_SECRET ||
-    process.env.GOOGLE_CLIENT_SECRET;
+  const fallback = process.env.ACTION_SECRET || process.env.AUTH_SECRET;
 
   if (fallback && fallback.trim().length > 0) {
     return crypto.scryptSync(fallback.trim(), "shunops-credential-vault", 32);
@@ -228,7 +227,11 @@ export function isVaultConfigured(): boolean {
   return getEncryptionKey() !== null;
 }
 
-function encryptValues(values: Record<string, string>): string {
+function buildVaultAad(userId: number, platform: string): Buffer {
+  return Buffer.from(`shunops-vault:${userId}:${platform}`, "utf8");
+}
+
+function encryptValues(values: Record<string, string>, userId: number, platform: string): string {
   const key = getEncryptionKey();
   if (!key) {
     throw new CredentialVaultError(
@@ -237,27 +240,32 @@ function encryptValues(values: Record<string, string>): string {
   }
   const iv = crypto.randomBytes(12);
   const cipher = crypto.createCipheriv(ALGORITHM, key, iv);
+  cipher.setAAD(buildVaultAad(userId, platform));
   const plaintext = JSON.stringify(values);
   const encrypted = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
   const tag = cipher.getAuthTag();
-  return [ENVELOPE_PREFIX, iv.toString("hex"), tag.toString("hex"), encrypted.toString("hex")].join(":");
+  return [AAD_ENVELOPE_PREFIX, iv.toString("hex"), tag.toString("hex"), encrypted.toString("hex")].join(":");
 }
 
-function decryptValues(payload: string): Record<string, string> {
+function decryptValues(payload: string, userId: number, platform: string): Record<string, string> {
   const key = getEncryptionKey();
   if (!key) throw new CredentialVaultError("Credential storage is not configured on this server.");
 
   const parts = String(payload).split(":");
-  if (parts.length !== 4 || parts[0] !== ENVELOPE_PREFIX) {
+  if (parts.length !== 4 || (parts[0] !== AAD_ENVELOPE_PREFIX && parts[0] !== LEGACY_ENVELOPE_PREFIX)) {
     throw new CredentialVaultError("Stored credential payload is malformed.");
   }
+  const version = parts[0];
   const iv = Buffer.from(parts[1]!, "hex");
   const tag = Buffer.from(parts[2]!, "hex");
   const data = Buffer.from(parts[3]!, "hex");
-  if (tag.length !== 16) {
-    throw new CredentialVaultError("Stored credential auth tag is invalid.");
+  if (iv.length !== 12 || tag.length !== 16) {
+    throw new CredentialVaultError("Stored credential IV or auth tag is invalid.");
   }
   const decipher = crypto.createDecipheriv(ALGORITHM, key, iv, { authTagLength: 16 });
+  if (version === AAD_ENVELOPE_PREFIX) {
+    decipher.setAAD(buildVaultAad(userId, platform));
+  }
   decipher.setAuthTag(tag);
   const plaintext = Buffer.concat([decipher.update(data), decipher.final()]).toString("utf8");
   return JSON.parse(plaintext);
@@ -293,6 +301,7 @@ export function getPlatformSpec(platform: string): PlatformSpec | null {
  * decrypt is reported as unreadable instead of silently looking healthy.
  */
 function inspectStoredPayload(
+  userId: number,
   platform: string,
   payload: string
 ): { fields: string[]; readable: boolean } {
@@ -300,7 +309,7 @@ function inspectStoredPayload(
   if (!spec) return { fields: [], readable: false };
 
   try {
-    const values = decryptValues(payload);
+    const values = decryptValues(payload, userId, platform);
     const fields = spec.fields
       .map((field) => field.key)
       .filter((key) => {
@@ -339,7 +348,7 @@ export async function upsertUserPlatformCredential(
   if (!spec) throw new CredentialVaultError(`Unknown platform "${platform}".`);
 
   const normalized = normalizeValues(spec, values);
-  const payload = encryptValues(normalized);
+  const payload = encryptValues(normalized, userId, spec.id);
   const hint = buildHint(spec, normalized);
   const cleanLabel = (label || spec.label).trim().slice(0, 64);
 
@@ -399,7 +408,7 @@ export async function listUserPlatformCredentials(userId: number): Promise<Platf
     return Array.from(memStore.platformCredentials.values())
       .filter((c) => c.userId === userId)
       .map((c) => {
-        const stored = inspectStoredPayload(c.platform, c.payload);
+        const stored = inspectStoredPayload(userId, c.platform, c.payload);
         const spec = getPlatformSpec(c.platform);
         return {
           platform: c.platform as PlatformId,
@@ -419,7 +428,7 @@ export async function listUserPlatformCredentials(userId: number): Promise<Platf
   );
 
   return (rows || []).map((row: any) => {
-    const stored = inspectStoredPayload(row.platform, String(row.secret_payload ?? ""));
+    const stored = inspectStoredPayload(userId, row.platform, String(row.secret_payload ?? ""));
     const spec = getPlatformSpec(row.platform);
     return {
       platform: row.platform as PlatformId,
@@ -475,7 +484,7 @@ export async function getUserCredentialBundle(userId: number): Promise<PlatformC
   for (const row of rows) {
     try {
       const payload = row.payload || (row as any).secret_payload;
-      const values = decryptValues(payload);
+      const values = decryptValues(payload, userId, row.platform);
       if (row.platform === "neon") {
         if (values.connectionString) bundle.neon = { connectionString: values.connectionString };
       } else if (row.platform === "redis") {

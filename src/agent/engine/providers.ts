@@ -80,14 +80,15 @@ function toGeminiContents(history: ChatMessage[]): unknown[] {
   });
 }
 
-/** Primary provider: stream inference via the Google Gemini API. */
+/** Primary provider: stream inference via the Google Gemini API (key passed in x-goog-api-key header). */
 async function* streamGemini(
   history: ChatMessage[],
   systemPrompt: string,
   apiKey: string,
   modelName: string
 ): AsyncGenerator<StreamChunk> {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:streamGenerateContent?alt=sse&key=${apiKey}`;
+  const safeModel = encodeURIComponent(modelName);
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${safeModel}:streamGenerateContent?alt=sse`;
 
   const contents = toGeminiContents(history);
 
@@ -105,13 +106,15 @@ async function* streamGemini(
 
   const response = await fetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'x-goog-api-key': apiKey,
+    },
     body: JSON.stringify(body),
   });
 
   if (!response.ok) {
-    const errText = await response.text();
-    throw new Error(`Gemini API error status ${response.status}: ${errText.slice(0, 150)}`);
+    throw new Error(`Gemini API error status ${response.status}`);
   }
 
   if (!response.body) {
@@ -275,8 +278,7 @@ async function* streamOpenAICompatible(
   });
 
   if (!response.ok) {
-    const errText = await response.text();
-    throw new Error(`${providerName} API error status ${response.status}: ${errText.slice(0, 150)}`);
+    throw new Error(`${providerName} API error status ${response.status}`);
   }
 
   if (!response.body) {
@@ -355,10 +357,6 @@ export async function* cascadeStream(
   let lastError: Error | null = null;
 
   // 1. Try the Gemini key pool with rotation.
-  // Bounded deliberately (GEMINI.md Rule 6): during a regional 503 or a global
-  // 429 a large pool would otherwise serialize dozens of edge subrequests before
-  // the Groq LPU fallback runs, surfacing as a client-side timeout. Two attempts
-  // keep the key rotation benefit without paying that latency.
   const maxGeminiAttempts = Math.min(2, geminiKeys.length);
   for (const key of geminiKeys.slice(0, maxGeminiAttempts)) {
     try {

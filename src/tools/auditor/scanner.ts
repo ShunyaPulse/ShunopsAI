@@ -1,5 +1,7 @@
 import * as fs from "node:fs/promises";
+import * as fsSync from "node:fs";
 import * as path from "node:path";
+import { isSecretPath } from "../../agent/sandbox.js";
 import type { CodeFlawCandidate } from "./types.js";
 
 // ==========================================
@@ -157,12 +159,17 @@ export function scanFileForHeuristicFlaws(filePath: string, content: string): Co
 
 /**
  * List every source file in a repository directory, relative to `baseDir`
+ * (ignoring symlinks and secret paths so cloned repos cannot symlink host files).
  */
 async function getSourceFiles(dir: string, baseDir = dir): Promise<string[]> {
   const results: string[] = [];
   const entries = await fs.readdir(dir, { withFileTypes: true });
+  const realBase = fsSync.realpathSync.native(baseDir);
 
   for (const entry of entries) {
+    if (entry.isSymbolicLink()) continue;
+    if (isSecretPath(entry.name)) continue;
+
     const full = path.join(dir, entry.name);
     const rel = path.relative(baseDir, full).replace(/\\/g, "/");
 
@@ -173,7 +180,13 @@ async function getSourceFiles(dir: string, baseDir = dir): Promise<string[]> {
       results.push(...(await getSourceFiles(full, baseDir)));
     } else if (entry.isFile()) {
       if (SOURCE_FILE_PATTERN.test(entry.name) && !entry.name.endsWith(".d.ts")) {
-        results.push(rel);
+        try {
+          const realFile = fsSync.realpathSync.native(full);
+          const realRel = path.relative(realBase, realFile);
+          if (!realRel.startsWith("..") && !path.isAbsolute(realRel)) {
+            results.push(rel);
+          }
+        } catch {}
       }
     }
   }

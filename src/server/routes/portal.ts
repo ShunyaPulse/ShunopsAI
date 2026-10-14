@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { findUserBySessionToken } from "../db.js";
+import { getClientIp, getClientSubnet, checkDistributedSubnetQuota } from "../middleware/ratelimit.js";
 
 /**
  * Route plugin for the Public BYOK Self-Service Portal.
@@ -28,6 +29,15 @@ export async function portalRoutes(app: FastifyInstance): Promise<void> {
       return { error: "Session expired. Please log in again." };
     }
 
+    // Rate-limit key verification probes per subnet/user to prevent outbound socket exhaustion
+    const clientIp = getClientIp(req);
+    const clientSubnet = getClientSubnet(clientIp);
+    const quota = await checkDistributedSubnetQuota(`portal-verify:${user.id}:${clientSubnet}`, 10, 300);
+    if (!quota.allowed) {
+      reply.status(429);
+      return { error: "Too many key verification requests. Please wait a few minutes." };
+    }
+
     const body = req.body || {};
     const groq = typeof body.groq === "string" ? body.groq.trim() : "";
     const gemini = typeof body.gemini === "string" ? body.gemini.trim() : "";
@@ -41,6 +51,7 @@ export async function portalRoutes(app: FastifyInstance): Promise<void> {
     if (groq) {
       try {
         const res = await fetch("https://api.groq.com/openai/v1/models", {
+          redirect: "error",
           headers: { Authorization: `Bearer ${groq}` },
           signal: AbortSignal.timeout(6000),
         });
@@ -54,12 +65,16 @@ export async function portalRoutes(app: FastifyInstance): Promise<void> {
       }
     }
 
-    // 2. Verify Google Gemini API Key
+    // 2. Verify Google Gemini API Key (pass key via x-goog-api-key header, never in URL query string)
     if (gemini) {
       try {
         const res = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models?key=${gemini}`,
-          { signal: AbortSignal.timeout(6000) }
+          "https://generativelanguage.googleapis.com/v1beta/models",
+          {
+            redirect: "error",
+            headers: { "x-goog-api-key": gemini },
+            signal: AbortSignal.timeout(6000),
+          }
         );
         if (res.ok) {
           results.gemini = { valid: true, message: "Connected (Google AI Studio active)" };
@@ -75,6 +90,7 @@ export async function portalRoutes(app: FastifyInstance): Promise<void> {
     if (github) {
       try {
         const res = await fetch("https://api.github.com/user", {
+          redirect: "error",
           headers: {
             Authorization: `Bearer ${github}`,
             "User-Agent": "ShunopsAI-BYOK-Verification",
@@ -99,6 +115,7 @@ export async function portalRoutes(app: FastifyInstance): Promise<void> {
     if (hf) {
       try {
         const res = await fetch("https://huggingface.co/api/whoami-v2", {
+          redirect: "error",
           headers: { Authorization: `Bearer ${hf}` },
           signal: AbortSignal.timeout(6000),
         });
@@ -138,8 +155,12 @@ export async function portalRoutes(app: FastifyInstance): Promise<void> {
           }
         } else {
           const res = await fetch(
-            `https://texttospeech.googleapis.com/v1/voices?key=${encodeURIComponent(gcp)}`,
-            { signal: AbortSignal.timeout(6000) }
+            "https://texttospeech.googleapis.com/v1/voices",
+            {
+              redirect: "error",
+              headers: { "x-goog-api-key": gcp },
+              signal: AbortSignal.timeout(6000),
+            }
           );
           if (res.ok) {
             results.gcp = {

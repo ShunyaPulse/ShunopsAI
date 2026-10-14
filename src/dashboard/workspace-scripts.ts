@@ -13,6 +13,12 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]'): stri
     function handleImageAttach(input) {
       if (!input.files || !input.files[0]) return;
       const file = input.files[0];
+      const allowedTypes = ["image/png", "image/jpeg", "image/webp", "image/gif"];
+      if (!allowedTypes.includes(file.type)) {
+        alert("Only PNG, JPEG, WEBP, or GIF images are permitted.");
+        input.value = "";
+        return;
+      }
       if (file.size > 5 * 1024 * 1024) {
         alert('Image must be under 5MB to ensure fast processing.');
         input.value = '';
@@ -285,7 +291,7 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]'): stri
       }
       bubble.appendChild(header);
 
-      if (imageUri) {
+      if (imageUri && /^data:image\\/(?:png|jpeg|jpg|webp|gif);base64,/i.test(imageUri)) {
         const img = document.createElement('img');
         img.src = imageUri;
         img.style.maxWidth = '220px';
@@ -588,8 +594,8 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]'): stri
             <div style="font-size:12px; color:#cbd5e1; margin:4px 0;">\${escapeHtmlText(req.riskReason)}</div>
             <pre style="background:#000; padding:6px; border-radius:4px; font-size:11px; overflow-x:auto; margin:6px 0; color:#e2e8f0;">\${escapeHtmlText(req.commandOrPayload)}</pre>
             <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:8px;">
-              <button class="btn-sub" style="border-color:#ef4444; color:#ef4444;" onclick="submitApproval('\${escapeHtmlText(req.id)}', false)">❌ Reject</button>
-              <button class="btn-sub" style="background:#10b981; color:#fff; border:none;" onclick="submitApproval('\${escapeHtmlText(req.id)}', true)">✅ Approve</button>
+              <button class="btn-sub" style="border-color:#ef4444; color:#ef4444;" data-req-id="\${escapeHtmlAttr(req.id)}" onclick="submitApproval(this.dataset.reqId, false)">❌ Reject</button>
+              <button class="btn-sub" style="background:#10b981; color:#fff; border:none;" data-req-id="\${escapeHtmlAttr(req.id)}" onclick="submitApproval(this.dataset.reqId, true)">✅ Approve</button>
             </div>
           </div>
         \`).join('');

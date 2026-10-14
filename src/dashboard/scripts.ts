@@ -121,7 +121,12 @@ export const DASHBOARD_SCRIPTS = `
     }
 
     function escapeHtml(str) {
-      return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      return String(str ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
     }
 
     async function handleSend(e) {
@@ -268,8 +273,8 @@ export const DASHBOARD_SCRIPTS = `
             </div>
             <pre style="background: rgba(0,0,0,0.4); padding: 8px; border-radius: 4px; font-size: 11px; overflow-x: auto; margin: 8px 0; color: #f1f5f9;">\${escapeHtml(req.commandOrPayload)}</pre>
             <div style="display:flex; gap: 8px; justify-content: flex-end; margin-top: 8px;">
-              <button class="btn btn-danger" style="padding: 4px 14px; font-size: 11px;" onclick="resolveActionApproval('\${escapeHtml(req.id)}', false)">❌ Reject</button>
-              <button class="btn btn-success" style="padding: 4px 14px; font-size: 11px;" onclick="resolveActionApproval('\${escapeHtml(req.id)}', true)">✅ Approve</button>
+              <button class="btn btn-danger" style="padding: 4px 14px; font-size: 11px;" data-req-id="\${escapeHtml(req.id)}" onclick="resolveActionApproval(this.dataset.reqId, false)">❌ Reject</button>
+              <button class="btn btn-success" style="padding: 4px 14px; font-size: 11px;" data-req-id="\${escapeHtml(req.id)}" onclick="resolveActionApproval(this.dataset.reqId, true)">✅ Approve</button>
             </div>
           </div>
         \`).join("");
@@ -335,7 +340,7 @@ export const DASHBOARD_SCRIPTS = `
             <tbody>
               \${users.map(u => \`
                 <tr style="border-bottom: 1px solid rgba(255,255,255,0.04);">
-                  <td style="padding: 8px 6px; color: var(--text-muted);">\${u.id}</td>
+                  <td style="padding: 8px 6px; color: var(--text-muted);">\${Number(u.id) || 0}</td>
                   <td style="padding: 8px 6px; font-weight: 600; color: #fff;">\${escapeHtml(u.username)}</td>
                   <td style="padding: 8px 6px; color: var(--text-muted);">\${escapeHtml(u.email || 'N/A')}</td>
                   <td style="padding: 8px 6px;">
@@ -345,10 +350,10 @@ export const DASHBOARD_SCRIPTS = `
                   </td>
                   <td style="padding: 8px 6px; color: #10b981;">\${escapeHtml((u.plan || 'community').toUpperCase())}</td>
                   <td style="padding: 8px 6px; text-align: right;">
-                    <button class="btn btn-secondary" style="padding: 2px 8px; font-size: 10px; margin-right: 4px;" onclick="changeUserRole(\${u.id}, '\${u.role === 'admin' ? 'user' : 'admin'}')">
+                    <button class="btn btn-secondary" style="padding: 2px 8px; font-size: 10px; margin-right: 4px;" onclick="changeUserRole(\${Number(u.id) || 0}, '\${u.role === 'admin' ? 'user' : 'admin'}')">
                       \${u.role === 'admin' ? 'Demote' : 'Promote'}
                     </button>
-                    <button class="btn btn-danger" style="padding: 2px 8px; font-size: 10px;" onclick="revokeUserSessions(\${u.id})">
+                    <button class="btn btn-danger" style="padding: 2px 8px; font-size: 10px;" onclick="revokeUserSessions(\${Number(u.id) || 0})">
                       Revoke
                     </button>
                   </td>

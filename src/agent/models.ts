@@ -377,7 +377,7 @@ export async function callChatCompletionWithFailover(
   }
 
   throw new Error(
-    `All configured multi-provider models failed in failover chain. Last error: ${lastError?.message || lastError}`
+    `All configured multi-provider models failed in failover chain. Last error: ${String(lastError?.message || lastError || "Provider unavailable").replace(/([?&]key=|Bearer\s+|gsk_|AIzaSy)[A-Za-z0-9_\-]+/gi, "$1[REDACTED]").slice(0, 180)}`
   );
 }
 
