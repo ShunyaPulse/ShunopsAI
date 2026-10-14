@@ -7,11 +7,10 @@ dotenv.config();
 /**
  * Authentication HTML pages (Login & Register).
  * Matches the Kanban-Cloud production UI and security features:
- * - Google Sign-In button
+ * - Google Sign-In button (GSI + OAuth2 Redirect fallback)
  * - Email + OTP registration / login / password reset
  * - Username + Password registration with required Email OTP verification
- * - Cloudflare Turnstile bot verification (active on both login & register for OTP/reset flows)
- * - Client-side WebCrypto Proof-of-Work solver
+ * - Cloudflare Turnstile bot verification with interactive WebCrypto Bot-Shield fallback
  * - Honeypot traps
  *
  * The stylesheet and client script live in `auth-styles.ts` / `auth-scripts.ts`
@@ -25,6 +24,7 @@ export function getAuthPageHtml(mode: "login" | "register"): string {
     "685823552970-phqjqt3cc613h69kat0rljbaikf8k6kd.apps.googleusercontent.com";
   const turnstileSiteKey =
     process.env.CLOUDFLARE_TURNSTILE_SITE_KEY ||
+    process.env.TURNSTILE_SITE_KEY ||
     process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ||
     "0x4AAAAAAFVaFzGbMCgv2_Kr";
 
@@ -38,11 +38,21 @@ export function getAuthPageHtml(mode: "login" | "register"): string {
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script>
     window.turnstileToken = "";
+    window.turnstileLoaded = false;
     function onTurnstileSuccess(token) {
       window.turnstileToken = token;
+      window.turnstileLoaded = true;
+      var fb = document.getElementById("shunops-captcha-fallback");
+      if (fb) fb.style.display = "none";
     }
     function onTurnstileExpired() {
       window.turnstileToken = "";
+    }
+    function onTurnstileError(errCode) {
+      console.warn("Cloudflare Turnstile notice (activating interactive Bot-Shield):", errCode);
+      if (typeof window.activateFallbackCaptcha === "function") {
+        window.activateFallbackCaptcha();
+      }
     }
   </script>
   <!-- Google Sign-In SDK -->
@@ -167,9 +177,25 @@ ${AUTH_PAGE_STYLES}
       `
       }
 
-      <!-- Cloudflare Turnstile Bot Shield -->
+      <!-- Cloudflare Turnstile & Interactive Bot-Shield Captcha -->
       <div class="turnstile-box">
-        <div class="cf-turnstile" id="turnstile-widget" data-sitekey="${turnstileSiteKey}" data-theme="dark" data-callback="onTurnstileSuccess" data-expired-callback="onTurnstileExpired"></div>
+        <div class="cf-turnstile" id="turnstile-widget" data-sitekey="${turnstileSiteKey}" data-theme="dark" data-callback="onTurnstileSuccess" data-expired-callback="onTurnstileExpired" data-error-callback="onTurnstileError"></div>
+        <!-- Always-visible interactive Captcha card (auto-hides if Cloudflare Turnstile iframe mounts & succeeds) -->
+        <div id="shunops-captcha-fallback" class="captcha-fallback-card" onclick="triggerInteractiveCaptchaSolve()">
+          <div class="captcha-fallback-left">
+            <div id="captcha-checkbox-box" class="captcha-checkbox">
+              <div id="captcha-spinner" class="captcha-spinner" style="display:none;"></div>
+              <svg id="captcha-check-icon" viewBox="0 0 24 24" width="18" height="18" style="display:none; color:#10b981;">
+                <path fill="currentColor" d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
+              </svg>
+            </div>
+            <span id="captcha-status-label" class="captcha-label">Verify you are human</span>
+          </div>
+          <div class="captcha-fallback-right">
+            <div class="captcha-brand">🛡️ Bot Shield</div>
+            <div class="captcha-sub">Cloudflare • WebCrypto</div>
+          </div>
+        </div>
       </div>
 
       <button type="submit" id="btn-submit" class="btn-primary">

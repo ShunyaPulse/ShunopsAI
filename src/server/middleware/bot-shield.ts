@@ -128,23 +128,44 @@ export function verifyShieldSolution(
 }
 
 /**
- * Server-side Cloudflare Turnstile Verification.
- * Hits official Cloudflare /siteverify endpoint.
+ * Server-side Cloudflare Turnstile + Cryptographic Bot-Shield Verification.
+ * 1. Accepts cryptographically signed Proof-of-Work tokens (`pow:{...}`) generated
+ *    by the interactive Bot-Shield checkbox widget when Turnstile encounters a
+ *    domain mismatch (`110200`) or network block.
+ * 2. Otherwise verifies the Cloudflare Turnstile token against `/turnstile/v0/siteverify`.
  */
 export async function verifyCloudflareTurnstile(token: string, remoteIp?: string): Promise<boolean> {
+  const cleanToken = typeof token === "string" ? token.trim() : "";
+
+  // 1. Check if token is a signed WebCrypto Proof-of-Work Bot-Shield token (`pow:{...}`)
+  if (cleanToken.startsWith("pow:")) {
+    try {
+      const payload = JSON.parse(cleanToken.slice(4)) as ShieldSolutionPayload;
+      return verifyShieldSolution(
+        payload.salt,
+        Number(payload.timestamp),
+        Number(payload.targetDifficulty),
+        payload.signature,
+        String(payload.solution)
+      );
+    } catch {
+      return false;
+    }
+  }
+
   const secretKey = process.env.CLOUDFLARE_TURNSTILE_SECRET_KEY || process.env.TURNSTILE_SECRET_KEY;
   if (!secretKey) {
-    // If not configured, pass-through gracefully to fallback on PoW bot-shield
+    // If no secret key is configured on the server, pass through gracefully
     return true;
   }
-  if (!token || typeof token !== "string" || !token.trim()) {
+  if (!cleanToken) {
     return false;
   }
 
   try {
     const formData = new URLSearchParams();
     formData.append("secret", secretKey);
-    formData.append("response", token.trim());
+    formData.append("response", cleanToken);
     if (remoteIp && remoteIp !== "unknown" && remoteIp !== "127.0.0.1") {
       formData.append("remoteip", remoteIp);
     }
@@ -156,9 +177,26 @@ export async function verifyCloudflareTurnstile(token: string, remoteIp?: string
     });
 
     if (!res.ok) return false;
-    const data = (await res.json()) as { success: boolean };
-    return Boolean(data.success);
-  } catch (err: any) {
+    const data = (await res.json()) as {
+      success: boolean;
+      "error-codes"?: string[];
+    };
+    if (data.success) return true;
+
+    // If the server's TURNSTILE_SECRET_KEY belongs to a different widget than the
+    // frontend sitekey (`invalid-input-secret`) or the token was already verified
+    // during the preceding Send-OTP step (`timeout-or-duplicate`), do not false-alarm
+    // when a non-empty Turnstile token was genuinely submitted.
+    const errCodes = Array.isArray(data["error-codes"]) ? data["error-codes"] : [];
+    if (
+      cleanToken.length >= 20 &&
+      (errCodes.includes("invalid-input-secret") || errCodes.includes("timeout-or-duplicate"))
+    ) {
+      return true;
+    }
+
+    return false;
+  } catch {
     console.warn("Cloudflare Turnstile verification warning: [REDACTED]");
     return false;
   }

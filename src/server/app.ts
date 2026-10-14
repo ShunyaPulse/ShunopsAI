@@ -94,9 +94,6 @@ export async function createApp(config: AppConfig = loadAppConfig()): Promise<Fa
     },
   });
 
-  // Malicious URL probe filter (blocks vulnerability scanners, traversal, SQLi, and shell probes)
-  // Directly mirrors the security baseline from Kanban Cloud middleware.ts
-  // (the CSRF exemptions used by the mutation check below are declared next to it)
   /**
    * Mutation endpoints exempt from the ambient-credential CSRF check, because they
    * authenticate per request: HMAC (GitHub/cloud webhooks), a shared secret
@@ -133,13 +130,6 @@ export async function createApp(config: AppConfig = loadAppConfig()): Promise<Fa
     // CSRF Protection: For state-changing mutations under /api/ (login, register, chat, etc.)
     // Ensure request origin matches host, or sec-fetch-site is 'same-origin'
     if (["POST", "PUT", "DELETE", "PATCH"].includes(req.method) && req.url.startsWith("/api/")) {
-      // Endpoints that authenticate with a per-request header, signature or
-      // challenge rather than ambient browser credentials. A cross-site marker
-      // is not evidence of CSRF for them, and blocking it breaks the two
-      // integrations that are cross-site by design: the embeddable widget posts
-      // to /api/chat from customer domains, and monitoring services (GCP Cloud
-      // Monitoring, UptimeRobot, BetterStack) post to the alert webhook from
-      // outside the browser.
       if (!CSRF_EXEMPT_MUTATION_PREFIXES.some((prefix) => req.url.startsWith(prefix))) {
         const origin = req.headers.origin;
         const host = req.headers.host;
@@ -175,43 +165,55 @@ export async function createApp(config: AppConfig = loadAppConfig()): Promise<Fa
 
   // CORS protection: cross-origin access is DENIED by default. Only when the
   // operator explicitly lists origins do we allow them (and then credentials).
-  // Reflecting arbitrary origins while sending credentials is unsafe.
   const hasCorsOrigins = config.corsOrigins.length > 0;
   await app.register(cors, {
     origin: hasCorsOrigins ? config.corsOrigins : false,
     credentials: hasCorsOrigins,
   });
 
-  // Baseline security headers on every response (no new dependency needed).
-  // Mirrors patterns from SaralGati middleware.ts for consistency across the org.
+  // Baseline security headers on every response.
+  // Configured so Cloudflare Turnstile (`challenges.cloudflare.com`) and Google
+  // Identity Services (`accounts.google.com`) scripts, styles, iframes, and OAuth
+  // popups load cleanly on `/login` and `/register`.
   app.addHook("onSend", async (_req, reply, payload) => {
     reply.header("X-Content-Type-Options", "nosniff");
     reply.header("X-Frame-Options", "DENY");
-    reply.header("Referrer-Policy", "no-referrer");
+    // Send origin on cross-origin HTTPS requests so Cloudflare Turnstile and Google GSI
+    // can verify the embedding hostname without leaking path/query parameters.
+    reply.header("Referrer-Policy", "strict-origin-when-cross-origin");
     reply.header("X-Permitted-Cross-Domain-Policies", "none");
-    // HSTS: enforce HTTPS for 2 years (matching SaralGati)
+    // HSTS: enforce HTTPS for 2 years
     reply.header("Strict-Transport-Security", "max-age=63072000; includeSubDomains; preload");
-    // Disable legacy XSS auditor (OWASP guidance: its filter mode introduced its own vulnerabilities)
+    // Disable legacy XSS auditor
     reply.header("X-XSS-Protection", "0");
     // Restrict powerful browser features
     reply.header("Permissions-Policy", "camera=(), microphone=(), geolocation=(), browsing-topics=()");
-    // Modern isolation headers (COOP, CORP, COEP)
-    reply.header("Cross-Origin-Opener-Policy", "same-origin");
-    // Cross-Origin-Embedder-Policy: require-corp (or credentialless for safe embedding)
-    reply.header("Cross-Origin-Embedder-Policy", "credentialless");
+    // Allow Google Sign-In OAuth popup (`window.opener` communication) while isolating cross-origin tabs
+    reply.header("Cross-Origin-Opener-Policy", "same-origin-allow-popups");
     // Cross-Origin-Resource-Policy: Allow cross-origin for public widget.js while keeping same-origin for others
     if (reply.request?.url?.startsWith("/widget.js") || reply.request?.url?.startsWith("/api/widget")) {
       reply.header("Cross-Origin-Resource-Policy", "cross-origin");
     } else {
       reply.header("Cross-Origin-Resource-Policy", "same-origin");
     }
-    // Hardened CSP: Pure JSON/API routes have no scripts (script-src 'none')
+    // Content-Security-Policy: Allow Cloudflare Turnstile, Google Identity Services, and Edge Widget on HTML pages
     if (!reply.hasHeader("Content-Security-Policy")) {
       const isHtml = reply.getHeader("content-type")?.toString().includes("text/html");
       if (isHtml) {
         reply.header(
           "Content-Security-Policy",
-          "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: https:; frame-ancestors 'none'; object-src 'none'; base-uri 'self'"
+          [
+            "default-src 'self'",
+            "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://challenges.cloudflare.com https://accounts.google.com https://apis.google.com https://edge-agent-widget.shunopsai.workers.dev",
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://accounts.google.com",
+            "font-src 'self' https://fonts.gstatic.com data:",
+            "img-src 'self' data: https:",
+            "frame-src 'self' https://challenges.cloudflare.com https://accounts.google.com",
+            "connect-src 'self' https://challenges.cloudflare.com https://accounts.google.com https://oauth2.googleapis.com https://www.googleapis.com https://edge-agent-widget.shunopsai.workers.dev",
+            "frame-ancestors 'none'",
+            "object-src 'none'",
+            "base-uri 'self'",
+          ].join("; ")
         );
       } else {
         reply.header(

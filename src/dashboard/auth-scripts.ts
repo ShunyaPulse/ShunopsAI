@@ -8,26 +8,152 @@ export function authPageScripts(isLogin: boolean, turnstileSiteKey: string): str
   return `    let turnstileToken = "";
     let isOtpSent = false;
     let isResetPasswordMode = false;
+    let isSolvingPow = false;
     const isLoginMode = ${isLogin};
     const turnstileSiteKey = "${turnstileSiteKey}";
 
-    // Initialize Cloudflare Turnstile
+    // 0. Interactive WebCrypto Bot-Shield Captcha Solver (Guarantees visible, working Captcha
+    // even if Cloudflare Turnstile encounters a domain mismatch 110200 or network block)
+    async function solveShieldPoW(challenge) {
+      if (!challenge || !window.crypto || !window.crypto.subtle) return null;
+      const enc = new TextEncoder();
+      const targetDifficulty = challenge.targetDifficulty || 2;
+      const targetPrefix = '0'.repeat(targetDifficulty);
+      let nonce = 0;
+      while (nonce < 200000) {
+        const data = enc.encode(challenge.salt + ':' + nonce);
+        const buf = await window.crypto.subtle.digest('SHA-256', data);
+        const hex = Array.from(new Uint8Array(buf))
+          .map((b) => b.toString(16).padStart(2, '0'))
+          .join('');
+        if (hex.startsWith(targetPrefix)) {
+          return {
+            salt: challenge.salt,
+            timestamp: challenge.timestamp,
+            targetDifficulty: challenge.targetDifficulty,
+            signature: challenge.signature,
+            solution: String(nonce)
+          };
+        }
+        nonce++;
+      }
+      return null;
+    }
+
+    async function triggerInteractiveCaptchaSolve(silent) {
+      if (isSolvingPow) return turnstileToken || window.turnstileToken || "";
+      isSolvingPow = true;
+
+      const box = document.getElementById('captcha-checkbox-box');
+      const spinner = document.getElementById('captcha-spinner');
+      const checkIcon = document.getElementById('captcha-check-icon');
+      const label = document.getElementById('captcha-status-label');
+
+      if (box) box.classList.remove('verified');
+      if (checkIcon) checkIcon.style.display = 'none';
+      if (spinner) spinner.style.display = 'block';
+      if (label && !silent) label.textContent = 'Verifying browser security...';
+
+      try {
+        const res = await fetch('/api/shield/challenge');
+        if (res.ok) {
+          const challenge = await res.json();
+          const solved = await solveShieldPoW(challenge);
+          if (solved) {
+            const powToken = 'pow:' + JSON.stringify(solved);
+            // Only overwrite if native Cloudflare Turnstile hasn't set a token
+            const hiddenInput = document.querySelector('input[name="cf-turnstile-response"]');
+            if (!hiddenInput || !hiddenInput.value) {
+              turnstileToken = powToken;
+              window.turnstileToken = powToken;
+            }
+            if (spinner) spinner.style.display = 'none';
+            if (checkIcon) checkIcon.style.display = 'block';
+            if (box) box.classList.add('verified');
+            if (label) label.textContent = 'Verified human';
+            isSolvingPow = false;
+            return powToken;
+          }
+        }
+      } catch (e) {
+        console.warn('Shield challenge error:', e);
+      }
+
+      if (spinner) spinner.style.display = 'none';
+      if (label) label.textContent = 'Click to verify you are human';
+      isSolvingPow = false;
+      return "";
+    }
+
+    window.activateFallbackCaptcha = function() {
+      const fb = document.getElementById('shunops-captcha-fallback');
+      if (fb) fb.style.display = 'flex';
+      triggerInteractiveCaptchaSolve(true);
+    };
+
+    // Initialize Cloudflare Turnstile callbacks
     window.onTurnstileSuccess = function(token) {
       turnstileToken = token;
       window.turnstileToken = token;
+      window.turnstileLoaded = true;
+      const fb = document.getElementById('shunops-captcha-fallback');
+      if (fb) fb.style.display = 'none';
     };
 
-    function getTurnstileToken() {
+    async function ensureCaptchaToken() {
       const hiddenInput = document.querySelector('input[name="cf-turnstile-response"]');
-      return (hiddenInput && hiddenInput.value) || turnstileToken || window.turnstileToken || "";
+      const existing = (hiddenInput && hiddenInput.value) || turnstileToken || window.turnstileToken || "";
+      if (existing) return existing;
+      return await triggerInteractiveCaptchaSolve(false);
     }
 
-    window.addEventListener("DOMContentLoaded", () => {
+    async function refreshCaptchaAfterStep() {
+      turnstileToken = "";
+      window.turnstileToken = "";
+      if (typeof turnstile !== "undefined" && turnstile.reset) {
+        try { turnstile.reset(); } catch (e) {}
+      }
+      // Immediately mint a fresh single-use PoW token in the background so multi-step
+      // flows (Send OTP -> Create Account / Reset Password) never reuse a consumed token
+      await triggerInteractiveCaptchaSolve(true);
+    }
+
+    window.addEventListener("DOMContentLoaded", async () => {
       const urlParams = new URLSearchParams(window.location.search);
       const urlErr = urlParams.get('error');
       if (urlErr) {
         showMsg(decodeURIComponent(urlErr), 'error');
       }
+
+      // Handle Google OAuth2 redirect hash (#access_token=...) when fallback redirect flow is used
+      if (window.location.hash && window.location.hash.includes('access_token=')) {
+        const hashParams = new URLSearchParams(window.location.hash.slice(1));
+        const accessToken = hashParams.get('access_token');
+        if (accessToken) {
+          window.history.replaceState(null, document.title, window.location.pathname + window.location.search);
+          showMsg('Verifying Google credentials...', 'success');
+          try {
+            const res = await fetch('/api/auth/google', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ access_token: accessToken })
+            });
+            const data = await res.json();
+            if (res.ok) {
+              showMsg('Login successful! Redirecting...', 'success');
+              setTimeout(() => { window.location.href = '/workspace'; }, 500);
+              return;
+            } else {
+              showMsg(data.error || 'Google login failed.', 'error');
+            }
+          } catch (e) {
+            showMsg('Failed to connect to authentication server.', 'error');
+          }
+        }
+      }
+
+      // Pre-solve interactive captcha on load so the user sees the verified checkbox immediately
+      triggerInteractiveCaptchaSolve(true);
     });
 
     // 1. Google OAuth Callback (One-Tap / GSI)
@@ -53,11 +179,17 @@ export function authPageScripts(isLogin: boolean, turnstileSiteKey: string): str
       }
     }
 
-    // 1b. Interactive Google Sign-In (Token Client / Prompt)
-    function initiateGoogleLogin() {
+    // 1b. Interactive Google Sign-In (Token Client Popup + Standard OAuth2 Redirect Fallback)
+    async function initiateGoogleLogin() {
       showMsg('Connecting to Google...', 'success');
       const gClientEl = document.getElementById('g_id_onload');
       const gClientId = (gClientEl && gClientEl.getAttribute('data-client_id')) || '685823552970-phqjqt3cc613h69kat0rljbaikf8k6kd.apps.googleusercontent.com';
+
+      // Wait up to 1.2s if Google GSI script is still downloading
+      for (let i = 0; i < 8; i++) {
+        if (typeof google !== "undefined" && google.accounts && google.accounts.oauth2) break;
+        await new Promise((r) => setTimeout(r, 150));
+      }
 
       if (typeof google !== "undefined" && google.accounts && google.accounts.oauth2) {
         try {
@@ -89,15 +221,19 @@ export function authPageScripts(isLogin: boolean, turnstileSiteKey: string): str
           client.requestAccessToken();
           return;
         } catch (e) {
-          console.warn('OAuth2 client init exception:', e);
+          console.warn('OAuth2 client init exception, using redirect fallback:', e);
         }
       }
 
-      if (typeof google !== "undefined" && google.accounts && google.accounts.id) {
-        google.accounts.id.prompt();
-      } else {
-        showMsg('Google Sign-In is initializing. Please try again in a moment or use Email / GitHub login.', 'error');
-      }
+      // Standard Google OAuth 2.0 Web Redirect Fallback (works even when third-party scripts/popups are blocked)
+      const redirectUri = window.location.origin + window.location.pathname;
+      const oauthUrl =
+        'https://accounts.google.com/o/oauth2/v2/auth?client_id=' + encodeURIComponent(gClientId) +
+        '&redirect_uri=' + encodeURIComponent(redirectUri) +
+        '&response_type=token' +
+        '&scope=' + encodeURIComponent('openid email profile') +
+        '&prompt=select_account';
+      window.location.href = oauthUrl;
     }
 
     // 2. Send Verification OTP
@@ -116,13 +252,18 @@ export function authPageScripts(isLogin: boolean, turnstileSiteKey: string): str
       btn.disabled = true;
       btn.textContent = 'Sending...';
 
+      const token = await ensureCaptchaToken();
+
       try {
         const res = await fetch('/api/auth/email-otp/send', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email, purpose, turnstileToken: getTurnstileToken(), hp_website })
+          body: JSON.stringify({ email, purpose, turnstileToken: token, hp_website })
         });
         const data = await res.json();
+
+        // Always refresh the single-use captcha token after an OTP request
+        await refreshCaptchaAfterStep();
 
         if (!res.ok) {
           showMsg(data.error || 'Failed to send OTP.', 'error');
@@ -156,6 +297,7 @@ export function authPageScripts(isLogin: boolean, turnstileSiteKey: string): str
         showMsg('Network error while requesting code.', 'error');
         btn.disabled = false;
         btn.textContent = 'Send OTP';
+        await refreshCaptchaAfterStep();
       }
     }
 
@@ -224,6 +366,8 @@ export function authPageScripts(isLogin: boolean, turnstileSiteKey: string): str
       btn.disabled = true;
       btn.textContent = 'Verifying...';
 
+      const token = await ensureCaptchaToken();
+
       if (!isLoginMode) {
         // Register flow
         const username = document.getElementById('username').value.trim();
@@ -242,7 +386,7 @@ export function authPageScripts(isLogin: boolean, turnstileSiteKey: string): str
           const res = await fetch('/api/auth/register', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username, email, password, emailOtp, turnstileToken: getTurnstileToken(), hp_website })
+            body: JSON.stringify({ username, email, password, emailOtp, turnstileToken: token, hp_website })
           });
           const data = await res.json();
 
@@ -250,9 +394,7 @@ export function authPageScripts(isLogin: boolean, turnstileSiteKey: string): str
             showMsg(data.error || 'Registration failed.', 'error');
             btn.disabled = false;
             btn.textContent = 'Create Account';
-            if (typeof turnstile !== "undefined" && turnstile.reset) {
-              try { turnstile.reset(); } catch (e) {}
-            }
+            await refreshCaptchaAfterStep();
             return;
           }
 
@@ -262,9 +404,7 @@ export function authPageScripts(isLogin: boolean, turnstileSiteKey: string): str
           showMsg('Network error.', 'error');
           btn.disabled = false;
           btn.textContent = 'Create Account';
-          if (typeof turnstile !== "undefined" && turnstile.reset) {
-            try { turnstile.reset(); } catch (e) {}
-          }
+          await refreshCaptchaAfterStep();
         }
       } else if (isResetPasswordMode) {
         // Forgotten Password Reset flow
@@ -283,7 +423,7 @@ export function authPageScripts(isLogin: boolean, turnstileSiteKey: string): str
           const res = await fetch('/api/auth/reset-password', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email, emailOtp, newPassword, turnstileToken: getTurnstileToken(), hp_website })
+            body: JSON.stringify({ email, emailOtp, newPassword, turnstileToken: token, hp_website })
           });
           const data = await res.json();
 
@@ -291,9 +431,7 @@ export function authPageScripts(isLogin: boolean, turnstileSiteKey: string): str
             showMsg(data.error || 'Password reset failed.', 'error');
             btn.disabled = false;
             btn.textContent = 'Reset Password';
-            if (typeof turnstile !== "undefined" && turnstile.reset) {
-              try { turnstile.reset(); } catch (e) {}
-            }
+            await refreshCaptchaAfterStep();
             return;
           }
 
@@ -302,13 +440,12 @@ export function authPageScripts(isLogin: boolean, turnstileSiteKey: string): str
           toggleResetPasswordMode();
           btn.disabled = false;
           btn.textContent = 'Sign In';
+          await refreshCaptchaAfterStep();
         } catch (err) {
           showMsg('Network error while resetting password.', 'error');
           btn.disabled = false;
           btn.textContent = 'Reset Password';
-          if (typeof turnstile !== "undefined" && turnstile.reset) {
-            try { turnstile.reset(); } catch (e) {}
-          }
+          await refreshCaptchaAfterStep();
         }
       } else {
         // Login flow
@@ -316,10 +453,9 @@ export function authPageScripts(isLogin: boolean, turnstileSiteKey: string): str
         const isOtp = document.getElementById('chk-otp-mode').checked;
         const password = document.getElementById('password').value;
         const emailOtp = isOtp ? document.getElementById('otp').value.trim() : undefined;
-        const token = getTurnstileToken();
 
         if (!token) {
-          showMsg('Please complete the security captcha check above before signing in.', 'error');
+          showMsg('Please click the security verification checkbox above before signing in.', 'error');
           btn.disabled = false;
           btn.textContent = 'Sign In';
           return;
@@ -337,9 +473,7 @@ export function authPageScripts(isLogin: boolean, turnstileSiteKey: string): str
             showMsg(data.error || 'Sign in failed.', 'error');
             btn.disabled = false;
             btn.textContent = 'Sign In';
-            if (typeof turnstile !== "undefined" && turnstile.reset) {
-              try { turnstile.reset(); } catch (e) {}
-            }
+            await refreshCaptchaAfterStep();
             return;
           }
 
@@ -349,9 +483,7 @@ export function authPageScripts(isLogin: boolean, turnstileSiteKey: string): str
           showMsg('Network error.', 'error');
           btn.disabled = false;
           btn.textContent = 'Sign In';
-          if (typeof turnstile !== "undefined" && turnstile.reset) {
-            try { turnstile.reset(); } catch (e) {}
-          }
+          await refreshCaptchaAfterStep();
         }
       }
     }
