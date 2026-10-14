@@ -24,7 +24,7 @@ export const POPULAR_100_MCP_PRESETS: McpPresetItem[] = [
     id: "shunops-core",
     name: "🌟 ShunopsAI Sovereign Core MCP",
     category: "Built-in Core",
-    description: "Built-in zero-setup compliant MCP JSON-RPC service. Exposes isolated V8 Code Sandbox, Math solver, and Web reader.",
+    description: "Built-in zero-setup compliant MCP JSON-RPC service. Exposes an isolated V8 code sandbox and a sandboxed math solver.",
     tier: "native",
     url: "/api/mcp",
     tokenPlaceholder: "Built-in (Zero token required)",

@@ -11,6 +11,43 @@ import type {
  * Connects to remote or local HTTP MCP servers using standard JSON-RPC 2.0.
  * Memory footprint: ~1MB.
  */
+
+/** Rejected by the outbound MCP URL policy (protocol, host, or shape). */
+export class McpUrlError extends Error {}
+
+/**
+ * True while running as a developer/test process, where pointing at a local
+ * bridge (127.0.0.1 / localhost) is a legitimate MCP target. Production never is.
+ */
+export function isDevOrTestEnvironment(): boolean {
+  return (
+    process.env.NODE_ENV === "test" ||
+    process.env.NODE_ENV === "development" ||
+    !process.env.NODE_ENV
+  );
+}
+
+/** Canonical form used as the key of the allowed-endpoint directory. */
+export function normalizeMcpEndpoint(rawUrl: string): string {
+  let normalized = rawUrl.trim();
+  while (normalized.endsWith("/")) {
+    normalized = normalized.slice(0, -1);
+  }
+  return normalized;
+}
+
+/** Endpoint of the built-in sovereign MCP server, served by this same app. */
+export const BUILT_IN_MCP_ENDPOINT = "/api/mcp";
+
+/**
+ * The built-in server is not an outbound call: it is a route on this app, so it
+ * is never validated or registered as an external target.
+ */
+export function isBuiltInMcpEndpoint(rawUrl: string): boolean {
+  const normalized = normalizeMcpEndpoint(rawUrl);
+  return normalized === BUILT_IN_MCP_ENDPOINT || normalized.endsWith(BUILT_IN_MCP_ENDPOINT);
+}
+
 function isPrivateOrSpecialIpv4(hostname: string): boolean {
   if (!/^\d{1,3}(?:\.\d{1,3}){3}$/.test(hostname)) return false;
   const parts = hostname.split(".").map((p) => Number(p));
@@ -20,6 +57,7 @@ function isPrivateOrSpecialIpv4(hostname: string): boolean {
   const b = parts[1];
   if (a === undefined || b === undefined) return false;
   return (
+    a === 0 || // "this network"
     a === 10 || // RFC1918
     a === 127 || // loopback
     (a === 169 && b === 254) || // link-local
@@ -58,11 +96,7 @@ export const DEFAULT_ALLOWED_MCP_HOSTS: readonly string[] = [
 
 export function getAllowedMcpHosts(): string[] {
   const hosts = [...DEFAULT_ALLOWED_MCP_HOSTS];
-  const isDevOrTest =
-    process.env.NODE_ENV === "test" ||
-    process.env.NODE_ENV === "development" ||
-    !process.env.NODE_ENV;
-  if (isDevOrTest) {
+  if (isDevOrTestEnvironment()) {
     hosts.push("127.0.0.1", "localhost");
   }
   const custom = process.env.ALLOWED_MCP_HOSTS;
@@ -77,21 +111,38 @@ export function getAllowedMcpHosts(): string[] {
   return hosts;
 }
 
-function validateOutboundMcpUrl(rawUrl: string): URL {
-  const targetUrl = new URL(rawUrl);
+/**
+ * Validate an outbound MCP server URL and return it in canonical form.
+ *
+ * This is the single gate for every MCP destination a user can configure:
+ * the connect form, the "test connection" probe, and the run-time registry all
+ * call it, so a URL that fails here can never be stored as a working
+ * connection. When it passes, the caller registers the exact returned endpoint
+ * in `ALLOWED_MCP_TARGET_ENDPOINTS`, which is the only thing `fetch` is allowed
+ * to send to — there is no dynamic fallback destination anywhere in the client.
+ */
+export function assertAllowedMcpUrl(rawUrl: string): string {
+  let targetUrl: URL;
+  try {
+    targetUrl = new URL(rawUrl);
+  } catch {
+    throw new McpUrlError(`Invalid MCP server URL: ${rawUrl}`);
+  }
+
   if (targetUrl.protocol !== "http:" && targetUrl.protocol !== "https:") {
-    throw new Error(`Disallowed protocol: ${targetUrl.protocol}`);
+    throw new McpUrlError(`Disallowed protocol: ${targetUrl.protocol}`);
   }
 
   if (targetUrl.username || targetUrl.password) {
-    throw new Error("Disallowed URL credentials in MCP server URL.");
+    throw new McpUrlError("Disallowed URL credentials in MCP server URL.");
+  }
+
+  if (targetUrl.hash) {
+    throw new McpUrlError("Disallowed URL fragment in MCP server URL.");
   }
 
   const hostname = targetUrl.hostname.toLowerCase().replace(/\.$/, "");
-  const isDevOrTest =
-    process.env.NODE_ENV === "test" ||
-    process.env.NODE_ENV === "development" ||
-    !process.env.NODE_ENV;
+  const devOrTest = isDevOrTestEnvironment();
 
   const blockedHosts = new Set([
     "0.0.0.0",
@@ -100,29 +151,36 @@ function validateOutboundMcpUrl(rawUrl: string): URL {
     "metadata.platform",
   ]);
 
-  if (!isDevOrTest) {
+  if (!devOrTest) {
     blockedHosts.add("localhost");
     blockedHosts.add("127.0.0.1");
     blockedHosts.add("::1");
+    blockedHosts.add("[::1]");
   }
 
   if (
     blockedHosts.has(hostname) ||
     hostname.endsWith(".internal") ||
-    (!isDevOrTest && (isPrivateOrSpecialIpv4(hostname) || isDisallowedIpv6Literal(hostname)))
+    hostname.endsWith(".localhost") ||
+    (!devOrTest && (isPrivateOrSpecialIpv4(hostname) || isDisallowedIpv6Literal(hostname)))
   ) {
-    throw new Error(`Disallowed internal or private host: ${targetUrl.hostname}`);
+    throw new McpUrlError(`Disallowed internal or private host: ${targetUrl.hostname}`);
   }
 
-  const allowedHosts = getAllowedMcpHosts();
-  const matchedHost = allowedHosts.find((h) => h.toLowerCase() === hostname);
+  const matchedHost = getAllowedMcpHosts().find((h) => h.toLowerCase() === hostname);
   if (!matchedHost) {
-    throw new Error(`Disallowed MCP host: ${targetUrl.hostname}. Host must be registered in allowed MCP hosts list.`);
+    throw new McpUrlError(
+      `Disallowed MCP host: ${targetUrl.hostname}. Host must be registered in the allowed MCP hosts list.`
+    );
   }
 
-  return targetUrl;
+  return normalizeMcpEndpoint(targetUrl.toString());
 }
 
+/**
+ * Directory of endpoints `fetch` may reach, keyed by canonical URL so the
+ * client never builds a destination from a raw user string by itself.
+ */
 export const ALLOWED_MCP_TARGET_ENDPOINTS: Record<string, string> = {
   "https://mcp.wikipedia.org/v1": "https://mcp.wikipedia.org/v1",
   "https://mcp.firecrawl.dev/v1": "https://mcp.firecrawl.dev/v1",
@@ -139,9 +197,16 @@ export const ALLOWED_MCP_TARGET_ENDPOINTS: Record<string, string> = {
   "http://127.0.0.1:8000/sse": "http://127.0.0.1:8000/sse",
 };
 
-export function registerAllowedMcpEndpoint(url: string): void {
-  const clean = url.trim();
+/** Register an already-validated endpoint, returning its canonical form. */
+export function registerAllowedMcpEndpoint(url: string): string {
+  const clean = normalizeMcpEndpoint(url);
   ALLOWED_MCP_TARGET_ENDPOINTS[clean] = clean;
+  return clean;
+}
+
+/** Validate and register in one step; the only correct way to add a target. */
+export function allowMcpEndpoint(rawUrl: string): string {
+  return registerAllowedMcpEndpoint(assertAllowedMcpUrl(rawUrl));
 }
 
 export class McpHttpClient {
@@ -174,16 +239,14 @@ export class McpHttpClient {
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
-      let raw = this.config.url.trim();
-      while (raw.endsWith("/")) {
-        raw = raw.slice(0, -1);
-      }
+      // The destination is only ever a value from the validated directory.
       const destinationUrl =
-        ALLOWED_MCP_TARGET_ENDPOINTS[raw] ||
-        ALLOWED_MCP_TARGET_ENDPOINTS[this.config.url];
+        ALLOWED_MCP_TARGET_ENDPOINTS[normalizeMcpEndpoint(this.config.url)];
 
       if (!destinationUrl) {
-        throw new Error(`Disallowed MCP endpoint: ${this.config.url}. Endpoint must be registered in allowed MCP targets.`);
+        throw new Error(
+          `Disallowed MCP endpoint: ${this.config.url}. Endpoint must be registered in allowed MCP targets.`
+        );
       }
 
       const res = await fetch(destinationUrl, {

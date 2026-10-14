@@ -12,15 +12,22 @@ import type { ToolScope } from "../src/agent/scope.js";
 process.env.NODE_ENV = "test";
 process.env.CREDENTIALS_ENCRYPTION_KEY = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
+const TENANT_ID = 999;
+const OTHER_TENANT_ID = 998;
+
+function tenantScope(userId: number, username: string, bundle: Awaited<ReturnType<typeof getUserCredentialBundle>>): ToolScope {
+  return { kind: "user", userId, username, credentials: bundle };
+}
+
 async function runTests() {
   console.log("=================================================");
   console.log("⚡ TESTING MULTI-MCP CONCURRENT CONNECTION & VAULT");
   console.log("=================================================");
 
-  const userId = 999;
+  const userId = TENANT_ID;
   // Cleanup test user memStore entries
   for (const k of Array.from(memStore.platformCredentials.keys())) {
-    if (k.startsWith("999:")) memStore.platformCredentials.delete(k);
+    if (k.startsWith("999:") || k.startsWith("998:")) memStore.platformCredentials.delete(k);
   }
 
   // 1. Connect first MCP server (Brave Search preset)
@@ -78,12 +85,7 @@ async function runTests() {
   console.log("✅ PASS: getUserCredentialBundle accurately decrypts and bundles multiple MCP servers");
 
   // 6. Verify scope registers all servers into dynamic registry
-  const scope: ToolScope = {
-    userId,
-    username: "testuser",
-    role: "user",
-    credentials: bundle,
-  };
+  const scope = tenantScope(userId, "testuser", bundle);
 
   // Calling getActiveTools triggers dynamic server registration
   await mcpRegistry.getActiveTools(scope);
@@ -104,27 +106,40 @@ async function runTests() {
 
   // 8. Test live MCP server ping & tool discovery via McpHttpClient
   const http = await import("node:http");
+  const toolCalls: Array<{ name?: string; authorization?: string }> = [];
   const testServer = http.createServer((req, res) => {
     let body = "";
     req.on("data", (chunk) => { body += chunk; });
     req.on("end", () => {
       const parsed = JSON.parse(body || "{}");
-      if (parsed.method === "tools/list") {
+      const reply = (result: unknown) => {
         res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({
-          jsonrpc: "2.0",
-          id: parsed.id,
-          result: {
-            tools: [
-              { name: "test_calculator", description: "Performs arithmetic" },
-              { name: "test_search", description: "Performs mock search" },
-            ],
-          },
-        }));
-      } else {
-        res.writeHead(404);
-        res.end();
+        res.end(JSON.stringify({ jsonrpc: "2.0", id: parsed.id, result }));
+      };
+      if (parsed.method === "tools/list") {
+        reply({
+          tools: [
+            {
+              name: "test_calculator",
+              description: "Performs arithmetic",
+              inputSchema: { type: "object", properties: { expression: { type: "string" } } },
+            },
+            {
+              name: "test_search",
+              description: "Performs mock search",
+              inputSchema: { type: "object", properties: { query: { type: "string" } } },
+            },
+          ],
+        });
+        return;
       }
+      if (parsed.method === "tools/call") {
+        toolCalls.push({ name: parsed.params?.name, authorization: req.headers.authorization });
+        reply({ content: [{ type: "text", text: `mock-result:${parsed.params?.name}` }] });
+        return;
+      }
+      res.writeHead(404);
+      res.end();
     });
   });
 
@@ -147,11 +162,102 @@ async function runTests() {
   assert.equal(listRes.tools[1]?.name, "test_search");
   console.log("✅ PASS: McpHttpClient successfully connects and discovers tools (verified 'Connected')");
 
+  // 9. A connected MCP server's tools must reach the model, and its tool must run.
+  await upsertUserPlatformCredential(
+    userId,
+    "mcp:mock",
+    { serverUrl: mockMcpUrl, apiKey: "mock-token" },
+    "Mock MCP"
+  );
+  const mockBundle = await getUserCredentialBundle(userId);
+  const mockTools = await mcpRegistry.getActiveTools(tenantScope(userId, "testuser", mockBundle));
+  const mockToolNames = mockTools.map((t) => t.name).sort();
+  assert.deepEqual(
+    mockToolNames,
+    ["mcp_user_999_mcp_mock_test_calculator", "mcp_user_999_mcp_mock_test_search"],
+    "Both tools of the live mock server must be exposed to this tenant's run"
+  );
+
+  const calculator = mockTools.find((t) => t.originalName === "test_calculator");
+  assert.ok(calculator, "Discovered tool must be callable");
+  const callResult = await calculator.execute({ expression: "1+1" });
+  assert.equal(callResult, "mock-result:test_calculator");
+  assert.equal(toolCalls.length, 1, "The tool call must reach the server exactly once");
+  assert.equal(toolCalls[0]?.name, "test_calculator");
+  assert.equal(
+    toolCalls[0]?.authorization,
+    "Bearer mock-token",
+    "The tenant's own token must be the one sent to their server"
+  );
+  console.log("✅ PASS: A tenant's MCP tools are exposed and callable with that tenant's own token");
+
+  // 10. The run of any other account must never see (or reach) those servers.
+  const otherScope = tenantScope(OTHER_TENANT_ID, "otheruser", {});
+  const otherTools = await mcpRegistry.getActiveTools(otherScope);
+  assert.equal(
+    otherTools.length,
+    0,
+    "A run with no connected platforms must not inherit another tenant's MCP tools"
+  );
+  assert.ok(
+    !otherTools.some((t) => t.name.includes(`user_${TENANT_ID}`)),
+    "Another tenant's MCP tools must never be listed"
+  );
+  console.log("✅ PASS: MCP servers are isolated to the tenant that connected them");
+
+  // The other tenant may connect the same endpoint, and still only sees its own copy.
+  await upsertUserPlatformCredential(
+    OTHER_TENANT_ID,
+    "mcp:mock",
+    { serverUrl: mockMcpUrl },
+    "Other Mock MCP"
+  );
+  const otherBundle = await getUserCredentialBundle(OTHER_TENANT_ID);
+  const otherOwnTools = await mcpRegistry.getActiveTools(
+    tenantScope(OTHER_TENANT_ID, "otheruser", otherBundle)
+  );
+  assert.ok(otherOwnTools.length === 2, "Each tenant gets its own copy of a shared endpoint");
+  assert.ok(
+    otherOwnTools.every((t) => t.name.startsWith(`mcp_user_${OTHER_TENANT_ID}_`)),
+    "Tool names must be namespaced to the owning tenant"
+  );
+  console.log("✅ PASS: Two tenants may share an endpoint without sharing registry entries");
+
+  // 11. Disconnect takes effect on the next run: tools stop being offered.
+  await deleteUserPlatformCredential(userId, "mcp:mock");
+  const afterDisconnect = await getUserCredentialBundle(userId);
+  const toolsAfterDisconnect = await mcpRegistry.getActiveTools(
+    tenantScope(userId, "testuser", afterDisconnect)
+  );
+  assert.ok(
+    !toolsAfterDisconnect.some((t) => t.name.includes("user_999_mcp_mock")),
+    "A disconnected server's tools must not be offered any more"
+  );
+  console.log("✅ PASS: Disconnecting an MCP server removes it (and its tools) from the next run");
+
+  // 12. Endpoints that fail the outbound URL policy must never be registered.
+  const refusedBundle = {
+    mcpServers: [
+      { id: "mcp:metadata", serverUrl: "http://169.254.169.254/latest/meta-data" },
+      { id: "mcp:unlisted", serverUrl: "https://attacker.example.net/mcp" },
+    ],
+  };
+  const refusedTools = await mcpRegistry.getActiveTools(
+    tenantScope(userId, "testuser", refusedBundle)
+  );
+  assert.equal(
+    refusedTools.length,
+    0,
+    "Metadata/private and non-allowlisted MCP endpoints must be refused, not fetched"
+  );
+  console.log("✅ PASS: Refused MCP endpoints are never registered or called");
+
   await new Promise<void>((resolve) => testServer.close(() => resolve()));
 
   // Cleanup
   await deleteUserPlatformCredential(userId, "mcp:brave-search");
   await deleteUserPlatformCredential(userId, "mcp:custom-tools");
+  await deleteUserPlatformCredential(OTHER_TENANT_ID, "mcp:mock");
 
   console.log("=================================================");
   console.log("🎉 ALL MULTI-MCP TESTS PASSED CLEANLY!");

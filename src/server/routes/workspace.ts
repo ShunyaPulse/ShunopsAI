@@ -14,70 +14,136 @@ import {
   CredentialVaultError,
   isVaultConfigured,
 } from "../db.js";
-import { McpHttpClient, getAllowedMcpHosts, ALLOWED_MCP_TARGET_ENDPOINTS } from "../../agent/mcp/client.js";
+import {
+  McpHttpClient,
+  allowMcpEndpoint,
+  assertAllowedMcpUrl,
+  isBuiltInMcpEndpoint,
+} from "../../agent/mcp/client.js";
 
-function isIpv4Address(hostname: string): boolean {
-  const parts = hostname.split(".");
-  if (parts.length !== 4) return false;
-  return parts.every((part) => /^\d+$/.test(part) && Number(part) >= 0 && Number(part) <= 255);
+/**
+ * Tools the built-in sovereign `/api/mcp` server actually implements. It
+ * advertises exactly what its `tools/call` branch can run: listing tools the
+ * server cannot execute just makes the agent report phantom failures.
+ */
+const BUILT_IN_MCP_TOOLS = [
+  {
+    name: "execute_sandboxed_code",
+    description: "Secure isolated in-memory V8 code execution sandbox (no host filesystem or network)",
+    inputSchema: {
+      type: "object",
+      properties: {
+        code: { type: "string" },
+        timeoutMs: { type: "number" },
+      },
+      required: ["code"],
+    },
+  },
+  {
+    name: "calculate_math_expression",
+    description: "Arithmetic expression solver, evaluated inside the isolated sandbox",
+    inputSchema: {
+      type: "object",
+      properties: { expression: { type: "string" } },
+      required: ["expression"],
+    },
+  },
+];
+
+/**
+ * One message shape for every MCP URL refusal, so the panel, the probe and the
+ * registry all explain the same policy instead of three near-miss variants.
+ */
+function mcpPolicyHint(err: unknown): string {
+  const message = err instanceof Error ? err.message : "invalid MCP server URL";
+  return `${message} Public MCP hosts must be listed in ALLOWED_MCP_HOSTS; loopback and private addresses are only reachable in a development run.`;
 }
 
-function isPrivateOrLocalIpv4(hostname: string): boolean {
-  if (!isIpv4Address(hostname)) return false;
-  const parts = hostname.split(".").map((n) => Number(n));
-  const a = parts[0];
-  const b = parts[1];
-  if (a === undefined || b === undefined) return false;
-  if (a === 10) return true;
-  if (a === 127) return true;
-  if (a === 0) return true;
-  if (a === 169 && b === 254) return true;
-  if (a === 172 && b >= 16 && b <= 31) return true;
-  if (a === 192 && b === 168) return true;
-  return false;
-}
-
-function isDisallowedMcpTestUrl(rawUrl: string): boolean {
-  let parsed: URL;
+function safeStringify(value: unknown): string {
   try {
-    parsed = new URL(rawUrl);
+    return JSON.stringify(value, null, 2) ?? String(value);
   } catch {
-    return true;
+    return String(value);
+  }
+}
+
+/**
+ * Execute one built-in sovereign tool. Both tools run inside the same isolated
+ * V8 sandbox the agent's native tool uses, so a caller cannot reach the host.
+ */
+async function callBuiltInMcpTool(
+  name: string,
+  args: Record<string, unknown>
+): Promise<{ text: string; isError: boolean }> {
+  const { executeInSandbox } = await import("../../agent/sandbox/runner.js");
+
+  if (name === "execute_sandboxed_code") {
+    const code = typeof args.code === "string" ? args.code : "";
+    if (!code.trim()) {
+      return { text: "Refused: 'code' is required.", isError: true };
+    }
+    const res = await executeInSandbox(code, { timeoutMs: Number(args.timeoutMs) });
+    if (!res.success) {
+      return { text: `Execution failed in ${res.executionTimeMs}ms: ${res.error}`, isError: true };
+    }
+    const output = [
+      `Executed in ${res.executionTimeMs}ms.`,
+      res.result !== null ? `Return value: ${safeStringify(res.result)}` : "",
+      res.logs.length > 0 ? `Console output:\n${res.logs.join("\n")}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+    return { text: output || "Executed successfully with no output.", isError: false };
   }
 
-  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return true;
-  if (parsed.username || parsed.password) return true;
-  if (parsed.hash) return true;
-
-  const hostname = parsed.hostname.toLowerCase();
-  const isDevOrTest =
-    process.env.NODE_ENV === "test" ||
-    process.env.NODE_ENV === "development" ||
-    !process.env.NODE_ENV;
-
-  const blockedHosts = new Set([
-    "0.0.0.0",
-    "169.254.169.254",
-    "metadata.google.internal",
-    "metadata.platform",
-  ]);
-
-  if (!isDevOrTest) {
-    blockedHosts.add("localhost");
-    blockedHosts.add("127.0.0.1");
-    blockedHosts.add("::1");
+  if (name === "calculate_math_expression") {
+    const expression = typeof args.expression === "string" ? args.expression : "";
+    // Only arithmetic reaches the sandbox: no identifiers, calls, or member
+    // access, so this stays a calculator rather than an eval channel.
+    const compact = expression.replace(/\s+/g, "");
+    if (!compact || !/^[0-9+\-*/().,%eE]+$/.test(compact)) {
+      return {
+        text: "Refused: the expression may only contain digits and the operators + - * / ( ) . % and e.",
+        isError: true,
+      };
+    }
+    const res = await executeInSandbox(`return (${compact});`);
+    const value = res.success ? res.result : undefined;
+    if (typeof value !== "number" || !Number.isFinite(value)) {
+      return {
+        text: `Could not evaluate that expression${res.error ? `: ${res.error}` : "."}`,
+        isError: true,
+      };
+    }
+    return { text: String(value), isError: false };
   }
 
-  if (blockedHosts.has(hostname)) return true;
-  if (hostname.endsWith(".internal") || hostname.endsWith(".localhost")) return true;
-  if (!isDevOrTest && isPrivateOrLocalIpv4(hostname)) return true;
+  return { text: `Unknown tool: ${name || "(missing name)"}`, isError: true };
+}
 
-  const allowed = getAllowedMcpHosts();
-  if (!allowed.some((h) => h.toLowerCase() === hostname)) {
-    return true;
+/**
+ * MCP credentials are only useful if the run-time registry is allowed to call
+ * them, and the registry refuses any endpoint that fails the shared outbound
+ * URL policy. Reject it at connect time so the panel can never show a green
+ * "connected" row for a server the agent could never reach.
+ */
+function mcpCredentialRejection(platform: string, values: Record<string, unknown>): string | null {
+  if (platform !== "mcp" && platform !== "local_bridge" && !platform.startsWith("mcp:")) {
+    return null;
   }
 
-  return false;
+  const candidate = [values.serverUrl, values.bridgeUrl].find(
+    (value): value is string => typeof value === "string" && value.trim().length > 0
+  );
+  if (!candidate) return null; // A missing URL is reported by the required-field check.
+  if (isBuiltInMcpEndpoint(candidate)) return null;
+
+  try {
+    assertAllowedMcpUrl(candidate);
+    return null;
+  } catch (err) {
+    return `That MCP endpoint cannot be used: ${mcpPolicyHint(err)}`;
+  }
 }
 
 export interface WorkspaceRouteOptions {
@@ -194,11 +260,19 @@ export async function workspaceRoutes(app: FastifyInstance, options: WorkspaceRo
         return { error: "Authentication required to connect a platform account." };
       }
 
+      const platform = String(req.body?.platform || "");
+      const values = (req.body?.values || {}) as Record<string, unknown>;
+      const rejection = mcpCredentialRejection(platform, values);
+      if (rejection) {
+        reply.status(400);
+        return { error: rejection };
+      }
+
       try {
         const credential = await upsertUserPlatformCredential(
           userId,
-          String(req.body?.platform || ""),
-          req.body?.values || {},
+          platform,
+          values,
           req.body?.label
         );
         // Only the masked summary is echoed back; the secret never leaves the vault.
@@ -242,12 +316,8 @@ export async function workspaceRoutes(app: FastifyInstance, options: WorkspaceRo
       }
 
       // Handle Built-in Sovereign MCP endpoint
-      if (serverUrl === "/api/mcp" || serverUrl.endsWith("/api/mcp")) {
-        const tools = [
-          { name: "execute_sandboxed_code", description: "Secure isolated in-memory V8 code execution sandbox" },
-          { name: "calculate_math_expression", description: "High-precision AST mathematical evaluator" },
-          { name: "fetch_web_content", description: "Clean web documentation fetcher for autonomous research" },
-        ];
+      if (isBuiltInMcpEndpoint(serverUrl)) {
+        const tools = BUILT_IN_MCP_TOOLS.map(({ name, description }) => ({ name, description }));
         return {
           success: true,
           connected: true,
@@ -262,29 +332,17 @@ export async function workspaceRoutes(app: FastifyInstance, options: WorkspaceRo
         return { success: false, connected: false, error: "Server URL is required to test MCP connection." };
       }
 
-      if (isDisallowedMcpTestUrl(serverUrl)) {
+      let matchedEndpoint: string;
+      try {
+        // Same validator the connect form and the run-time registry use, so
+        // "test" can never pass a URL that a real run would refuse.
+        matchedEndpoint = allowMcpEndpoint(serverUrl);
+      } catch (err: any) {
         reply.status(400);
         return {
           success: false,
           connected: false,
-          error: "Server URL is invalid or not allowed for security reasons.",
-        };
-      }
-
-      let normalized = serverUrl.trim();
-      while (normalized.endsWith("/")) {
-        normalized = normalized.slice(0, -1);
-      }
-      const matchedEndpoint =
-        ALLOWED_MCP_TARGET_ENDPOINTS[normalized] ||
-        ALLOWED_MCP_TARGET_ENDPOINTS[serverUrl];
-
-      if (!matchedEndpoint) {
-        reply.status(400);
-        return {
-          success: false,
-          connected: false,
-          error: "Only registered and verified MCP servers from the allowed directory can be tested.",
+          error: mcpPolicyHint(err),
         };
       }
 
@@ -323,36 +381,41 @@ export async function workspaceRoutes(app: FastifyInstance, options: WorkspaceRo
     }
   );
 
-  // 6c. ShunopsAI Sovereign Built-in MCP JSON-RPC Server
+  // 6c. ShunopsAI Sovereign Built-in MCP JSON-RPC Server.
+  // Authenticated like every other /api route, and it answers `tools/call` for
+  // the tools it lists instead of advertising tools that cannot be executed.
   app.post<{ Body: { jsonrpc?: string; id?: any; method?: string; params?: any } }>(
     "/api/mcp",
+    { preHandler: [requireAuth] },
     async (req) => {
-      const { id, method } = req.body || {};
+      const { id, method, params } = req.body || {};
       if (method === "tools/list") {
         return {
           jsonrpc: "2.0",
           id: id || 1,
           result: {
-            tools: [
-              {
-                name: "execute_sandboxed_code",
-                description: "Secure isolated in-memory V8 code execution sandbox",
-                inputSchema: { type: "object", properties: { code: { type: "string" } }, required: ["code"] },
-              },
-              {
-                name: "calculate_math_expression",
-                description: "High-precision AST mathematical evaluator",
-                inputSchema: { type: "object", properties: { expression: { type: "string" } }, required: ["expression"] },
-              },
-              {
-                name: "fetch_web_content",
-                description: "Clean web documentation fetcher for autonomous research",
-                inputSchema: { type: "object", properties: { url: { type: "string" } }, required: ["url"] },
-              },
-            ],
+            tools: BUILT_IN_MCP_TOOLS.map(({ name, description, inputSchema }) => ({
+              name,
+              description,
+              inputSchema,
+            })),
           },
         };
       }
+
+      if (method === "tools/call") {
+        const toolName = typeof params?.name === "string" ? params.name : "";
+        const args = (
+          params?.arguments && typeof params.arguments === "object" ? params.arguments : {}
+        ) as Record<string, unknown>;
+        const outcome = await callBuiltInMcpTool(toolName, args);
+        return {
+          jsonrpc: "2.0",
+          id: id || 1,
+          result: { content: [{ type: "text", text: outcome.text }], isError: outcome.isError },
+        };
+      }
+
       return {
         jsonrpc: "2.0",
         id: id || 1,
