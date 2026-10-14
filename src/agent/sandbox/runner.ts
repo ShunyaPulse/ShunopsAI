@@ -55,8 +55,23 @@ const SANDBOX_BOOTSTRAP = `
     info: function () { push("", arguments); },
     debug: function () { push("", arguments); }
   };
+  // The program is compiled by this realm's own evaluator from a value handed
+  // in as data. The host never assembles a script out of user text, and whatever
+  // is compiled here stays inside this realm.
+  globalThis.__shunopsRun = function (source) {
+    if (typeof source !== "string") throw new TypeError("Sandbox program must be a string.");
+    return new Function('"use strict";\\n' + source)();
+  };
 })();
 `;
+
+/**
+ * Constant, host-authored entry point: it reads the program out of the realm and
+ * hands it to the realm's own evaluator. Nothing user-supplied is interpolated
+ * into a script this file builds.
+ */
+const SANDBOX_RUNNER_SOURCE =
+  '(function () { "use strict"; return globalThis.__shunopsRun(globalThis.__shunopsSandboxSource); })()';
 
 function resolveTimeout(timeoutMs: number | undefined): number {
   const requested = Number(timeoutMs);
@@ -72,7 +87,9 @@ function resolveTimeout(timeoutMs: number | undefined): number {
  * 1. Strict time limit (default: 3000ms, ceiling 10000ms) prevents infinite loops.
  * 2. The code runs in a fresh `vm` realm whose globals are the realm's own
  *    natives; no host object, function, or module is ever passed in, so it has
- *    no reachable `process`, `require`, filesystem, or network.
+ *    no reachable `process`, `require`, filesystem, or network. The program is
+ *    handed to that realm as a string and compiled by the realm's own evaluator,
+ *    so this module never builds a script out of user-supplied text.
  * 3. Console output is collected in the realm and copied out as plain strings.
  */
 export async function executeInSandbox(
@@ -93,13 +110,17 @@ export async function executeInSandbox(
       { timeout: 1000 }
     );
 
-    // Wrapped in an IIFE so top-level `return` works and strict mode applies.
-    const script = new vm.Script(
-      `(function () {\n"use strict";\n${code}\n})()`,
-      { filename: "shunops-sandbox-user-code.js" }
-    );
-
-    const result = script.runInContext(context, { timeout: timeoutMs, displayErrors: true });
+    // Hand the program over as data, then let the realm compile and run it (the
+    // whole call, including compilation, is inside the timeout).
+    (context as Record<string, unknown>).__shunopsSandboxSource = code;
+    let result: unknown;
+    try {
+      result = new vm.Script(SANDBOX_RUNNER_SOURCE, {
+        filename: "shunops-sandbox-runner.js",
+      }).runInContext(context, { timeout: timeoutMs, displayErrors: true });
+    } finally {
+      delete (context as Record<string, unknown>).__shunopsSandboxSource;
+    }
     const executionTimeMs = Date.now() - startTime;
 
     return {

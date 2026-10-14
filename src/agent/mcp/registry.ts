@@ -174,10 +174,12 @@ class McpRegistryManager {
       let endpoint: string;
       try {
         endpoint = allowMcpEndpoint(server.serverUrl);
-      } catch (err: any) {
+      } catch {
         this.unregisterServer(serverId);
+        // Deliberately no message detail: the reason can echo the configured
+        // host list, and the operator only needs to know the endpoint was refused.
         console.warn(
-          `[MCP Server ${server.name || server.id}] refused: ${err?.message || String(err)}`
+          `[MCP Server ${server.name || server.id}] refused: endpoint failed the outbound MCP URL policy.`
         );
         continue;
       }
