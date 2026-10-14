@@ -37,7 +37,7 @@ function getTransporter() {
  * Generate 6-digit cryptographically secure numeric OTP
  */
 export function generateNumericOTP(): string {
-  return crypto.randomInt(100000, 999999).toString();
+  return crypto.randomInt(100000, 1000000).toString();
 }
 
 /**
@@ -63,7 +63,7 @@ export async function sendEmailOTP(email: string): Promise<{ success: boolean; m
 
   const otp = generateNumericOTP();
 
-  // Store in PostgreSQL with 10-minute validity
+  // Store in PostgreSQL with 10-minute validity (fail closed if DB persistence fails)
   try {
     await (sql as any).query(
       `INSERT INTO shunops_email_otps (email, otp, attempts, expires_at, used_at, created_at)
@@ -74,6 +74,10 @@ export async function sendEmailOTP(email: string): Promise<{ success: boolean; m
     );
   } catch (dbErr: any) {
     console.warn("[Email OTP DB Save Warning]:", dbErr.message);
+    return {
+      success: false,
+      message: "Could not generate verification code at this time. Please try again.",
+    };
   }
 
   const mailTransporter = getTransporter();
@@ -127,7 +131,7 @@ export async function verifyEmailOTP(email: string, code: string): Promise<{ suc
   const cleanEmail = email.trim().toLowerCase();
   const cleanCode = code.trim();
 
-  if (!cleanCode || cleanCode.length !== 6) {
+  if (!cleanCode || !/^\d{6}$/.test(cleanCode)) {
     return { success: false, message: "Invalid 6-digit OTP code format." };
   }
 
@@ -135,9 +139,9 @@ export async function verifyEmailOTP(email: string, code: string): Promise<{ suc
 
   try {
     // Atomically consume the OTP: this succeeds only when the code matches, has
-    // not been used, and is unexpired. Doing the compare-and-mark in a single
-    // UPDATE closes the race where two concurrent requests both passed a
-    // preceding SELECT and each minted a session from the same code.
+    // not been used, is unexpired, AND has fewer than 5 failed attempts.
+    // Enforcing `attempts < 5` inside the WHERE clause prevents brute-force
+    // guessing from succeeding after the account is locked out.
     const consumed = await (sql as any).query(
       `UPDATE shunops_email_otps
        SET used_at = CURRENT_TIMESTAMP
@@ -145,6 +149,7 @@ export async function verifyEmailOTP(email: string, code: string): Promise<{ suc
          AND otp = $2
          AND used_at IS NULL
          AND expires_at > NOW()
+         AND COALESCE(attempts, 0) < 5
        RETURNING email;`,
       [cleanEmail, cleanCode]
     );
@@ -182,7 +187,7 @@ export async function verifyEmailOTP(email: string, code: string): Promise<{ suc
     }
 
     const bumped = await (sql as any).query(
-      `UPDATE shunops_email_otps SET attempts = attempts + 1 WHERE LOWER(TRIM(email)) = $1 RETURNING attempts;`,
+      `UPDATE shunops_email_otps SET attempts = COALESCE(attempts, 0) + 1 WHERE LOWER(TRIM(email)) = $1 RETURNING attempts;`,
       [cleanEmail]
     );
     const newAttempts = bumped[0]?.attempts ?? record.attempts + 1;

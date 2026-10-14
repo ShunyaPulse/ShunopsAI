@@ -4,6 +4,7 @@ import {
   indexKnowledgeDocument,
   deleteKnowledgeDocument,
 } from "../db.js";
+import { isAdminUser } from "../scope.js";
 
 export interface KnowledgeRouteOptions {
   requireAuth: preHandlerHookHandler;
@@ -41,7 +42,7 @@ export async function knowledgeRoutes(
     };
   });
 
-  // 2. Index a new knowledge document (Authenticated only)
+  // 2. Index a new knowledge document (Admin/Operator only — matches host-tier tool policy)
   app.post<{
     Body: {
       title: string;
@@ -50,6 +51,11 @@ export async function knowledgeRoutes(
       metadata?: Record<string, any>;
     };
   }>("/api/knowledge/index", { preHandler: [requireAuth] }, async (req, reply) => {
+    if (!isAdminUser((req as any).user)) {
+      reply.status(403);
+      return { success: false, error: "Access denied. Administrator privileges required to modify the global knowledge base." };
+    }
+
     const { title, content, category, metadata } = req.body || {};
     if (!title || !content) {
       reply.status(400);
@@ -69,10 +75,15 @@ export async function knowledgeRoutes(
     };
   });
 
-  // 3. Delete a knowledge document (Authenticated only)
+  // 3. Delete a knowledge document (Admin/Operator only)
   app.delete<{
     Params: { id: string };
   }>("/api/knowledge/:id", { preHandler: [requireAuth] }, async (req, reply) => {
+    if (!isAdminUser((req as any).user)) {
+      reply.status(403);
+      return { success: false, error: "Access denied. Administrator privileges required to delete knowledge documents." };
+    }
+
     const id = Number(req.params.id);
     if (!id || isNaN(id)) {
       reply.status(400);
@@ -85,4 +96,3 @@ export async function knowledgeRoutes(
     };
   });
 }
-

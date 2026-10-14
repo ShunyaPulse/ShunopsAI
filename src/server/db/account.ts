@@ -27,9 +27,21 @@ export async function deleteUserAccount(userId: number): Promise<boolean> {
     memStore.users.delete(userId);
     memStore.usersByUsername.delete(u.username.toLowerCase());
     if (u.email) memStore.usersByEmail.delete(u.email.toLowerCase());
+    if (u.google_id) memStore.usersByGoogleId.delete(u.google_id);
+    if (u.github_id) memStore.usersByGithubId.delete(u.github_id);
     for (const [t, s] of memStore.sessions.entries()) {
       if (s.userId === userId) memStore.sessions.delete(t);
     }
+    for (const [k, rec] of memStore.apiKeys.entries()) {
+      if (rec.userId === userId) memStore.apiKeys.delete(k);
+    }
+    for (const [k, cred] of memStore.platformCredentials.entries()) {
+      if (cred.userId === userId) memStore.platformCredentials.delete(k);
+    }
+    for (const [id, task] of memStore.tasks.entries()) {
+      if (task.user_id === userId || task.userId === userId) memStore.tasks.delete(id);
+    }
+    memStore.chatMessages = memStore.chatMessages.filter((m) => m.userId !== userId);
     return true;
   }
   const result = await (sql as any).query(`DELETE FROM shunops_users WHERE id = $1 RETURNING id;`, [userId]);

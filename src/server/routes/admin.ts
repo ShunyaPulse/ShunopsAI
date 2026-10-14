@@ -6,13 +6,14 @@ import {
   getSystemUserStats,
   findUserBySessionToken,
 } from "../db.js";
+import { isAdminUser } from "../scope.js";
 
 export interface AdminRouteOptions {
   requireDashboardAuth?: preHandlerHookHandler;
 }
 
 /**
- * Admin Console & Governance Routes (Restricted to role='admin').
+ * Admin Console & Governance Routes (Restricted to role='admin' / 'operator').
  */
 export async function adminRoutes(app: FastifyInstance, options: AdminRouteOptions = {}): Promise<void> {
   const adminGuard: preHandlerHookHandler = async (req, reply) => {
@@ -26,15 +27,15 @@ export async function adminRoutes(app: FastifyInstance, options: AdminRouteOptio
     const sessionCookie = (req.cookies as any)?.shunops_user_session;
     if (sessionCookie) {
       const user = await findUserBySessionToken(sessionCookie);
-      if (user && user.role === "admin") {
+      if (user && isAdminUser(user)) {
         (req as any).user = user;
         return;
       }
     }
 
-    // 3. Check if attached req.user is admin
+    // 3. Check if attached req.user is admin/operator
     const attachedUser = (req as any).user;
-    if (attachedUser && attachedUser.role === "admin") {
+    if (attachedUser && isAdminUser(attachedUser)) {
       return;
     }
 
@@ -44,8 +45,8 @@ export async function adminRoutes(app: FastifyInstance, options: AdminRouteOptio
   // 1. List users
   app.get("/api/admin/users", { preHandler: [adminGuard] }, async (req) => {
     const query = (req.query as any) || {};
-    const limit = Number(query.limit) || 50;
-    const offset = Number(query.offset) || 0;
+    const limit = Math.min(Math.max(Number(query.limit) || 50, 1), 200);
+    const offset = Math.max(Number(query.offset) || 0, 0);
     const users = await listAllUsers(limit, offset);
     return { success: true, users };
   });
@@ -63,10 +64,22 @@ export async function adminRoutes(app: FastifyInstance, options: AdminRouteOptio
         return { error: "User ID and new role are required." };
       }
 
+      const actor = (req as any).user;
+      if (actor && typeof actor.id === "number" && actor.id === userId && role !== "admin") {
+        reply.status(400);
+        return { error: "Cannot demote your own currently active administrator account." };
+      }
+
       const updated = await updateUserRole(userId, role);
       if (!updated) {
         reply.status(404);
         return { error: "User not found or invalid role." };
+      }
+
+      // Immediately revoke existing sessions when a user's role changes so
+      // privilege changes (especially demotions) take effect without stale sessions.
+      if (!actor || actor.id !== userId) {
+        await revokeAllUserSessions(userId);
       }
 
       return { success: true, message: `User role updated to '${role}'.` };

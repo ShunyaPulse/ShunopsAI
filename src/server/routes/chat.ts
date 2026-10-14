@@ -23,13 +23,34 @@ import {
   findUserBySessionToken,
   checkUserTokenQuota,
   recordUserTokenUsage,
-  incrementUserQueryCount,
   saveChatMessage,
   getChatHistory,
 } from "../db.js";
 
 const ANON_WINDOW_SECONDS = 10 * 60; // 10 minutes
 const ANON_MAX_REQUESTS = 5; // 5 requests per 10 minutes per Subnet
+
+/**
+ * Determine if the incoming request is a cross-site / cross-origin request.
+ * Since /api/chat is CSRF-exempt to support the embeddable widget on external
+ * domains, ambient session cookies must be ignored on cross-origin calls so an
+ * external site cannot ride a logged-in user's session.
+ */
+function isCrossOriginChatRequest(req: { headers: Record<string, any> }): boolean {
+  if (req.headers["sec-fetch-site"] === "cross-site") {
+    return true;
+  }
+  const origin = req.headers.origin;
+  const host = req.headers.host;
+  if (origin && host) {
+    try {
+      return new URL(origin).host !== host;
+    } catch {
+      return true;
+    }
+  }
+  return false;
+}
 
 /**
  * Public & Authenticated conversational endpoint for website visitors & logged-in workspace users.
@@ -75,8 +96,10 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
         };
       }
 
-      // Check for Authenticated Session
-      const sessionToken = (req.cookies as any)?.shunops_user_session;
+      // Check for Authenticated Session (only honor ambient session cookie on same-origin requests)
+      const sessionToken = !isCrossOriginChatRequest(req)
+        ? (req.cookies as any)?.shunops_user_session
+        : undefined;
       let authenticatedUser = null;
       if (sessionToken) {
         try {
@@ -215,13 +238,14 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
 
         const scope = await buildRequestScope(authenticatedUser);
 
-        // Enable safe diagnostic, operational, and knowledge tools for authenticated/BYOK workspace users
-        const disabledTools = (authenticatedUser || isBYOK)
+        // Only authenticated workspace users get diagnostic/platform tools;
+        // unauthenticated callers (even with BYOK inference keys) run with all tools disabled.
+        const disabledTools = authenticatedUser
           ? (["run_shell_command", "write_file"] as ToolName[])
           : (Object.keys(toolRegistry) as ToolName[]);
 
         const result = await runAutonomousAgent(goal, {
-          maxSteps: isBYOK || authenticatedUser ? 3 : 1, // Elevated steps for authenticated users
+          maxSteps: isBYOK || authenticatedUser ? 3 : 1, // Elevated steps for authenticated / BYOK users
           disabledTools,
           keyOverrides,
           targets,

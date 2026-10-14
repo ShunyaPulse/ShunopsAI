@@ -1,4 +1,4 @@
-import { adminScope, userScope, type ToolScope } from "../agent/scope.js";
+import { userScope, type ToolScope } from "../agent/scope.js";
 import { getUserCredentialBundle } from "./db.js";
 
 /**
@@ -18,25 +18,29 @@ export interface AuthenticatedUser {
 }
 
 export function isAdminUser(user: AuthenticatedUser | undefined | null): boolean {
-  return Boolean(user?.isMaster === true || user?.role === "admin");
+  return Boolean(
+    user?.isMaster === true || user?.role === "admin" || user?.role === "operator"
+  );
 }
 
-/** Numeric id of a real tenant account; `0` is the operator/master pseudo-user. */
+/** Numeric id of a real tenant account; `0` is the operator/master or anonymous pseudo-user. */
 export function tenantUserId(user: AuthenticatedUser | undefined | null): number {
   const id = typeof user?.id === "number" ? user.id : 0;
   return id > 0 ? id : 0;
 }
 
 /**
- * Operator (admin/master/internal) callers keep server credentials. A real
+ * Operator (admin/master/operator) callers keep server credentials. A real
  * tenant gets a user scope holding only the credentials they connected, and
- * never any fallback to the server's own.
+ * never any fallback to the server's own. Unauthenticated/anonymous callers
+ * (`user == null`) receive a zero-privilege user scope (`userId: 0`) so they can
+ * never escalate to `admin` scope.
  */
 export async function buildRequestScope(
   user: AuthenticatedUser | undefined | null
 ): Promise<ToolScope> {
   const userId = tenantUserId(user);
-  if (isAdminUser(user) || userId === 0) {
+  if (isAdminUser(user)) {
     const adminCreds = userId > 0 ? await getUserCredentialBundle(userId) : {};
     return {
       kind: "admin",
@@ -44,6 +48,9 @@ export async function buildRequestScope(
       username: user?.username || "admin",
       credentials: adminCreds,
     };
+  }
+  if (userId <= 0) {
+    return userScope(0, "anonymous", {});
   }
   const credentials = await getUserCredentialBundle(userId);
   return userScope(userId, user?.username || `user_${userId}`, credentials);

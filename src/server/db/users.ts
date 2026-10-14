@@ -187,17 +187,23 @@ export async function upsertGoogleUser(googleId: string, email: string, name?: s
     });
   }
 
-  const rows = await (sql as any).query(
-    `INSERT INTO shunops_users (username, email, google_id, email_verified)
-     VALUES ($1, $2, $3, TRUE)
-     RETURNING ${USER_COLUMNS};`,
-    [username, cleanEmail, googleId]
-  );
-  const user = rows[0];
-
-  await createDefaultWorkspace(sql as any, user.id, username);
-
-  return user;
+  try {
+    const rows = await (sql as any).query(
+      `INSERT INTO shunops_users (username, email, google_id, email_verified)
+       VALUES ($1, $2, $3, TRUE)
+       ON CONFLICT (google_id) DO UPDATE SET email_verified = TRUE, updated_at = CURRENT_TIMESTAMP
+       RETURNING ${USER_COLUMNS};`,
+      [username, cleanEmail, googleId]
+    );
+    const user = rows[0];
+    await createDefaultWorkspace(sql as any, user.id, user.username);
+    return user;
+  } catch {
+    // Handle concurrent TOCTOU race on email/username unique constraint
+    const existing = (await findUserByGoogleId(googleId)) || (await findUserByEmail(cleanEmail));
+    if (existing) return existing;
+    throw new Error("Failed to upsert Google user account.");
+  }
 }
 
 export async function upsertGithubUser(githubId: string, email: string, login: string, name?: string): Promise<UserRecord> {
@@ -244,17 +250,23 @@ export async function upsertGithubUser(githubId: string, email: string, login: s
     });
   }
 
-  const rows = await (sql as any).query(
-    `INSERT INTO shunops_users (username, email, github_id, email_verified)
-     VALUES ($1, $2, $3, TRUE)
-     RETURNING ${USER_COLUMNS};`,
-    [username, cleanEmail, githubId]
-  );
-  const user = rows[0];
-
-  await createDefaultWorkspace(sql as any, user.id, username);
-
-  return user;
+  try {
+    const rows = await (sql as any).query(
+      `INSERT INTO shunops_users (username, email, github_id, email_verified)
+       VALUES ($1, $2, $3, TRUE)
+       ON CONFLICT (github_id) DO UPDATE SET email_verified = TRUE, updated_at = CURRENT_TIMESTAMP
+       RETURNING ${USER_COLUMNS};`,
+      [username, cleanEmail, githubId]
+    );
+    const user = rows[0];
+    await createDefaultWorkspace(sql as any, user.id, user.username);
+    return user;
+  } catch {
+    // Handle concurrent TOCTOU race on email/username unique constraint
+    const existing = (await findUserByGithubId(githubId)) || (await findUserByEmail(cleanEmail));
+    if (existing) return existing;
+    throw new Error("Failed to upsert GitHub user account.");
+  }
 }
 
 export async function markEmailAsVerified(email: string): Promise<void> {

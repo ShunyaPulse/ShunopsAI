@@ -15,15 +15,28 @@ export const ActionConfirmSchema = Type.Object({
 
 export type ActionConfirmBody = Static<typeof ActionConfirmSchema>;
 
-// In-memory replay guard fallback (24 hours TTL) when Redis is unavailable
+// Bounded in-memory replay guard fallback (24 hours TTL) when Redis is unavailable
 const consumedActionsMem = new Map<string, number>();
+const MAX_CONSUMED_ACTIONS_MEM = 10_000;
+
+function pruneConsumedActionsMem(now: number): void {
+  if (consumedActionsMem.size < MAX_CONSUMED_ACTIONS_MEM) return;
+  for (const [key, exp] of consumedActionsMem) {
+    if (exp <= now) consumedActionsMem.delete(key);
+  }
+  while (consumedActionsMem.size >= MAX_CONSUMED_ACTIONS_MEM) {
+    const oldest = consumedActionsMem.keys().next().value;
+    if (oldest === undefined) break;
+    consumedActionsMem.delete(oldest);
+  }
+}
 
 /**
  * Fastify counterpart for edge widget action confirmations (/api/action/confirm).
  *
  * Verifies cryptographic HMAC-SHA256 signature minted with ACTION_SECRET,
- * enforces replay prevention via distributed Redis (or in-memory sliding TTL),
- * and executes or cancels the requested sensitive action.
+ * enforces atomic replay prevention via distributed Redis (`SET ... NX`) or
+ * bounded in-memory sliding TTL, and executes or cancels the requested sensitive action.
  */
 export async function actionConfirmRoutes(app: FastifyInstance): Promise<void> {
   app.post<{ Body: ActionConfirmBody }>(
@@ -64,29 +77,28 @@ export async function actionConfirmRoutes(app: FastifyInstance): Promise<void> {
         };
       }
 
-      // Replay prevention: verify actionId has not been previously consumed
+      // Replay prevention: atomically verify and mark actionId as consumed
       const redis = getRedisClient();
       const consumedKey = `action_consumed:${actionId}`;
 
       let replayBlocked = false;
       const now = Date.now();
 
-      // 1. In-memory check (process-local atomic defense)
+      // 1. In-memory check (process-local atomic defense with bounded size)
       const existingMem = consumedActionsMem.get(actionId);
       if (existingMem && existingMem > now) {
         replayBlocked = true;
       } else {
+        pruneConsumedActionsMem(now);
         consumedActionsMem.set(actionId, now + 86400 * 1000);
       }
 
-      // 2. Distributed Redis check (cross-runner defense)
+      // 2. Distributed Redis atomic SET NX check (eliminates cross-instance TOCTOU race)
       if (!replayBlocked && redis) {
         try {
-          const already = await redis.get(consumedKey);
-          if (already) {
+          const acquired = await redis.set(consumedKey, "1", "EX", 86400, "NX");
+          if (acquired !== "OK") {
             replayBlocked = true;
-          } else {
-            await redis.set(consumedKey, "1", "EX", 86400); // 24-hour TTL
           }
         } catch {}
       }

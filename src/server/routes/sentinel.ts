@@ -1,5 +1,6 @@
 import type { FastifyInstance, preHandlerHookHandler } from "fastify";
 import { runComprehensiveSentinelScan, autoHealService } from "../../tools/sentinel.js";
+import { isAdminUser } from "../scope.js";
 
 export interface SentinelRouteOptions {
   requireDashboardAuth?: preHandlerHookHandler;
@@ -28,6 +29,12 @@ export async function sentinelRoutes(app: FastifyInstance, opts: SentinelRouteOp
   });
 
   app.post("/api/sentinel/heal", { preHandler: healPreHandler }, async (req, reply) => {
+    // Only administrator/operator callers may trigger host infrastructure self-healing
+    if (!isAdminUser((req as any).user)) {
+      reply.status(403);
+      return { error: "Access denied. Administrator privileges required to trigger infrastructure self-healing." };
+    }
+
     const body = (req.body as any) || {};
     const serviceName = body?.serviceName || "all";
     const reason = body?.reason;

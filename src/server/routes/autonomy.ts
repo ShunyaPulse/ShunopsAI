@@ -1,5 +1,6 @@
 import type { FastifyInstance, preHandlerHookHandler } from "fastify";
 import { getAutonomyStatus, setAutonomyPaused, isAutonomyPaused } from "../../tools/autonomy-state.js";
+import { isAdminUser } from "../scope.js";
 
 export interface AutonomyRouteOptions {
   requireAuth?: preHandlerHookHandler;
@@ -23,6 +24,10 @@ export async function autonomyRoutes(app: FastifyInstance, opts: AutonomyRouteOp
   });
 
   app.post("/api/autonomy/pause", { preHandler: writePreHandler }, async (req, reply) => {
+    if (!isAdminUser((req as any).user)) {
+      reply.status(403);
+      return { error: "Access denied. Administrator privileges required to modify global autonomy state." };
+    }
     try {
       const body = (req.body as any) || {};
       const reason = body.reason || "Paused via ShunopsAI Command Center";
@@ -37,7 +42,11 @@ export async function autonomyRoutes(app: FastifyInstance, opts: AutonomyRouteOp
     }
   });
 
-  app.post("/api/autonomy/resume", { preHandler: writePreHandler }, async (_req, reply) => {
+  app.post("/api/autonomy/resume", { preHandler: writePreHandler }, async (req, reply) => {
+    if (!isAdminUser((req as any).user)) {
+      reply.status(403);
+      return { error: "Access denied. Administrator privileges required to modify global autonomy state." };
+    }
     try {
       const status = await setAutonomyPaused(false, "dashboard_admin", "Resumed by user");
       return {
@@ -51,6 +60,10 @@ export async function autonomyRoutes(app: FastifyInstance, opts: AutonomyRouteOp
   });
 
   app.post("/api/autonomy/toggle", { preHandler: writePreHandler }, async (req, reply) => {
+    if (!isAdminUser((req as any).user)) {
+      reply.status(403);
+      return { error: "Access denied. Administrator privileges required to modify global autonomy state." };
+    }
     try {
       const current = await isAutonomyPaused();
       const nextPaused = !current;

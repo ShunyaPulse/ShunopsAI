@@ -2,8 +2,8 @@ import type { FastifyInstance, preHandlerHookHandler } from "fastify";
 import { runAutonomousAgent } from "../../agent/index.js";
 import { TaskRequestSchema, type TaskRequest } from "../schemas/alert.js";
 import { createQueuedTask, getTaskState } from "../taskQueue.js";
-import { listUserTasks, saveTaskRecord } from "../db.js";
-import { buildRequestScope } from "../scope.js";
+import { listUserTasks, saveTaskRecord, checkUserTokenQuota, recordUserTokenUsage } from "../db.js";
+import { buildRequestScope, isAdminUser } from "../scope.js";
 
 export interface TaskRouteOptions {
   requireAuth: preHandlerHookHandler;
@@ -27,21 +27,28 @@ export async function taskRoutes(app: FastifyInstance, options: TaskRouteOptions
     async (req, reply) => {
       const body = req.body || {};
       const user = (req as any).user;
+      const isAdmin = isAdminUser(user);
       const userId = user?.id && user.id > 0 ? user.id : undefined;
 
       // Tenant isolation: a signed-in user's run may only touch the accounts
       // they connected themselves, never the operator's infrastructure.
       const scope = await buildRequestScope(user);
 
-      const taskGoal =
+      const rawGoal =
         body.goal ||
         body.task ||
         body.prompt ||
         body.message ||
         "Perform autonomous repository and database health check";
 
-      const maxSteps = typeof body.maxSteps === "number" ? body.maxSteps : 6;
-      const context = body.context;
+      const requestedSteps = typeof body.maxSteps === "number" ? body.maxSteps : 6;
+      const maxSteps = isAdmin ? requestedSteps : Math.min(Math.max(1, requestedSteps), 6);
+      // Only admin/operator runs may inject privileged system-level `initialContext`;
+      // for tenant users, fold `body.context` safely into the user-turn goal.
+      const context = isAdmin ? body.context : undefined;
+      const taskGoal = !isAdmin && body.context
+        ? `Context (user-provided):\n${body.context}\n\nGoal: ${rawGoal}`
+        : rawGoal;
 
       const userGroqKey = (req.headers["x-groq-key"] as string | undefined)?.trim();
       const userGeminiKey = (req.headers["x-gemini-key"] as string | undefined)?.trim();
@@ -57,15 +64,28 @@ export async function taskRoutes(app: FastifyInstance, options: TaskRouteOptions
         };
       }
 
+      const isBYOK = Boolean(isValidGroqFormat || isValidGeminiFormat);
       const keyOverrides:
         | { groqApiKey?: string | undefined; geminiApiKey?: string | undefined }
         | undefined =
-        isValidGroqFormat || isValidGeminiFormat
+        isBYOK
           ? {
               groqApiKey: isValidGroqFormat ? userGroqKey : undefined,
               geminiApiKey: isValidGeminiFormat ? userGeminiKey : undefined,
             }
           : undefined;
+
+      // Enforce monthly token quota for non-admin tenant users unless BYOK is used
+      if (!isAdmin && userId && !isBYOK) {
+        const quotaCheck = await checkUserTokenQuota(userId);
+        if (!quotaCheck.allowed) {
+          reply.status(429);
+          return {
+            success: false,
+            error: "Monthly token quota reached for your account. Please upgrade or provide a BYOK key.",
+          };
+        }
+      }
 
       // Check if caller requests async execution via body or HTTP header
       const isAsync =
@@ -94,6 +114,12 @@ export async function taskRoutes(app: FastifyInstance, options: TaskRouteOptions
           keyOverrides,
           scope,
         });
+
+        if (!isAdmin && userId && !isBYOK) {
+          const inTokens = result.usage?.promptTokens || Math.ceil(taskGoal.length / 4);
+          const outTokens = result.usage?.completionTokens || Math.ceil((result.finalAnswer || "").length / 4);
+          recordUserTokenUsage(userId, inTokens, outTokens).catch(() => {});
+        }
 
         // Record task outcome in database
         saveTaskRecord({
@@ -131,7 +157,7 @@ export async function taskRoutes(app: FastifyInstance, options: TaskRouteOptions
     }
   );
 
-  // Status check endpoint for async / queued tasks with multi-tenant isolation
+  // Status check endpoint for async / queued tasks with strict multi-tenant isolation
   app.get<{ Params: { taskId: string } }>(
     "/api/task/:taskId",
     { preHandler: [requireAuth] },
@@ -149,8 +175,9 @@ export async function taskRoutes(app: FastifyInstance, options: TaskRouteOptions
       }
 
       const user = (req as any).user;
-      // Multi-tenant task isolation: If user is not admin, prevent viewing tasks belonging to other accounts
-      if (user && user.role !== "admin" && task.userId && task.userId !== user.id) {
+      // Multi-tenant task isolation: Non-admin users may ONLY view tasks explicitly owned by their user.id
+      // (blocks reading operator/system tasks where task.userId is null/undefined, as well as other users' tasks).
+      if (!isAdminUser(user) && (!task.userId || task.userId !== user?.id)) {
         reply.status(403);
         return { success: false, error: "Access denied. You can only view tasks belonging to your account." };
       }
@@ -165,7 +192,10 @@ export async function taskRoutes(app: FastifyInstance, options: TaskRouteOptions
     { preHandler: [requireAuth] },
     async (req) => {
       const user = (req as any).user;
-      const userId = user?.id || 0;
+      const userId = typeof user?.id === "number" && user.id > 0 ? user.id : 0;
+      if (!isAdminUser(user) && userId <= 0) {
+        return { success: true, tasks: [] };
+      }
       const tasks = await listUserTasks(userId);
       return { success: true, tasks };
     }

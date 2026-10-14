@@ -1,6 +1,23 @@
 import crypto from "crypto";
 
 const PROCESS_FALLBACK_SECRET = crypto.randomBytes(32).toString("hex");
+const SHIELD_TTL_MS = 10 * 60 * 1000;
+const MAX_CONSUMED_SALTS = 10_000;
+
+// Bounded replay guard so a solved Proof-of-Work challenge can only be used once
+const consumedShieldSalts = new Map<string, number>();
+
+function pruneConsumedSalts(now: number): void {
+  if (consumedShieldSalts.size < MAX_CONSUMED_SALTS) return;
+  for (const [k, exp] of consumedShieldSalts) {
+    if (exp <= now) consumedShieldSalts.delete(k);
+  }
+  while (consumedShieldSalts.size >= MAX_CONSUMED_SALTS) {
+    const oldest = consumedShieldSalts.keys().next().value;
+    if (oldest === undefined) break;
+    consumedShieldSalts.delete(oldest);
+  }
+}
 
 function getShieldSecret(): string {
   const secret = process.env.ACTION_SECRET || process.env.AGENT_API_TOKEN;
@@ -47,8 +64,8 @@ export function generateShieldChallenge(): ShieldChallenge {
 }
 
 /**
- * Verify that the puzzle solution provided by the client is mathematically valid
- * and solved within a reasonable timeframe (10 minutes).
+ * Verify that the puzzle solution provided by the client is mathematically valid,
+ * solved within a reasonable timeframe (10 minutes), and has not been replayed.
  */
 export function verifyShieldSolution(
   salt: string,
@@ -59,8 +76,13 @@ export function verifyShieldSolution(
 ): boolean {
   if (!salt || !timestamp || !signature || !solution) return false;
 
-  // Expire challenges older than 10 minutes
-  if (Date.now() - timestamp > 10 * 60 * 1000) return false;
+  const now = Date.now();
+  // Expire challenges older than 10 minutes or timestamps in the future
+  if (now - timestamp > SHIELD_TTL_MS || timestamp > now + 60_000) return false;
+
+  // Reject replayed challenges
+  const existingExp = consumedShieldSalts.get(salt);
+  if (existingExp && existingExp > now) return false;
 
   // Verify HMAC signature to prevent client tampering using constant-time comparison
   const expectedSig = crypto
@@ -97,7 +119,12 @@ export function verifyShieldSolution(
 
   const prefix = PREFIX_TABLE[targetDifficulty];
   if (!prefix) return false;
-  return hash.startsWith(prefix);
+  if (!hash.startsWith(prefix)) return false;
+
+  // Consume salt so this solved puzzle cannot be replayed
+  pruneConsumedSalts(now);
+  consumedShieldSalts.set(salt, timestamp + SHIELD_TTL_MS);
+  return true;
 }
 
 /**
@@ -110,11 +137,14 @@ export async function verifyCloudflareTurnstile(token: string, remoteIp?: string
     // If not configured, pass-through gracefully to fallback on PoW bot-shield
     return true;
   }
+  if (!token || typeof token !== "string" || !token.trim()) {
+    return false;
+  }
 
   try {
     const formData = new URLSearchParams();
     formData.append("secret", secretKey);
-    formData.append("response", token);
+    formData.append("response", token.trim());
     if (remoteIp && remoteIp !== "unknown" && remoteIp !== "127.0.0.1") {
       formData.append("remoteip", remoteIp);
     }

@@ -69,13 +69,12 @@ async function handleSendEmailOtp(req: FastifyRequest, reply: FastifyReply) {
     return { error: "Too many OTP requests from this network. Please wait a few minutes." };
   }
 
-  // Verify Cloudflare Turnstile if configured
-  if (turnstileToken) {
-    const isHuman = await verifyCloudflareTurnstile(turnstileToken, clientIp);
-    if (!isHuman) {
-      reply.status(403);
-      return { error: "Security check failed. Please refresh the captcha and try again." };
-    }
+  // Always run Turnstile check (passes gracefully when TURNSTILE_SECRET_KEY is not configured;
+  // prevents bypass by omitting turnstileToken when Turnstile IS configured).
+  const isHuman = await verifyCloudflareTurnstile(turnstileToken || "", clientIp);
+  if (!isHuman) {
+    reply.status(403);
+    return { error: "Security check failed. Please refresh the captcha and try again." };
   }
 
   // If purpose is signup, verify account doesn't already exist
@@ -128,13 +127,11 @@ async function handleRegister(req: FastifyRequest, reply: FastifyReply) {
   const clientIp = getClientIp(req);
   const clientSubnet = getClientSubnet(clientIp);
 
-  // Layer 2: Cloudflare Turnstile Verification
-  if (turnstileToken) {
-    const isHuman = await verifyCloudflareTurnstile(turnstileToken, clientIp);
-    if (!isHuman) {
-      reply.status(403);
-      return { error: "Security verification failed. Please complete the captcha." };
-    }
+  // Layer 2: Cloudflare Turnstile Verification (mandatory when configured)
+  const isHuman = await verifyCloudflareTurnstile(turnstileToken || "", clientIp);
+  if (!isHuman) {
+    reply.status(403);
+    return { error: "Security verification failed. Please complete the captcha." };
   }
 
   // Layer 3: Subnet Throttling (Max 5 signups per 15 minutes per subnet)
@@ -336,7 +333,7 @@ async function handleResetPassword(req: FastifyRequest, reply: FastifyReply) {
     return { error: "Validation failed." };
   }
 
-  if (!email || !emailOtp || !newPassword) {
+  if (!email || typeof email !== "string" || !emailOtp || !newPassword) {
     reply.status(400);
     return { error: "Email, 6-digit OTP code, and new password are required." };
   }
@@ -347,19 +344,26 @@ async function handleResetPassword(req: FastifyRequest, reply: FastifyReply) {
   }
 
   const clientIp = getClientIp(req);
-  if (turnstileToken) {
-    const isHuman = await verifyCloudflareTurnstile(turnstileToken, clientIp);
-    if (!isHuman) {
-      reply.status(403);
-      return { error: "Security captcha check failed. Please refresh and try again." };
-    }
+  const clientSubnet = getClientSubnet(clientIp);
+
+  // Rate limit: 5 password reset attempts per 5 minutes per subnet
+  const quota = await checkDistributedSubnetQuota(`reset-pw:${clientSubnet}`, 5, 300);
+  if (!quota.allowed) {
+    reply.status(429);
+    return { error: "Too many password reset attempts. Please wait a few minutes." };
+  }
+
+  const isHuman = await verifyCloudflareTurnstile(turnstileToken || "", clientIp);
+  if (!isHuman) {
+    reply.status(403);
+    return { error: "Security captcha check failed. Please refresh and try again." };
   }
 
   const cleanEmail = email.trim().toLowerCase();
-  const otpValid = await verifyEmailOTP(cleanEmail, emailOtp.toString().trim());
-  if (!otpValid) {
+  const otpCheck = await verifyEmailOTP(cleanEmail, String(emailOtp).trim());
+  if (!otpCheck.success) {
     reply.status(400);
-    return { error: "Invalid or expired verification code. Please request a new code." };
+    return { error: otpCheck.message || "Invalid or expired verification code. Please request a new code." };
   }
 
   const user = await findUserByEmail(cleanEmail);

@@ -128,12 +128,12 @@ export function createRequireDashboardAuth(config: AuthConfig) {
       return;
     }
 
-    // 3. Admin session cookie check
+    // 3. Admin / Operator session cookie check
     const sessionCookie = (req.cookies as any)?.shunops_user_session;
     if (sessionCookie) {
       try {
         const user = await findUserBySessionToken(sessionCookie);
-        if (user && user.role === "admin") {
+        if (user && (user.role === "admin" || user.role === "operator")) {
           (req as any).user = user;
           return;
         }

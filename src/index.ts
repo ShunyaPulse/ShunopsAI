@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
+import type { KVNamespace } from '@cloudflare/workers-types';
 import type {
   Env,
   ChatRequestBody,
@@ -12,6 +13,9 @@ import { verifyActionToken, executeConfirmedAction } from './tools/registry.js';
 import { WIDGET_JS_CONTENT } from './widget-script.js';
 
 const app = new Hono<{ Bindings: Env }>();
+
+// Isolate-local PoW replay cache (supplements Cloudflare KV when bound)
+const edgeConsumedSalts = new Map<string, number>();
 
 // 1. Strict CORS Middleware
 app.use('*', async (c, next) => {
@@ -73,17 +77,34 @@ async function generateEdgeShieldChallenge(secret: string): Promise<ShieldChalle
   };
 }
 
-// Helper: Verify Cryptographic Proof-of-Work Solution on Edge
+// Helper: Verify Cryptographic Proof-of-Work Solution on Edge (with one-time salt consumption)
 async function verifyEdgeShieldSolution(
   secret: string,
-  shield: ShieldSolutionPayload
+  shield: ShieldSolutionPayload,
+  kv?: KVNamespace
 ): Promise<boolean> {
   if (!shield || !shield.salt || !shield.timestamp || !shield.signature || !shield.solution) {
     return false;
   }
-  // Expire challenges older than 10 minutes
-  if (Date.now() - shield.timestamp > 10 * 60 * 1000) {
+  const now = Date.now();
+  // Expire challenges older than 10 minutes or skewed into the future
+  if (now - shield.timestamp > 10 * 60 * 1000 || shield.timestamp > now + 60_000) {
     return false;
+  }
+
+  // Check isolate-local replay cache
+  const existingExp = edgeConsumedSalts.get(shield.salt);
+  if (existingExp && existingExp > now) {
+    return false;
+  }
+
+  // Check KV replay cache when available
+  const kvSaltKey = `shield_used:${shield.salt}`;
+  if (kv) {
+    try {
+      const used = await kv.get(kvSaltKey);
+      if (used) return false;
+    } catch {}
   }
 
   const enc = new TextEncoder();
@@ -121,7 +142,21 @@ async function verifyEdgeShieldSolution(
     4: '0000',
   };
   const prefix = PREFIX_TABLE[shield.targetDifficulty] || '00';
-  return hash.startsWith(prefix);
+  if (!hash.startsWith(prefix)) return false;
+
+  // Mark salt as consumed to block PoW replay
+  if (edgeConsumedSalts.size >= 5000) {
+    for (const [k, exp] of edgeConsumedSalts) {
+      if (exp <= now) edgeConsumedSalts.delete(k);
+    }
+  }
+  edgeConsumedSalts.set(shield.salt, shield.timestamp + 10 * 60 * 1000);
+  if (kv) {
+    try {
+      await kv.put(kvSaltKey, '1', { expirationTtl: 600 });
+    } catch {}
+  }
+  return true;
 }
 
 // Helper: Verify Cloudflare Turnstile token
@@ -253,7 +288,7 @@ app.post('/api/chat', async (c) => {
         403
       );
     }
-    const isShieldValid = await verifyEdgeShieldSolution(shieldSecret, body.shield);
+    const isShieldValid = await verifyEdgeShieldSolution(shieldSecret, body.shield, c.env.CHAT_SESSIONS);
     if (!isShieldValid) {
       return c.json({ error: 'Proof-of-Work bot shield challenge failed. Access denied.' }, 403);
     }
@@ -386,24 +421,5 @@ app.get('/widget.js', (c) => {
     'Access-Control-Allow-Origin': '*',
   });
 });
-
-/*
-// 6. Preview Route (Commented Out)
-app.get('/', (c) => {
-  return c.json({
-    service: 'ShunopsAI Edge Agent Widget CDN & API',
-    status: 'healthy',
-    runtime: 'Cloudflare Workers Edge (V8 Isolates)',
-    embed_snippet: '<script src="https://edge-agent-widget.shunopsai.workers.dev/widget.js" data-api-url="https://edge-agent-widget.shunopsai.workers.dev" defer></script>',
-    endpoints: {
-      widget_script: '/widget.js',
-      shield_challenge: '/api/shield/challenge',
-      chat_stream: '/api/chat',
-      health: '/api/health',
-    },
-    documentation: 'https://shunopsai-685823552970.asia-south1.run.app/portal',
-  });
-});
-*/
 
 export default app;
