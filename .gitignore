@@ -43,3 +43,4 @@ autonomy-paused.json
 __pycache__/
 *.pyc
 .freebuff/
+.cache/
