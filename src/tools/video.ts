@@ -342,6 +342,9 @@ export function getDomainPromptDirectives(domain: VideoDomain): string {
     case "space":
     case "technology":
       return `CRITICAL DOMAIN DIRECTIVES (${domain.toUpperCase()} INTELLECTUAL DOCUMENTARY):
+- MANDATORY HARD SCIENTIFIC METRICS & SCALE (CONCRETE NUMBERS):
+  * Spoken narration MUST state concrete, real-world measurements rather than vague descriptions: exact distances (km, light years, astronomical units), wavelengths (infrared, X-ray), temperatures (Kelvin, Celsius), mirror/antenna diameters, speeds, or dates (e.g. "Dharti se 15 lakh kilometer door L2 orbit", "minus 233 degree Celsius", "6.5 meter ka beryllium mirror", "13.6 billion saal purani pehli galaxy").
+  * STRICTLY BAN vague fluff ("bohot door tha", "bohot bada tha"); anchor every scene with real physical scale.
 - STRICT BAN ON SPORTS, ATHLETICS & CARTOONS:
   * ABSOLUTELY ZERO sports footage, cricket bats, balls, pads, wickets, footballs, American football or baseball helmets, athletic jerseys, referee uniforms, scoreboards, or stadium crowds.
   * ABSOLUTELY ZERO anime, cartoon, manga, or comic caricature characters.
@@ -359,6 +362,13 @@ export function getDomainPromptDirectives(domain: VideoDomain): string {
 
     case "sports":
       return `CRITICAL DOMAIN DIRECTIVES (SPORTS DOCUMENTARY):
+- MANDATORY MATCH NUMBERS & SCORECARD CONTEXT (THE JOURNALISTIC ANCHOR):
+  * Spoken narration MUST deliver the concrete real-world match figures, scoreboard situation, and individual statistics:
+    1. Opponent's total score or target to chase (e.g. "Pakistan ne pehle batting karte hue 344 runs ka vishal score khada kiya").
+    2. Exact match situation when player walked out to bat (e.g. "Sri Lanka ke 2 wickets sirf 28 run par gir chuke the").
+    3. The player's exact individual milestone numbers (e.g. "Mendis ne sirf 77 gendon mein 122 run ki tabadtod paari kheli — jisme 14 chauke aur 6 chhakke shamil the").
+    4. Required run rate, partnership numbers, and the ultimate match outcome.
+  * STRICTLY BAN generic, abstract fluff ("unhone shandar paari kheli", "match bohot exciting tha") without backing it up with exact numbers, wickets, balls, and runs.
 - AUTHENTIC ATHLETIC REALISM:
   * Visuals must accurately depict the specific sport being discussed. If cricket, depict green pitch, authentic cricket bats, red/white leather cricket ball, three wooden stumps. NEVER confuse cricket with baseball or American football helmets.
   * Ban cartoon/anime faces and distorted crowds. Use dynamic steadycam motion tracking athlete movements.
@@ -369,6 +379,8 @@ export function getDomainPromptDirectives(domain: VideoDomain): string {
 
     case "history":
       return `CRITICAL DOMAIN DIRECTIVES (HISTORICAL INQUIRY):
+- MANDATORY CHRONOLOGY & ARCHITECTURAL METRICS:
+  * State exact centuries, dynasty names, estimated stone tonnages, and archaeological timelines (e.g. "8th century Rashtrakuta dynasty", "2 lakh ton basalt rock ko top-down kaat kar").
 - AUTHENTIC ARCHITECTURAL & PERIOD REALISM:
   * Ancient stonework, weathered monolithic architecture, archaeological excavation trenches, atmospheric dust motes in stone corridors, warm volumetric sunlight.
   * Zero modern sports gear, zero plastic, zero cartoon aesthetics.
@@ -427,11 +439,19 @@ export async function generateScript(
 
   const rate = domain === "sports" ? "+4%" : "+0%";
 
+  const sanitizedTrendReason = trendReason
+    ? trendReason
+        .replace(/\b\d+[\d,]*\+?\s*(searches|search|traffic|queries|queries on google|searches on google trends)\b/gi, "")
+        .replace(/\b(50k\+|100k\+|200k\+|500k\+|10k\+|20k\+|5k\+)\b/gi, "")
+        .replace(/\s{2,}/g, " ")
+        .trim()
+    : undefined;
+
   const prompt = `You are an elite investigative documentary filmmaker and YouTube director (Vox, Johnny Harris, Think School style).
 Write a gripping, 100% factual, highly engaging video script with hard synchronization between spoken narration and cinematic footage.
 
 Topic: ${topic}
-${trendReason ? `BREAKING EVENT / EXACT REASON WHY IT IS TRENDING TODAY: "${trendReason}"` : ""}
+${sanitizedTrendReason ? `BREAKING REAL-WORLD EVENT CONTEXT: "${sanitizedTrendReason}"` : ""}
 Domain: ${domain.toUpperCase()}
 Language: ${language}
 Target Length: about ${targetWords} spoken words (${minutes} minutes) divided into about ${sceneCount} tightly-paced scenes (12-20 words each).
@@ -439,10 +459,12 @@ Target Length: about ${targetWords} spoken words (${minutes} minutes) divided in
 ${domainDirectives}
 
 CRITICAL DIRECTIVES:
-1. MANDATORY - COVER THE ACTUAL BREAKING EVENT (WHY IT IS TRENDING):
-   - The video MUST directly explain the EXACT EVENT, match, breakthrough, policy, or incident that made this topic trend today: ${trendReason || topic}.
-   - DO NOT make a detached abstract lecture or generic essay.
-   - Act 1 (Scene 1-4): Hook the viewer immediately with the breaking event that happened today and why everyone is talking about it.
+1. MANDATORY - COVER THE ACTUAL BREAKING EVENT (STRICT ZERO SEARCH NUMBERS / METRICS):
+   - The video MUST directly explain the REAL-WORLD EVENT, match, breakthrough, policy, or incident: ${sanitizedTrendReason || topic}.
+   - ABSOLUTELY NEVER mention search counts, query volume, or Google Trends stats in the narration, captions, or description (STRICTLY FORBIDDEN: "50 hazar logo ne search kiya", "1 lakh searches", "Google par trending hai", "internet par search spike").
+   - NEVER break the fourth wall. Speak directly about the real-world story, person, match, or scientific phenomenon itself like a high-end Vox, Netflix, or Think School documentary.
+   - ZERO SEARCH UI / BROWSER SHOTS: Never depict a Google search bar, browser tab, or typing queries on a keyboard in the visual prompts (which causes distorted AI gibberish text). Depict real-world action, stadiums, labs, or celestial bodies.
+   - Act 1 (Scene 1-4): Hook the viewer immediately with the dramatic event that happened today.
    - Act 2 (Middle Scenes): Deep dive into the mechanics, science, history, or engineering behind this specific event.
    - Act 3 (Final Scenes - Conclusive Ending & Outro):
      * Do NOT end abruptly on technical facts or body content.

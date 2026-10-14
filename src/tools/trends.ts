@@ -376,19 +376,17 @@ CRITICAL EDITORIAL RULES:
    - Emerging technology, AI breakthroughs, Energy & Engineering marvels.
    - Historical mysteries, archaeological discoveries, and cultural heritage.
 
-4. MANDATORY RULE - COVER THE EXACT REASON WHY IT IS TRENDING:
-   - The video MUST directly address the EXACT EVENT, match, breakthrough, policy, or incident that caused this trend today.
+4. MANDATORY RULE - COVER THE REAL-WORLD EVENT (ZERO SEARCH VOLUME IN OUTPUT):
+   - The video MUST directly address the REAL-WORLD EVENT, match, breakthrough, policy, or incident.
    - DO NOT make an abstract or disconnected theoretical lecture.
-   - The video must explain:
-     a) What exactly happened today that triggered this massive search spike?
-     b) The deep background, mechanics, science, or strategy behind this specific event.
-     c) What is the larger takeaway or impact for the viewer?
+   - In "trend_reason", summarize ONLY the real-world milestone or breakthrough.
+   - NEVER mention search counts, query volume, or Google Trends stats (e.g. DO NOT write "50K+ searches on Google", write "Kusal Mendis scored a match-winning century against Pakistan").
 
 5. OUTPUT FORMAT (OPTION A - HYBRID RULES):
 Return ONLY valid JSON matching this exact structure:
 {
   "selected_trend": "<exact trend keyword from the list>",
-  "trend_reason": "<1-2 clear sentences explaining the EXACT event/news that caused this trend today>",
+  "trend_reason": "<1-2 clear sentences explaining the EXACT real-world event/news that occurred. NEVER mention search counts or traffic metrics>",
   "documentary_topic": "<High-CTR topic strictly in English (Roman) alphabet. Hybrid format: [English Topic Keyword] : [Hinglish Curiosity Hook about this specific event], NEVER Devanagari script>",
   "category": "<Science | Space | Infrastructure & Development | Technology | Nature | History | Sports Milestone>",
   "value_hook": "<1-2 sentences explaining educational/curiosity value in pure English>",
