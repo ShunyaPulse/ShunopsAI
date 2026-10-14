@@ -153,6 +153,8 @@ export function sensitivityPayload(toolName: string, args: Record<string, any>):
       return String(args.command ?? "");
     case "execute_neon_sql":
       return String(args.query ?? "");
+    case "inspect_gcp_cloud":
+      return `${args.operation ?? ""} ${args.sqlQuery ?? ""} ${args.logFilter ?? ""}`.trim();
     case "execute_redis_command":
       return `${args.command ?? ""} ${arr}`.trim();
     case "manage_cloud_run":

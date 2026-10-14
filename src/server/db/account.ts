@@ -54,10 +54,27 @@ export async function exportUserData(userId: number): Promise<any> {
   if (!sql) {
     const u = memStore.users.get(userId);
     if (!u) return null;
-    const tasks = Array.from(memStore.tasks.values()).filter((t) => t.user_id === userId);
+    const tasks = Array.from(memStore.tasks.values()).filter(
+      (t) => t.user_id === userId || t.userId === userId
+    );
     const messages = memStore.chatMessages.filter((m) => m.userId === userId);
+    const connectedPlatforms = Array.from(memStore.platformCredentials.values())
+      .filter((c) => c.userId === userId)
+      .map((c) => ({ platform: c.platform, label: c.label, hint: c.hint, updatedAt: c.updatedAt }));
     return {
-      profile: { id: u.id, username: u.username, email: u.email, role: u.role, created_at: u.created_at },
+      profile: {
+        id: u.id,
+        username: u.username,
+        email: u.email,
+        role: u.role,
+        plan: u.plan || "community",
+        query_count: u.query_count || 0,
+        input_tokens: u.input_tokens || 0,
+        output_tokens: u.output_tokens || 0,
+        total_tokens: u.total_tokens || 0,
+        created_at: u.created_at,
+      },
+      connectedPlatforms,
       tasks,
       chatMessages: messages,
       exportedAt: new Date().toISOString(),
@@ -65,7 +82,8 @@ export async function exportUserData(userId: number): Promise<any> {
   }
 
   const userRows = await (sql as any).query(
-    `SELECT id, username, email, email_verified, role, plan, created_at FROM shunops_users WHERE id = $1;`,
+    `SELECT id, username, email, email_verified, role, plan, query_count, input_tokens, output_tokens, total_tokens, created_at
+     FROM shunops_users WHERE id = $1;`,
     [userId]
   );
   if (!userRows[0]) return null;
@@ -80,8 +98,14 @@ export async function exportUserData(userId: number): Promise<any> {
     [userId]
   );
 
+  const connectedPlatforms = await (sql as any).query(
+    `SELECT platform, label, secret_hint AS hint, updated_at AS "updatedAt" FROM shunops_user_platform_credentials WHERE user_id = $1 ORDER BY platform;`,
+    [userId]
+  );
+
   return {
     profile: userRows[0],
+    connectedPlatforms: connectedPlatforms || [],
     tasks: tasks || [],
     chatMessages: messages || [],
     exportedAt: new Date().toISOString(),

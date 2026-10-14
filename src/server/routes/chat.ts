@@ -3,6 +3,7 @@ import {
   runAutonomousAgent,
   toolRegistry,
   type ToolName,
+  type ProviderKeyOverrides,
   getTiersHealthStatus,
   getModelsHealthStatus,
   getRoutingTargets,
@@ -123,12 +124,6 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
       }
 
       const isBYOK = Boolean(isValidGroqFormat || isValidGeminiFormat);
-      const keyOverrides = isBYOK
-        ? {
-            groqApiKey: isValidGroqFormat ? userGroqKey : undefined,
-            geminiApiKey: isValidGeminiFormat ? userGeminiKey : undefined,
-          }
-        : undefined;
 
       // Layer 2 & 3: Anti-Bot Verification (Turnstile or Cryptographic PoW Shield)
       // Anonymous callers must clear a bot challenge (Turnstile or PoW shield) to prevent open LLM proxy abuse
@@ -206,6 +201,20 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
       }
 
       try {
+        const scope = await buildRequestScope(authenticatedUser);
+
+        // Merge request-scoped BYOK headers with any connected GitHub / Cloudflare platform credentials
+        const keyOverrides: ProviderKeyOverrides | undefined =
+          isBYOK || scope.credentials?.github?.token || scope.credentials?.cloudflare
+            ? {
+                groqApiKey: isValidGroqFormat ? userGroqKey : undefined,
+                geminiApiKey: isValidGeminiFormat ? userGeminiKey : undefined,
+                githubToken: scope.credentials?.github?.token,
+                cloudflareAccountId: scope.credentials?.cloudflare?.accountId,
+                cloudflareApiToken: scope.credentials?.cloudflare?.apiToken,
+              }
+            : undefined;
+
         const { targets, routedComplexity } = await getRoutingTargets(
           modelPreference || "auto",
           message,
@@ -235,8 +244,6 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
           ? `\n\n[Attached Image Content: The user has uploaded an image data URI. Inspect and reference image details in your answer: ${image.slice(0, 160)}...]`
           : "";
         const goal = `${historyPrefix}Answer this query politely and helpfully: "${message}".${imageContext}`;
-
-        const scope = await buildRequestScope(authenticatedUser);
 
         // Only authenticated workspace users get diagnostic/platform tools;
         // unauthenticated callers (even with BYOK inference keys) run with all tools disabled.

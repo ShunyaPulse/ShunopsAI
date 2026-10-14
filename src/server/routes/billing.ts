@@ -1,5 +1,5 @@
 import type { FastifyInstance, preHandlerHookHandler } from "fastify";
-import { getUserUsageAndPlan, PLAN_LIMITS, findUserBySessionToken } from "../db.js";
+import { getUserUsageAndPlan, PLAN_LIMITS } from "../db.js";
 
 export interface BillingRouteOptions {
   requireAuth: preHandlerHookHandler;
@@ -27,6 +27,7 @@ export async function billingRoutes(app: FastifyInstance, options: BillingRouteO
       limit: usage.tokenLimit,
       remainingTokens: Math.max(0, usage.tokenLimit - usage.totalTokens),
       remaining: Math.max(0, usage.tokenLimit - usage.totalTokens),
+      lastResetAt: usage.lastResetAt,
     };
   });
 
@@ -67,9 +68,9 @@ export async function billingRoutes(app: FastifyInstance, options: BillingRouteO
           name: "Pro Autonomous Sentinel",
           price: "$29 / month",
           tokenLimit: PLAN_LIMITS.pro,
-          queryLimit: "10M Tokens / Mo",
+          queryLimit: "25M Tokens / Mo",
           features: [
-            "10,000,000 High-Capacity Tokens / Month",
+            "25,000,000 High-Capacity Tokens / Month",
             "Up to 6 steps autonomous agent tool execution",
             "Continuous multi-cloud self-healing",
             "Priority Groq 120B reasoning consensus",

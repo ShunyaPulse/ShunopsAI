@@ -1,4 +1,4 @@
-import type { FastifyInstance, preHandlerHookHandler } from "fastify";
+import type { FastifyInstance } from "fastify";
 import { PRIMARY_MODEL, FALLBACK_MODELS, toolRegistry } from "../../agent/index.js";
 import { getShunopsDashboardHtml } from "../../dashboard/html.js";
 import { getShunopsPortalHtml } from "../../dashboard/portal.js";
@@ -7,6 +7,7 @@ import { getUserWorkspaceHtml } from "../../dashboard/workspace.js";
 import { getPrivacyPolicyHtml, getTermsOfServiceHtml, getAboutHtml } from "../../dashboard/legal-pages.js";
 import { findUserBySessionToken, checkDbHealth } from "../db.js";
 import { checkRedisHealth } from "../redis.js";
+import { isAdminUser } from "../scope.js";
 
 export interface DashboardRouteOptions {
   requireDashboardAuth?: (req: any, reply: any) => Promise<void>;
@@ -16,8 +17,6 @@ export interface DashboardRouteOptions {
  * Public landing routes: browser dashboard, JSON service index, /dashboard, and /portal.
  */
 export async function dashboardRoutes(app: FastifyInstance, opts: DashboardRouteOptions = {}): Promise<void> {
-  const preHandler = opts.requireDashboardAuth ? [opts.requireDashboardAuth] : [];
-
   const renderDashboard = () =>
     getShunopsDashboardHtml({
       models: [PRIMARY_MODEL, ...FALLBACK_MODELS],
@@ -38,7 +37,7 @@ export async function dashboardRoutes(app: FastifyInstance, opts: DashboardRoute
       if (!user) {
         return reply.redirect("/login");
       }
-      if (user.role === "admin") {
+      if (isAdminUser(user)) {
         return reply.type("text/html").send(renderDashboard());
       }
       return reply.redirect("/workspace");
@@ -81,7 +80,7 @@ export async function dashboardRoutes(app: FastifyInstance, opts: DashboardRoute
     const token = (req.cookies as any)?.shunops_user_session;
     if (token) {
       const user = await findUserBySessionToken(token);
-      if (user && user.role === "admin") {
+      if (user && isAdminUser(user)) {
         return reply.type("text/html").send(renderDashboard());
       }
       if (user) {

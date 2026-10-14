@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { runAutonomousAgent } from "../agent/index.js";
+import { runAutonomousAgent, type ProviderKeyOverrides } from "../agent/index.js";
 import type { ToolScope } from "../agent/scope.js";
 import { getRedisClient } from "./redis.js";
-import { saveTaskRecord, getTaskRecord } from "./db.js";
+import { saveTaskRecord, getTaskRecord, recordUserTokenUsage } from "./db.js";
 
 export interface QueuedTaskState {
   id: string;
@@ -15,6 +15,11 @@ export interface QueuedTaskState {
     success: boolean;
     finalAnswer: string;
     stepsTaken: number;
+    usage?: {
+      promptTokens: number;
+      completionTokens: number;
+      totalTokens: number;
+    } | undefined;
   } | undefined;
   error?: string | undefined;
 }
@@ -123,9 +128,10 @@ export function createQueuedTask(
   maxSteps = 6,
   context?: string | undefined,
   userId?: number | undefined,
-  keyOverrides?: { groqApiKey?: string | undefined; geminiApiKey?: string | undefined } | undefined,
+  keyOverrides?: ProviderKeyOverrides | undefined,
   /** Tenant scope captured at request time, so the background run cannot escalate. */
-  scope?: ToolScope | undefined
+  scope?: ToolScope | undefined,
+  meteringOpts?: { isBYOK?: boolean; isAdmin?: boolean } | undefined
 ): QueuedTaskState {
   const id = `task_${Date.now()}_${randomUUID().slice(0, 8)}`;
   const task: QueuedTaskState = {
@@ -150,11 +156,23 @@ export function createQueuedTask(
       });
       task.status = result.success ? "COMPLETED" : "FAILED";
       task.completedAt = new Date().toISOString();
+      const inTokens = result.usage?.promptTokens || Math.ceil(goal.length / 4);
+      const outTokens = result.usage?.completionTokens || Math.ceil((result.finalAnswer || "").length / 4);
       task.result = {
         success: result.success,
         finalAnswer: result.finalAnswer ?? "",
         stepsTaken: result.stepsTaken,
+        usage: {
+          promptTokens: inTokens,
+          completionTokens: outTokens,
+          totalTokens: inTokens + outTokens,
+        },
       };
+
+      // Meter token usage for non-admin tenant runs when not using BYOK inference keys
+      if (!meteringOpts?.isAdmin && userId && userId > 0 && !meteringOpts?.isBYOK) {
+        await recordUserTokenUsage(userId, inTokens, outTokens).catch(() => {});
+      }
     } catch {
       task.status = "FAILED";
       task.completedAt = new Date().toISOString();

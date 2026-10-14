@@ -39,7 +39,7 @@ function getRedisInstance(connectionUrl?: string): Redis | null {
 }
 
 /**
- * 1. Neon Postgres Query Tool (Uses HTTP fetch, no WebSockets required)
+ * 1. Neon / Supabase Postgres Query Tool (Uses HTTP fetch)
  */
 export async function executeNeonSql(
   query: string,
@@ -65,7 +65,7 @@ export async function executeNeonSql(
 }
 
 /**
- * 2. OCI Redis Tool
+ * 2. OCI Redis & Upstash Serverless REST Redis Tool
  *
  * Only data-access commands are permitted. Administrative / destructive
  * commands (CONFIG, EVAL, SCRIPT, FLUSHALL, SHUTDOWN, ...) are rejected so
@@ -84,20 +84,52 @@ const ALLOWED_REDIS_COMMANDS = new Set<string>([
 export async function executeRedisCommand(
   command: string,
   args: string[] = [],
-  /** Per-user Redis URL. When present it is the ONLY instance touched. */
-  opts: { url?: string } = {}
+  /** Per-user Redis URL or Upstash REST credentials. When present it is the ONLY instance touched. */
+  opts: { url?: string | undefined; upstash?: { url: string; token: string } | undefined } = {}
 ): Promise<string> {
   const normalizedCommand = command.trim().toUpperCase();
   if (!ALLOWED_REDIS_COMMANDS.has(normalizedCommand)) {
     return `Error: Redis command '${command}' is not permitted. Allowed commands: ${[...ALLOWED_REDIS_COMMANDS].join(", ")}.`;
   }
 
+  const fullCmd = `${command} ${args.join(" ")}`.trim();
+
+  // Upstash Serverless Redis over HTTPS REST API
+  const upstashUrl = opts.upstash?.url || (!opts.url && process.env.UPSTASH_REDIS_REST_URL);
+  const upstashToken = opts.upstash?.token || (!opts.url && process.env.UPSTASH_REDIS_REST_TOKEN);
+  if (upstashUrl && upstashToken) {
+    try {
+      const parsed = new URL(upstashUrl);
+      if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+        return `Upstash Redis Error: only HTTP(S) REST URLs are supported.`;
+      }
+      if (isPrivateHost(parsed.hostname)) {
+        return `Upstash Redis Error: requests to internal or private network addresses are blocked.`;
+      }
+      const res = await fetch(parsed.toString(), {
+        method: "POST",
+        redirect: "error",
+        headers: {
+          Authorization: `Bearer ${upstashToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify([normalizedCommand, ...args]),
+        signal: AbortSignal.timeout(10000),
+      });
+      const data = (await res.json().catch(() => ({}))) as any;
+      if (!res.ok || data?.error) {
+        return `Upstash Redis Error (${res.status}): ${data?.error || res.statusText}`;
+      }
+      return `Redis Result for '${fullCmd}':\n${JSON.stringify(data?.result ?? data, null, 2)}`;
+    } catch (err: any) {
+      return `Upstash Redis Error: ${err.message}`;
+    }
+  }
+
   const redis = getRedisInstance(opts.url);
   if (!redis) {
     return "Error: REDIS_URL or REDIS_HOST is not set in .env. Please configure your OCI Redis connection.";
   }
-
-  const fullCmd = `${command} ${args.join(" ")}`.trim();
 
   try {
     if (redis.status === "wait" || redis.status === "close") {
@@ -632,5 +664,177 @@ export async function manageComputeEngine(action: "metrics" | "services" | "disk
     return `[GCE VM: ${label}]\n${stdout || stderr || "(no output)"}`;
   } catch (err: any) {
     return `GCE SSH Error for ${label}: ${err.message}\n${err.stderr || ""}\n(Hint: verify GCE_SSH_KEY, GCE_USER and that the VM firewall allows SSH.)`;
+  }
+}
+
+/**
+ * 8. Native Web Search Tool (Tavily AI Search & Brave Web Search)
+ */
+export async function executeWebSearch(
+  query: string,
+  opts: {
+    provider?: "tavily" | "brave" | undefined;
+    apiKey?: string | undefined;
+    maxResults?: number | undefined;
+  } = {}
+): Promise<string> {
+  const cleanQuery = String(query || "").trim();
+  if (!cleanQuery) return "Error: Search query cannot be empty.";
+
+  const count = Math.min(Math.max(Number(opts.maxResults) || 5, 1), 10);
+  const tavilyKey =
+    opts.provider === "tavily" ? opts.apiKey : (!opts.provider ? process.env.TAVILY_API_KEY : undefined);
+  const braveKey =
+    opts.provider === "brave" ? opts.apiKey : (!opts.provider ? process.env.BRAVE_API_KEY : undefined);
+
+  if (tavilyKey) {
+    try {
+      const res = await fetch("https://api.tavily.com/search", {
+        method: "POST",
+        redirect: "error",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${tavilyKey}`,
+        },
+        body: JSON.stringify({
+          query: cleanQuery,
+          max_results: count,
+          include_answer: true,
+        }),
+        signal: AbortSignal.timeout(12000),
+      });
+      if (!res.ok) {
+        return `Tavily Search Error (${res.status}): ${res.statusText}`;
+      }
+      const data = (await res.json()) as any;
+      const items = (data?.results || []).map((r: any, idx: number) =>
+        `${idx + 1}. [${r.title || "Result"}](${r.url || ""})\n   ${String(r.content || "").slice(0, 300)}`
+      );
+      return [
+        data?.answer ? `Direct Answer: ${data.answer}\n` : "",
+        `Tavily Search Results for "${cleanQuery}":`,
+        items.join("\n\n") || "No results found.",
+      ]
+        .filter(Boolean)
+        .join("\n");
+    } catch (err: any) {
+      return `Tavily Search Error: ${err.message}`;
+    }
+  }
+
+  if (braveKey) {
+    try {
+      const url = `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(cleanQuery)}&count=${count}`;
+      const res = await fetch(url, {
+        method: "GET",
+        redirect: "error",
+        headers: {
+          Accept: "application/json",
+          "X-Subscription-Token": braveKey,
+        },
+        signal: AbortSignal.timeout(12000),
+      });
+      if (!res.ok) {
+        return `Brave Search Error (${res.status}): ${res.statusText}`;
+      }
+      const data = (await res.json()) as any;
+      const results = data?.web?.results || [];
+      const items = results.map((r: any, idx: number) =>
+        `${idx + 1}. [${r.title || "Result"}](${r.url || ""})\n   ${String(r.description || "").slice(0, 300)}`
+      );
+      return `Brave Search Results for "${cleanQuery}":\n${items.join("\n\n") || "No results found."}`;
+    } catch (err: any) {
+      return `Brave Search Error: ${err.message}`;
+    }
+  }
+
+  return "Error: Neither TAVILY_API_KEY nor BRAVE_API_KEY is configured. Connect Brave Web Search or Tavily AI Search under Account Settings → Platform Connections.";
+}
+
+/**
+ * 9. Tenant-Scoped Google Cloud Platform (GCP) REST Inspector
+ * Inspects Cloud Run services, queries BigQuery SQL, or reads Cloud Logging using the caller's GCP token.
+ */
+export async function inspectGcpCloud(
+  action: {
+    operation: "list_cloud_run_services" | "query_bigquery" | "list_logs";
+    region?: string | undefined;
+    sqlQuery?: string | undefined;
+    logFilter?: string | undefined;
+  },
+  opts: { projectId?: string | undefined; token?: string | undefined } = {}
+): Promise<string> {
+  const projectId = (opts.projectId || process.env.GCP_PROJECT_ID || process.env.GOOGLE_CLOUD_PROJECT || "").trim();
+  const rawToken = (opts.token || process.env.GCP_ACCESS_TOKEN || "").trim();
+
+  if (!projectId || !rawToken) {
+    return "Error: GCP Project ID and OAuth/Access Token are required. Connect Google Cloud Platform (GCP) under Account Settings → Platform Connections.";
+  }
+
+  if (!/^[a-z0-9:-]{4,64}$/i.test(projectId)) {
+    return "Error: Invalid GCP Project ID format.";
+  }
+
+  const headers: Record<string, string> = {
+    Authorization: rawToken.startsWith("Bearer ") ? rawToken : `Bearer ${rawToken}`,
+    Accept: "application/json",
+    "Content-Type": "application/json",
+  };
+
+  try {
+    if (action.operation === "list_cloud_run_services") {
+      const location = (action.region || "-").replace(/[^a-z0-9-]/gi, "");
+      const url = `https://run.googleapis.com/v2/projects/${encodeURIComponent(projectId)}/locations/${encodeURIComponent(location)}/services`;
+      const res = await fetch(url, { method: "GET", redirect: "error", headers, signal: AbortSignal.timeout(12000) });
+      const data = (await res.json().catch(() => ({}))) as any;
+      if (!res.ok) {
+        return `GCP Cloud Run API Error (${res.status}): ${data?.error?.message || res.statusText}`;
+      }
+      const services = Array.isArray(data?.services) ? data.services : [];
+      return `GCP Cloud Run Services in project "${projectId}" (${services.length}):\n` +
+        (services.map((s: any) => `• ${s.name} -> ${s.uri || "no-uri"} (updated: ${s.updateTime || "unknown"})`).join("\n") || "No services found.");
+    }
+
+    if (action.operation === "query_bigquery") {
+      if (!action.sqlQuery) return "Error: sqlQuery is required for query_bigquery.";
+      const url = `https://bigquery.googleapis.com/bigquery/v2/projects/${encodeURIComponent(projectId)}/queries`;
+      const res = await fetch(url, {
+        method: "POST",
+        redirect: "error",
+        headers,
+        body: JSON.stringify({ query: action.sqlQuery, useLegacySql: false, maxResults: 50 }),
+        signal: AbortSignal.timeout(15000),
+      });
+      const data = (await res.json().catch(() => ({}))) as any;
+      if (!res.ok) {
+        return `GCP BigQuery API Error (${res.status}): ${data?.error?.message || res.statusText}`;
+      }
+      return `GCP BigQuery Result (${data?.totalRows || 0} rows):\n${JSON.stringify(data?.rows || [], null, 2)}`;
+    }
+
+    if (action.operation === "list_logs") {
+      const url = `https://logging.googleapis.com/v2/entries:list`;
+      const res = await fetch(url, {
+        method: "POST",
+        redirect: "error",
+        headers,
+        body: JSON.stringify({
+          resourceNames: [`projects/${projectId}`],
+          filter: action.logFilter || "severity>=ERROR",
+          pageSize: 20,
+          orderBy: "timestamp desc",
+        }),
+        signal: AbortSignal.timeout(12000),
+      });
+      const data = (await res.json().catch(() => ({}))) as any;
+      if (!res.ok) {
+        return `GCP Cloud Logging API Error (${res.status}): ${data?.error?.message || res.statusText}`;
+      }
+      return `GCP Cloud Logging Entries (${(data?.entries || []).length}):\n${JSON.stringify(data?.entries || [], null, 2)}`;
+    }
+
+    return `Unsupported GCP operation: ${action.operation}`;
+  } catch (err: any) {
+    return `GCP API Error: ${err.message}`;
   }
 }

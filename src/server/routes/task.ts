@@ -1,5 +1,5 @@
 import type { FastifyInstance, preHandlerHookHandler } from "fastify";
-import { runAutonomousAgent } from "../../agent/index.js";
+import { runAutonomousAgent, type ProviderKeyOverrides } from "../../agent/index.js";
 import { TaskRequestSchema, type TaskRequest } from "../schemas/alert.js";
 import { createQueuedTask, getTaskState } from "../taskQueue.js";
 import { listUserTasks, saveTaskRecord, checkUserTokenQuota, recordUserTokenUsage } from "../db.js";
@@ -65,13 +65,14 @@ export async function taskRoutes(app: FastifyInstance, options: TaskRouteOptions
       }
 
       const isBYOK = Boolean(isValidGroqFormat || isValidGeminiFormat);
-      const keyOverrides:
-        | { groqApiKey?: string | undefined; geminiApiKey?: string | undefined }
-        | undefined =
-        isBYOK
+      const keyOverrides: ProviderKeyOverrides | undefined =
+        isBYOK || scope.credentials?.github?.token || scope.credentials?.cloudflare
           ? {
               groqApiKey: isValidGroqFormat ? userGroqKey : undefined,
               geminiApiKey: isValidGeminiFormat ? userGeminiKey : undefined,
+              githubToken: scope.credentials?.github?.token,
+              cloudflareAccountId: scope.credentials?.cloudflare?.accountId,
+              cloudflareApiToken: scope.credentials?.cloudflare?.apiToken,
             }
           : undefined;
 
@@ -94,7 +95,15 @@ export async function taskRoutes(app: FastifyInstance, options: TaskRouteOptions
         (req.headers["x-execution-mode"] as string)?.toLowerCase() === "async";
 
       if (isAsync) {
-        const queued = createQueuedTask(taskGoal, maxSteps, context, userId, keyOverrides, scope);
+        const queued = createQueuedTask(
+          taskGoal,
+          maxSteps,
+          context,
+          userId,
+          keyOverrides,
+          scope,
+          { isBYOK, isAdmin }
+        );
         reply.status(202);
         return {
           success: true,
@@ -163,7 +172,7 @@ export async function taskRoutes(app: FastifyInstance, options: TaskRouteOptions
     { preHandler: [requireAuth] },
     async (req, reply) => {
       const taskId = req.params.taskId;
-      if (!/^task_\d+_[a-f0-9_]+$/.test(taskId)) {
+      if (!/^task_\d+_[a-zA-Z0-9_-]+$/.test(taskId)) {
         reply.status(400);
         return { success: false, error: "Invalid task ID format." };
       }

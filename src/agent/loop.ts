@@ -113,13 +113,19 @@ export async function runAutonomousAgent(
       `Workspace Execution Scope: running as "${scope.username || (scope.kind === "admin" ? "admin" : `user_${scope.userId}`)}" (role: ${scope.kind}).`,
       `Connected platforms: ${connected.length > 0 ? connected.join(", ") : "none"}.`,
     ];
-    if (scope.credentials?.neon) {
+    if (scope.credentials?.neon || scope.credentials?.supabase) {
+      const dbLabel = scope.credentials?.neon && scope.credentials?.supabase
+        ? "Neon Postgres and Supabase Postgres"
+        : scope.credentials?.supabase
+        ? "Supabase Postgres"
+        : "Neon Postgres";
       lines.push(
-        "Neon Postgres is CONNECTED and active via `execute_neon_sql`. When the user asks about their database, projects, tables, schemas, or registered users: you HAVE direct visibility through `execute_neon_sql`! Proactively run queries (such as querying tables like `users` / `pg_user`, checking schemas, or `SELECT current_database(), current_user, version();`) to inspect and return answers directly. Never tell the user that Neon is not connected when it is listed as connected here, and never ask them to reconnect it."
+        `${dbLabel} is CONNECTED and active via \`execute_neon_sql\`. When the user asks about their database, projects, tables, schemas, or registered users: you HAVE direct visibility through \`execute_neon_sql\`! Proactively run queries (such as querying tables like \`users\` / \`pg_user\`, checking schemas, or \`SELECT current_database(), current_user, version();\`) to inspect and return answers directly. Never tell the user that ${dbLabel} is not connected when it is listed as connected here, and never ask them to reconnect it.`
       );
     }
-    if (scope.credentials?.redis) {
-      lines.push("Redis is CONNECTED and accessible via `execute_redis_command`.");
+    if (scope.credentials?.redis || scope.credentials?.upstash) {
+      const redisLabel = scope.credentials?.upstash ? "Upstash Serverless Redis" : "Redis";
+      lines.push(`${redisLabel} is CONNECTED and accessible via \`execute_redis_command\`.`);
     }
     if (scope.credentials?.github) {
       lines.push(
@@ -128,6 +134,18 @@ export async function runAutonomousAgent(
     }
     if (scope.credentials?.cloudflare) {
       lines.push("Cloudflare is CONNECTED and accessible via `run_cloudflare_ai`.");
+    }
+    if (scope.credentials?.brave || scope.credentials?.tavily) {
+      const searchProvider = scope.credentials?.tavily ? "Tavily AI Search" : "Brave Web Search";
+      lines.push(`${searchProvider} is CONNECTED and active via \`web_search\`. Proactively use \`web_search\` for live web research or documentation queries.`);
+    }
+    if (scope.credentials?.gcp) {
+      lines.push("Google Cloud Platform (GCP) is CONNECTED and active via `inspect_gcp_cloud` (supports listing Cloud Run services, querying BigQuery SQL, and reading Cloud Logging entries).");
+    }
+    if (dynamicMcpTools.length > 0) {
+      lines.push(
+        `Active MCP Tools (${dynamicMcpTools.length}): ${dynamicMcpTools.map((t) => t.name).join(", ")}.`
+      );
     }
     if (scope.kind === "user") {
       lines.push(

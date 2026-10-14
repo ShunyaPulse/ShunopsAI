@@ -13,7 +13,7 @@ export interface ToolScope {
   kind: "admin" | "user";
   userId?: number;
   username?: string;
-  /** Decrypted, per-user credentials. Always empty for an admin scope. */
+  /** Decrypted, per-user credentials. */
   credentials: PlatformCredentialBundle;
 }
 
@@ -73,6 +73,8 @@ const PLATFORM_TOOLS: ReadonlySet<ToolName> = new Set<ToolName>([
   "execute_redis_command",
   "manage_github",
   "run_cloudflare_ai",
+  "web_search",
+  "inspect_gcp_cloud",
 ]);
 
 export function toolTier(name: ToolName): ToolTier {
@@ -122,6 +124,8 @@ const TOOL_TIER_REFERENCE: Record<ToolName, ToolTier> = {
   search_knowledge_base: "safe",
   index_knowledge_document: "host",
   execute_sandboxed_code: "safe",
+  web_search: "platform",
+  inspect_gcp_cloud: "platform",
 };
 
 // ==========================================
@@ -147,23 +151,43 @@ function notConnected(platform: string, instruction: string): { ok: false; messa
   };
 }
 
+/**
+ * Resolves either a connected Neon Postgres or Supabase Postgres connection URI.
+ */
 export function resolveNeon(scope?: ToolScope): CredentialResolution<string> {
-  const connectionString = scope?.credentials?.neon?.connectionString;
+  const connectionString =
+    scope?.credentials?.neon?.connectionString ||
+    scope?.credentials?.supabase?.connectionString;
   if (connectionString) {
     return { ok: true, source: "user", value: connectionString };
   }
   if (isAdminScope(scope)) return { ok: true, source: "server" };
   return notConnected(
     "Neon Postgres",
-    "Add it under Account Settings → Platform Connections → Neon Postgres."
+    "Add it under Account Settings → Platform Connections → Neon Postgres (or Supabase Postgres)."
   );
 }
 
-export function resolveRedis(scope?: ToolScope): CredentialResolution<string> {
+export type ResolvedRedisCredential = {
+  url?: string | undefined;
+  upstash?: { url: string; token: string } | undefined;
+};
+
+/**
+ * Resolves either a standard TCP Redis URL or an Upstash Serverless Redis REST credential.
+ */
+export function resolveRedis(scope?: ToolScope): CredentialResolution<ResolvedRedisCredential> {
   const url = scope?.credentials?.redis?.url;
-  if (url) return { ok: true, source: "user", value: url };
+  if (url) return { ok: true, source: "user", value: { url } };
+  const upstash = scope?.credentials?.upstash;
+  if (upstash?.url && upstash?.token) {
+    return { ok: true, source: "user", value: { upstash } };
+  }
   if (isAdminScope(scope)) return { ok: true, source: "server" };
-  return notConnected("Redis", "Add it under Account Settings → Platform Connections → Redis.");
+  return notConnected(
+    "Redis",
+    "Add it under Account Settings → Platform Connections → Redis (or Upstash Serverless Redis)."
+  );
 }
 
 export function resolveGitHub(scope?: ToolScope): CredentialResolution<string> {
@@ -187,5 +211,54 @@ export function resolveCloudflare(
   return notConnected(
     "Cloudflare",
     "Add your account ID and API token under Account Settings → Platform Connections → Cloudflare."
+  );
+}
+
+export type ResolvedWebSearchCredential = {
+  provider: "tavily" | "brave";
+  apiKey: string;
+};
+
+/**
+ * Resolves a connected Tavily AI Search or Brave Web Search API key.
+ */
+export function resolveWebSearch(
+  scope?: ToolScope
+): CredentialResolution<ResolvedWebSearchCredential> {
+  if (scope?.credentials?.tavily?.apiKey) {
+    return {
+      ok: true,
+      source: "user",
+      value: { provider: "tavily", apiKey: scope.credentials.tavily.apiKey },
+    };
+  }
+  if (scope?.credentials?.brave?.apiKey) {
+    return {
+      ok: true,
+      source: "user",
+      value: { provider: "brave", apiKey: scope.credentials.brave.apiKey },
+    };
+  }
+  if (isAdminScope(scope)) return { ok: true, source: "server" };
+  return notConnected(
+    "Brave or Tavily Web Search",
+    "Add a Brave Search or Tavily AI Search API key under Account Settings → Platform Connections."
+  );
+}
+
+/**
+ * Resolves a connected Google Cloud Platform (GCP) credential (project ID + OAuth/Service Account token).
+ */
+export function resolveGcp(
+  scope?: ToolScope
+): CredentialResolution<{ projectId?: string | undefined; token: string }> {
+  const gcp = scope?.credentials?.gcp;
+  if (gcp?.token) {
+    return { ok: true, source: "user", value: gcp };
+  }
+  if (isAdminScope(scope)) return { ok: true, source: "server" };
+  return notConnected(
+    "Google Cloud Platform (GCP)",
+    "Add your GCP Project ID and OAuth/Service Account token under Account Settings → Platform Connections → Google Cloud Platform (GCP)."
   );
 }

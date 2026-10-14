@@ -42,42 +42,55 @@ export function getPermutedKeys(rawPool?: string, singleKey?: string): string[] 
   return [...keys.slice(startIndex), ...keys.slice(0, startIndex)];
 }
 
-/** Map platform chat history into the Gemini `contents` format. */
+/**
+ * Map platform chat history into the Gemini `contents` format, merging consecutive
+ * `tool` responses into a single `function` turn and preserving text accompanying `toolCalls`.
+ */
 function toGeminiContents(history: ChatMessage[]): unknown[] {
-  return history.map((msg) => {
-    const role = msg.role === 'user' ? 'user' : 'model';
+  const out: Array<{ role: string; parts: unknown[] }> = [];
 
+  for (const msg of history) {
     if (msg.role === 'tool') {
-      return {
-        role: 'function',
-        parts: [
-          {
-            functionResponse: {
-              name: msg.name || 'tool_response',
-              response: { output: msg.content },
-            },
-          },
-        ],
+      const part = {
+        functionResponse: {
+          name: msg.name || 'tool_response',
+          response: { output: msg.content },
+        },
       };
+      const prev = out[out.length - 1];
+      if (prev && prev.role === 'function') {
+        prev.parts.push(part);
+      } else {
+        out.push({ role: 'function', parts: [part] });
+      }
+      continue;
     }
 
     if (msg.toolCalls && msg.toolCalls.length > 0) {
-      return {
-        role: 'model',
-        parts: msg.toolCalls.map((tc) => ({
+      const parts: unknown[] = [];
+      if (msg.content) {
+        parts.push({ text: msg.content });
+      }
+      for (const tc of msg.toolCalls) {
+        parts.push({
           functionCall: {
             name: tc.name,
             args: tc.arguments,
           },
-        })),
-      };
+        });
+      }
+      out.push({ role: 'model', parts });
+      continue;
     }
 
-    return {
+    const role = msg.role === 'user' ? 'user' : 'model';
+    out.push({
       role,
       parts: [{ text: msg.content }],
-    };
-  });
+    });
+  }
+
+  return out;
 }
 
 /** Primary provider: stream inference via the Google Gemini API (key passed in x-goog-api-key header). */
@@ -184,7 +197,7 @@ function toGroqMessages(history: ChatMessage[], systemPrompt: string): GroqChatM
     } else if (m.toolCalls && m.toolCalls.length > 0) {
       messages.push({
         role: 'assistant',
-        content: null,
+        content: m.content || null,
         tool_calls: m.toolCalls.map((tc) => ({
           id: tc.id,
           type: 'function' as const,
@@ -287,6 +300,7 @@ async function* streamOpenAICompatible(
 
   // Accumulator for tool calls streamed in chunks
   const pendingToolCalls: Record<number, PendingToolCall> = {};
+  let flushedToolCalls = false;
 
   for await (const { data } of parseSSEStream(response.body)) {
     if (!data || data === '[DONE]') continue;
@@ -307,11 +321,17 @@ async function* streamOpenAICompatible(
 
       // Check finish reason
       if (parsed.choices?.[0]?.finish_reason === 'tool_calls') {
+        flushedToolCalls = true;
         yield { toolCalls: finalizeGroqToolCalls(pendingToolCalls), isFinish: true };
       }
     } catch {
       // Ignore partial chunk parse error
     }
+  }
+
+  // Flush any accumulated tool calls when the provider closed the stream with finish_reason='stop'
+  if (!flushedToolCalls && Object.keys(pendingToolCalls).length > 0) {
+    yield { toolCalls: finalizeGroqToolCalls(pendingToolCalls), isFinish: true };
   }
 }
 

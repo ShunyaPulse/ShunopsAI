@@ -3,7 +3,7 @@ import { getSql, memStore } from "./store.js";
 // ==========================================
 // ShunopsAI Neon Lakebase Hybrid Knowledge Search
 // Combines Postgres Full-Text Search (BM25 ranking via ts_rank_cd)
-// with semantic vector embeddings and reciprocal rank fusion (RRF).
+// with 768-dim semantic vector embeddings and Reciprocal Rank Fusion (RRF).
 // ==========================================
 
 export interface KnowledgeDoc {
@@ -28,8 +28,143 @@ export interface SearchOptions {
   queryEmbedding?: number[] | undefined;
 }
 
+const EMBEDDING_DIM = 768;
+const RRF_K = 60;
+
 /**
- * Indexes or updates a document into the knowledge base.
+ * Deterministic 768-dimensional L2-normalized semantic feature-hashing embedding.
+ * Combines normalized word stems, bigrams, and character 3-grams using signed FNV-1a
+ * projections so hybrid vector + BM25 RRF works offline and in-memory with zero latency,
+ * while remaining compatible with 768-dim Gemini `text-embedding-004` vectors in pgvector.
+ */
+export function computeDeterministicEmbedding(text: string): number[] {
+  const vec = new Float64Array(EMBEDDING_DIM);
+  const clean = String(text || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9_\s-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!clean) {
+    return Array.from(vec);
+  }
+
+  const tokens = clean.split(" ").filter((t) => t.length > 1);
+  const features: Array<{ term: string; weight: number }> = [];
+
+  for (let i = 0; i < tokens.length; i++) {
+    const tok = tokens[i]!;
+    features.push({ term: `w:${tok}`, weight: 2.0 });
+    // Simple suffix stemming for morphological recall (e.g. autoscaling <-> autoscale)
+    const stem = tok.replace(/(?:ing|ed|es|s|tion|ment|ly)$/, "");
+    if (stem.length >= 3 && stem !== tok) {
+      features.push({ term: `s:${stem}`, weight: 1.5 });
+    }
+    if (i + 1 < tokens.length) {
+      features.push({ term: `b:${tok}_${tokens[i + 1]}`, weight: 1.2 });
+    }
+    // Character 3-grams for subword/typo resilience
+    for (let c = 0; c <= tok.length - 3; c++) {
+      features.push({ term: `g:${tok.slice(c, c + 3)}`, weight: 0.5 });
+    }
+  }
+
+  for (const { term, weight } of features) {
+    let h1 = 2166136261;
+    let h2 = 16777619;
+    for (let i = 0; i < term.length; i++) {
+      const code = term.charCodeAt(i);
+      h1 ^= code;
+      h1 = Math.imul(h1, 16777619) >>> 0;
+      h2 ^= code * 31;
+      h2 = Math.imul(h2, 1099511627) >>> 0;
+    }
+    const idx = h1 % EMBEDDING_DIM;
+    const sign = (h2 & 1) === 0 ? 1 : -1;
+    vec[idx] = (vec[idx] ?? 0) + sign * weight;
+  }
+
+  let normSq = 0;
+  for (let i = 0; i < EMBEDDING_DIM; i++) {
+    const v = vec[i]!;
+    normSq += v * v;
+  }
+  const norm = Math.sqrt(normSq) || 1;
+  const out = new Array<number>(EMBEDDING_DIM);
+  for (let i = 0; i < EMBEDDING_DIM; i++) {
+    out[i] = Number((vec[i]! / norm).toFixed(6));
+  }
+  return out;
+}
+
+/**
+ * Generates a 768-dimensional embedding vector for a knowledge document or search query.
+ * Uses Google Gemini `text-embedding-004` when configured in production, and falls back
+ * seamlessly to the deterministic 768-dim L2-normalized feature-hashing vector.
+ */
+export async function generateKnowledgeEmbedding(text: string): Promise<number[]> {
+  const input = String(text || "").trim().slice(0, 8000);
+  if (!input) return computeDeterministicEmbedding("");
+
+  const geminiKey = (
+    process.env.GEMINI_API_KEY ||
+    (process.env.GEMINI_KEYS || "").split(",")[0] ||
+    ""
+  ).trim();
+
+  if (geminiKey && process.env.NODE_ENV !== "test") {
+    try {
+      const res = await fetch(
+        "https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent",
+        {
+          method: "POST",
+          redirect: "error",
+          headers: {
+            "Content-Type": "application/json",
+            "x-goog-api-key": geminiKey,
+          },
+          body: JSON.stringify({
+            model: "models/text-embedding-004",
+            content: { parts: [{ text: input }] },
+          }),
+          signal: AbortSignal.timeout(4000),
+        }
+      );
+      if (res.ok) {
+        const data = (await res.json()) as any;
+        const values = data?.embedding?.values;
+        if (Array.isArray(values) && values.length === EMBEDDING_DIM) {
+          return values.map((v: any) => Number(v) || 0);
+        }
+      }
+    } catch {
+      // Fall back to deterministic local 768-dim embedding
+    }
+  }
+
+  return computeDeterministicEmbedding(input);
+}
+
+/** Cosine similarity between two equal-length vectors. */
+function cosineSimilarity(a?: number[], b?: number[]): number {
+  if (!a || !b || a.length === 0 || a.length !== b.length) return 0;
+  let dot = 0;
+  let normA = 0;
+  let normB = 0;
+  for (let i = 0; i < a.length; i++) {
+    const va = a[i] ?? 0;
+    const vb = b[i] ?? 0;
+    dot += va * vb;
+    normA += va * va;
+    normB += vb * vb;
+  }
+  const denom = Math.sqrt(normA) * Math.sqrt(normB);
+  return denom > 0 ? dot / denom : 0;
+}
+
+/**
+ * Indexes or updates a document into the knowledge base, automatically generating
+ * a 768-dim vector embedding when none is explicitly provided.
  */
 export async function indexKnowledgeDocument(
   title: string,
@@ -39,6 +174,10 @@ export async function indexKnowledgeDocument(
   embedding?: number[]
 ): Promise<KnowledgeDoc> {
   const sql = getSql();
+  const resolvedEmbedding =
+    embedding && Array.isArray(embedding) && embedding.length > 0
+      ? embedding
+      : await generateKnowledgeEmbedding(`${title}\n${content}`);
 
   if (!sql) {
     const id = memStore.nextDocId++;
@@ -52,7 +191,7 @@ export async function indexKnowledgeDocument(
       createdAt: now,
       updatedAt: now,
     };
-    memStore.knowledgeDocs.set(id, { ...doc, embedding });
+    memStore.knowledgeDocs.set(id, { ...doc, embedding: resolvedEmbedding });
     return doc;
   }
 
@@ -67,10 +206,10 @@ export async function indexKnowledgeDocument(
   const row = rows[0];
   const id = Number(row.id);
 
-  // If embedding is provided and column exists, attempt vector update
-  if (embedding && Array.isArray(embedding)) {
+  // Persist 768-dim vector embedding when pgvector column is active
+  if (resolvedEmbedding && Array.isArray(resolvedEmbedding) && resolvedEmbedding.length === EMBEDDING_DIM) {
     try {
-      const vecStr = `[${embedding.join(",")}]`;
+      const vecStr = `[${resolvedEmbedding.join(",")}]`;
       await (sql as any).query(
         `UPDATE shunops_knowledge_documents SET embedding = $1::vector WHERE id = $2;`,
         [vecStr, id]
@@ -90,7 +229,8 @@ export async function indexKnowledgeDocument(
 }
 
 /**
- * Performs State-of-the-Art Hybrid Search (BM25 Full-Text + Vector Cosine).
+ * Performs Hybrid Search combining BM25 Full-Text ranking with 768-dim Vector
+ * Cosine Similarity via Reciprocal Rank Fusion (RRF).
  */
 export async function searchKnowledgeHybrid(
   query: string,
@@ -99,43 +239,181 @@ export async function searchKnowledgeHybrid(
   const limit = options.limit ?? 5;
   const category = options.category;
   const sql = getSql();
+  const queryEmbedding =
+    options.queryEmbedding && options.queryEmbedding.length > 0
+      ? options.queryEmbedding
+      : await generateKnowledgeEmbedding(query);
 
   if (!sql) {
-    // In-memory fallback: multi-word keyword relevance matching
+    // In-memory Hybrid Search: BM25 lexical score + Vector cosine similarity fused via RRF
     const qLower = query.toLowerCase();
     const words = qLower.split(/\s+/).filter((w) => w.length > 2);
-    const results: KnowledgeSearchResult[] = [];
 
-    for (const [id, doc] of memStore.knowledgeDocs.entries()) {
-      if (category && doc.category !== category) continue;
-      const combined = (doc.title + " " + doc.content).toLowerCase();
+    const candidates: Array<{
+      doc: KnowledgeDoc;
+      bm25Score: number;
+      vecScore: number;
+    }> = [];
+
+    for (const [, rawDoc] of memStore.knowledgeDocs.entries()) {
+      if (category && rawDoc.category !== category) continue;
+      const combined = (rawDoc.title + " " + rawDoc.content).toLowerCase();
       let matchCount = 0;
       for (const w of words) {
         if (combined.includes(w)) matchCount++;
       }
-      if (matchCount > 0 || words.length === 0) {
-        const score = words.length > 0 ? matchCount / words.length : 1.0;
-        results.push({
-          document: {
-            id,
-            title: doc.title,
-            content: doc.content,
-            category: doc.category,
-            metadata: doc.metadata,
-            createdAt: doc.createdAt,
-            updatedAt: doc.updatedAt,
+      const bm25Score = words.length > 0 ? matchCount / words.length : combined.includes(qLower) ? 1.0 : 0;
+      const docEmbedding: number[] =
+        rawDoc.embedding || computeDeterministicEmbedding(`${rawDoc.title}\n${rawDoc.content}`);
+      const vecScore = cosineSimilarity(queryEmbedding, docEmbedding);
+
+      if (bm25Score > 0 || vecScore > 0.18) {
+        candidates.push({
+          doc: {
+            id: rawDoc.id,
+            title: rawDoc.title,
+            content: rawDoc.content,
+            category: rawDoc.category,
+            metadata: rawDoc.metadata,
+            createdAt: rawDoc.createdAt,
+            updatedAt: rawDoc.updatedAt,
           },
-          score,
-          matchType: "bm25",
+          bm25Score,
+          vecScore,
         });
       }
     }
 
-    return results.sort((a, b) => b.score - a.score).slice(0, limit);
+    if (candidates.length === 0) return [];
+
+    // Rank by BM25 and by Vector Cosine independently, then fuse via RRF
+    const byBm25 = [...candidates]
+      .filter((c) => c.bm25Score > 0)
+      .sort((a, b) => b.bm25Score - a.bm25Score);
+    const byVec = [...candidates]
+      .filter((c) => c.vecScore > 0.18)
+      .sort((a, b) => b.vecScore - a.vecScore);
+
+    const bm25Rank = new Map<number, number>();
+    byBm25.forEach((c, idx) => bm25Rank.set(c.doc.id, idx + 1));
+
+    const vecRank = new Map<number, number>();
+    byVec.forEach((c, idx) => vecRank.set(c.doc.id, idx + 1));
+
+    const fused: KnowledgeSearchResult[] = candidates.map((c) => {
+      const rB = bm25Rank.get(c.doc.id);
+      const rV = vecRank.get(c.doc.id);
+      const rrfScore =
+        (rB ? 1 / (RRF_K + rB) : 0) +
+        (rV ? 1 / (RRF_K + rV) : 0) +
+        c.bm25Score * 0.5 +
+        Math.max(0, c.vecScore) * 0.3;
+
+      const matchType: KnowledgeSearchResult["matchType"] =
+        rB && rV ? "hybrid" : rB ? "bm25" : "vector";
+
+      return {
+        document: c.doc,
+        score: Number(rrfScore.toFixed(4)),
+        matchType,
+      };
+    });
+
+    return fused.sort((a, b) => b.score - a.score).slice(0, limit);
+  }
+
+  // 1. Try true Postgres Hybrid Search (BM25 ts_rank_cd + pgvector cosine distance fused via RRF)
+  if (queryEmbedding && queryEmbedding.length === EMBEDDING_DIM) {
+    try {
+      const vecStr = `[${queryEmbedding.join(",")}]`;
+      const rows = category
+        ? await (sql as any).query(
+            `WITH bm25_ranked AS (
+               SELECT id, ROW_NUMBER() OVER (ORDER BY ts_rank_cd(tsv, plainto_tsquery('english', $1)) DESC) AS rnk
+               FROM shunops_knowledge_documents
+               WHERE category = $2 AND (tsv @@ plainto_tsquery('english', $1) OR title ILIKE '%' || $1 || '%')
+               LIMIT 30
+             ),
+             vector_ranked AS (
+               SELECT id, ROW_NUMBER() OVER (ORDER BY embedding <=> $3::vector ASC) AS rnk
+               FROM shunops_knowledge_documents
+               WHERE category = $2 AND embedding IS NOT NULL AND (1 - (embedding <=> $3::vector)) > 0.15
+               LIMIT 30
+             ),
+             fused AS (
+               SELECT COALESCE(b.id, v.id) AS id,
+                      (COALESCE(1.0 / (${RRF_K} + b.rnk), 0.0) + COALESCE(1.0 / (${RRF_K} + v.rnk), 0.0)) AS rrf_score,
+                      CASE
+                        WHEN b.id IS NOT NULL AND v.id IS NOT NULL THEN 'hybrid'
+                        WHEN b.id IS NOT NULL THEN 'bm25'
+                        ELSE 'vector'
+                      END AS match_type
+               FROM bm25_ranked b
+               FULL OUTER JOIN vector_ranked v ON b.id = v.id
+             )
+             SELECT d.id, d.title, d.content, d.category, d.metadata, d.created_at, d.updated_at,
+                    f.rrf_score AS rank_score, f.match_type
+             FROM fused f
+             JOIN shunops_knowledge_documents d ON d.id = f.id
+             ORDER BY f.rrf_score DESC
+             LIMIT $4;`,
+            [query, category, vecStr, limit]
+          )
+        : await (sql as any).query(
+            `WITH bm25_ranked AS (
+               SELECT id, ROW_NUMBER() OVER (ORDER BY ts_rank_cd(tsv, plainto_tsquery('english', $1)) DESC) AS rnk
+               FROM shunops_knowledge_documents
+               WHERE tsv @@ plainto_tsquery('english', $1) OR title ILIKE '%' || $1 || '%'
+               LIMIT 30
+             ),
+             vector_ranked AS (
+               SELECT id, ROW_NUMBER() OVER (ORDER BY embedding <=> $2::vector ASC) AS rnk
+               FROM shunops_knowledge_documents
+               WHERE embedding IS NOT NULL AND (1 - (embedding <=> $2::vector)) > 0.15
+               LIMIT 30
+             ),
+             fused AS (
+               SELECT COALESCE(b.id, v.id) AS id,
+                      (COALESCE(1.0 / (${RRF_K} + b.rnk), 0.0) + COALESCE(1.0 / (${RRF_K} + v.rnk), 0.0)) AS rrf_score,
+                      CASE
+                        WHEN b.id IS NOT NULL AND v.id IS NOT NULL THEN 'hybrid'
+                        WHEN b.id IS NOT NULL THEN 'bm25'
+                        ELSE 'vector'
+                      END AS match_type
+               FROM bm25_ranked b
+               FULL OUTER JOIN vector_ranked v ON b.id = v.id
+             )
+             SELECT d.id, d.title, d.content, d.category, d.metadata, d.created_at, d.updated_at,
+                    f.rrf_score AS rank_score, f.match_type
+             FROM fused f
+             JOIN shunops_knowledge_documents d ON d.id = f.id
+             ORDER BY f.rrf_score DESC
+             LIMIT $3;`,
+            [query, vecStr, limit]
+          );
+
+      if (Array.isArray(rows) && rows.length > 0) {
+        return rows.map((row: any) => ({
+          document: {
+            id: Number(row.id),
+            title: row.title,
+            content: row.content,
+            category: row.category,
+            metadata: row.metadata || {},
+            createdAt: row.created_at,
+            updatedAt: row.updated_at,
+          },
+          score: Number(row.rank_score || 1.0),
+          matchType: (row.match_type as KnowledgeSearchResult["matchType"]) || "hybrid",
+        }));
+      }
+    } catch {
+      // Fall back to BM25-only query if pgvector extension is unavailable on this DB instance
+    }
   }
 
   try {
-    // Try BM25 text rank query with ts_rank_cd
+    // 2. BM25 text rank query with ts_rank_cd
     const rows = category
       ? await (sql as any).query(
           `SELECT id, title, content, category, metadata, created_at, updated_at,
@@ -209,4 +487,3 @@ export async function deleteKnowledgeDocument(id: number): Promise<boolean> {
   );
   return (res || []).length > 0;
 }
-

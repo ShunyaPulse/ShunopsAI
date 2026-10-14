@@ -304,6 +304,8 @@ export const POPULAR_100_MCP_PRESETS: McpPresetItem[] = [
     name: "🐙 GitHub Operations",
     category: "DevOps & Cloud",
     description: "Manage repositories, pull requests, issues, commit diffs, and GitHub Actions workflows.",
+    tier: "native",
+    nativePlatform: "github",
     url: "https://api.githubcopilot.com/mcp",
     tokenPlaceholder: "ghp_... (GitHub Personal Access Token)",
     tokenLabel: "GitHub Token",

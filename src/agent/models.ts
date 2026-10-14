@@ -185,6 +185,9 @@ export interface ProviderKeyOverrides {
   groqApiKey?: string | undefined;
   geminiApiKey?: string | undefined;
   openrouterApiKey?: string | undefined;
+  githubToken?: string | undefined;
+  cloudflareAccountId?: string | undefined;
+  cloudflareApiToken?: string | undefined;
 }
 
 /**
@@ -212,7 +215,7 @@ export function createClientForTarget(target: ModelTarget, overrides?: ProviderK
     });
   }
   if (target.provider === "github") {
-    const apiKey = process.env.GITHUB_PAT || process.env.GITHUB_TOKEN;
+    const apiKey = overrides?.githubToken || process.env.GITHUB_PAT || process.env.GITHUB_TOKEN;
     if (!apiKey) throw new Error("No GITHUB_PAT available");
     return new OpenAI({
       baseURL: GITHUB_MODELS_BASE_URL,
@@ -222,8 +225,8 @@ export function createClientForTarget(target: ModelTarget, overrides?: ProviderK
     });
   }
   if (target.provider === "cloudflare") {
-    const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
-    const apiKey = process.env.CLOUDFLARE_API_TOKEN;
+    const accountId = overrides?.cloudflareAccountId || process.env.CLOUDFLARE_ACCOUNT_ID;
+    const apiKey = overrides?.cloudflareApiToken || process.env.CLOUDFLARE_API_TOKEN;
     if (!accountId || !apiKey) throw new Error("Missing CLOUDFLARE_ACCOUNT_ID or CLOUDFLARE_API_TOKEN");
     return new OpenAI({
       baseURL: `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/v1`,
@@ -262,8 +265,11 @@ export async function callChatCompletionWithFailover(
   const openRouterPool = getOpenRouterKeysPool();
   const hasServerGemini = geminiPool.length > 0;
   const hasServerGroq = groqPool.length > 0 || Boolean(process.env.GROQ_API_KEY);
-  const hasServerGitHub = Boolean(process.env.GITHUB_PAT || process.env.GITHUB_TOKEN);
-  const hasServerCloudflare = Boolean(process.env.CLOUDFLARE_ACCOUNT_ID && process.env.CLOUDFLARE_API_TOKEN);
+  const hasGitHub = Boolean(overrides?.githubToken || process.env.GITHUB_PAT || process.env.GITHUB_TOKEN);
+  const hasCloudflare = Boolean(
+    (overrides?.cloudflareAccountId && overrides?.cloudflareApiToken) ||
+      (process.env.CLOUDFLARE_ACCOUNT_ID && process.env.CLOUDFLARE_API_TOKEN)
+  );
   const hasServerOpenRouter = openRouterPool.length > 0 || Boolean(process.env.OPENROUTER_API_KEY);
 
   const isBYOK = Boolean(overrides?.groqApiKey || overrides?.geminiApiKey || overrides?.openrouterApiKey);
@@ -275,13 +281,17 @@ export async function callChatCompletionWithFailover(
       if (target.provider === "gemini") return Boolean(overrides?.geminiApiKey);
       if (target.provider === "groq") return Boolean(overrides?.groqApiKey);
       if (target.provider === "openrouter") return Boolean(overrides?.openrouterApiKey);
+      if (target.provider === "github") return Boolean(overrides?.githubToken);
+      if (target.provider === "cloudflare") {
+        return Boolean(overrides?.cloudflareAccountId && overrides?.cloudflareApiToken);
+      }
       return false;
     }
-    // Shared Server Mode: only attempt providers that have configured server keys
+    // Shared Server Mode: attempt providers that have configured server keys or connected user platform keys
     if (target.provider === "gemini") return hasServerGemini;
     if (target.provider === "groq") return hasServerGroq;
-    if (target.provider === "github") return hasServerGitHub;
-    if (target.provider === "cloudflare") return hasServerCloudflare;
+    if (target.provider === "github") return hasGitHub;
+    if (target.provider === "cloudflare") return hasCloudflare;
     if (target.provider === "openrouter") return hasServerOpenRouter;
     return false;
   });
@@ -380,4 +390,3 @@ export async function callChatCompletionWithFailover(
     `All configured multi-provider models failed in failover chain. Last error: ${String(lastError?.message || lastError || "Provider unavailable").replace(/([?&]key=|Bearer\s+|gsk_|AIzaSy)[A-Za-z0-9_\-]+/gi, "$1[REDACTED]").slice(0, 180)}`
   );
 }
-

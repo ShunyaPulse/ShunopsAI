@@ -11,6 +11,8 @@ import { formatSSE } from './engine/sse.js';
 import { loadSessionHistory, saveSessionHistory } from './engine/session.js';
 import { cascadeStream } from './engine/providers.js';
 
+const MAX_EDGE_REACT_ROUNDS = 4;
+
 /** Everything the edge ReAct loop needs for one request. */
 interface EdgeRunContext {
   sessionId: string;
@@ -130,8 +132,9 @@ async function executeToolCalls(
 }
 
 /**
- * Run the multi-turn ReAct loop for one request: first inference round, tool
- * execution, a second round to stream the final answer, then KV persistence.
+ * Run the multi-turn ReAct loop for one request: up to MAX_EDGE_REACT_ROUNDS of
+ * inference and tool execution until the model emits a final conversational response
+ * (or raises an interactive action confirmation card), then KV persistence.
  */
 async function runEdgeAgentLoop(context: EdgeRunContext): Promise<void> {
   const { sessionId, message, systemPrompt, maxTurns, ttlSeconds, env, sendEvent } = context;
@@ -145,50 +148,66 @@ async function runEdgeAgentLoop(context: EdgeRunContext): Promise<void> {
     timestamp: Date.now(),
   });
 
-  // First round of inference
-  const firstRound = await streamInference(
-    conversationHistory,
-    systemPrompt,
-    env,
-    sendEvent,
-    (provider, model) => sendEvent('start', { provider, model, sessionId })
-  );
-
   let requiresConfirmationCard: ActionConfirmationDetails | null = null;
+  let emittedStartEvent = false;
 
-  if (firstRound.toolCalls.length > 0) {
+  for (let roundIdx = 0; roundIdx < MAX_EDGE_REACT_ROUNDS; roundIdx++) {
+    const round = await streamInference(
+      conversationHistory,
+      systemPrompt,
+      env,
+      sendEvent,
+      async (provider, model) => {
+        if (!emittedStartEvent) {
+          emittedStartEvent = true;
+          await sendEvent('start', { provider, model, sessionId });
+        }
+      }
+    );
+
+    if (round.toolCalls.length === 0) {
+      conversationHistory.push({
+        role: 'model',
+        content: round.text,
+        timestamp: Date.now(),
+      });
+      break;
+    }
+
     // Record model's tool call invocation in history
     conversationHistory.push({
       role: 'model',
-      content: firstRound.text,
-      toolCalls: firstRound.toolCalls,
+      content: round.text,
+      toolCalls: round.toolCalls,
       timestamp: Date.now(),
     });
 
-    requiresConfirmationCard = await executeToolCalls(
-      firstRound.toolCalls,
+    const card = await executeToolCalls(
+      round.toolCalls,
       conversationHistory,
       env,
       sessionId,
       sendEvent
     );
+    if (card) {
+      requiresConfirmationCard = card;
+    }
 
-    // Second round of inference to stream the final conversational answer after tool execution
-    const secondRound = await streamInference(conversationHistory, systemPrompt, env, sendEvent, async () => {});
-
-    // Add final assistant response to history
-    conversationHistory.push({
-      role: 'model',
-      content: secondRound.text,
-      timestamp: Date.now(),
-    });
-  } else {
-    // Pure conversational response without tool calls
-    conversationHistory.push({
-      role: 'model',
-      content: firstRound.text,
-      timestamp: Date.now(),
-    });
+    // If this was the final allowed tool round, run one concluding synthesis turn
+    if (roundIdx === MAX_EDGE_REACT_ROUNDS - 1) {
+      const finalRound = await streamInference(
+        conversationHistory,
+        systemPrompt,
+        env,
+        sendEvent,
+        async () => {}
+      );
+      conversationHistory.push({
+        role: 'model',
+        content: finalRound.text,
+        timestamp: Date.now(),
+      });
+    }
   }
 
   // Persist conversation turns to Cloudflare KV

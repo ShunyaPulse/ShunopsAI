@@ -44,14 +44,18 @@ async function persistApprovalToRedis(request: ApprovalRequest): Promise<void> {
   }
 }
 
-/** Clear active approval key from distributed Redis cache. */
-async function settleApprovalInRedis(id: string): Promise<void> {
+/**
+ * Persist the terminal verdict (`approved` / `rejected`) in Redis with a 60s TTL
+ * and remove the ID from the active pending set so any waiting instance polling
+ * Redis observes the decision immediately instead of timing out after 5 minutes.
+ */
+async function settleApprovalInRedis(request: ApprovalRequest): Promise<void> {
   const redis = getRedisClient();
   if (!redis) return;
   try {
-    const key = `${REDIS_APPROVAL_PREFIX}${id}`;
-    await redis.srem(REDIS_ACTIVE_SET, id);
-    await redis.del(key);
+    const key = `${REDIS_APPROVAL_PREFIX}${request.id}`;
+    await redis.srem(REDIS_ACTIVE_SET, request.id);
+    await redis.set(key, JSON.stringify(request), "EX", 60);
   } catch {
     // Non-fatal
   }
@@ -97,7 +101,7 @@ function settleApproval(request: ApprovalRequest, approved: boolean): void {
   request.status = approved ? "approved" : "rejected";
   pendingApprovals.delete(request.id);
   approvalResolvers.delete(request.id);
-  settleApprovalInRedis(request.id).catch(() => {});
+  settleApprovalInRedis(request).catch(() => {});
 }
 
 /**
@@ -361,22 +365,53 @@ export async function requestHumanApproval(
   }
 
   // Non-interactive / API server mode: Wait for external resolution via /api/approve
+  // (either on this instance via `approvalResolvers` or on another instance via Redis).
   return new Promise((resolve) => {
+    let settled = false;
+
+    const finish = (approved: boolean, message: string) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (redisPollTimer) clearInterval(redisPollTimer);
+      settleApproval(request, approved);
+      resolve({ approved, message });
+    };
+
     const timer = setTimeout(() => {
       if (pendingApprovals.get(id)?.status === "pending") {
-        settleApproval(request, false);
-        resolve({ approved: false, message: `Approval timed out after 5 minutes (${id}).` });
+        finish(false, `Approval timed out after 5 minutes (${id}).`);
       }
     }, 5 * 60 * 1000);
+    if (typeof (timer as any).unref === "function") (timer as any).unref();
+
+    // Poll Redis every 1.5s so an approval resolved on another server replica
+    // wakes up this waiting agent loop without hanging for 5 minutes.
+    const redis = getRedisClient();
+    const redisPollTimer = redis
+      ? setInterval(async () => {
+          if (settled || redis.status !== "ready") return;
+          try {
+            const raw = await redis.get(`${REDIS_APPROVAL_PREFIX}${id}`);
+            if (!raw) return;
+            const parsed = JSON.parse(raw) as ApprovalRequest;
+            if (parsed.status === "approved") {
+              finish(true, `Action remotely approved (${id}).`);
+            } else if (parsed.status === "rejected") {
+              finish(false, `Action remotely rejected (${id}).`);
+            }
+          } catch {}
+        }, 1500)
+      : null;
+    if (redisPollTimer && typeof (redisPollTimer as any).unref === "function") {
+      (redisPollTimer as any).unref();
+    }
 
     approvalResolvers.set(id, (approved: boolean) => {
-      clearTimeout(timer);
-      settleApproval(request, approved);
-      if (approved) {
-        resolve({ approved: true, message: `Action remotely approved (${id}).` });
-      } else {
-        resolve({ approved: false, message: `Action remotely rejected (${id}).` });
-      }
+      finish(
+        approved,
+        approved ? `Action remotely approved (${id}).` : `Action remotely rejected (${id}).`
+      );
     });
   });
 }

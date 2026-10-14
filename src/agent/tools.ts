@@ -11,6 +11,8 @@ import {
   manageCloudflare,
   inspectWebsite,
   manageComputeEngine,
+  executeWebSearch,
+  inspectGcpCloud,
 } from "../tools/cloud.js";
 import { startVideoJob, manageKaggle, publishJobToYouTube } from "../tools/video.js";
 import { requestHumanApproval } from "../tools/safety.js";
@@ -24,6 +26,8 @@ import {
   resolveRedis,
   resolveGitHub,
   resolveCloudflare,
+  resolveWebSearch,
+  resolveGcp,
   isToolAllowedForScope,
   hostToolRefusal,
   type ToolScope,
@@ -69,7 +73,9 @@ export type ToolName =
   | "resolve_code_scanning_alerts"
   | "search_knowledge_base"
   | "index_knowledge_document"
-  | "execute_sandboxed_code";
+  | "execute_sandboxed_code"
+  | "web_search"
+  | "inspect_gcp_cloud";
 
 export const toolRegistry: Record<ToolName, ToolDefinition> = {
   run_shell_command: {
@@ -250,7 +256,7 @@ export const toolRegistry: Record<ToolName, ToolDefinition> = {
       type: "function",
       function: {
         name: "execute_neon_sql",
-        description: "Executes raw SQL queries on Neon Serverless Postgres. Returns rows or error message.",
+        description: "Executes raw SQL queries on Neon Serverless Postgres or Supabase Postgres. Returns rows or error message.",
         parameters: {
           type: "object",
           properties: {
@@ -278,7 +284,7 @@ export const toolRegistry: Record<ToolName, ToolDefinition> = {
       type: "function",
       function: {
         name: "execute_redis_command",
-        description: "Executes Redis commands on OCI VM Redis (e.g. GET, SET, KEYS, INFO, PING).",
+        description: "Executes Redis commands on OCI VM Redis or Upstash Serverless Redis (e.g. GET, SET, KEYS, INFO, PING).",
         parameters: {
           type: "object",
           properties: {
@@ -302,7 +308,7 @@ export const toolRegistry: Record<ToolName, ToolDefinition> = {
       return await executeRedisCommand(
         args.command,
         args.args || [],
-        credential.source === "user" ? { url: credential.value } : {}
+        credential.source === "user" ? credential.value : {}
       );
     },
   },
@@ -725,7 +731,7 @@ export const toolRegistry: Record<ToolName, ToolDefinition> = {
       function: {
         name: "search_knowledge_base",
         description:
-          "Searches the platform knowledge base, documentation, architecture records, and runbooks using Neon Lakebase Hybrid Search (BM25 Full-Text + Vector ranking).",
+          "Searches the platform knowledge base, documentation, architecture records, and runbooks using Neon Lakebase Hybrid Search (BM25 Full-Text + 768-dim Vector RRF ranking).",
         parameters: {
           type: "object",
           properties: {
@@ -762,6 +768,7 @@ export const toolRegistry: Record<ToolName, ToolDefinition> = {
             category: r.document.category,
             content: r.document.content.slice(0, 500),
             score: r.score,
+            matchType: r.matchType,
           })),
           null,
           2
@@ -817,6 +824,7 @@ export const toolRegistry: Record<ToolName, ToolDefinition> = {
       }
     },
   },
+
   execute_sandboxed_code: {
     schema: {
       type: "function",
@@ -854,6 +862,89 @@ export const toolRegistry: Record<ToolName, ToolDefinition> = {
         .filter(Boolean)
         .join("\n\n");
       return output || "Code executed successfully with no output.";
+    },
+  },
+
+  web_search: {
+    schema: {
+      type: "function",
+      function: {
+        name: "web_search",
+        description:
+          "Performs live internet web search and documentation lookup using the user's connected Tavily AI Search or Brave Web Search API key.",
+        parameters: {
+          type: "object",
+          properties: {
+            query: {
+              type: "string",
+              description: "The search query to look up on the live web.",
+            },
+            maxResults: {
+              type: "number",
+              description: "Maximum number of results to return (1-10, default: 5).",
+            },
+          },
+          required: ["query"],
+        },
+      },
+    },
+    execute: async (args: { query: string; maxResults?: number }, scope?: ToolScope) => {
+      const credential = resolveWebSearch(scope);
+      if (!credential.ok) return credential.message;
+      return await executeWebSearch(args.query, {
+        ...(credential.source === "user" ? credential.value : {}),
+        maxResults: args.maxResults,
+      });
+    },
+  },
+
+  inspect_gcp_cloud: {
+    schema: {
+      type: "function",
+      function: {
+        name: "inspect_gcp_cloud",
+        description:
+          "Inspects Google Cloud Platform (GCP) resources — list Cloud Run services, run BigQuery SQL queries, or fetch Cloud Logging entries — using the user's connected GCP credential.",
+        parameters: {
+          type: "object",
+          properties: {
+            operation: {
+              type: "string",
+              enum: ["list_cloud_run_services", "query_bigquery", "list_logs"],
+              description: "GCP operation to execute.",
+            },
+            region: {
+              type: "string",
+              description: "Optional GCP region for Cloud Run (defaults to '-' for all regions).",
+            },
+            sqlQuery: {
+              type: "string",
+              description: "BigQuery Standard SQL query (required when operation is 'query_bigquery').",
+            },
+            logFilter: {
+              type: "string",
+              description: "Optional Cloud Logging filter expression (default: 'severity>=ERROR').",
+            },
+          },
+          required: ["operation"],
+        },
+      },
+    },
+    execute: async (
+      args: {
+        operation: "list_cloud_run_services" | "query_bigquery" | "list_logs";
+        region?: string;
+        sqlQuery?: string;
+        logFilter?: string;
+      },
+      scope?: ToolScope
+    ) => {
+      const credential = resolveGcp(scope);
+      if (!credential.ok) return credential.message;
+      return await inspectGcpCloud(
+        args,
+        credential.source === "user" ? credential.value : {}
+      );
     },
   },
 };

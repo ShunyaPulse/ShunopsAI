@@ -61,7 +61,10 @@ export async function findUserByApiKey(rawKey: string): Promise<UserRecord | nul
   }
 
   const rows = await (sql as any).query(
-    `SELECT u.id, u.username, u.email, u.password_hash, u.google_id, u.github_id, u.email_verified, u.role, u.plan, u.query_count, u.created_at, k.id as key_id
+    `SELECT u.id, u.username, u.email, u.password_hash, u.google_id, u.github_id,
+            u.email_verified, u.role, u.plan, u.query_count,
+            u.input_tokens, u.output_tokens, u.total_tokens, u.created_at,
+            k.id as key_id
      FROM shunops_api_keys k
      JOIN shunops_users u ON k.user_id = u.id
      WHERE k.key_hash = $1

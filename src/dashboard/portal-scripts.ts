@@ -336,6 +336,28 @@ export const PORTAL_SCRIPTS = `    // State
           localStorage.removeItem("shunops_byok_keys");
           localStorage.removeItem("shunops_secure_vault_v2");
 
+          // Synchronize platform-level keys (GitHub & GCP) to the user's server-side encrypted Platform Vault
+          // so connected keys in /portal are immediately active for agent runs in /workspace.
+          if (github && (!results.github || results.github.valid)) {
+            fetch("/api/user/platform-credentials", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ platform: "github", values: { token: github } }),
+            }).catch(() => {});
+          }
+          if (gcp && (!results.gcp || results.gcp.valid)) {
+            let gcpProjectId = "default-project";
+            try {
+              const parsedGcp = JSON.parse(gcp);
+              if (parsedGcp && parsedGcp.project_id) gcpProjectId = parsedGcp.project_id;
+            } catch {}
+            fetch("/api/user/platform-credentials", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ platform: "gcp", values: { projectId: gcpProjectId, token: gcp } }),
+            }).catch(() => {});
+          }
+
           if (allPassed) {
             showStatusMessage("✅ Connected! All keys verified and saved privately.", false);
           } else {

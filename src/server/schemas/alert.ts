@@ -54,6 +54,7 @@ export const TaskRequestSchema = Type.Object({
 export type TaskRequest = Static<typeof TaskRequestSchema>;
 
 export const ChatRequestSchema = Type.Object({
+  sessionId: Type.Optional(Type.String({ maxLength: 128 })),
   message: Type.String({ minLength: 1, maxLength: 4000 }),
   history: Type.Optional(Type.String({ maxLength: 8000 })),
   modelPreference: Type.Optional(Type.String({ maxLength: 50 })),

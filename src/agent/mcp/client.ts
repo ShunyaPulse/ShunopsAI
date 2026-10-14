@@ -5,6 +5,7 @@ import type {
   McpJsonRpcRequest,
   McpJsonRpcResponse,
 } from "./types.js";
+import { POPULAR_100_MCP_PRESETS } from "../../dashboard/mcp-presets-catalog.js";
 
 /**
  * Lightweight, zero-dependency MCP HTTP Client.
@@ -84,7 +85,7 @@ function isDisallowedIpv6Literal(hostname: string): boolean {
   );
 }
 
-export const DEFAULT_ALLOWED_MCP_HOSTS: readonly string[] = [
+const BASE_ALLOWED_MCP_HOSTS: readonly string[] = [
   "mcp.wikipedia.org",
   "mcp.firecrawl.dev",
   "mcp.browserbase.com",
@@ -98,6 +99,64 @@ export const DEFAULT_ALLOWED_MCP_HOSTS: readonly string[] = [
   "mcp.example.com",
   "api.mcp.example.com",
 ];
+
+const PLACEHOLDER_CATALOG_HOSTS = new Set([
+  "your-store.myshopify.com",
+  "subdomain.zendesk.com",
+  "your-graphql-endpoint.com",
+]);
+
+/**
+ * Extract all public HTTPS hosts and endpoints from the curated 100-preset catalog
+ * so every official preset in the UI directory passes outbound URL validation.
+ */
+function buildCatalogAllowedTargets(): { hosts: string[]; endpoints: Record<string, string> } {
+  const hostSet = new Set<string>(BASE_ALLOWED_MCP_HOSTS);
+  const endpoints: Record<string, string> = {
+    "https://mcp.wikipedia.org/v1": "https://mcp.wikipedia.org/v1",
+    "https://mcp.firecrawl.dev/v1": "https://mcp.firecrawl.dev/v1",
+    "https://mcp.browserbase.com/v1": "https://mcp.browserbase.com/v1",
+    "https://mcp.arxiv.org/v1": "https://mcp.arxiv.org/v1",
+    "https://mcp.exa.ai/v1": "https://mcp.exa.ai/v1",
+    "https://mcp.slack.com/v1": "https://mcp.slack.com/v1",
+    "https://mcp.linear.app/v1": "https://mcp.linear.app/v1",
+    "https://mcp.context7.com/mcp": "https://mcp.context7.com/mcp",
+    "https://brave.mcp.example.com": "https://brave.mcp.example.com",
+    "https://neon.mcp.example.com": "https://neon.mcp.example.com",
+    "https://mcp.example.com": "https://mcp.example.com",
+    "https://api.mcp.example.com": "https://api.mcp.example.com",
+    "http://127.0.0.1:8000/sse": "http://127.0.0.1:8000/sse",
+  };
+
+  for (const preset of POPULAR_100_MCP_PRESETS) {
+    if (!preset.url || !preset.url.startsWith("https://")) continue;
+    try {
+      const parsed = new URL(preset.url);
+      const host = parsed.hostname.toLowerCase();
+      if (
+        host.endsWith(".internal") ||
+        host.endsWith(".local") ||
+        host.endsWith(".localhost") ||
+        PLACEHOLDER_CATALOG_HOSTS.has(host) ||
+        isPrivateOrSpecialIpv4(host) ||
+        isDisallowedIpv6Literal(host)
+      ) {
+        continue;
+      }
+      hostSet.add(host);
+      const cleanEndpoint = normalizeMcpEndpoint(parsed.toString());
+      endpoints[cleanEndpoint] = cleanEndpoint;
+    } catch {
+      // Skip non-HTTP URLs (e.g. postgresql:// or redis:// native strings)
+    }
+  }
+
+  return { hosts: Array.from(hostSet), endpoints };
+}
+
+const CATALOG_TARGETS = buildCatalogAllowedTargets();
+
+export const DEFAULT_ALLOWED_MCP_HOSTS: readonly string[] = CATALOG_TARGETS.hosts;
 
 export function getAllowedMcpHosts(): string[] {
   const hosts = [...DEFAULT_ALLOWED_MCP_HOSTS];
@@ -166,6 +225,7 @@ export function assertAllowedMcpUrl(rawUrl: string): string {
   if (
     blockedHosts.has(hostname) ||
     hostname.endsWith(".internal") ||
+    hostname.endsWith(".local") ||
     hostname.endsWith(".localhost") ||
     (!devOrTest && (isPrivateOrSpecialIpv4(hostname) || isDisallowedIpv6Literal(hostname)))
   ) {
@@ -186,24 +246,8 @@ export function assertAllowedMcpUrl(rawUrl: string): string {
  * Directory of endpoints `fetch` may reach, keyed by canonical URL so the
  * client never builds a destination from a raw user string by itself.
  */
-const STATIC_MCP_TARGET_ENDPOINTS: Readonly<Record<string, string>> = Object.freeze({
-  "https://mcp.wikipedia.org/v1": "https://mcp.wikipedia.org/v1",
-  "https://mcp.firecrawl.dev/v1": "https://mcp.firecrawl.dev/v1",
-  "https://mcp.browserbase.com/v1": "https://mcp.browserbase.com/v1",
-  "https://mcp.arxiv.org/v1": "https://mcp.arxiv.org/v1",
-  "https://mcp.exa.ai/v1": "https://mcp.exa.ai/v1",
-  "https://mcp.slack.com/v1": "https://mcp.slack.com/v1",
-  "https://mcp.linear.app/v1": "https://mcp.linear.app/v1",
-  "https://mcp.context7.com/mcp": "https://mcp.context7.com/mcp",
-  "https://brave.mcp.example.com": "https://brave.mcp.example.com",
-  "https://neon.mcp.example.com": "https://neon.mcp.example.com",
-  "https://mcp.example.com": "https://mcp.example.com",
-  "https://api.mcp.example.com": "https://api.mcp.example.com",
-  "http://127.0.0.1:8000/sse": "http://127.0.0.1:8000/sse",
-});
-
 export const ALLOWED_MCP_TARGET_ENDPOINTS: Record<string, string> = {
-  ...STATIC_MCP_TARGET_ENDPOINTS,
+  ...CATALOG_TARGETS.endpoints,
 };
 
 /** Register an already-validated endpoint, returning its canonical form. */
@@ -248,9 +292,9 @@ export class McpHttpClient {
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
-      // The destination must be a compile-time trusted endpoint.
+      // The destination is only ever a value from the validated directory.
       const destinationUrl =
-        STATIC_MCP_TARGET_ENDPOINTS[normalizeMcpEndpoint(this.config.url)];
+        ALLOWED_MCP_TARGET_ENDPOINTS[normalizeMcpEndpoint(this.config.url)];
 
       if (!destinationUrl) {
         throw new Error(
@@ -262,7 +306,8 @@ export class McpHttpClient {
       if (!["https:", "http:"].includes(url.protocol)) {
         throw new Error(`Invalid protocol for MCP endpoint: ${url.protocol}`);
       }
-      if (!Object.values(STATIC_MCP_TARGET_ENDPOINTS).includes(url.toString())) {
+      const allowedHosts = Object.values(ALLOWED_MCP_TARGET_ENDPOINTS).map((u) => new URL(u).hostname);
+      if (!allowedHosts.includes(url.hostname)) {
         throw new Error(`Disallowed MCP endpoint hostname: ${url.hostname}`);
       }
 

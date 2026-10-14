@@ -23,7 +23,14 @@ export async function saveChatMessage(userId: number, role: "user" | "assistant"
   );
 }
 
-export async function getChatHistory(userId: number, limit = 50): Promise<Array<{ id: number; role: string; message: string; created_at: string }>> {
+/**
+ * Retrieves the most recent `limit` chat messages for a user, ordered chronologically
+ * from oldest to newest so rolling memory and UI threads always reflect recent turns.
+ */
+export async function getChatHistory(
+  userId: number,
+  limit = 50
+): Promise<Array<{ id: number; role: string; message: string; created_at: string }>> {
   const sql = getSql();
   if (!sql) {
     return memStore.chatMessages
@@ -33,7 +40,15 @@ export async function getChatHistory(userId: number, limit = 50): Promise<Array<
   }
 
   const rows = await (sql as any).query(
-    `SELECT id, role, message, created_at FROM shunops_chat_messages WHERE user_id = $1 ORDER BY created_at ASC LIMIT $2;`,
+    `SELECT id, role, message, created_at
+     FROM (
+       SELECT id, role, message, created_at
+       FROM shunops_chat_messages
+       WHERE user_id = $1
+       ORDER BY created_at DESC, id DESC
+       LIMIT $2
+     ) recent
+     ORDER BY created_at ASC, id ASC;`,
     [userId, limit]
   );
   return rows || [];

@@ -338,27 +338,29 @@ export const DASHBOARD_SCRIPTS = `
               </tr>
             </thead>
             <tbody>
-              \${users.map(u => \`
+              \${users.map(u => {
+                const isPriv = u.role === 'admin' || u.role === 'operator';
+                return \`
                 <tr style="border-bottom: 1px solid rgba(255,255,255,0.04);">
                   <td style="padding: 8px 6px; color: var(--text-muted);">\${Number(u.id) || 0}</td>
                   <td style="padding: 8px 6px; font-weight: 600; color: #fff;">\${escapeHtml(u.username)}</td>
                   <td style="padding: 8px 6px; color: var(--text-muted);">\${escapeHtml(u.email || 'N/A')}</td>
                   <td style="padding: 8px 6px;">
-                    <span style="padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 700; background: \${u.role === 'admin' ? 'rgba(56, 189, 248, 0.2)' : 'rgba(255,255,255,0.06)'}; color: \${u.role === 'admin' ? '#38bdf8' : '#94a3b8'};">
-                      \${escapeHtml(u.role.toUpperCase())}
+                    <span style="padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 700; background: \${isPriv ? 'rgba(56, 189, 248, 0.2)' : 'rgba(255,255,255,0.06)'}; color: \${isPriv ? '#38bdf8' : '#94a3b8'};">
+                      \${escapeHtml(String(u.role || 'user').toUpperCase())}
                     </span>
                   </td>
                   <td style="padding: 8px 6px; color: #10b981;">\${escapeHtml((u.plan || 'community').toUpperCase())}</td>
                   <td style="padding: 8px 6px; text-align: right;">
-                    <button class="btn btn-secondary" style="padding: 2px 8px; font-size: 10px; margin-right: 4px;" onclick="changeUserRole(\${Number(u.id) || 0}, '\${u.role === 'admin' ? 'user' : 'admin'}')">
-                      \${u.role === 'admin' ? 'Demote' : 'Promote'}
+                    <button class="btn btn-secondary" style="padding: 2px 8px; font-size: 10px; margin-right: 4px;" onclick="changeUserRole(\${Number(u.id) || 0}, '\${isPriv ? 'user' : 'admin'}')">
+                      \${isPriv ? 'Demote' : 'Promote'}
                     </button>
                     <button class="btn btn-danger" style="padding: 2px 8px; font-size: 10px;" onclick="revokeUserSessions(\${Number(u.id) || 0})">
                       Revoke
                     </button>
                   </td>
-                </tr>
-              \`).join("")}
+                </tr>\`;
+              }).join("")}
             </tbody>
           </table>
         \`;

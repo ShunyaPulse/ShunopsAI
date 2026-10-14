@@ -1347,11 +1347,19 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]'): stri
       statusBox.textContent = 'Submitting task...';
 
       try {
+        const headers = { 'Content-Type': 'application/json' };
+        const vault = await loadVaultKeys();
+        if (vault) {
+          if (vault.groq) headers['x-groq-key'] = vault.groq;
+          if (vault.gemini) headers['x-gemini-key'] = vault.gemini;
+        }
+
         // Async dispatch keeps the page responsive while the agent works and
         // while it waits for your approval in the red bar above.
         const res = await fetch('/api/task', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: headers,
+          credentials: 'same-origin',
           body: JSON.stringify({
             goal: goal,
             maxSteps: Number((stepsSelect && stepsSelect.value) || 6),
@@ -1370,6 +1378,57 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]'): stri
       } catch (e) {
         statusBox.style.color = '#f87171';
         statusBox.textContent = 'Network error while starting the task.';
+      }
+    }
+
+    async function pollTaskResult(taskId, statusBox, attempt) {
+      const maxAttempts = 150; // Up to ~5 minutes (matching 5-min human approval timeout)
+      if (!taskId || !statusBox) return;
+      if (attempt >= maxAttempts) {
+        statusBox.style.color = '#f59e0b';
+        statusBox.textContent = 'Task ' + taskId + ' is still running in the background. Refresh to check status.';
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/task/' + encodeURIComponent(taskId), {
+          credentials: 'same-origin',
+        });
+        if (!res.ok) {
+          setTimeout(function () { pollTaskResult(taskId, statusBox, attempt + 1); }, 2000);
+          return;
+        }
+        const data = await res.json();
+        const task = data && data.task;
+        if (!task) {
+          setTimeout(function () { pollTaskResult(taskId, statusBox, attempt + 1); }, 2000);
+          return;
+        }
+
+        fetchWorkspaceApprovals();
+
+        if (task.status === 'COMPLETED') {
+          statusBox.style.color = '#10b981';
+          const answer = (task.result && task.result.finalAnswer) || 'Task completed.';
+          const steps = (task.result && task.result.stepsTaken) ? (' (' + task.result.stepsTaken + ' step(s))') : '';
+          statusBox.textContent = '✅ Completed' + steps + ':\\n' + answer;
+          fetchBillingUsage();
+          return;
+        }
+
+        if (task.status === 'FAILED') {
+          statusBox.style.color = '#f87171';
+          const errText = task.error || (task.result && task.result.finalAnswer) || 'Task failed.';
+          statusBox.textContent = '❌ Task failed: ' + errText;
+          fetchBillingUsage();
+          return;
+        }
+
+        statusBox.style.color = '#38bdf8';
+        statusBox.textContent = '⏳ Task ' + taskId + ' is ' + (task.status || 'RUNNING') + '... (checking approvals & tool progress)';
+        setTimeout(function () { pollTaskResult(taskId, statusBox, attempt + 1); }, 2000);
+      } catch (e) {
+        setTimeout(function () { pollTaskResult(taskId, statusBox, attempt + 1); }, 2500);
       }
     }
 

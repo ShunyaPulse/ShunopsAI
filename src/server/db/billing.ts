@@ -2,7 +2,8 @@ import { getSql, memStore } from "./store.js";
 
 // ==========================================
 // MODERN INDUSTRY-GRADE TOKEN BILLING & METERING
-// Replaces simplistic request counters with input & output token quotas.
+// Replaces simplistic request counters with input & output token quotas
+// and automatic 30-day rolling monthly billing cycle resets.
 // ==========================================
 
 export const TOKEN_PLAN_LIMITS: Record<string, number> = {
@@ -19,6 +20,7 @@ export const PLAN_LIMITS: Record<string, number> = {
 };
 
 const DEFAULT_PLAN = "community";
+const MONTHLY_WINDOW_MS = 30 * 24 * 60 * 60 * 1000; // 30-day billing cycle
 
 export interface UserUsage {
   plan: string;
@@ -28,6 +30,7 @@ export interface UserUsage {
   totalTokens: number;
   tokenLimit: number;
   limit: number; // Aliased to tokenLimit for backward compatibility
+  lastResetAt?: string | undefined;
 }
 
 export interface TokenMeterResult {
@@ -43,10 +46,24 @@ export interface TokenMeterResult {
 
 export type QueryMeterResult = TokenMeterResult;
 
+function isMonthlyCycleExpired(lastResetAt: unknown): boolean {
+  if (!lastResetAt) return false;
+  const ts = new Date(String(lastResetAt)).getTime();
+  if (!Number.isFinite(ts) || ts <= 0) return false;
+  return Date.now() - ts >= MONTHLY_WINDOW_MS;
+}
+
 export async function getUserUsageAndPlan(userId: number): Promise<UserUsage> {
   const sql = getSql();
   if (!sql) {
     const u = memStore.users.get(userId);
+    if (u && isMonthlyCycleExpired(u.last_reset_at)) {
+      u.query_count = 0;
+      u.input_tokens = 0;
+      u.output_tokens = 0;
+      u.total_tokens = 0;
+      u.last_reset_at = new Date().toISOString();
+    }
     const plan = u?.plan || DEFAULT_PLAN;
     const queryCount = Number(u?.query_count || 0);
     const inputTokens = Number(u?.input_tokens || 0);
@@ -61,15 +78,35 @@ export async function getUserUsageAndPlan(userId: number): Promise<UserUsage> {
       totalTokens,
       tokenLimit,
       limit: tokenLimit,
+      lastResetAt: u?.last_reset_at,
     };
   }
 
-  const rows = await (sql as any).query(
-    `SELECT plan, query_count, input_tokens, output_tokens, total_tokens 
+  let rows = await (sql as any).query(
+    `SELECT plan, query_count, input_tokens, output_tokens, total_tokens, last_reset_at
      FROM shunops_users WHERE id = $1 LIMIT 1;`,
     [userId]
   );
-  const row = rows[0];
+  let row = rows[0];
+
+  // Automatic 30-day rolling monthly quota reset
+  if (row && isMonthlyCycleExpired(row.last_reset_at)) {
+    try {
+      const resetRows = await (sql as any).query(
+        `UPDATE shunops_users
+         SET query_count = 0,
+             input_tokens = 0,
+             output_tokens = 0,
+             total_tokens = 0,
+             last_reset_at = CURRENT_TIMESTAMP
+         WHERE id = $1
+         RETURNING plan, query_count, input_tokens, output_tokens, total_tokens, last_reset_at;`,
+        [userId]
+      );
+      if (resetRows[0]) row = resetRows[0];
+    } catch {}
+  }
+
   const plan = row?.plan || DEFAULT_PLAN;
   const queryCount = Number(row?.query_count || 0);
   const inputTokens = Number(row?.input_tokens || 0);
@@ -85,6 +122,7 @@ export async function getUserUsageAndPlan(userId: number): Promise<UserUsage> {
     totalTokens,
     tokenLimit,
     limit: tokenLimit,
+    lastResetAt: row?.last_reset_at,
   };
 }
 
@@ -119,6 +157,13 @@ export async function recordUserTokenUsage(
   if (!sql) {
     const u = memStore.users.get(userId);
     if (u) {
+      if (isMonthlyCycleExpired(u.last_reset_at)) {
+        u.query_count = 0;
+        u.input_tokens = 0;
+        u.output_tokens = 0;
+        u.total_tokens = 0;
+        u.last_reset_at = new Date().toISOString();
+      }
       u.query_count = Number(u.query_count || 0) + 1;
       u.input_tokens = Number(u.input_tokens || 0) + inTok;
       u.output_tokens = Number(u.output_tokens || 0) + outTok;
@@ -136,6 +181,9 @@ export async function recordUserTokenUsage(
       plan: usage.plan,
     };
   }
+
+  // Ensure monthly window reset is applied if expired before incrementing
+  await getUserUsageAndPlan(userId).catch(() => {});
 
   const rows = await (sql as any).query(
     `UPDATE shunops_users 

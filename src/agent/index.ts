@@ -15,6 +15,7 @@ export {
   createClientForTarget,
   callChatCompletionWithFailover,
   type ModelTarget,
+  type ProviderKeyOverrides,
 } from "./models.js";
 
 export { buildSystemPrompt } from "./prompts.js";
