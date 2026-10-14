@@ -16,7 +16,41 @@ export interface DynamicMcpTool {
 const TENANT_SERVER_PREFIX = "user_";
 const MAX_TOOLS_PER_SERVER = 50;
 const MAX_TOOL_NAME_LENGTH = 64;
+const MAX_TOOL_DESC_LENGTH = 500;
 const MAX_TOOL_TEXT_LENGTH = 20000;
+const MAX_CACHED_SERVERS = 200;
+
+/**
+ * Strip prompt-injection control sequences and cap length on external MCP
+ * tool/parameter descriptions before exposing them to the LLM.
+ */
+function sanitizeMcpDescription(raw: unknown, fallback = ""): string {
+  const str = typeof raw === "string" ? raw : fallback;
+  return str
+    .replace(/[\r\n]+/g, " ")
+    .replace(/\b(system\s*override|ignore\s+(all\s+)?previous\s+instructions|system\s*:|assistant\s*:)/gi, "[filtered]")
+    .trim()
+    .slice(0, MAX_TOOL_DESC_LENGTH);
+}
+
+function sanitizeMcpProperties(props: unknown): Record<string, unknown> {
+  if (!props || typeof props !== "object" || Array.isArray(props)) return {};
+  const clean: Record<string, unknown> = {};
+  for (const [key, val] of Object.entries(props as Record<string, any>).slice(0, 40)) {
+    if (!/^[a-zA-Z0-9_.-]{1,64}$/.test(key)) continue;
+    if (val && typeof val === "object" && !Array.isArray(val)) {
+      clean[key] = {
+        ...val,
+        ...(typeof val.description === "string"
+          ? { description: sanitizeMcpDescription(val.description) }
+          : {}),
+      };
+    } else {
+      clean[key] = val;
+    }
+  }
+  return clean;
+}
 
 /**
  * In-memory registry for active MCP Servers.
@@ -36,6 +70,12 @@ class McpRegistryManager {
    * Register a new MCP Server (e.g. from environment or user workspace).
    */
   registerServer(config: McpServerConfig): void {
+    // Bound total registered tenant servers to prevent unbounded memory growth
+    if (!this.servers.has(config.id) && this.servers.size >= MAX_CACHED_SERVERS) {
+      const oldestTenantId = Array.from(this.servers.keys()).find((k) => this.isTenantServer(k));
+      if (oldestTenantId) this.unregisterServer(oldestTenantId);
+    }
+
     const previous = this.servers.get(config.id);
     const changed =
       !previous ||
@@ -89,15 +129,20 @@ class McpRegistryManager {
       .replace(/[^a-zA-Z0-9_-]/g, "_")
       .slice(0, MAX_TOOL_NAME_LENGTH);
 
+    const safeServerName = sanitizeMcpDescription(serverName, "MCP").slice(0, 64);
+    const safeToolDesc = sanitizeMcpDescription(tool.description, tool.name);
+
     const schema: OpenAI.ChatCompletionTool = {
       type: "function",
       function: {
         name: sanitizedName,
-        description: `[MCP: ${serverName}] ${tool.description || tool.name}`,
+        description: `[MCP: ${safeServerName}] ${safeToolDesc}`,
         parameters: {
           type: "object",
-          properties: (tool.inputSchema?.properties as Record<string, unknown>) || {},
-          required: tool.inputSchema?.required || [],
+          properties: sanitizeMcpProperties(tool.inputSchema?.properties),
+          required: Array.isArray(tool.inputSchema?.required)
+            ? tool.inputSchema.required.slice(0, 40)
+            : [],
         },
       },
     };
@@ -106,7 +151,7 @@ class McpRegistryManager {
       name: sanitizedName,
       originalName: tool.name,
       serverId,
-      serverName,
+      serverName: safeServerName,
       schema,
       execute: async (args: Record<string, unknown>) => {
         try {
@@ -117,9 +162,9 @@ class McpRegistryManager {
             .join("\n")
             .slice(0, MAX_TOOL_TEXT_LENGTH);
           if (res?.isError) {
-            return `[MCP Error from ${serverName}]: ${text || "Tool execution failed"}`;
+            return `[MCP Error from ${safeServerName}]: ${text || "Tool execution failed"}`;
           }
-          return text || `[MCP: ${serverName}] ${tool.name} returned no content.`;
+          return text || `[MCP: ${safeServerName}] ${tool.name} returned no content.`;
         } catch (err: any) {
           return `[MCP Client Error]: ${err.message || String(err)}`;
         }

@@ -561,8 +561,11 @@ export const toolRegistry: Record<ToolName, ToolDefinition> = {
         },
       },
     },
-    execute: async (args: { action: string; commandOrPayload: string; riskReason: string }) => {
-      const res = await requestHumanApproval(args.action, args.commandOrPayload, args.riskReason);
+    execute: async (args: { action: string; commandOrPayload: string; riskReason: string }, scope?: ToolScope) => {
+      const res = await requestHumanApproval(args.action, args.commandOrPayload, args.riskReason, {
+        userId: scope?.userId,
+        username: scope?.username,
+      });
       return res.approved ? `APPROVED: ${res.message}` : `REJECTED: ${res.message}`;
     },
   },

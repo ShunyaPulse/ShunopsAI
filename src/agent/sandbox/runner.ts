@@ -15,17 +15,18 @@ export interface SandboxExecutionResult {
 const DEFAULT_TIMEOUT_MS = 3000;
 const MAX_TIMEOUT_MS = 10000;
 const MAX_LOG_LINES = 1000;
+const MAX_LOG_LINE_CHARS = 4096;
+const MAX_RESULT_JSON_CHARS = 65536;
 
 /**
- * Defines the console inside the sandbox realm.
+ * Defines the console and return-value serializer inside the sandbox realm.
  *
  * This bootstrap deliberately runs *inside* the context, so every object the
  * user code can reach (the log array, the console methods, the formatting
- * helpers) belongs to the sandbox realm. Injecting host objects such as the
- * host `Object`, `JSON` or a host `console.log` function would hand the code a
- * host-realm `Function` constructor, and `Object.constructor("return process")()`
- * is then a one-line escape to the real host process. Nothing crosses the
- * boundary in that direction.
+ * helpers) belongs to the sandbox realm. Furthermore, non-primitive return
+ * values are serialized to JSON *inside* the VM timeout boundary so a malicious
+ * `toJSON()` getter, `Proxy` trap, or thenable returned by user code can never
+ * execute on the host thread outside `timeoutMs`.
  */
 const SANDBOX_BOOTSTRAP = `
 (function () {
@@ -33,19 +34,20 @@ const SANDBOX_BOOTSTRAP = `
   var logs = [];
   var format = function (value) {
     try {
-      if (typeof value === "string") return value;
+      if (typeof value === "string") return value.slice(0, ${MAX_LOG_LINE_CHARS});
       if (typeof value === "undefined") return "undefined";
-      if (typeof value === "function") return String(value);
-      return JSON.stringify(value);
+      if (typeof value === "function") return String(value).slice(0, ${MAX_LOG_LINE_CHARS});
+      var json = JSON.stringify(value);
+      return typeof json === "string" ? json.slice(0, ${MAX_LOG_LINE_CHARS}) : String(value).slice(0, ${MAX_LOG_LINE_CHARS});
     } catch (e) {
-      return String(value);
+      return String(value).slice(0, ${MAX_LOG_LINE_CHARS});
     }
   };
   var push = function (prefix, args) {
     if (logs.length >= ${MAX_LOG_LINES}) return;
     var parts = [];
     for (var i = 0; i < args.length; i++) parts.push(format(args[i]));
-    logs.push(prefix + parts.join(" "));
+    logs.push((prefix + parts.join(" ")).slice(0, ${MAX_LOG_LINE_CHARS}));
   };
   globalThis.__shunopsSandboxLogs = logs;
   globalThis.console = {
@@ -55,12 +57,22 @@ const SANDBOX_BOOTSTRAP = `
     info: function () { push("", arguments); },
     debug: function () { push("", arguments); }
   };
-  // The program is compiled by this realm's own evaluator from a value handed
-  // in as data. The host never assembles a script out of user text, and whatever
-  // is compiled here stays inside this realm.
+  // Compile, run, and serialize the return value inside the realm's timeout
+  // boundary so no live Proxy, getter, or Thenable ever crosses to the host.
   globalThis.__shunopsRun = function (source) {
     if (typeof source !== "string") throw new TypeError("Sandbox program must be a string.");
-    return new Function('"use strict";\\n' + source)();
+    var raw = new Function('"use strict";\\n' + source)();
+    if (raw === undefined || raw === null) return null;
+    var t = typeof raw;
+    if (t === "number" || t === "boolean") return raw;
+    if (t === "string") return raw.slice(0, ${MAX_RESULT_JSON_CHARS});
+    if (t === "bigint") return String(raw);
+    var serialized = JSON.stringify(raw);
+    if (typeof serialized !== "string") return null;
+    if (serialized.length > ${MAX_RESULT_JSON_CHARS}) {
+      throw new RangeError("Sandbox return value exceeded maximum serialized size (64KB).");
+    }
+    return { __json: serialized };
   };
 })();
 `;
@@ -86,11 +98,9 @@ function resolveTimeout(timeoutMs: number | undefined): number {
  * Security & Isolation:
  * 1. Strict time limit (default: 3000ms, ceiling 10000ms) prevents infinite loops.
  * 2. The code runs in a fresh `vm` realm whose globals are the realm's own
- *    natives; no host object, function, or module is ever passed in, so it has
- *    no reachable `process`, `require`, filesystem, or network. The program is
- *    handed to that realm as a string and compiled by the realm's own evaluator,
- *    so this module never builds a script out of user-supplied text.
- * 3. Console output is collected in the realm and copied out as plain strings.
+ *    natives; no host object, function, or module is ever passed in.
+ * 3. Non-primitive return values are JSON-serialized inside `runInContext` so
+ *    host callers never invoke sandbox getters, Proxies, or Thenables.
  */
 export async function executeInSandbox(
   code: string,
@@ -110,17 +120,27 @@ export async function executeInSandbox(
       { timeout: 1000 }
     );
 
-    // Hand the program over as data, then let the realm compile and run it (the
-    // whole call, including compilation, is inside the timeout).
+    // Hand the program over as data, then let the realm compile, run, and serialize it
+    // (the whole call, including result serialization, is inside the timeout).
     (context as Record<string, unknown>).__shunopsSandboxSource = code;
-    let result: unknown;
+    let rawResult: unknown;
     try {
-      result = new vm.Script(SANDBOX_RUNNER_SOURCE, {
+      rawResult = new vm.Script(SANDBOX_RUNNER_SOURCE, {
         filename: "shunops-sandbox-runner.js",
       }).runInContext(context, { timeout: timeoutMs, displayErrors: true });
     } finally {
       delete (context as Record<string, unknown>).__shunopsSandboxSource;
     }
+
+    let result: unknown = rawResult;
+    if (
+      rawResult &&
+      typeof rawResult === "object" &&
+      typeof (rawResult as { __json?: unknown }).__json === "string"
+    ) {
+      result = JSON.parse(String((rawResult as { __json: string }).__json));
+    }
+
     const executionTimeMs = Date.now() - startTime;
 
     return {
@@ -147,5 +167,7 @@ export async function executeInSandbox(
 function collectLogs(context: vm.Context): string[] {
   const raw = (context as { __shunopsSandboxLogs?: unknown }).__shunopsSandboxLogs;
   if (!Array.isArray(raw)) return [];
-  return Array.prototype.map.call(raw, (line: unknown) => String(line)) as string[];
+  return Array.prototype.slice
+    .call(raw, 0, MAX_LOG_LINES)
+    .map((line: unknown) => String(line).slice(0, MAX_LOG_LINE_CHARS));
 }

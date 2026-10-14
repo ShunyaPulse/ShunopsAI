@@ -60,6 +60,7 @@ function isPrivateOrSpecialIpv4(hostname: string): boolean {
     a === 0 || // "this network"
     a === 10 || // RFC1918
     a === 127 || // loopback
+    (a === 100 && b >= 64 && b <= 127) || // CGNAT RFC6598
     (a === 169 && b === 254) || // link-local
     (a === 192 && b === 168) || // RFC1918
     (a === 172 && b >= 16 && b <= 31) // RFC1918
@@ -73,6 +74,10 @@ function isDisallowedIpv6Literal(hostname: string): boolean {
   const v6 = normalized.slice(1, -1);
   return (
     v6 === "::1" || // loopback
+    v6 === "::" || // unspecified
+    v6 === "0:0:0:0:0:0:0:1" ||
+    v6 === "0:0:0:0:0:0:0:0" ||
+    v6.startsWith("::ffff:") || // IPv4-mapped IPv6
     v6.startsWith("fe80:") || // link-local
     v6.startsWith("fc") || // unique local
     v6.startsWith("fd") // unique local
@@ -250,15 +255,20 @@ export class McpHttpClient {
       }
 
       const url = new URL(destinationUrl);
-if (!['https:', 'http:'].includes(url.protocol)) {
-  throw new Error(`Invalid protocol for MCP endpoint: ${url.protocol}`);
-}
-const allowedHosts = Object.values(ALLOWED_MCP_TARGET_ENDPOINTS).map(u => new URL(u).hostname);
-if (!allowedHosts.includes(url.hostname)) {
-  throw new Error(`Disallowed MCP endpoint hostname: ${url.hostname}`);
-}
-const res = await fetch(url.toString(), {
+      if (!["https:", "http:"].includes(url.protocol)) {
+        throw new Error(`Invalid protocol for MCP endpoint: ${url.protocol}`);
+      }
+      const allowedHosts = Object.values(ALLOWED_MCP_TARGET_ENDPOINTS).map((u) => new URL(u).hostname);
+      if (!allowedHosts.includes(url.hostname)) {
+        throw new Error(`Disallowed MCP endpoint hostname: ${url.hostname}`);
+      }
+
+      // Disallow HTTP redirects (`redirect: "error"`) so an allowlisted MCP host
+      // can never 302-redirect a JSON-RPC request (or its Authorization header)
+      // to an internal metadata service or unlisted host.
+      const res = await fetch(url.toString(), {
         method: "POST",
+        redirect: "error",
         headers,
         body: JSON.stringify(payload),
         signal: controller.signal,

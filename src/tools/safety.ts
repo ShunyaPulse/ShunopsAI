@@ -104,13 +104,22 @@ function settleApproval(request: ApprovalRequest, approved: boolean): void {
  * Heuristics to check if an action is potentially destructive/sensitive
  */
 export function isActionSensitive(command: string): { isSensitive: boolean; reason: string } {
-  const normalized = command.trim().toLowerCase();
+  // Collapse SQL block/line comments so `DROP/**/TABLE` cannot evade whitespace regexes
+  const normalized = command
+    .replace(/\/\*[\s\S]*?\*\//g, " ")
+    .replace(/--[^\r\n]*/g, " ")
+    .trim()
+    .toLowerCase();
 
-  // Database sensitive keywords
-  if (/\b(drop\s+table|drop\s+database|drop\s+schema|truncate|delete\s+from|alter\s+table|update\s+\w+\s+set\b|grant\s+all|revoke\s+)\b/i.test(normalized)) {
+  // Database sensitive keywords (including Postgres file/program access functions)
+  if (
+    /\b(drop\s+table|drop\s+database|drop\s+schema|truncate|delete\s+from|alter\s+table|update\s+\w+\s+set\b|grant\s+all|revoke\s+|copy\s+.*\bprogram\b|pg_read_file|pg_read_binary_file|pg_ls_dir|lo_import|lo_export)\b/i.test(
+      normalized
+    )
+  ) {
     return {
       isSensitive: true,
-      reason: "Destructive or privilege-altering database operation.",
+      reason: "Destructive, privilege-altering, or host-accessing database operation.",
     };
   }
 
@@ -148,7 +157,7 @@ export function isActionSensitive(command: string): { isSensitive: boolean; reas
     };
   }
 
-  // Remote code execution / pipe-to-shell / encoded payloads
+  // Remote code execution / pipe-to-shell / encoded payloads / command substitution
   if (
     /\|\s*(sudo\s+)?(ba|z|k)?sh\b/.test(normalized) ||
     /(curl|wget)[^|;&]*\|\s*(sudo\s+)?(ba|z|k)?sh\b/.test(normalized) ||
@@ -157,11 +166,12 @@ export function isActionSensitive(command: string): { isSensitive: boolean; reas
     /(^|[\s;&|])nc\s+.*-e/.test(normalized) ||
     /(^|[\s;&|])ncat\s+.*-e/.test(normalized) ||
     /(^|[\s;&|])bash\s+-c\b/.test(normalized) ||
-    /(^|[\s;&|])sh\s+-c\b/.test(normalized)
+    /(^|[\s;&|])sh\s+-c\b/.test(normalized) ||
+    /\$\([^)]+\)/.test(normalized)
   ) {
     return {
       isSensitive: true,
-      reason: "Remote-code-execution or encoded-payload execution pattern detected.",
+      reason: "Remote-code-execution, command substitution, or encoded-payload execution pattern detected.",
     };
   }
 
@@ -200,13 +210,14 @@ export function isActionSensitive(command: string): { isSensitive: boolean; reas
   // Inline script and language runtime evaluation (bypasses static shell regex)
   if (
     /(^|[\s;&|])node(\.exe)?\s+(-e|--eval)\b/.test(normalized) ||
-    /(^|[\s;&|])python[23]?(\.exe)?\s+-c\b/.test(normalized) ||
+    /(^|[\s;&|])python[23]?(\.exe)?\s+(-c|-m)\b/.test(normalized) ||
     /(^|[\s;&|])perl\s+-e\b/.test(normalized) ||
-    /(^|[\s;&|])ruby\s+-e\b/.test(normalized)
+    /(^|[\s;&|])ruby\s+-e\b/.test(normalized) ||
+    /(^|[\s;&|])(npx|tsx|bunx|deno\s+eval)\b/.test(normalized)
   ) {
     return {
       isSensitive: true,
-      reason: "Direct inline code evaluation (node -e / python -c) detected.",
+      reason: "Direct inline code or package runner evaluation detected.",
     };
   }
 
@@ -230,17 +241,17 @@ export function isActionSensitive(command: string): { isSensitive: boolean; reas
     };
   }
 
-  // Destructive operations in GitHub, YouTube, Kaggle, and Cloudflare tools
+  // Destructive operations in GitHub, YouTube, Kaggle, Cloudflare tools, and critical workflow/manifest writes
   if (
     /^github\s+(delete_|force_push|destroy)/i.test(normalized) ||
     /^youtube\s+(delete|destroy|remove)/i.test(normalized) ||
     /^kaggle\s+(delete|destroy|remove)/i.test(normalized) ||
     /^auto_heal\s+.*(delete|destroy|purge)/i.test(normalized) ||
-    /^write_file\s+.*\.env/i.test(normalized)
+    /^write_file\s+.*(\.env|\.github[\\/]workflows|package\.json|dockerfile|\.sh\b|\.ps1\b)/i.test(normalized)
   ) {
     return {
       isSensitive: true,
-      reason: "Destructive cloud resource deletion, forced overwrite, or secret mutation requested.",
+      reason: "Destructive cloud resource deletion, workflow/manifest modification, or secret mutation requested.",
     };
   }
 

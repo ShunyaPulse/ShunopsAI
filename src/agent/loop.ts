@@ -260,7 +260,21 @@ export async function runAutonomousAgent(
         } else if (mcpToolHandlers.has(toolName)) {
           const mcpTool = mcpToolHandlers.get(toolName)!;
           try {
-            executionResult = await mcpTool.execute(parsedArgs);
+            const payload = sensitivityPayload(toolName, parsedArgs);
+            const sensitivity = isActionSensitive(payload);
+            if (sensitivity.isSensitive) {
+              const approval = await requestHumanApproval(
+                `MCP Tool: ${toolName}`,
+                payload,
+                sensitivity.reason,
+                { userId: scope?.userId, username: scope?.username }
+              );
+              executionResult = approval.approved
+                ? await mcpTool.execute(parsedArgs)
+                : `Aborted by safety gate: ${approval.message}`;
+            } else {
+              executionResult = await mcpTool.execute(parsedArgs);
+            }
           } catch (mcpErr: any) {
             executionResult = `Error executing MCP tool ${toolName}: ${mcpErr?.message || String(mcpErr)}`;
           }

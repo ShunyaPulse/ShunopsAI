@@ -361,59 +361,125 @@ export async function manageCloudflare(command: string): Promise<string> {
 const BLOCKED_SSRF_HOSTS = new Set([
   "169.254.169.254", // AWS / Azure / GCP instance metadata
   "metadata.google.internal",
+  "metadata.platform",
   "100.100.100.200", // Alibaba Cloud metadata
   "::ffff:169.254.169.254",
   "localhost",
   "127.0.0.1",
   "0.0.0.0",
+  "::",
   "::1",
   "::ffff:127.0.0.1",
 ]);
 
-/** Returns true when the hostname resolves to a private / loopback / link-local IP. */
-function isPrivateHost(hostname: string): boolean {
-  if (BLOCKED_SSRF_HOSTS.has(hostname.toLowerCase())) return true;
-  // IPv4 private ranges (RFC 1918) + loopback + link-local
-  if (/^(10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|127\.\d{1,3}\.\d{1,3}\.\d{1,3}|0\.0\.0\.0|169\.254\.\d{1,3}\.\d{1,3})$/.test(hostname)) return true;
+/** Returns true when the hostname resolves to a private / loopback / link-local IP or internal domain. */
+export function isPrivateHost(hostname: string): boolean {
+  // Strip trailing DNS dot and IPv6 brackets
+  const clean = hostname.trim().toLowerCase().replace(/\.$/, "").replace(/^\[|\]$/g, "");
+  if (!clean) return true;
+  if (BLOCKED_SSRF_HOSTS.has(clean)) return true;
+  if (
+    clean.endsWith(".internal") ||
+    clean.endsWith(".local") ||
+    clean.endsWith(".localhost") ||
+    clean.endsWith(".arpa")
+  ) {
+    return true;
+  }
+
+  // IPv6 loopback, unspecified, link-local, unique-local, or IPv4-mapped IPv6
+  if (
+    clean === "::1" ||
+    clean === "::" ||
+    clean === "0:0:0:0:0:0:0:1" ||
+    clean === "0:0:0:0:0:0:0:0" ||
+    clean.startsWith("fe80:") ||
+    clean.startsWith("fc") ||
+    clean.startsWith("fd") ||
+    clean.startsWith("::ffff:")
+  ) {
+    return true;
+  }
+
+  // IPv4 private ranges (RFC 1918) + loopback + link-local + CGNAT (100.64.0.0/10) + 0.0.0.0/8
+  if (
+    /^(0\.\d{1,3}\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|127\.\d{1,3}\.\d{1,3}\.\d{1,3}|169\.254\.\d{1,3}\.\d{1,3})$/.test(
+      clean
+    )
+  ) {
+    return true;
+  }
+
+  // Block integer/hex/octal single-number IPv4 representations (e.g. 2130706433 or 0x7f000001)
+  if (/^(0x[0-9a-f]+|\d+)$/i.test(clean)) {
+    return true;
+  }
+
   return false;
 }
 
 export async function inspectWebsite(url: string): Promise<string> {
-  const targetUrl = url.startsWith("http") ? url : `https://${url}`;
-
-  // SSRF guard: the agent must never be steered to cloud metadata services
-  // or internal network hosts.
-  try {
-    const parsed = new URL(targetUrl);
-    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-      return `Website Inspection blocked: only http(s) URLs are permitted.`;
-    }
-    if (isPrivateHost(parsed.hostname)) {
-      return `Website Inspection blocked: requests to internal or cloud metadata endpoints are not permitted.`;
-    }
-  } catch {
-    return `Website Inspection Failed: the provided URL is not valid.`;
-  }
+  let currentUrl = url.startsWith("http") ? url : `https://${url}`;
 
   const start = Date.now();
-  try {
-    const res = await fetch(targetUrl, {
-      method: "GET",
-      headers: { "User-Agent": "AutonomousAgent/1.0 (HealthCheck)" },
-      signal: AbortSignal.timeout(15000),
-    });
-    const latency = Date.now() - start;
-    const bodyText = await res.text();
-    const snippet = bodyText.slice(0, 400).replace(/\s+/g, " ");
+  const maxRedirects = 3;
 
-    return JSON.stringify({
-      url: targetUrl,
-      status: res.status,
-      statusText: res.statusText,
-      latencyMs: latency,
-      contentLength: bodyText.length,
-      htmlPreview: snippet,
-    }, null, 2);
+  try {
+    for (let hop = 0; hop <= maxRedirects; hop++) {
+      let parsed: URL;
+      try {
+        parsed = new URL(currentUrl);
+      } catch {
+        return `Website Inspection Failed: the provided URL is not valid.`;
+      }
+      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+        return `Website Inspection blocked: only http(s) URLs are permitted.`;
+      }
+      if (isPrivateHost(parsed.hostname)) {
+        return `Website Inspection blocked: requests to internal or cloud metadata endpoints are not permitted.`;
+      }
+
+      // Use manual redirect handling so every redirect target is validated against SSRF rules
+      const res = await fetch(parsed.toString(), {
+        method: "GET",
+        redirect: "manual",
+        headers: { "User-Agent": "AutonomousAgent/1.0 (HealthCheck)" },
+        signal: AbortSignal.timeout(15000),
+      });
+
+      if (res.status >= 300 && res.status < 400) {
+        const location = res.headers.get("location");
+        if (!location) {
+          return JSON.stringify({
+            url: currentUrl,
+            status: res.status,
+            statusText: res.statusText,
+            latencyMs: Date.now() - start,
+            contentLength: 0,
+            htmlPreview: "(Redirect response without Location header)",
+          }, null, 2);
+        }
+        if (hop === maxRedirects) {
+          return `Website Inspection blocked: exceeded maximum redirect hops (${maxRedirects}).`;
+        }
+        currentUrl = new URL(location, parsed).toString();
+        continue;
+      }
+
+      const latency = Date.now() - start;
+      const bodyText = await res.text();
+      const snippet = bodyText.slice(0, 400).replace(/\s+/g, " ");
+
+      return JSON.stringify({
+        url: currentUrl,
+        status: res.status,
+        statusText: res.statusText,
+        latencyMs: latency,
+        contentLength: bodyText.length,
+        htmlPreview: snippet,
+      }, null, 2);
+    }
+    return `Website Inspection blocked: redirect loop detected.`;
   } catch (err: any) {
     const safeMsg = (err.message || "Unknown error").replace(/[\n\r]/g, " ").slice(0, 200);
     return `Website Inspection Failed: ${safeMsg}`;
@@ -568,4 +634,3 @@ export async function manageComputeEngine(action: "metrics" | "services" | "disk
     return `GCE SSH Error for ${label}: ${err.message}\n${err.stderr || ""}\n(Hint: verify GCE_SSH_KEY, GCE_USER and that the VM firewall allows SSH.)`;
   }
 }
-

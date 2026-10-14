@@ -19,15 +19,33 @@ export const DEFAULT_IGNORED_DIRS = new Set([
   "coverage",
 ]);
 
+const MAX_DIRECTORY_TREE_ITEMS = 500;
+
 /** Secret files the agent must never read, write, or list. */
 export function isSecretPath(filepath: string): boolean {
+  const normalized = filepath.replace(/\\/g, "/").toLowerCase();
   const base = path.basename(filepath).toLowerCase();
   if (base === ".env.example") return false;
   if (/^\.env(\.|$)/.test(base)) return true;
-  if (/\.(pem|key|p12|pfx)$/.test(base)) return true;
+  if (/\.(pem|key|p12|pfx|jks|keystore)$/.test(base)) return true;
   if (/^id_(rsa|ed25519|ecdsa|dsa)$/.test(base)) return true;
-  if (base === "credentials.json" || base === "service-account.json") return true;
-  if (base === ".npmrc" || base === ".netrc" || base === ".git-credentials") return true;
+  if (
+    base === "credentials.json" ||
+    base === "service-account.json" ||
+    base === "kaggle.json" ||
+    base === "token.json" ||
+    /^client_secret.*\.json$/.test(base) ||
+    base === ".autonomy-paused.json" ||
+    base === ".auditor-state.json"
+  ) {
+    return true;
+  }
+  if (base === ".npmrc" || base === ".netrc" || base === ".git-credentials" || base === ".pypirc") {
+    return true;
+  }
+  if (normalized.includes(".aws/credentials") || normalized.includes(".kube/config")) {
+    return true;
+  }
   return false;
 }
 
@@ -84,7 +102,7 @@ export function assertAccessible(filepath: string): string {
 }
 
 /**
- * Recursively list files and directories with exclusion rules.
+ * Recursively list files and directories with exclusion rules and total entry cap.
  */
 export async function listDirectoryTree(
   dirPath: string,
@@ -98,6 +116,7 @@ export async function listDirectoryTree(
   try {
     const entries = await fs.readdir(dirPath, { withFileTypes: true });
     for (const entry of entries) {
+      if (results.length >= MAX_DIRECTORY_TREE_ITEMS) break;
       if (ignoreList.has(entry.name)) continue;
       if (isSecretPath(entry.name)) continue;
 
@@ -112,7 +131,10 @@ export async function listDirectoryTree(
           currentDepth + 1,
           ignoreList
         );
-        results.push(...subEntries);
+        for (const sub of subEntries) {
+          if (results.length >= MAX_DIRECTORY_TREE_ITEMS) break;
+          results.push(sub);
+        }
       } else {
         results.push(`📄 ${relativePath}`);
       }
@@ -138,18 +160,18 @@ export function sensitivityPayload(toolName: string, args: Record<string, any>):
     case "manage_cloudflare":
       return `wrangler ${args.command ?? ""}`.trim();
     case "manage_github":
-      return `github ${args.action ?? ""} ${args.repo ?? ""} ${args.branch ?? ""}`.trim();
+      return `github ${args.operation ?? args.action ?? ""} ${args.repo ?? ""} ${args.head ?? args.branch ?? ""} ${args.base ?? ""}`.trim();
     case "publish_to_youtube":
-      return `youtube ${args.action ?? ""} ${args.videoId ?? ""}`.trim();
+      return `youtube ${args.action ?? "publish"} ${args.jobIdOrPath ?? args.videoId ?? ""} ${args.privacy ?? ""}`.trim();
     case "manage_kaggle":
-      return `kaggle ${args.action ?? ""} ${args.dataset ?? args.kernel ?? ""}`.trim();
+      return `kaggle ${args.action ?? ""} ${args.ref ?? args.dataset ?? args.kernel ?? ""}`.trim();
     case "produce_video":
-      return `produce_video ${args.action ?? args.pipeline ?? ""}`.trim();
+      return `produce_video ${args.topic ?? args.action ?? args.pipeline ?? ""}`.trim();
     case "auto_heal_service":
-      return `auto_heal ${args.serviceName ?? ""} ${args.action ?? ""}`.trim();
+      return `auto_heal ${args.serviceName ?? ""} ${args.reason ?? args.action ?? ""}`.trim();
     case "write_file":
-      return `write_file ${args.filepath ?? ""} (${args.content?.length ?? 0} bytes)`.trim();
+      return `write_file ${args.filepath ?? ""} ${String(args.content ?? "").slice(0, 500)}`.trim();
     default:
-      return JSON.stringify(args);
+      return `${toolName} ${JSON.stringify(args)}`;
   }
 }

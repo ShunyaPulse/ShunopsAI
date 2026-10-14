@@ -16,11 +16,21 @@ export interface MemorySummaryOptions {
 }
 
 /**
+ * Neutralize embedded role/section headers inside message content so a user turn
+ * cannot spoof `Assistant:` or `System:` turns in rolling memory.
+ */
+function sanitizeTurnContent(content: string): string {
+  return String(content || "")
+    .replace(/={3,}/g, "---")
+    .replace(/(^|\n)\s*(User|Assistant|System)\s*:/gi, "$1[$2]:");
+}
+
+/**
  * Condenses a single turn into a concise bullet point.
  */
 function condenseTurn(turn: ChatTurn): string {
   const roleName = turn.role === "user" ? "User" : "Assistant";
-  const cleanContent = turn.content.replace(/\s+/g, " ").trim();
+  const cleanContent = sanitizeTurnContent(turn.content).replace(/\s+/g, " ").trim();
   const truncated = cleanContent.length > 180 ? cleanContent.slice(0, 177) + "..." : cleanContent;
   return `${roleName}: ${truncated}`;
 }
@@ -42,7 +52,7 @@ export function buildRollingMemory(
   // If conversation is short, keep all turns verbatim
   if (turns.length <= maxRecent) {
     const formatted = turns
-      .map((t) => `${t.role === "user" ? "User" : "Assistant"}: ${t.content}`)
+      .map((t) => `${t.role === "user" ? "User" : "Assistant"}: ${sanitizeTurnContent(t.content)}`)
       .join("\n\n");
     return `Recent Conversation Turns:\n${formatted}`;
   }
@@ -60,7 +70,7 @@ export function buildRollingMemory(
   }
 
   const formattedRecent = recentTurns
-    .map((t) => `${t.role === "user" ? "User" : "Assistant"}: ${t.content}`)
+    .map((t) => `${t.role === "user" ? "User" : "Assistant"}: ${sanitizeTurnContent(t.content)}`)
     .join("\n\n");
 
   return [
@@ -71,4 +81,3 @@ export function buildRollingMemory(
     formattedRecent,
   ].join("\n");
 }
-

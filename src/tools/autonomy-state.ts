@@ -1,8 +1,8 @@
-import { Redis } from "ioredis";
 import * as fs from "node:fs/promises";
 import * as fsSync from "node:fs";
 import * as path from "node:path";
 import { execFileSync } from "node:child_process";
+import { getRedisClient } from "../server/redis.js";
 
 export interface AutonomyStatus {
   paused: boolean;
@@ -15,37 +15,11 @@ export interface AutonomyStatus {
 const REDIS_KEY = "shunops:autonomy:paused";
 const LOCAL_STATE_FILE = path.resolve(process.cwd(), ".autonomy-paused.json");
 
-// In-memory cache with 3-second TTL for ultra-fast checks
+// In-memory cache with 4-second TTL for ultra-fast checks
 let memoryCache: { status: AutonomyStatus; expiresAt: number } | null = null;
 
-function getRedisClient(): Redis | null {
-  const redisUrl = process.env.REDIS_URL;
-  const redisHost = process.env.REDIS_HOST;
-
-  if (!redisUrl && !redisHost) return null;
-
-  try {
-    return redisUrl
-      ? new Redis(redisUrl, {
-          connectTimeout: 4000,
-          lazyConnect: true,
-          maxRetriesPerRequest: 1,
-        })
-      : new Redis({
-          host: redisHost || "127.0.0.1",
-          port: Number(process.env.REDIS_PORT) || 6379,
-          password: process.env.REDIS_PASSWORD || undefined,
-          connectTimeout: 4000,
-          lazyConnect: true,
-          maxRetriesPerRequest: 1,
-        });
-  } catch {
-    return null;
-  }
-}
-
 /**
- * Reads local fallback state file synchronously or asynchronously
+ * Reads local fallback state file synchronously
  */
 function readLocalState(): AutonomyStatus {
   try {
@@ -66,7 +40,7 @@ export async function isAutonomyPaused(): Promise<boolean> {
 }
 
 /**
- * Fetch full autonomy status (checking in-memory, OCI Redis, and local file fallback).
+ * Fetch full autonomy status (checking in-memory, shared OCI Redis, and local file fallback).
  */
 export async function getAutonomyStatus(): Promise<AutonomyStatus> {
   const now = Date.now();
@@ -74,24 +48,17 @@ export async function getAutonomyStatus(): Promise<AutonomyStatus> {
     return memoryCache.status;
   }
 
-  // 1. Try Redis
+  // 1. Try shared Redis singleton
   const redis = getRedisClient();
   if (redis) {
     try {
-      await redis.connect();
       const raw = await redis.get(REDIS_KEY);
-      await redis.quit();
-
       if (raw) {
         const parsed: AutonomyStatus = JSON.parse(raw);
         memoryCache = { status: parsed, expiresAt: now + 4000 };
         return parsed;
       }
-    } catch {
-      try {
-        redis.disconnect();
-      } catch {}
-    }
+    } catch {}
   }
 
   // 2. Fallback to local state file
@@ -147,25 +114,16 @@ export async function setAutonomyPaused(
     console.warn(`[AutonomyState] Could not write local state file: ${err.message}`);
   }
 
-  // 2. Update OCI Redis for distributed runners & GitHub Actions
+  // 2. Update shared OCI Redis with explicit `{ paused: false/true }` state (never delete the key,
+  // which caused other instances with stale local `.autonomy-paused.json` files to stay stuck paused).
   const redis = getRedisClient();
   if (redis) {
     try {
-      await redis.connect();
-      if (paused) {
-        await redis.set(REDIS_KEY, JSON.stringify(status));
-      } else {
-        await redis.del(REDIS_KEY);
-      }
-      await redis.quit();
-    } catch {
-      try {
-        redis.disconnect();
-      } catch {}
-    }
+      await redis.set(REDIS_KEY, JSON.stringify(status));
+    } catch {}
   }
 
-  // Clear memory cache so all subsequent calls reflect the new status
+  // Update memory cache so all subsequent calls reflect the new status
   memoryCache = { status, expiresAt: Date.now() + 4000 };
   return status;
 }
