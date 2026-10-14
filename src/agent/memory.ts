@@ -22,7 +22,7 @@ export interface MemorySummaryOptions {
 function sanitizeTurnContent(content: string): string {
   return String(content || "")
     .replace(/={3,}/g, "---")
-    .replace(/(^|\n)\s*(User|Assistant|System)\s*:/gi, "$1[$2]:");
+    .replace(/(^|\n)[ \t]*(user|assistant|system)[ \t]*:/gi, "$1[$2]:");
 }
 
 /**
