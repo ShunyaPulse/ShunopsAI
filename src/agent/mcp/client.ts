@@ -186,7 +186,7 @@ export function assertAllowedMcpUrl(rawUrl: string): string {
  * Directory of endpoints `fetch` may reach, keyed by canonical URL so the
  * client never builds a destination from a raw user string by itself.
  */
-export const ALLOWED_MCP_TARGET_ENDPOINTS: Record<string, string> = {
+const STATIC_MCP_TARGET_ENDPOINTS: Readonly<Record<string, string>> = Object.freeze({
   "https://mcp.wikipedia.org/v1": "https://mcp.wikipedia.org/v1",
   "https://mcp.firecrawl.dev/v1": "https://mcp.firecrawl.dev/v1",
   "https://mcp.browserbase.com/v1": "https://mcp.browserbase.com/v1",
@@ -200,6 +200,10 @@ export const ALLOWED_MCP_TARGET_ENDPOINTS: Record<string, string> = {
   "https://mcp.example.com": "https://mcp.example.com",
   "https://api.mcp.example.com": "https://api.mcp.example.com",
   "http://127.0.0.1:8000/sse": "http://127.0.0.1:8000/sse",
+});
+
+export const ALLOWED_MCP_TARGET_ENDPOINTS: Record<string, string> = {
+  ...STATIC_MCP_TARGET_ENDPOINTS,
 };
 
 /** Register an already-validated endpoint, returning its canonical form. */
@@ -244,9 +248,9 @@ export class McpHttpClient {
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
-      // The destination is only ever a value from the validated directory.
+      // The destination must be a compile-time trusted endpoint.
       const destinationUrl =
-        ALLOWED_MCP_TARGET_ENDPOINTS[normalizeMcpEndpoint(this.config.url)];
+        STATIC_MCP_TARGET_ENDPOINTS[normalizeMcpEndpoint(this.config.url)];
 
       if (!destinationUrl) {
         throw new Error(
@@ -258,8 +262,7 @@ export class McpHttpClient {
       if (!["https:", "http:"].includes(url.protocol)) {
         throw new Error(`Invalid protocol for MCP endpoint: ${url.protocol}`);
       }
-      const allowedHosts = Object.values(ALLOWED_MCP_TARGET_ENDPOINTS).map((u) => new URL(u).hostname);
-      if (!Object.values(ALLOWED_MCP_TARGET_ENDPOINTS).includes(url.toString())) {
+      if (!Object.values(STATIC_MCP_TARGET_ENDPOINTS).includes(url.toString())) {
         throw new Error(`Disallowed MCP endpoint hostname: ${url.hostname}`);
       }
 
