@@ -78,6 +78,28 @@ export function getShunopsDashboardHtml(initialData: {
         </div>
       </div>
 
+      <!-- OpenTelemetry Distributed Tracing & SOTA Runtime Engine Panel -->
+      <div class="panel" id="telemetry-panel">
+        <div class="panel-header">
+          <div class="panel-title">
+            <span>📡</span> OpenTelemetry Distributed Tracing &amp; SOTA Runtime Metrics
+          </div>
+          <button class="btn btn-secondary" onclick="fetchTelemetryPanel()">🔄 Refresh OTel</button>
+        </div>
+        <div id="telemetry-stats-bar" style="padding: 12px 16px; background: rgba(255,255,255,0.03); border-bottom: 1px solid var(--border); display: flex; flex-wrap: wrap; gap: 18px; font-size: 12px; font-family: var(--code-font);">
+          <span>p50: <strong id="otel-p50" style="color:#10b981;">0ms</strong></span>
+          <span>p95: <strong id="otel-p95" style="color:#f59e0b;">0ms</strong></span>
+          <span>p99: <strong id="otel-p99" style="color:#38bdf8;">0ms</strong></span>
+          <span>Spans: <strong id="otel-spans" style="color:#e2e8f0;">0</strong></span>
+          <span>Vector Tier: <strong id="otel-vector-tier" style="color:#a78bfa;">768-dim</strong></span>
+          <span>Cache Hit: <strong id="otel-cache-hit" style="color:#34d399;">0%</strong></span>
+          <span>Sandbox: <strong id="otel-sandbox-tiers" style="color:#67e8f9;">WASM + V8 Isolate</strong></span>
+        </div>
+        <div id="telemetry-traces-container" style="padding: 16px; max-height: 240px; overflow-y: auto;">
+          <div style="font-size: 12px; color: var(--text-muted); font-family: var(--code-font);">Loading W3C TraceContext spans...</div>
+        </div>
+      </div>
+
       <!-- Approvals Queue Panel -->
       <div class="panel" id="approvals-panel">
         <div class="panel-header">

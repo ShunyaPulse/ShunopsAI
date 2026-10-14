@@ -8,6 +8,12 @@ import fastifySwagger from "@fastify/swagger";
 import fastifySwaggerUi from "@fastify/swagger-ui";
 import { createRequireAuth, createRequireDashboardAuth } from "./middleware/auth.js";
 import { registerRoutes } from "./routes/index.js";
+import {
+  startHttpRequestSpan,
+  finishHttpRequestSpan,
+  formatTraceparent,
+  type HttpRequestSpanHandle,
+} from "../telemetry/otel.js";
 
 export interface AppConfig {
   /** Bearer token guarding privileged endpoints. */
@@ -92,24 +98,33 @@ export async function createApp(config: AppConfig = loadAppConfig()): Promise<Fa
   // Directly mirrors the security baseline from Kanban Cloud middleware.ts
   // (the CSRF exemptions used by the mutation check below are declared next to it)
   /**
- * Mutation endpoints exempt from the ambient-credential CSRF check, because they
- * authenticate per request: HMAC (GitHub/cloud webhooks), a shared secret
- * header, or the bot-shield challenge that guards anonymous chat.
- */
-const CSRF_EXEMPT_MUTATION_PREFIXES = [
-  "/api/github-webhook",
-  "/api/webhook/",
-  "/api/chat",
-  "/api/shield/",
-  "/api/widget",
-  "/api/action/confirm",
-];
+   * Mutation endpoints exempt from the ambient-credential CSRF check, because they
+   * authenticate per request: HMAC (GitHub/cloud webhooks), a shared secret
+   * header, or the bot-shield challenge that guards anonymous chat.
+   */
+  const CSRF_EXEMPT_MUTATION_PREFIXES = [
+    "/api/github-webhook",
+    "/api/webhook/",
+    "/api/chat",
+    "/api/shield/",
+    "/api/widget",
+    "/api/action/confirm",
+  ];
 
-const MALICIOUS_PROBE_REGEX =
+  const MALICIOUS_PROBE_REGEX =
     /(?:\.env|\.git|wp-admin|wp-login|xmlrpc|phpinfo|eval\(|<script|\.\.[\/\\]|etc\/passwd|union\s+select|sleep\(\d+\)|benchmark\(|drop\s+table|exec\s*\(|cmd\.exe|\/bin\/sh)/i;
 
   app.addHook("onRequest", async (req, reply) => {
     const rawUrl = req.raw.url || req.url;
+
+    // Start W3C TraceContext OpenTelemetry root span for every request
+    const traceparentHeader =
+      typeof req.headers.traceparent === "string" ? req.headers.traceparent : undefined;
+    const spanHandle = startHttpRequestSpan(req.method, rawUrl, traceparentHeader);
+    (req as any).__otelSpan = spanHandle;
+    reply.header("X-Trace-Id", spanHandle.traceId);
+    reply.header("traceparent", formatTraceparent(spanHandle.traceId, spanHandle.spanId));
+
     if (MALICIOUS_PROBE_REGEX.test(rawUrl)) {
       reply.status(400).send({ error: "Bad Request: Security policy violation" });
       return reply;
@@ -148,6 +163,13 @@ const MALICIOUS_PROBE_REGEX =
           }
         }
       }
+    }
+  });
+
+  app.addHook("onResponse", async (req, reply) => {
+    const spanHandle = (req as any).__otelSpan as HttpRequestSpanHandle | undefined;
+    if (spanHandle) {
+      finishHttpRequestSpan(spanHandle, reply.statusCode);
     }
   });
 

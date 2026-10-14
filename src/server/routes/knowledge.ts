@@ -3,6 +3,7 @@ import {
   searchKnowledgeHybrid,
   indexKnowledgeDocument,
   deleteKnowledgeDocument,
+  getKnowledgeStats,
 } from "../db.js";
 import { isAdminUser } from "../scope.js";
 
@@ -15,6 +16,14 @@ export async function knowledgeRoutes(
   options: KnowledgeRouteOptions
 ): Promise<void> {
   const { requireAuth } = options;
+
+  // 0. Inspect Hybrid Knowledge Engine & Embedding Cache Stats
+  app.get("/api/knowledge/stats", { preHandler: [requireAuth] }, async () => {
+    return {
+      success: true,
+      stats: getKnowledgeStats(),
+    };
+  });
 
   // 1. Search knowledge base via Neon Lakebase Hybrid Search (Public / Authenticated)
   app.get<{
@@ -39,6 +48,7 @@ export async function knowledgeRoutes(
       query,
       category: category || null,
       results,
+      engine: getKnowledgeStats().activeTier,
     };
   });
 

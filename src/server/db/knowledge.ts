@@ -1,9 +1,13 @@
 import { getSql, memStore } from "./store.js";
 
 // ==========================================
-// ShunopsAI Neon Lakebase Hybrid Knowledge Search
+// ShunopsAI SOTA Multi-Tier Hybrid Knowledge Engine
 // Combines Postgres Full-Text Search (BM25 ranking via ts_rank_cd)
-// with 768-dim semantic vector embeddings and Reciprocal Rank Fusion (RRF).
+// with 4-Tier 768-dim Semantic Vector Embeddings + Bounded LRU Cache + RRF:
+//   Tier 1: Local Quantized ONNX CPU (`@huggingface/transformers` Xenova/bge-base-en-v1.5)
+//   Tier 2: Cloudflare Workers AI (`@cf/baai/bge-base-en-v1.5`, 768-dim)
+//   Tier 3: Google Gemini (`text-embedding-004`, 768-dim)
+//   Tier 4: Deterministic 768-dim L2-normalized semantic feature-hashing fallback
 // ==========================================
 
 export interface KnowledgeDoc {
@@ -28,14 +32,87 @@ export interface SearchOptions {
   queryEmbedding?: number[] | undefined;
 }
 
+export type EmbeddingTier =
+  | "onnx-bge-base-768"
+  | "cloudflare-bge-768"
+  | "gemini-text-embedding-004"
+  | "deterministic-hash-768";
+
 const EMBEDDING_DIM = 768;
 const RRF_K = 60;
+const MAX_EMBEDDING_CACHE = 512;
+
+// Bounded LRU Embedding Cache (0ms lookup for repeated queries / documents)
+const embeddingLruCache = new Map<string, { vector: number[]; tier: EmbeddingTier }>();
+let embeddingCacheHits = 0;
+let embeddingCacheMisses = 0;
+let lastResolvedTier: EmbeddingTier = "deterministic-hash-768";
+
+// Lazy singleton for local quantized ONNX feature-extraction pipeline
+let onnxExtractorPromise: Promise<any | null> | null = null;
+let onnxAvailable = false;
+
+async function getLocalOnnxExtractor(): Promise<any | null> {
+  if (
+    process.env.ENABLE_LOCAL_ONNX_EMBEDDINGS === "false" ||
+    process.env.NODE_ENV === "test"
+  ) {
+    return null;
+  }
+  if (!onnxExtractorPromise) {
+    onnxExtractorPromise = (async () => {
+      try {
+        const spec = "@huggingface/transformers";
+        const mod: any = await import(/* @vite-ignore */ spec);
+        const pipelineFn = mod?.pipeline || mod?.default?.pipeline;
+        if (typeof pipelineFn !== "function") return null;
+        const modelId =
+          process.env.LOCAL_EMBEDDING_MODEL || "Xenova/bge-base-en-v1.5";
+        const extractor = await pipelineFn("feature-extraction", modelId, {
+          quantized: true,
+        });
+        onnxAvailable = true;
+        return extractor;
+      } catch {
+        onnxAvailable = false;
+        return null;
+      }
+    })();
+  }
+  return onnxExtractorPromise;
+}
+
+function getCachedEmbedding(key: string): number[] | null {
+  const entry = embeddingLruCache.get(key);
+  if (!entry) {
+    embeddingCacheMisses++;
+    return null;
+  }
+  embeddingCacheHits++;
+  // Refresh LRU order
+  embeddingLruCache.delete(key);
+  embeddingLruCache.set(key, entry);
+  return entry.vector;
+}
+
+function setCachedEmbedding(key: string, vector: number[], tier: EmbeddingTier): void {
+  if (embeddingLruCache.has(key)) {
+    embeddingLruCache.delete(key);
+  } else if (embeddingLruCache.size >= MAX_EMBEDDING_CACHE) {
+    const oldestKey = embeddingLruCache.keys().next().value;
+    if (oldestKey !== undefined) {
+      embeddingLruCache.delete(oldestKey);
+    }
+  }
+  embeddingLruCache.set(key, { vector, tier });
+  lastResolvedTier = tier;
+}
 
 /**
  * Deterministic 768-dimensional L2-normalized semantic feature-hashing embedding.
  * Combines normalized word stems, bigrams, and character 3-grams using signed FNV-1a
  * projections so hybrid vector + BM25 RRF works offline and in-memory with zero latency,
- * while remaining compatible with 768-dim Gemini `text-embedding-004` vectors in pgvector.
+ * while remaining compatible with 768-dim BGE / Gemini vectors in pgvector.
  */
 export function computeDeterministicEmbedding(text: string): number[] {
   const vec = new Float64Array(EMBEDDING_DIM);
@@ -99,13 +176,74 @@ export function computeDeterministicEmbedding(text: string): number[] {
 
 /**
  * Generates a 768-dimensional embedding vector for a knowledge document or search query.
- * Uses Google Gemini `text-embedding-004` when configured in production, and falls back
- * seamlessly to the deterministic 768-dim L2-normalized feature-hashing vector.
+ * Cascades through:
+ *   1. Bounded LRU Cache (0ms)
+ *   2. Tier 1: Local Quantized ONNX (`@huggingface/transformers` `Xenova/bge-base-en-v1.5`)
+ *   3. Tier 2: Cloudflare Workers AI (`@cf/baai/bge-base-en-v1.5`, 768-dim)
+ *   4. Tier 3: Google Gemini (`text-embedding-004`, 768-dim)
+ *   5. Tier 4: Deterministic 768-dim L2-normalized feature-hashing vector
  */
 export async function generateKnowledgeEmbedding(text: string): Promise<number[]> {
   const input = String(text || "").trim().slice(0, 8000);
   if (!input) return computeDeterministicEmbedding("");
 
+  const cached = getCachedEmbedding(input);
+  if (cached) return cached;
+
+  // Tier 1: Local Quantized ONNX CPU Embedding Pipeline (Zero API Cost)
+  if (process.env.NODE_ENV !== "test") {
+    const onnxExtractor = await getLocalOnnxExtractor();
+    if (onnxExtractor) {
+      try {
+        const output = await onnxExtractor(input, {
+          pooling: "mean",
+          normalize: true,
+        });
+        const data = output?.data ? Array.from(output.data as Iterable<number>) : null;
+        if (data && data.length === EMBEDDING_DIM) {
+          const vec = data.map((v) => Number(v) || 0);
+          setCachedEmbedding(input, vec, "onnx-bge-base-768");
+          return vec;
+        }
+      } catch {
+        // Fall through to Tier 2
+      }
+    }
+  }
+
+  // Tier 2: Cloudflare Workers AI `@cf/baai/bge-base-en-v1.5` (768-dim)
+  const cfAccountId = (process.env.CLOUDFLARE_ACCOUNT_ID || "").trim();
+  const cfToken = (process.env.CLOUDFLARE_API_TOKEN || "").trim();
+  if (cfAccountId && cfToken && process.env.NODE_ENV !== "test") {
+    try {
+      const res = await fetch(
+        `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(cfAccountId)}/ai/run/@cf/baai/bge-base-en-v1.5`,
+        {
+          method: "POST",
+          redirect: "error",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${cfToken}`,
+          },
+          body: JSON.stringify({ text: [input] }),
+          signal: AbortSignal.timeout(4000),
+        }
+      );
+      if (res.ok) {
+        const payload = (await res.json()) as any;
+        const values = payload?.result?.data?.[0];
+        if (Array.isArray(values) && values.length === EMBEDDING_DIM) {
+          const vec = values.map((v: any) => Number(v) || 0);
+          setCachedEmbedding(input, vec, "cloudflare-bge-768");
+          return vec;
+        }
+      }
+    } catch {
+      // Fall through to Tier 3
+    }
+  }
+
+  // Tier 3: Google Gemini `text-embedding-004` (768-dim)
   const geminiKey = (
     process.env.GEMINI_API_KEY ||
     (process.env.GEMINI_KEYS || "").split(",")[0] ||
@@ -134,15 +272,55 @@ export async function generateKnowledgeEmbedding(text: string): Promise<number[]
         const data = (await res.json()) as any;
         const values = data?.embedding?.values;
         if (Array.isArray(values) && values.length === EMBEDDING_DIM) {
-          return values.map((v: any) => Number(v) || 0);
+          const vec = values.map((v: any) => Number(v) || 0);
+          setCachedEmbedding(input, vec, "gemini-text-embedding-004");
+          return vec;
         }
       }
     } catch {
-      // Fall back to deterministic local 768-dim embedding
+      // Fall back to Tier 4 deterministic local 768-dim embedding
     }
   }
 
-  return computeDeterministicEmbedding(input);
+  // Tier 4: Deterministic 768-dim L2-normalized feature-hashing fallback
+  const fallbackVec = computeDeterministicEmbedding(input);
+  setCachedEmbedding(input, fallbackVec, "deterministic-hash-768");
+  return fallbackVec;
+}
+
+/**
+ * Inspect the active SOTA Hybrid Knowledge Engine configuration, embedding cache performance,
+ * and document counts.
+ */
+export function getKnowledgeStats() {
+  const totalLookups = embeddingCacheHits + embeddingCacheMisses;
+  const hitRate =
+    totalLookups > 0 ? Number(((embeddingCacheHits / totalLookups) * 100).toFixed(1)) : 0;
+
+  const configuredTiers: EmbeddingTier[] = [];
+  if (onnxAvailable) configuredTiers.push("onnx-bge-base-768");
+  if (process.env.CLOUDFLARE_ACCOUNT_ID && process.env.CLOUDFLARE_API_TOKEN) {
+    configuredTiers.push("cloudflare-bge-768");
+  }
+  if (process.env.GEMINI_API_KEY || process.env.GEMINI_KEYS) {
+    configuredTiers.push("gemini-text-embedding-004");
+  }
+  configuredTiers.push("deterministic-hash-768");
+
+  return {
+    activeTier: lastResolvedTier,
+    configuredTiers,
+    embeddingDimension: EMBEDDING_DIM,
+    rrfK: RRF_K,
+    cache: {
+      size: embeddingLruCache.size,
+      maxEntries: MAX_EMBEDDING_CACHE,
+      hits: embeddingCacheHits,
+      misses: embeddingCacheMisses,
+      hitRatePercent: hitRate,
+    },
+    inMemoryDocumentsCount: memStore.knowledgeDocs.size,
+  };
 }
 
 /** Cosine similarity between two equal-length vectors. */

@@ -15,6 +15,7 @@ import { workspaceRoutes } from "./workspace.js";
 import { billingRoutes } from "./billing.js";
 import { knowledgeRoutes } from "./knowledge.js";
 import { actionConfirmRoutes } from "./actionConfirm.js";
+import { telemetryRoutes } from "./telemetry.js";
 
 export interface MountRoutesDeps {
   requireAuth: preHandlerHookHandler;
@@ -33,6 +34,10 @@ export async function registerRoutes(app: FastifyInstance, deps: MountRoutesDeps
   await app.register(workspaceRoutes, { requireAuth: deps.requireAuth });
   await app.register(billingRoutes, { requireAuth: deps.requireAuth });
   await app.register(knowledgeRoutes, { requireAuth: deps.requireAuth });
+  await app.register(telemetryRoutes, {
+    requireDashboardAuth: deps.requireDashboardAuth,
+    requireAuth: deps.requireAuth,
+  });
   await app.register(sentinelRoutes, {
     requireDashboardAuth: deps.requireDashboardAuth,
     requireAuth: deps.requireAuth,

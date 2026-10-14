@@ -154,6 +154,7 @@ export const DASHBOARD_SCRIPTS = `
         } else {
           appendMsg(JSON.stringify(data, null, 2), "agent");
         }
+        fetchTelemetryPanel();
       } catch (err) {
         appendMsg("Execution error: " + err.message, "agent");
       } finally {
@@ -241,6 +242,76 @@ export const DASHBOARD_SCRIPTS = `
       } finally {
         if (btn) btn.disabled = false;
       }
+    }
+
+    // --- OpenTelemetry Distributed Tracing & SOTA Runtime Metrics ---
+    async function fetchTelemetryPanel() {
+      const container = document.getElementById("telemetry-traces-container");
+      if (!container) return;
+
+      try {
+        const [metricsRes, tracesRes] = await Promise.all([
+          fetch("/api/telemetry/metrics", { headers: getAuthHeaders(), credentials: "same-origin" }),
+          fetch("/api/telemetry/traces?limit=15", { headers: getAuthHeaders(), credentials: "same-origin" })
+        ]);
+
+        if (metricsRes.ok) {
+          const mData = await metricsRes.json();
+          const t = mData.telemetry || {};
+          const k = mData.knowledgeEngine || {};
+          const s = mData.sandboxEngine || {};
+          if (t.latencyMs) {
+            document.getElementById("otel-p50").innerText = (t.latencyMs.p50 || 0) + "ms";
+            document.getElementById("otel-p95").innerText = (t.latencyMs.p95 || 0) + "ms";
+            document.getElementById("otel-p99").innerText = (t.latencyMs.p99 || 0) + "ms";
+          }
+          document.getElementById("otel-spans").innerText = String(t.totalSpansRecorded || 0);
+          if (k.activeTier) {
+            document.getElementById("otel-vector-tier").innerText = k.activeTier;
+          }
+          if (k.cache) {
+            document.getElementById("otel-cache-hit").innerText = (k.cache.hitRatePercent || 0) + "% (" + (k.cache.size || 0) + ")";
+          }
+          if (Array.isArray(s.tiers)) {
+            document.getElementById("otel-sandbox-tiers").innerText = s.tiers.join(" → ");
+          }
+        }
+
+        if (tracesRes.ok) {
+          const tData = await tracesRes.json();
+          const traces = tData.traces || [];
+          if (traces.length === 0) {
+            container.innerHTML = '<div style="font-size: 12px; color: var(--text-muted); font-family: var(--code-font);">No spans recorded yet.</div>';
+            return;
+          }
+          container.innerHTML = \`
+            <table style="width: 100%; border-collapse: collapse; font-size: 11px; font-family: var(--code-font);">
+              <thead>
+                <tr style="border-bottom: 1px solid var(--border); color: var(--text-muted); text-align: left;">
+                  <th style="padding: 6px 4px;">Trace / Span</th>
+                  <th style="padding: 6px 4px;">Operation</th>
+                  <th style="padding: 6px 4px;">Kind</th>
+                  <th style="padding: 6px 4px;">Status</th>
+                  <th style="padding: 6px 4px; text-align: right;">Duration</th>
+                </tr>
+              </thead>
+              <tbody>
+                \${traces.map(sp => {
+                  const isErr = sp.status === 'ERROR';
+                  return \`
+                  <tr style="border-bottom: 1px solid rgba(255,255,255,0.04);">
+                    <td style="padding: 6px 4px; color: #94a3b8;">\${escapeHtml(String(sp.traceId || '').slice(0, 8))}:\${escapeHtml(String(sp.spanId || '').slice(0, 8))}</td>
+                    <td style="padding: 6px 4px; color: #f8fafc; font-weight: 600;">\${escapeHtml(sp.name)}</td>
+                    <td style="padding: 6px 4px; color: #38bdf8;">\${escapeHtml(sp.kind)}</td>
+                    <td style="padding: 6px 4px; color: \${isErr ? '#ef4444' : '#10b981'};">\${escapeHtml(sp.status)}</td>
+                    <td style="padding: 6px 4px; text-align: right; color: #f59e0b;">\${Number(sp.durationMs) || 0}ms</td>
+                  </tr>\`;
+                }).join("")}
+              </tbody>
+            </table>
+          \`;
+        }
+      } catch (err) {}
     }
 
     // --- Human-in-the-Loop Approvals Queue ---
@@ -410,7 +481,9 @@ export const DASHBOARD_SCRIPTS = `
       checkAutonomyStatus();
       fetchPendingApprovals();
       fetchAdminUsers();
+      fetchTelemetryPanel();
       setInterval(checkAutonomyStatus, 10000);
       setInterval(fetchPendingApprovals, 4000); // Live approvals polling
+      setInterval(fetchTelemetryPanel, 6000); // Live OTel traces & metrics polling
     });
   `;

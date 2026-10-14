@@ -6,6 +6,7 @@ import type {
   McpJsonRpcResponse,
 } from "./types.js";
 import { POPULAR_100_MCP_PRESETS } from "../../dashboard/mcp-presets-catalog.js";
+import { withSpan, getActiveSpanContext, formatTraceparent } from "../../telemetry/otel.js";
 
 /**
  * Lightweight, zero-dependency MCP HTTP Client.
@@ -373,91 +374,105 @@ export class McpHttpClient {
       throw new Error(`MCP Server [${this.config.name}] has no endpoint URL configured.`);
     }
 
-    const payload: McpJsonRpcRequest = {
-      jsonrpc: "2.0",
-      id: this.requestId++,
-      method,
-      params,
-    };
+    return withSpan(
+      `mcp.jsonrpc ${this.config.name}:${method}`,
+      {
+        kind: "CLIENT",
+        attributes: {
+          "mcp.server": this.config.name,
+          "mcp.method": method,
+        },
+      },
+      async () => {
+        const payload: McpJsonRpcRequest = {
+          jsonrpc: "2.0",
+          id: this.requestId++,
+          method,
+          params,
+        };
 
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-      Accept: "application/json",
-      ...(this.config.headers || {}),
-    };
+        const activeSpan = getActiveSpanContext();
+        const headers: Record<string, string> = {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+          ...(activeSpan ? { traceparent: formatTraceparent(activeSpan.traceId, activeSpan.spanId) } : {}),
+          ...(this.config.headers || {}),
+        };
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
-    try {
-      // The destination is only ever a value from the validated directory.
-      const destinationUrl =
-        ALLOWED_MCP_TARGET_ENDPOINTS[normalizeMcpEndpoint(this.config.url)];
+        try {
+          // The destination is only ever a value from the validated directory.
+          const destinationUrl =
+            ALLOWED_MCP_TARGET_ENDPOINTS[normalizeMcpEndpoint(this.config.url!)];
 
-      if (!destinationUrl) {
-        throw new Error(
-          `Disallowed MCP endpoint: ${this.config.url}. Endpoint must be registered in allowed MCP targets.`
-        );
-      }
+          if (!destinationUrl) {
+            throw new Error(
+              `Disallowed MCP endpoint: ${this.config.url}. Endpoint must be registered in allowed MCP targets.`
+            );
+          }
 
-      const url = new URL(destinationUrl);
-      if (!["https:", "http:"].includes(url.protocol)) {
-        throw new Error(`Invalid protocol for MCP endpoint: ${url.protocol}`);
-      }
+          const url = new URL(destinationUrl);
+          if (!["https:", "http:"].includes(url.protocol)) {
+            throw new Error(`Invalid protocol for MCP endpoint: ${url.protocol}`);
+          }
 
-      if (url.pathname.includes("..") || url.pathname.startsWith("//")) {
-        throw new Error("Disallowed path traversal in MCP URL");
-      }
+          if (url.pathname.includes("..") || url.pathname.startsWith("//")) {
+            throw new Error("Disallowed path traversal in MCP URL");
+          }
 
-      const hostname = url.hostname.toLowerCase();
-      const matchedHost = KNOWN_ALLOWED_MCP_HOSTS.find((h) => h === hostname);
-      if (!matchedHost) {
-        const customHosts = (process.env.ALLOWED_MCP_HOSTS || "")
-          .split(",")
-          .map((h) => h.trim().toLowerCase())
-          .filter(Boolean);
-        if (!customHosts.includes(hostname)) {
-          throw new Error(`Disallowed MCP endpoint hostname: ${url.hostname}`);
+          const hostname = url.hostname.toLowerCase();
+          const matchedHost = KNOWN_ALLOWED_MCP_HOSTS.find((h) => h === hostname);
+          if (!matchedHost) {
+            const customHosts = (process.env.ALLOWED_MCP_HOSTS || "")
+              .split(",")
+              .map((h) => h.trim().toLowerCase())
+              .filter(Boolean);
+            if (!customHosts.includes(hostname)) {
+              throw new Error(`Disallowed MCP endpoint hostname: ${url.hostname}`);
+            }
+          }
+
+          // Reconstruct target URL using the verified safeHost from allowlist to eliminate SSRF
+          const safeHost = matchedHost || hostname;
+          const safePort = url.port ? `:${url.port}` : "";
+          const safeProtocol = url.protocol === "http:" ? "http:" : "https:";
+          const safeOrigin = `${safeProtocol}//${safeHost}${safePort}`;
+          const safeUrl = new URL(`${url.pathname}${url.search}`, safeOrigin);
+
+          // Disallow HTTP redirects (`redirect: "error"`) so an allowlisted MCP host
+          // can never 302-redirect a JSON-RPC request (or its Authorization header)
+          // to an internal metadata service or unlisted host.
+          const res = await fetch(safeUrl.href, {
+            method: "POST",
+            redirect: "error",
+            headers,
+            body: JSON.stringify(payload),
+            signal: controller.signal,
+          });
+
+          if (!res.ok) {
+            throw new Error(`MCP HTTP error ${res.status}: ${res.statusText}`);
+          }
+
+          const body = (await res.json()) as McpJsonRpcResponse<T>;
+
+          if (body.error) {
+            throw new Error(`MCP Error [code ${body.error.code}]: ${body.error.message}`);
+          }
+
+          return body.result as T;
+        } catch (err: any) {
+          if (err.name === "AbortError") {
+            throw new Error(`MCP Server [${this.config.name}] call timed out after ${timeoutMs}ms.`);
+          }
+          throw err;
+        } finally {
+          clearTimeout(timeout);
         }
       }
-
-      // Reconstruct target URL using the verified safeHost from allowlist to eliminate SSRF
-      const safeHost = matchedHost || hostname;
-      const safePort = url.port ? `:${url.port}` : "";
-      const safeProtocol = url.protocol === "http:" ? "http:" : "https:";
-      const safeOrigin = `${safeProtocol}//${safeHost}${safePort}`;
-      const safeUrl = new URL(`${url.pathname}${url.search}`, safeOrigin);
-
-      // Disallow HTTP redirects (`redirect: "error"`) so an allowlisted MCP host
-      // can never 302-redirect a JSON-RPC request (or its Authorization header)
-      // to an internal metadata service or unlisted host.
-      const res = await fetch(safeUrl.href, {
-        method: "POST",
-        redirect: "error",
-        headers,
-        body: JSON.stringify(payload),
-        signal: controller.signal,
-      });
-
-      if (!res.ok) {
-        throw new Error(`MCP HTTP error ${res.status}: ${res.statusText}`);
-      }
-
-      const body = (await res.json()) as McpJsonRpcResponse<T>;
-
-      if (body.error) {
-        throw new Error(`MCP Error [code ${body.error.code}]: ${body.error.message}`);
-      }
-
-      return body.result as T;
-    } catch (err: any) {
-      if (err.name === "AbortError") {
-        throw new Error(`MCP Server [${this.config.name}] call timed out after ${timeoutMs}ms.`);
-      }
-      throw err;
-    } finally {
-      clearTimeout(timeout);
-    }
+    );
   }
 
   /**

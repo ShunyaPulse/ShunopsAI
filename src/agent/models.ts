@@ -2,6 +2,7 @@ import OpenAI from "openai";
 import { randomInt } from "node:crypto";
 import { colors } from "../core/colors.js";
 import { recordCircuitBreakerSuccess, recordCircuitBreakerFailure, isModelDegraded } from "./circuitBreaker.js";
+import { withSpan } from "../telemetry/otel.js";
 
 // Interactive chat timeout per individual model call (12s max before fast failover)
 const INFERENCE_TIMEOUT_MS = 12000;
@@ -343,7 +344,8 @@ export async function callChatCompletionWithFailover(
   let lastError: any = null;
   const isMultimodal = hasMultimodalContent(messages);
 
-  for (const target of eligibleTargets) {
+  for (let tIdx = 0; tIdx < eligibleTargets.length; tIdx++) {
+    const target = eligibleTargets[tIdx]!;
     // Proactively skip models that recently tripped circuit-breaker cooldown
     if (await isModelDegraded(target.provider, target.model)) {
       continue;
@@ -361,47 +363,70 @@ export async function callChatCompletionWithFailover(
 
     for (let att = 0; att < attempts; att++) {
       try {
-        const client = createClientForTarget(target, overrides);
-        console.log(
-          `${colors.gray}[Requesting Model]${colors.reset} [${target.provider.toUpperCase()}] ${target.model}`
-        );
+        const result = await withSpan(
+          `llm.completion ${target.provider}:${target.model}`,
+          {
+            kind: "CLIENT",
+            attributes: {
+              "llm.provider": target.provider,
+              "llm.model": target.model,
+              "llm.attempt": att + 1,
+              "llm.failover": tIdx > 0 || att > 0,
+            },
+          },
+          async (llmSpan) => {
+            const client = createClientForTarget(target, overrides);
+            console.log(
+              `${colors.gray}[Requesting Model]${colors.reset} [${target.provider.toUpperCase()}] ${target.model}`
+            );
 
-        const effectiveMessages =
-          isMultimodal && isTextOnlyModel(target) ? flattenMultimodalMessages(messages) : messages;
+            const effectiveMessages =
+              isMultimodal && isTextOnlyModel(target) ? flattenMultimodalMessages(messages) : messages;
 
-        // Providers reject an empty `tools` array (`tools: Array must have at
-        // least 1 item`), so tool-less runs (e.g. the public /api/chat bot)
-        // must omit the parameters entirely instead of sending an empty list.
-        const params: OpenAI.ChatCompletionCreateParamsNonStreaming = {
-          model: target.model,
-          messages: effectiveMessages,
-          temperature,
-        };
-        if (tools.length > 0) {
-          params.tools = tools;
-          params.tool_choice = "auto";
-        }
+            // Providers reject an empty `tools` array (`tools: Array must have at
+            // least 1 item`), so tool-less runs (e.g. the public /api/chat bot)
+            // must omit the parameters entirely instead of sending an empty list.
+            const params: OpenAI.ChatCompletionCreateParamsNonStreaming = {
+              model: target.model,
+              messages: effectiveMessages,
+              temperature,
+            };
+            if (tools.length > 0) {
+              params.tools = tools;
+              params.tool_choice = "auto";
+            }
 
-        let response: OpenAI.ChatCompletion;
-        try {
-          response = await client.chat.completions.create(params);
-        } catch (innerErr: any) {
-          // If a model rejected multimodal array content with 400/422, retry once with flattened text
-          if (isMultimodal && effectiveMessages === messages && (innerErr?.status === 400 || innerErr?.status === 422)) {
-            response = await client.chat.completions.create({
-              ...params,
-              messages: flattenMultimodalMessages(messages),
-            });
-          } else {
-            throw innerErr;
+            let response: OpenAI.ChatCompletion;
+            try {
+              response = await client.chat.completions.create(params);
+            } catch (innerErr: any) {
+              // If a model rejected multimodal array content with 400/422, retry once with flattened text
+              if (
+                isMultimodal &&
+                effectiveMessages === messages &&
+                (innerErr?.status === 400 || innerErr?.status === 422)
+              ) {
+                response = await client.chat.completions.create({
+                  ...params,
+                  messages: flattenMultimodalMessages(messages),
+                });
+              } else {
+                throw innerErr;
+              }
+            }
+
+            if (response.choices && response.choices.length > 0 && response.choices[0]) {
+              if (response.usage) {
+                llmSpan.setAttribute("llm.prompt_tokens", response.usage.prompt_tokens || 0);
+                llmSpan.setAttribute("llm.completion_tokens", response.usage.completion_tokens || 0);
+              }
+              recordCircuitBreakerSuccess(target.provider, target.model).catch(() => {});
+              return { response, usedModel: `${target.provider.toUpperCase()}:${target.model}` };
+            }
+            throw new Error(`Model ${target.model} returned empty choices array.`);
           }
-        }
-
-        if (response.choices && response.choices.length > 0 && response.choices[0]) {
-          recordCircuitBreakerSuccess(target.provider, target.model).catch(() => {});
-          return { response, usedModel: `${target.provider.toUpperCase()}:${target.model}` };
-        }
-        throw new Error(`Model ${target.model} returned empty choices array.`);
+        );
+        return result;
       } catch (err: any) {
         lastError = err;
         const isTimeout =
