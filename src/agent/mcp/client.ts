@@ -259,7 +259,7 @@ export class McpHttpClient {
         throw new Error(`Invalid protocol for MCP endpoint: ${url.protocol}`);
       }
       const allowedHosts = Object.values(ALLOWED_MCP_TARGET_ENDPOINTS).map((u) => new URL(u).hostname);
-      if (!allowedHosts.includes(url.hostname)) {
+      if (!Object.values(ALLOWED_MCP_TARGET_ENDPOINTS).includes(url.toString())) {
         throw new Error(`Disallowed MCP endpoint hostname: ${url.hostname}`);
       }
 
