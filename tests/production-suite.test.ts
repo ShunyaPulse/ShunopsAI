@@ -540,6 +540,42 @@ async function runSuite() {
     await app.close();
   });
 
+  // 20. Isolated Code Sandbox (user code must not reach the host realm)
+  await test("Code Sandbox: user code runs isolated, cannot reach the host realm, and times out", async () => {
+    const { executeInSandbox } = await import("../src/agent/sandbox/runner.js");
+
+    // Host objects injected into the context used to hand user code the host
+    // Function constructor, so `Object.constructor("return process")()` escaped.
+    // A host object injected into the context used to hand user code the host
+    // Function constructor, so `Object.constructor("return process")()` escaped.
+    const wrap = (expr: string) =>
+      `return (function () { try { return ${expr}; } catch (e) { return 'blocked:' + e.name; } })();`;
+    const escapeProbes = [
+      wrap("typeof process"),
+      wrap("typeof module"),
+      wrap("typeof Object.constructor('return process')()"),
+      wrap("typeof console.log.constructor('return process')()"),
+      wrap("typeof ({}).constructor.constructor('return globalThis')().process"),
+    ];
+    for (const probe of escapeProbes) {
+      const res = await executeInSandbox(probe);
+      assert.equal(res.success, true, `Probe should run: ${probe}`);
+      assert.ok(
+        res.result === "undefined" || res.result === "blocked:ReferenceError",
+        `Sandbox escape must be impossible: ${probe} (got ${JSON.stringify(res.result)})`
+      );
+    }
+
+    const working = await executeInSandbox("console.log('hi'); return 6 * 7;");
+    assert.equal(working.success, true);
+    assert.equal(working.result, 42);
+    assert.deepEqual(working.logs, ["hi"]);
+
+    const timedOut = await executeInSandbox("while (true) {}", { timeoutMs: 250 });
+    assert.equal(timedOut.success, false);
+    assert.match(String(timedOut.error), /timed out/i);
+  });
+
   console.log("\n=================================================");
   console.log(`TEST SUMMARY: ${testsPassed} Passed, ${testsFailed} Failed.`);
   console.log("=================================================");

@@ -486,6 +486,158 @@ async function runSuite(): Promise<void> {
     assert.equal(scope.kind, "user");
     assert.equal(scope.credentials.neon?.connectionString, SECRET_NEON);
   });
+
+  await check("MCP connections are validated before they are stored", async () => {
+    const { createApp } = await import("../src/server/app.js");
+    const { createUser, createSession } = await import("../src/server/db.js");
+
+    const user = await createUser(`mcp_connect_${Date.now()}`, null, null, true);
+    const token = `session_${Date.now()}_mcp_connect`;
+    await createSession(user.id, token);
+    const cookies = { shunops_user_session: token };
+
+    const app = await createApp();
+
+    const refused = await app.inject({
+      method: "POST",
+      url: "/api/user/platform-credentials",
+      cookies,
+      payload: { platform: "mcp:custom-tools", values: { serverUrl: "http://169.254.169.254/latest/meta-data" } },
+    });
+    assert.equal(refused.statusCode, 400, refused.body);
+    assert.ok(refused.json().error.includes("ALLOWED_MCP_HOSTS"), refused.body);
+
+    const unlisted = await app.inject({
+      method: "POST",
+      url: "/api/user/platform-credentials",
+      cookies,
+      payload: { platform: "mcp:custom-tools", values: { serverUrl: "https://attacker.example.net/mcp" } },
+    });
+    assert.equal(unlisted.statusCode, 400, unlisted.body);
+
+    const accepted = await app.inject({
+      method: "POST",
+      url: "/api/user/platform-credentials",
+      cookies,
+      payload: { platform: "mcp:exa-search", values: { serverUrl: "https://mcp.exa.ai/v1", apiKey: "exa-key" } },
+    });
+    assert.equal(accepted.statusCode, 200, accepted.body);
+
+    // "Test connection" uses the same policy, so a URL that a run would refuse
+    // can never report as connected.
+    const testRefused = await app.inject({
+      method: "POST",
+      url: "/api/user/platform-credentials/test-mcp",
+      cookies,
+      payload: { serverUrl: "https://attacker.example.net/mcp" },
+    });
+    assert.equal(testRefused.statusCode, 400, testRefused.body);
+
+    const testBuiltIn = await app.inject({
+      method: "POST",
+      url: "/api/user/platform-credentials/test-mcp",
+      cookies,
+      payload: { serverUrl: "/api/mcp" },
+    });
+    assert.equal(testBuiltIn.statusCode, 200, testBuiltIn.body);
+    assert.equal(testBuiltIn.json().connected, true);
+
+    await deleteUserPlatformCredential(user.id, "mcp:exa-search");
+  });
+
+  // ---- 9. Built-in Sovereign MCP server ------------------------------------
+  await check("built-in /api/mcp requires auth and runs the tools it advertises", async () => {
+    const { createApp } = await import("../src/server/app.js");
+    const { createUser, createSession } = await import("../src/server/db.js");
+
+    const app = await createApp();
+    const call = (payload: Record<string, unknown>, cookies?: Record<string, string>) =>
+      app.inject({
+        method: "POST",
+        url: "/api/mcp",
+        ...(cookies ? { cookies } : {}),
+        payload,
+      });
+
+    // An anonymous caller must not be able to use the tool server, and a session
+    // is required before it will even list tools.
+    const anonymous = await call({ jsonrpc: "2.0", id: 1, method: "tools/list" });
+    assert.ok(
+      anonymous.statusCode === 401 || anonymous.statusCode === 403,
+      `expected an auth rejection, got ${anonymous.statusCode}`
+    );
+
+    const user = await createUser(`mcp_server_${Date.now()}`, null, null, true);
+    const token = `session_${Date.now()}_mcp`;
+    await createSession(user.id, token);
+    const cookies = { shunops_user_session: token };
+
+    const listed = await call({ jsonrpc: "2.0", id: 1, method: "tools/list" }, cookies);
+    assert.equal(listed.statusCode, 200, listed.body);
+    assert.deepEqual(
+      listed.json().result.tools.map((t: any) => t.name),
+      ["execute_sandboxed_code", "calculate_math_expression"],
+      "the server must only advertise tools it can execute"
+    );
+
+    const sandboxed = await call(
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: { name: "execute_sandboxed_code", arguments: { code: "console.log('mcp'); return 7 * 6;" } },
+      },
+      cookies
+    );
+    const sandboxResult = sandboxed.json().result;
+    assert.equal(sandboxResult.isError, false, JSON.stringify(sandboxResult));
+    assert.ok(sandboxResult.content[0].text.includes("42"), JSON.stringify(sandboxResult));
+
+    const math = await call(
+      {
+        jsonrpc: "2.0",
+        id: 3,
+        method: "tools/call",
+        params: { name: "calculate_math_expression", arguments: { expression: "(2+3)*4" } },
+      },
+      cookies
+    );
+    assert.equal(math.json().result.content[0].text, "20");
+
+    const nonArithmetic = await call(
+      {
+        jsonrpc: "2.0",
+        id: 4,
+        method: "tools/call",
+        params: { name: "calculate_math_expression", arguments: { expression: "process.exit(1)" } },
+      },
+      cookies
+    );
+    assert.equal(nonArithmetic.json().result.isError, true, "the calculator must not evaluate code");
+
+    // Same isolation guarantee as the agent's native sandbox tool.
+    const escape = await call(
+      {
+        jsonrpc: "2.0",
+        id: 5,
+        method: "tools/call",
+        params: {
+          name: "execute_sandboxed_code",
+          arguments: {
+            code:
+              "return (function () { try { return typeof Object.constructor('return process')(); } catch (e) { return 'blocked:' + e.name; } })();",
+          },
+        },
+      },
+      cookies
+    );
+    const escapeResult = escape.json().result;
+    assert.equal(escapeResult.isError, false, JSON.stringify(escapeResult));
+    assert.ok(
+      /undefined|blocked:ReferenceError/.test(escapeResult.content[0].text),
+      JSON.stringify(escapeResult)
+    );
+  });
 }
 
 runSuite()
