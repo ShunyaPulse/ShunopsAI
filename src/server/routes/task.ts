@@ -10,7 +10,8 @@ export interface TaskRouteOptions {
 }
 
 /**
- * Privileged autonomous task execution endpoint (Fastify Engine with Multi-Tenant Isolation).
+ * Privileged autonomous task execution endpoint (Fastify Engine with Multi-Tenant Isolation
+ * and Stage 8 Real-Time SSE Progress Streaming).
  * Body: { goal?: string, task?: string, maxSteps?: number, context?: string, async?: boolean }
  */
 export async function taskRoutes(app: FastifyInstance, options: TaskRouteOptions): Promise<void> {
@@ -114,8 +115,86 @@ export async function taskRoutes(app: FastifyInstance, options: TaskRouteOptions
         };
       }
 
-      // Synchronous execution (default for zero-config n8n compatibility)
       const syncTaskId = `task_${Date.now()}_sync`;
+      const wantsSse = String(req.headers.accept || "").includes("text/event-stream");
+
+      // Stage 8 SOTA: Real-Time SSE Streaming Mode when requested via `Accept: text/event-stream`
+      if (wantsSse) {
+        reply.raw.writeHead(200, {
+          "Content-Type": "text/event-stream; charset=utf-8",
+          "Cache-Control": "no-cache, no-transform",
+          Connection: "keep-alive",
+          "X-Accel-Buffering": "no",
+        });
+
+        const sendSse = (event: string, data: Record<string, unknown>) => {
+          try {
+            reply.raw.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+          } catch {}
+        };
+
+        sendSse("start", { taskId: syncTaskId, maxSteps });
+
+        try {
+          const result = await runAutonomousAgent(taskGoal, {
+            maxSteps,
+            ...(context ? { initialContext: context } : {}),
+            keyOverrides,
+            scope,
+            onProgress: (ev) => {
+              if (ev.type === "step_start") {
+                sendSse("step", { step: ev.step, maxSteps: ev.maxSteps, model: ev.primaryModel });
+              } else if (ev.type === "reasoning") {
+                sendSse("reasoning", { step: ev.step, model: ev.model, text: ev.text });
+              } else if (ev.type === "tool_call") {
+                sendSse("tool_call", { step: ev.step, name: ev.name, args: ev.args });
+              } else if (ev.type === "tool_result") {
+                sendSse("tool_result", {
+                  step: ev.step,
+                  name: ev.name,
+                  preview: ev.preview,
+                  isError: ev.isError,
+                });
+              } else if (ev.type === "final_answer") {
+                sendSse("chunk", { text: ev.text });
+              }
+            },
+          });
+
+          if (!isAdmin && userId && !isBYOK) {
+            const inTokens = result.usage?.promptTokens || Math.ceil(taskGoal.length / 4);
+            const outTokens =
+              result.usage?.completionTokens || Math.ceil((result.finalAnswer || "").length / 4);
+            recordUserTokenUsage(userId, inTokens, outTokens).catch(() => {});
+          }
+
+          saveTaskRecord({
+            id: syncTaskId,
+            userId,
+            goal: taskGoal,
+            status: result.success ? "COMPLETED" : "FAILED",
+            stepsTaken: result.stepsTaken,
+            finalAnswer: result.finalAnswer || undefined,
+            createdAt: new Date().toISOString(),
+            completedAt: new Date().toISOString(),
+          }).catch(() => {});
+
+          sendSse("done", {
+            success: result.success,
+            taskId: syncTaskId,
+            stepsTaken: result.stepsTaken,
+            usedModel: result.usedModel,
+            finalAnswer: result.finalAnswer,
+          });
+        } catch (err: any) {
+          sendSse("error", { error: "Failed to execute autonomous agent task." });
+        } finally {
+          reply.raw.end();
+        }
+        return reply;
+      }
+
+      // Synchronous JSON execution (default for zero-config n8n compatibility)
       try {
         const result = await runAutonomousAgent(taskGoal, {
           maxSteps,
@@ -130,7 +209,6 @@ export async function taskRoutes(app: FastifyInstance, options: TaskRouteOptions
           recordUserTokenUsage(userId, inTokens, outTokens).catch(() => {});
         }
 
-        // Record task outcome in database
         saveTaskRecord({
           id: syncTaskId,
           userId,
@@ -184,8 +262,6 @@ export async function taskRoutes(app: FastifyInstance, options: TaskRouteOptions
       }
 
       const user = (req as any).user;
-      // Multi-tenant task isolation: Non-admin users may ONLY view tasks explicitly owned by their user.id
-      // (blocks reading operator/system tasks where task.userId is null/undefined, as well as other users' tasks).
       if (!isAdminUser(user) && (!task.userId || task.userId !== user?.id)) {
         reply.status(403);
         return { success: false, error: "Access denied. You can only view tasks belonging to your account." };

@@ -9,8 +9,18 @@ import { requestHumanApproval, isActionSensitive } from "../tools/safety.js";
 import { withSpan } from "../telemetry/otel.js";
 
 // ==========================================
-// Autonomous Agent Runner Loop
+// Autonomous Agent Runner Loop (Stage 8 SOTA)
+// - OpenTelemetry W3C TraceContext spans (`agent.run`, `tool.execute`)
+// - Real-Time Progress Event Hooks (`onProgress`) for SSE streaming
+// - Autonomous Self-Reflection & Anti-Loop Hallucination Guardrail
 // ==========================================
+
+export type AgentProgressEvent =
+  | { type: "step_start"; step: number; maxSteps: number; primaryModel: string }
+  | { type: "reasoning"; step: number; model: string; text: string }
+  | { type: "tool_call"; step: number; name: string; args: Record<string, any> }
+  | { type: "tool_result"; step: number; name: string; preview: string; isError: boolean }
+  | { type: "final_answer"; step: number; model: string; text: string };
 
 export interface AgentOptions {
   maxSteps?: number;
@@ -29,6 +39,10 @@ export interface AgentOptions {
    * what internal CLI/cron/admin callers have always used.
    */
   scope?: ToolScope | undefined;
+  /**
+   * Optional real-time progress callback for Server-Sent Events (SSE) streaming.
+   */
+  onProgress?: ((event: AgentProgressEvent) => void) | undefined;
 }
 
 export interface AgentTokenUsage {
@@ -89,8 +103,6 @@ export async function runAutonomousAgent(
       const targets = resolveTargets(options);
 
       // Least-privilege: restrict the toolset exposed to the model for this run.
-      // A user scope never even sees host-tier tools, and its platform tools can
-      // only act on the accounts that user connected themselves.
       const scope: ToolScope | undefined = options.scope
         ? {
             ...options.scope,
@@ -210,11 +222,23 @@ export async function runAutonomousAgent(
       let totalCompletionTokens = 0;
       let lastUsedModel = targets[0]?.model || "unknown";
 
+      // Stage 8 Self-Reflection Guardrail: track previously executed tool signatures
+      const priorToolCallSignatures = new Map<string, number>();
+
       for (let step = 1; step <= maxSteps; step++) {
         stepsTaken = step;
         console.log(
           `\n${colors.cyan}${colors.bold}--- [Step ${step}/${maxSteps}] ---${colors.reset}`
         );
+
+        try {
+          options.onProgress?.({
+            type: "step_start",
+            step,
+            maxSteps,
+            primaryModel: lastUsedModel,
+          });
+        } catch {}
 
         try {
           const { response, usedModel } = await callChatCompletionWithFailover(
@@ -260,18 +284,28 @@ export async function runAutonomousAgent(
 
           // Final Answer Check: If no tool calls, the agent concluded its task
           if (!toolCalls || toolCalls.length === 0) {
+            const finalText = choice.message.content || "";
             console.log(`\n${colors.green}${colors.bold}========================================${colors.reset}`);
             console.log(`${colors.green}${colors.bold}✅ Task Finished Successfully${colors.reset}`);
             console.log(`${colors.green}${colors.bold}========================================${colors.reset}`);
-            console.log(`\n${choice.message.content || "(No text response provided)"}\n`);
+            console.log(`\n${finalText || "(No text response provided)"}\n`);
 
             runSpan.setAttribute("agent.steps_taken", stepsTaken);
             runSpan.setAttribute("agent.used_model", lastUsedModel);
             runSpan.setAttribute("agent.total_tokens", totalPromptTokens + totalCompletionTokens);
 
+            try {
+              options.onProgress?.({
+                type: "final_answer",
+                step,
+                model: lastUsedModel,
+                text: finalText,
+              });
+            } catch {}
+
             return {
               success: true,
-              finalAnswer: choice.message.content || "",
+              finalAnswer: finalText,
               stepsTaken,
               history: messages,
               usedModel: lastUsedModel,
@@ -283,12 +317,20 @@ export async function runAutonomousAgent(
             };
           }
 
+          if (assistantMessage.content) {
+            try {
+              options.onProgress?.({
+                type: "reasoning",
+                step,
+                model: lastUsedModel,
+                text: assistantMessage.content,
+              });
+            } catch {}
+          }
+
           // Execute tool calls in parallel (Concurrent SOTA Execution)
           const toolPromises = toolCalls.map(async (toolCall) => {
             if (toolCall.type !== "function") {
-              // Every tool_call in the assistant message must be answered by a
-              // matching `tool` message, otherwise the next API request is
-              // rejected with "must be followed by tool messages".
               return {
                 role: "tool" as const,
                 tool_call_id: toolCall.id,
@@ -301,7 +343,7 @@ export async function runAutonomousAgent(
 
             try {
               parsedArgs = JSON.parse(toolCall.function.arguments || "{}");
-            } catch (parseErr: any) {
+            } catch {
               console.error(
                 `${colors.red}[Tool Parse Error]${colors.reset} Invalid JSON in arguments for ${toolName}: ${toolCall.function.arguments}`
               );
@@ -315,6 +357,19 @@ export async function runAutonomousAgent(
                 2
               )})`
             );
+
+            try {
+              options.onProgress?.({
+                type: "tool_call",
+                step,
+                name: toolName,
+                args: parsedArgs,
+              });
+            } catch {}
+
+            const callSignature = `${toolName}:${JSON.stringify(parsedArgs)}`;
+            const repeatCount = (priorToolCallSignatures.get(callSignature) || 0) + 1;
+            priorToolCallSignatures.set(callSignature, repeatCount);
 
             return withSpan(
               `tool.execute ${toolName}`,
@@ -363,14 +418,10 @@ export async function runAutonomousAgent(
                   ).join(", ")}`;
                   toolSpan.setStatus("ERROR", "Unknown tool");
                 } else {
-                  // Centralized safety gate: EVERY tool (including shell/git) is checked here,
-                  // so individual wrappers can no longer bypass the human-in-the-loop guard.
                   try {
                     const payload = sensitivityPayload(toolName, parsedArgs);
                     const sensitivity = isActionSensitive(payload);
                     if (sensitivity.isSensitive) {
-                      // Route the approval to the account that owns this run, so the
-                      // request shows up on the user's own workspace, not the operator's.
                       const approval = await requestHumanApproval(
                         `Tool: ${toolName}`,
                         payload,
@@ -393,7 +444,18 @@ export async function runAutonomousAgent(
                   }
                 }
 
-                // Print truncated preview of tool result in console for clean readability
+                // Stage 8 Autonomous Self-Reflection Guardrail:
+                // If a tool call failed or was repeated identically, append a structured diagnostic
+                // cue so the model self-corrects on the next turn instead of looping.
+                const isErrorOutput = /^Error\b|Execution Failed|Aborted by safety gate/i.test(
+                  executionResult.trim()
+                );
+                if (isErrorOutput) {
+                  executionResult += `\n\n[Self-Reflection Guardrail]: Tool "${toolName}" returned an error. Analyze the error message above, adjust your arguments or try an alternative approach, and do NOT repeat the exact same failing call.`;
+                } else if (repeatCount >= 2) {
+                  executionResult += `\n\n[Self-Reflection Guardrail]: You have already invoked "${toolName}" with these identical arguments (${repeatCount}x). Synthesize the gathered data now and provide your final answer or proceed to the next distinct step.`;
+                }
+
                 const resultPreview =
                   executionResult.length > 500
                     ? executionResult.slice(0, 500) +
@@ -403,6 +465,16 @@ export async function runAutonomousAgent(
                 console.log(
                   `${colors.blue}[Tool Result] [${toolName}]${colors.reset}\n${resultPreview}`
                 );
+
+                try {
+                  options.onProgress?.({
+                    type: "tool_result",
+                    step,
+                    name: toolName,
+                    preview: resultPreview.slice(0, 240),
+                    isError: isErrorOutput,
+                  });
+                } catch {}
 
                 return {
                   role: "tool" as const,

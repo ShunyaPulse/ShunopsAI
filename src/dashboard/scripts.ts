@@ -72,8 +72,6 @@ export const DASHBOARD_SCRIPTS = `
       \`).join("");
 
       const statusEl = document.getElementById("overall-status");
-      // Always render the live counts so the header cannot claim a fleet size
-      // that does not match the services actually being monitored.
       const tallied = summary.healthyCount + "/" + summary.totalServices;
       if (summary.overallStatus === "all_systems_operational") {
         statusEl.innerText = "ALL SYSTEMS NOMINAL (" + tallied + ")";
@@ -212,7 +210,6 @@ export const DASHBOARD_SCRIPTS = `
 
     async function toggleAutonomyPause() {
       const isCurrentlyPaused = document.getElementById("autonomy-paused-banner")?.style.display === "flex";
-      const actionWord = isCurrentlyPaused ? "RESUME" : "PAUSE";
       const confirmed = confirm(
         isCurrentlyPaused
           ? "Resume all automatic background tasks, scheduled crons, and AI operations?"
@@ -244,7 +241,7 @@ export const DASHBOARD_SCRIPTS = `
       }
     }
 
-    // --- OpenTelemetry Distributed Tracing & SOTA Runtime Metrics ---
+    // --- OpenTelemetry Distributed Tracing & Stage 8 SOTA Runtime Metrics ---
     async function fetchTelemetryPanel() {
       const container = document.getElementById("telemetry-traces-container");
       if (!container) return;
@@ -259,6 +256,8 @@ export const DASHBOARD_SCRIPTS = `
           const mData = await metricsRes.json();
           const t = mData.telemetry || {};
           const k = mData.knowledgeEngine || {};
+          const sc = mData.semanticCache || {};
+          const br = mData.banditRouter || {};
           const s = mData.sandboxEngine || {};
           if (t.latencyMs) {
             document.getElementById("otel-p50").innerText = (t.latencyMs.p50 || 0) + "ms";
@@ -271,6 +270,14 @@ export const DASHBOARD_SCRIPTS = `
           }
           if (k.cache) {
             document.getElementById("otel-cache-hit").innerText = (k.cache.hitRatePercent || 0) + "% (" + (k.cache.size || 0) + ")";
+          }
+          const semEl = document.getElementById("otel-sem-cache");
+          if (semEl) {
+            semEl.innerText = (sc.hitRatePercent || 0) + "% (" + (sc.savedTotalTokens || 0) + " tok saved)";
+          }
+          const brEl = document.getElementById("otel-bandit-router");
+          if (brEl && br.topModels && br.topModels[0]) {
+            brEl.innerText = "Bandit (" + br.topModels[0].banditScore + "pts)";
           }
           if (Array.isArray(s.tiers)) {
             document.getElementById("otel-sandbox-tiers").innerText = s.tiers.join(" → ");
@@ -374,7 +381,6 @@ export const DASHBOARD_SCRIPTS = `
       if (!container) return;
 
       try {
-        // Fetch stats
         const statsRes = await fetch("/api/admin/stats", { headers: getAuthHeaders(), credentials: "same-origin" });
         if (statsRes.ok) {
           const statsData = await statsRes.json();
@@ -385,7 +391,6 @@ export const DASHBOARD_SCRIPTS = `
           }
         }
 
-        // Fetch users
         const usersRes = await fetch("/api/admin/users?limit=50", { headers: getAuthHeaders(), credentials: "same-origin" });
         if (!usersRes.ok) return;
         const usersData = await usersRes.json();
@@ -483,7 +488,7 @@ export const DASHBOARD_SCRIPTS = `
       fetchAdminUsers();
       fetchTelemetryPanel();
       setInterval(checkAutonomyStatus, 10000);
-      setInterval(fetchPendingApprovals, 4000); // Live approvals polling
-      setInterval(fetchTelemetryPanel, 6000); // Live OTel traces & metrics polling
+      setInterval(fetchPendingApprovals, 4000);
+      setInterval(fetchTelemetryPanel, 6000);
     });
   `;

@@ -1,10 +1,11 @@
 import { getRedisClient } from "../server/redis.js";
 
 // ==========================================
-// ShunopsAI Passive Model Circuit Breaker
+// ShunopsAI Passive Model Circuit Breaker + Stage 8 Multi-Armed Bandit Telemetry
 // Invariant: ZERO SYNTHETIC PINGS/PROBES (Zero Quota Drain)
 // State is updated strictly passively from in-flight inference responses.
 // Cooldown state is shared globally across runners via Redis with local TTL fallback.
+// Includes EWMA latency tracking and Beta-Binomial Thompson-Sampling Bandit scores.
 // ==========================================
 
 export interface DegradedState {
@@ -14,6 +15,16 @@ export interface DegradedState {
   remainingSeconds?: number | undefined;
   status?: string | number | undefined;
   reason?: string | undefined;
+}
+
+export interface ModelBanditTelemetry {
+  ewmaLatencyMs: number;
+  successCount: number;
+  failureCount: number;
+  totalCalls: number;
+  successRatePercent: number;
+  /** Composite reliability + speed score (0-100) used by the Stage 8 adaptive router. */
+  banditScore: number;
 }
 
 export interface TierHealthStatus {
@@ -35,8 +46,90 @@ interface MemoryEntry {
 }
 const inMemoryCooldowns = new Map<string, MemoryEntry>();
 
+// Stage 8 SOTA: Passive EWMA latency & Beta-Binomial success counters per model
+interface BanditState {
+  ewmaLatencyMs: number;
+  successCount: number;
+  failureCount: number;
+}
+const modelBanditStats = new Map<string, BanditState>();
+const EWMA_ALPHA = 0.3;
+
 function getModelKey(provider: string, model: string): string {
   return `${provider.toLowerCase().trim()}:${model.toLowerCase().trim()}`;
+}
+
+/**
+ * Passively update EWMA latency and Beta-Binomial success/failure counts for a model.
+ */
+export function recordModelCallTelemetry(
+  provider: string,
+  model: string,
+  latencyMs: number,
+  success: boolean
+): void {
+  const key = getModelKey(provider, model);
+  const clampedLatency = Math.max(1, Math.min(30_000, Math.round(latencyMs || 250)));
+  const existing = modelBanditStats.get(key);
+
+  if (!existing) {
+    modelBanditStats.set(key, {
+      ewmaLatencyMs: clampedLatency,
+      successCount: success ? 1 : 0,
+      failureCount: success ? 0 : 1,
+    });
+    return;
+  }
+
+  existing.ewmaLatencyMs = Math.round(
+    EWMA_ALPHA * clampedLatency + (1 - EWMA_ALPHA) * existing.ewmaLatencyMs
+  );
+  if (success) {
+    existing.successCount++;
+  } else {
+    existing.failureCount++;
+  }
+}
+
+/**
+ * Compute empirical reliability and speed score for a model using a Beta(alpha+2, beta+1)
+ * prior combined with an EWMA latency factor.
+ */
+export function getModelBanditTelemetry(
+  provider: string,
+  model: string
+): ModelBanditTelemetry {
+  const key = getModelKey(provider, model);
+  const st = modelBanditStats.get(key);
+  if (!st) {
+    return {
+      ewmaLatencyMs: 0,
+      successCount: 0,
+      failureCount: 0,
+      totalCalls: 0,
+      successRatePercent: 100,
+      banditScore: 85, // Optimistic prior for unvisited models
+    };
+  }
+
+  const totalCalls = st.successCount + st.failureCount;
+  const successRatePercent =
+    totalCalls > 0 ? Number(((st.successCount / totalCalls) * 100).toFixed(1)) : 100;
+
+  // Posterior mean of Beta(success + 2, failure + 1)
+  const reliability = (st.successCount + 2) / (totalCalls + 3);
+  // Latency factor in [0.2, 1.0]: <400ms gets ~1.0, 4000ms gets ~0.5, >10000ms gets ~0.2
+  const latencyPenalty = Math.max(0.2, Math.min(1.0, 1 - st.ewmaLatencyMs / 10_000));
+  const banditScore = Number((reliability * 75 + latencyPenalty * 25).toFixed(1));
+
+  return {
+    ewmaLatencyMs: st.ewmaLatencyMs,
+    successCount: st.successCount,
+    failureCount: st.failureCount,
+    totalCalls,
+    successRatePercent,
+    banditScore,
+  };
 }
 
 /**
@@ -47,8 +140,11 @@ export async function recordCircuitBreakerFailure(
   provider: string,
   model: string,
   statusCode: number | string = "Error",
-  errorMessage?: string
+  errorMessage?: string,
+  latencyMs = 1500
 ): Promise<void> {
+  recordModelCallTelemetry(provider, model, latencyMs, false);
+
   const code = String(statusCode);
   const isRateLimit = code === "429" || code.toLowerCase().includes("rate");
   const isServerUnavailable = code === "503" || code === "502" || code === "504" || code === "500";
@@ -92,12 +188,15 @@ export async function recordCircuitBreakerFailure(
 
 /**
  * Record a successful inference completion for a model.
- * Clears degraded status immediately in both Redis and memory.
+ * Clears degraded status immediately in both Redis and memory, and updates EWMA latency.
  */
 export async function recordCircuitBreakerSuccess(
   provider: string,
-  model: string
+  model: string,
+  latencyMs = 250
 ): Promise<void> {
+  recordModelCallTelemetry(provider, model, latencyMs, true);
+
   const modelKey = getModelKey(provider, model);
   inMemoryCooldowns.delete(modelKey);
 
@@ -140,7 +239,13 @@ export async function getModelDegradedInfo(
       if (data) {
         const parsed = JSON.parse(data);
         const ttl = await redis.ttl(`${REDIS_KEY_PREFIX}${modelKey}`);
-        const remainingSeconds = ttl > 0 ? ttl : Math.max(0, Math.ceil((parsed.degradedAt + parsed.cooldownSeconds * 1000 - Date.now()) / 1000));
+        const remainingSeconds =
+          ttl > 0
+            ? ttl
+            : Math.max(
+                0,
+                Math.ceil((parsed.degradedAt + parsed.cooldownSeconds * 1000 - Date.now()) / 1000)
+              );
         return {
           degraded: true,
           degradedAt: parsed.degradedAt,

@@ -4,7 +4,11 @@ import {
   type ModelTarget,
   type ProviderKeyOverrides,
 } from "./models.js";
-import { isModelDegraded, getModelDegradedInfo } from "./circuitBreaker.js";
+import {
+  isModelDegraded,
+  getModelDegradedInfo,
+  getModelBanditTelemetry,
+} from "./circuitBreaker.js";
 
 export type ComplexityLevel = "simple" | "complex";
 
@@ -55,7 +59,7 @@ export function classifyHeuristic(prompt: string): ComplexityLevel | null {
     return "simple";
   }
 
-  // 4. Short conversational follow-ups & verification commands (e.g. "check once again", "try again", "done", "ok", "proceed")
+  // 4. Short conversational follow-ups & verification commands
   const shortFollowUpPattern = /^(check|try|see|look|test|verify|retry|refresh|recheck|inspect|continue|proceed|go ahead|done|ok|okay|yes|no|haan|nahi|karo|batao|ab dekho|once more|again)\b/i;
   if (wordCount <= 6 && !/[{}[\];<>=$]/.test(p) && shortFollowUpPattern.test(lower)) {
     return "simple";
@@ -268,7 +272,7 @@ function buildCandidateChain(
     ]);
   }
 
-  // Handle specific model selection: "provider:model" (e.g. "openrouter:meta-llama/llama-3.3-70b-instruct:free")
+  // Handle specific model selection: "provider:model"
   if (preference.includes(":")) {
     const colonIndex = preference.indexOf(":");
     const prefProvider = preference.slice(0, colonIndex);
@@ -283,8 +287,6 @@ function buildCandidateChain(
 
   // 'auto' mode: Smart Adaptive Complexity-Based Priority
   if (complexity === "complex") {
-    // GEMINI.md Rule 1: Heavyweight Reasoning & AST Debugging Backbones:
-    // Groq 120B reasoning -> OpenAI o1-mini -> OpenRouter 550B -> GitHub GPT-4o -> Gemini Flash -> Groq 27B
     return dedupeTargets([
       ...groq120b,
       ...githubO1,
@@ -297,8 +299,7 @@ function buildCandidateChain(
     ]);
   }
 
-  // Simple tasks: Fast zero-latency models first:
-  // Gemini 3.8 Flash -> Groq 27B -> Cloudflare Llama 3.3 Fast -> GitHub GPT-4o Mini -> Groq 120B -> OpenRouter
+  // Simple tasks: Fast zero-latency models first
   return dedupeTargets([
     ...geminiFlash,
     ...groq27b,
@@ -310,7 +311,7 @@ function buildCandidateChain(
 }
 
 /**
- * Health status descriptor for each individual model registered in AGENT_MODELS_CHAIN.
+ * Health & Bandit telemetry descriptor for each individual model registered in AGENT_MODELS_CHAIN.
  */
 export interface IndividualModelStatus {
   id: string; // "provider:model"
@@ -321,15 +322,20 @@ export interface IndividualModelStatus {
   degraded: boolean;
   cooldownRemainingSeconds?: number | undefined;
   reason?: string | undefined;
+  ewmaLatencyMs?: number | undefined;
+  successRatePercent?: number | undefined;
+  totalCalls?: number | undefined;
+  banditScore?: number | undefined;
 }
 
 /**
- * Get live circuit-breaker health for each individual model without sending any outbound pings.
+ * Get live circuit-breaker health + Stage 8 EWMA latency & bandit score for each model.
  */
 export async function getModelsHealthStatus(): Promise<IndividualModelStatus[]> {
   const list: IndividualModelStatus[] = [];
   for (const m of AGENT_MODELS_CHAIN) {
     const info = await getModelDegradedInfo(m.provider, m.model);
+    const bandit = getModelBanditTelemetry(m.provider, m.model);
     list.push({
       id: `${m.provider}:${m.model}`,
       provider: m.provider,
@@ -339,14 +345,20 @@ export async function getModelsHealthStatus(): Promise<IndividualModelStatus[]> 
       degraded: Boolean(info.degraded),
       cooldownRemainingSeconds: info.remainingSeconds,
       reason: info.reason,
+      ewmaLatencyMs: bandit.ewmaLatencyMs,
+      successRatePercent: bandit.successRatePercent,
+      totalCalls: bandit.totalCalls,
+      banditScore: bandit.banditScore,
     });
   }
   return list;
 }
 
 /**
- * Resolve execution targets with Circuit Breaker Awareness:
- * Automatically skips or deprioritizes models currently in rate-limit/error cooldown.
+ * Resolve execution targets with Circuit Breaker + Stage 8 Multi-Armed Bandit Awareness:
+ * 1. Automatically deprioritizes models currently in rate-limit/error cooldown.
+ * 2. Within the same provider group, promotes models with higher empirical banditScore
+ *    (lower EWMA latency & higher reliability) while preserving the architectural tier order.
  */
 export async function getRoutingTargets(
   preference: string = "auto",
@@ -356,21 +368,37 @@ export async function getRoutingTargets(
   const complexity = await analyzeTaskComplexity(message, overrides);
   const candidates = buildCandidateChain(preference, complexity);
 
-  // Partition candidates based on passive circuit breaker status
-  const healthy: ModelTarget[] = [];
+  const healthy: Array<{ target: ModelTarget; idx: number; banditScore: number }> = [];
   const degraded: ModelTarget[] = [];
 
-  for (const target of candidates) {
+  for (let i = 0; i < candidates.length; i++) {
+    const target = candidates[i]!;
     const isDegraded = await isModelDegraded(target.provider, target.model);
     if (isDegraded) {
       degraded.push(target);
     } else {
-      healthy.push(target);
+      const bandit = getModelBanditTelemetry(target.provider, target.model);
+      healthy.push({ target, idx: i, banditScore: bandit.banditScore });
     }
   }
 
-  // Put healthy models first; keep degraded models at the end only as absolute last resort
-  const targets = healthy.length > 0 ? [...healthy, ...degraded] : degraded;
+  // Stage 8 Adaptive Bandit Re-ranking within same-provider adjacent candidates:
+  // If an adjacent candidate from the same provider has a significantly higher banditScore
+  // (>8 points better due to faster EWMA latency or fewer transient errors), promote it.
+  for (let i = 0; i < healthy.length - 1; i++) {
+    const curr = healthy[i]!;
+    const next = healthy[i + 1]!;
+    if (
+      curr.target.provider === next.target.provider &&
+      next.banditScore - curr.banditScore >= 8
+    ) {
+      healthy[i] = next;
+      healthy[i + 1] = curr;
+    }
+  }
+
+  const orderedHealthy = healthy.map((h) => h.target);
+  const targets = orderedHealthy.length > 0 ? [...orderedHealthy, ...degraded] : degraded;
 
   return {
     targets: targets.length > 0 ? targets : AGENT_MODELS_CHAIN,

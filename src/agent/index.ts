@@ -2,11 +2,12 @@
  * ShunopsAI autonomous agent — public API surface.
  *
  * The agent is composed of focused modules:
- *  - `models`   — provider/model fallback chain and client factory
- *  - `prompts`  — system prompt engineering
- *  - `sandbox`  — workspace path safety and secret protection
- *  - `tools`    — the tool registry and JSON schemas
- *  - `loop`     — the ReAct execution loop
+ *  - `models`        — provider/model fallback chain and client factory
+ *  - `prompts`       — system prompt engineering
+ *  - `sandbox`       — workspace path safety and secret protection
+ *  - `tools`         — the tool registry and JSON schemas
+ *  - `loop`          — the ReAct execution loop with SSE progress & self-reflection
+ *  - `semanticCache` — Stage 8 tenant-isolated 768-dim semantic response cache
  */
 export {
   AGENT_MODELS_CHAIN,
@@ -41,16 +42,20 @@ export {
   runAutonomousAgent,
   type AgentOptions,
   type AgentRunResult,
+  type AgentProgressEvent,
 } from "./loop.js";
 
 export {
   recordCircuitBreakerFailure,
   recordCircuitBreakerSuccess,
+  recordModelCallTelemetry,
+  getModelBanditTelemetry,
   isModelDegraded,
   getModelDegradedInfo,
   getTiersHealthStatus,
   type TierHealthStatus,
   type DegradedState,
+  type ModelBanditTelemetry,
 } from "./circuitBreaker.js";
 
 export {
@@ -68,3 +73,12 @@ export {
   type MemorySummaryOptions,
 } from "./memory.js";
 
+export {
+  lookupSemanticCache,
+  storeSemanticCache,
+  getSemanticCacheStats,
+  clearSemanticCache,
+  isCacheablePrompt,
+  type SemanticCacheEntry,
+  type SemanticCacheHit,
+} from "./semanticCache.js";

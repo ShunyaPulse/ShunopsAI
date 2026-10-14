@@ -157,7 +157,6 @@ export function getApiKeysPool(): string[] {
       .split(",")
       .map((k) => k.trim())
       .filter(Boolean);
-    // Initialize starting index once on startup so different services/instances start at different indices
     if (cachedKeys.length > 1) {
       roundRobinIndex = randomInt(0, cachedKeys.length);
     } else {
@@ -312,8 +311,6 @@ export async function callChatCompletionWithFailover(
 
   const eligibleTargets = targets.filter((target) => {
     if (isBYOK) {
-      // Rule 9: BYOK Isolation. When BYOK keys are provided, ONLY execute providers
-      // for which the user supplied a valid key. NEVER fall back to server pool keys.
       if (target.provider === "gemini") return Boolean(overrides?.geminiApiKey);
       if (target.provider === "groq") return Boolean(overrides?.groqApiKey);
       if (target.provider === "openrouter") return Boolean(overrides?.openrouterApiKey);
@@ -323,7 +320,6 @@ export async function callChatCompletionWithFailover(
       }
       return false;
     }
-    // Shared Server Mode: attempt providers that have configured server keys or connected user platform keys
     if (target.provider === "gemini") return hasServerGemini;
     if (target.provider === "groq") return hasServerGroq;
     if (target.provider === "github") return hasGitHub;
@@ -346,12 +342,10 @@ export async function callChatCompletionWithFailover(
 
   for (let tIdx = 0; tIdx < eligibleTargets.length; tIdx++) {
     const target = eligibleTargets[tIdx]!;
-    // Proactively skip models that recently tripped circuit-breaker cooldown
     if (await isModelDegraded(target.provider, target.model)) {
       continue;
     }
 
-    // If Gemini/Groq/OpenRouter target using server pool, bounded retries across pool keys before model fallback (Rule 6)
     let attempts = 1;
     if (!overrides?.geminiApiKey && target.provider === "gemini") {
       attempts = Math.min(2, geminiPool.length);
@@ -362,6 +356,7 @@ export async function callChatCompletionWithFailover(
     }
 
     for (let att = 0; att < attempts; att++) {
+      const callStartMs = Date.now();
       try {
         const result = await withSpan(
           `llm.completion ${target.provider}:${target.model}`,
@@ -383,9 +378,6 @@ export async function callChatCompletionWithFailover(
             const effectiveMessages =
               isMultimodal && isTextOnlyModel(target) ? flattenMultimodalMessages(messages) : messages;
 
-            // Providers reject an empty `tools` array (`tools: Array must have at
-            // least 1 item`), so tool-less runs (e.g. the public /api/chat bot)
-            // must omit the parameters entirely instead of sending an empty list.
             const params: OpenAI.ChatCompletionCreateParamsNonStreaming = {
               model: target.model,
               messages: effectiveMessages,
@@ -400,7 +392,6 @@ export async function callChatCompletionWithFailover(
             try {
               response = await client.chat.completions.create(params);
             } catch (innerErr: any) {
-              // If a model rejected multimodal array content with 400/422, retry once with flattened text
               if (
                 isMultimodal &&
                 effectiveMessages === messages &&
@@ -416,11 +407,13 @@ export async function callChatCompletionWithFailover(
             }
 
             if (response.choices && response.choices.length > 0 && response.choices[0]) {
+              const callLatencyMs = Date.now() - callStartMs;
               if (response.usage) {
                 llmSpan.setAttribute("llm.prompt_tokens", response.usage.prompt_tokens || 0);
                 llmSpan.setAttribute("llm.completion_tokens", response.usage.completion_tokens || 0);
               }
-              recordCircuitBreakerSuccess(target.provider, target.model).catch(() => {});
+              llmSpan.setAttribute("llm.latency_ms", callLatencyMs);
+              recordCircuitBreakerSuccess(target.provider, target.model, callLatencyMs).catch(() => {});
               return { response, usedModel: `${target.provider.toUpperCase()}:${target.model}` };
             }
             throw new Error(`Model ${target.model} returned empty choices array.`);
@@ -429,12 +422,19 @@ export async function callChatCompletionWithFailover(
         return result;
       } catch (err: any) {
         lastError = err;
+        const callLatencyMs = Date.now() - callStartMs;
         const isTimeout =
           err?.name === "APIConnectionTimeoutError" ||
           String(err?.message || "").toLowerCase().includes("timeout") ||
           String(err?.message || "").toLowerCase().includes("timed out");
         const statusCode = err?.status || err?.statusCode || (isTimeout ? 504 : "Unknown");
-        recordCircuitBreakerFailure(target.provider, target.model, statusCode, err?.message).catch(() => {});
+        recordCircuitBreakerFailure(
+          target.provider,
+          target.model,
+          statusCode,
+          err?.message,
+          callLatencyMs
+        ).catch(() => {});
         console.warn(
           `${colors.yellow}[Failover Notice]${colors.reset} [${target.provider}] ${target.model} attempt ${att + 1}/${attempts} failed (${statusCode}: ${err.message}). Trying fallback...`
         );
@@ -447,8 +447,6 @@ export async function callChatCompletionWithFailover(
             advanceOpenRouterKeyOnRateLimit();
           }
         }
-        // 503 is service-level unavailability/high demand at provider. 504/isTimeout means connection stalled.
-        // Fast-fail immediately to next model in cascade without burning another 12s on the same dead model.
         if (
           statusCode === 503 ||
           String(statusCode).includes("503") ||

@@ -78,11 +78,11 @@ export function getShunopsDashboardHtml(initialData: {
         </div>
       </div>
 
-      <!-- OpenTelemetry Distributed Tracing & SOTA Runtime Engine Panel -->
+      <!-- OpenTelemetry Distributed Tracing & Stage 8 SOTA Runtime Engine Panel -->
       <div class="panel" id="telemetry-panel">
         <div class="panel-header">
           <div class="panel-title">
-            <span>📡</span> OpenTelemetry Distributed Tracing &amp; SOTA Runtime Metrics
+            <span>📡</span> OpenTelemetry Tracing, Semantic Cache &amp; Bandit Router
           </div>
           <button class="btn btn-secondary" onclick="fetchTelemetryPanel()">🔄 Refresh OTel</button>
         </div>
@@ -92,7 +92,9 @@ export function getShunopsDashboardHtml(initialData: {
           <span>p99: <strong id="otel-p99" style="color:#38bdf8;">0ms</strong></span>
           <span>Spans: <strong id="otel-spans" style="color:#e2e8f0;">0</strong></span>
           <span>Vector Tier: <strong id="otel-vector-tier" style="color:#a78bfa;">768-dim</strong></span>
-          <span>Cache Hit: <strong id="otel-cache-hit" style="color:#34d399;">0%</strong></span>
+          <span>Emb Cache: <strong id="otel-cache-hit" style="color:#34d399;">0%</strong></span>
+          <span>Sem Cache: <strong id="otel-sem-cache" style="color:#38bdf8;">0% (0 tok saved)</strong></span>
+          <span>Router: <strong id="otel-bandit-router" style="color:#fbbf24;">EWMA Bandit</strong></span>
           <span>Sandbox: <strong id="otel-sandbox-tiers" style="color:#67e8f9;">WASM + V8 Isolate</strong></span>
         </div>
         <div id="telemetry-traces-container" style="padding: 16px; max-height: 240px; overflow-y: auto;">
