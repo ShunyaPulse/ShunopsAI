@@ -426,21 +426,23 @@ async function executeInWorkerIsolate(
       },
     });
 
-    // CodeQL js/resource-exhaustion remediation: clamp timer delay to a constant ceiling
+    // CodeQL js/resource-exhaustion remediation: strictly clamp timer delay with constant literal bounds
     let delayMs = 3250;
     const numTimeout = Number(timeoutMs);
     if (Number.isFinite(numTimeout)) {
       let t = Math.floor(numTimeout);
-      if (t > MAX_TIMEOUT_MS) t = MAX_TIMEOUT_MS;
+      if (t > 10000) t = 10000;
       if (t < 100) t = 100;
       delayMs = t + 250;
     }
-    if (delayMs > 10500) {
-      delayMs = 10500;
+    if (delayMs > 10250) {
+      delayMs = 10250;
     }
     if (delayMs < 350) {
       delayMs = 350;
     }
+
+    const timerDuration = delayMs > 10250 ? 10250 : delayMs < 350 ? 350 : delayMs;
 
     const timer = setTimeout(() => {
       if (settled) return;
@@ -448,13 +450,13 @@ async function executeInWorkerIsolate(
       worker.terminate().catch(() => {});
       resolve({
         success: false,
-        error: `Script execution timed out after ${delayMs - 250}ms`,
+        error: `Script execution timed out after ${timerDuration - 250}ms`,
         logs: [],
         executionTimeMs: Date.now() - startTime,
         engine: "worker-v8-isolate",
         memoryLimitMb,
       });
-    }, delayMs);
+    }, timerDuration);
     if (typeof timer.unref === "function") timer.unref();
 
     worker.on("message", (msg: any) => {

@@ -246,19 +246,16 @@ export function buildToolPromptFallbackMessages(
 
   const protocolInstruction =
     tools.length > 0
-      ? `\n\n[UNIVERSAL TOOL CALLING PROTOCOL]\nYou have access to these tools:\n${toolSummaries}\n\nWhen you need to call a tool, output ONLY a <tool_call> XML block containing valid JSON with "name" and "arguments", like this:\n<tool_call>{"name": "manage_agent_tasks", "arguments": {"operation": "create_plan", "tasks": ["Step 1", "Step 2"]}}</tool_call>\nAfter the tool executes and you receive the [Tool Result], continue reasoning or provide your final answer to the user.`
+      ? `[UNIVERSAL TOOL CALLING PROTOCOL]\nYou have access to these tools:\n${toolSummaries}\n\nWhen you need to call a tool, output ONLY a <tool_call> XML block containing valid JSON with "name" and "arguments", like this:\n<tool_call>{"name": "manage_agent_tasks", "arguments": {"operation": "create_plan", "tasks": ["Step 1", "Step 2"]}}</tool_call>\nAfter the tool executes and you receive the [Tool Result], continue reasoning or provide your final answer to the user.`
       : "";
 
   const converted: OpenAI.ChatCompletionMessageParam[] = [];
-  let injectedProtocol = false;
 
   for (const m of messages) {
-    if (m.role === "system" && !injectedProtocol) {
-      injectedProtocol = true;
-      converted.push({
-        role: "system",
-        content: `${typeof m.content === "string" ? m.content : ""}${protocolInstruction}`,
-      });
+    if (m.role === "system") {
+      // Security Invariant (CodeQL Alert 175): System messages must remain strictly trusted developer prompts.
+      // Never concatenate untrusted parameters or modify system messages dynamically.
+      converted.push(m);
     } else if (m.role === "assistant" && (m as any).tool_calls?.length) {
       const callsText = ((m as any).tool_calls as any[])
         .map((tc) => `<tool_call>${JSON.stringify({ name: tc.function?.name, arguments: JSON.parse(tc.function?.arguments || "{}") })}</tool_call>`)
@@ -277,8 +274,18 @@ export function buildToolPromptFallbackMessages(
     }
   }
 
-  if (!injectedProtocol && protocolInstruction) {
-    converted.unshift({ role: "system", content: protocolInstruction.trim() });
+  // Prepend protocol instructions cleanly to the first user turn so user inputs never flow into system roles.
+  if (protocolInstruction) {
+    const firstUserIdx = converted.findIndex((m) => m.role === "user");
+    if (firstUserIdx >= 0) {
+      const existing = converted[firstUserIdx];
+      if (existing && existing.role === "user" && typeof existing.content === "string") {
+        converted[firstUserIdx] = {
+          role: "user",
+          content: `${protocolInstruction}\n\n${existing.content}`,
+        };
+      }
+    }
   }
 
   return converted;

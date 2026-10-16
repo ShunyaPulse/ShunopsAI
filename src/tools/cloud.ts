@@ -473,13 +473,20 @@ export async function inspectWebsite(url: string, focusQuery?: string): Promise<
 
       // Reconstruct target URL from verified safe components to eliminate SSRF (CodeQL js/request-forgery)
       const safeProtocol = parsed.protocol === "http:" ? "http:" : "https:";
-      const safeHost = parsed.hostname;
-      const safePort = parsed.port ? `:${parsed.port}` : "";
+      const hostMatch = parsed.hostname.match(/^[a-zA-Z0-9_.-]+$/);
+      if (!hostMatch) {
+        return `Website Inspection blocked: invalid target hostname characters.`;
+      }
+      const safeHost = hostMatch[0];
+      const safePort = parsed.port ? `:${Number(parsed.port)}` : "";
       const safeOrigin = `${safeProtocol}//${safeHost}${safePort}`;
-      const safeUrl = new URL(`${parsed.pathname}${parsed.search}`, safeOrigin);
+      const safePath = parsed.pathname.startsWith("/") ? parsed.pathname : `/${parsed.pathname}`;
+      const safeSearch = parsed.search;
+      const safeHref = `${safeOrigin}${safePath}${safeSearch}`;
+      const safeUrl = new URL(safeHref);
 
       // Use manual redirect handling so every redirect target is validated against SSRF rules
-      const res = await fetch(safeUrl.href, {
+      const res = await fetch(safeUrl, {
         method: "GET",
         redirect: "manual",
         headers: { "User-Agent": "AutonomousAgent/1.0 (HealthCheck)" },
