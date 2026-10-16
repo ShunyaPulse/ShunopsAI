@@ -312,7 +312,7 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
           });
 
           const result = await runAutonomousAgent(goal, {
-            maxSteps: isBYOK || authenticatedUser ? 6 : 3,
+            maxSteps: isBYOK || authenticatedUser ? 10 : 5,
             disabledTools,
             keyOverrides,
             targets,
@@ -367,7 +367,7 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
         }
 
         const result = await runAutonomousAgent(goal, {
-          maxSteps: isBYOK || authenticatedUser ? 6 : 3,
+          maxSteps: isBYOK || authenticatedUser ? 10 : 5,
           disabledTools,
           keyOverrides,
           targets,

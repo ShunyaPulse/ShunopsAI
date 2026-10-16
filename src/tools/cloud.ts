@@ -830,10 +830,17 @@ export async function executeWebSearch(
     }
   }
 
-  // Zero-Key Multi-Source Live Web Search Engine (Wikipedia + DuckDuckGo Instant Answer + HackerNews Algolia)
+  // Zero-Key Multi-Source Live Web Search Engine (Google News RSS + Wikipedia + DuckDuckGo Instant Answer + HackerNews Algolia)
   const resultsOut: string[] = [];
 
-  const [ddgRes, wikiRes, hnRes] = await Promise.allSettled([
+  const [newsRes, ddgRes, wikiRes, hnRes] = await Promise.allSettled([
+    fetch(`https://news.google.com/rss/search?q=${encodeURIComponent(cleanQuery)}&hl=en-IN&gl=IN&ceid=IN:en`, {
+      method: "GET",
+      redirect: "error",
+      headers: { Accept: "application/xml, text/xml", "User-Agent": "ShunopsAI-Agent/1.0" },
+      signal: AbortSignal.timeout(8000),
+    }).then((r) => (r.ok ? r.text() : null)),
+
     fetch(`https://api.duckduckgo.com/?q=${encodeURIComponent(cleanQuery)}&format=json&no_html=1&skip_disambig=1`, {
       method: "GET",
       redirect: "error",
@@ -855,6 +862,32 @@ export async function executeWebSearch(
       signal: AbortSignal.timeout(8000),
     }).then((r) => (r.ok ? r.json() : null)),
   ]);
+
+  if (newsRes.status === "fulfilled" && newsRes.value) {
+    const rawXml = String(newsRes.value);
+    const itemMatches = (rawXml.match(/<item>[\s\S]*?<\/item>/g) || []).slice(0, Math.min(count, 5));
+    for (const item of itemMatches) {
+      const titleMatch = item.match(/<title>([\s\S]*?)<\/title>/i);
+      const linkMatch = item.match(/<link>([\s\S]*?)<\/link>/i);
+      const pubDateMatch = item.match(/<pubDate>([\s\S]*?)<\/pubDate>/i);
+      const sourceMatch = item.match(/<source[^>]*>([\s\S]*?)<\/source>/i);
+      if (titleMatch && titleMatch[1]) {
+        let cleanTitle = titleMatch[1].replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1").trim();
+        cleanTitle = cleanTitle
+          .replace(/&quot;/g, '"')
+          .replace(/&#39;|&apos;/gi, "'")
+          .replace(/&lt;/gi, "<")
+          .replace(/&gt;/gi, ">")
+          .replace(/&amp;/gi, "&");
+        const link = (linkMatch?.[1] || "").trim();
+        const pubDate = (pubDateMatch?.[1] || "").trim();
+        const src = (sourceMatch?.[1] || "").trim();
+        resultsOut.push(
+          `• [News: ${cleanTitle}](${link || "https://news.google.com"})${src ? ` (Source: ${src})` : ""}${pubDate ? ` [${pubDate}]` : ""}`
+        );
+      }
+    }
+  }
 
   if (ddgRes.status === "fulfilled" && ddgRes.value) {
     const ddg: any = ddgRes.value;

@@ -407,6 +407,12 @@ export async function runAutonomousAgent(
       if (options.initialContext && typeof options.initialContext === "string") {
         userTurnBlocks.push(`[Context Reference Material]:\n${options.initialContext.slice(0, 4000)}`);
       }
+      const now = new Date();
+      const currentUtcStr = now.toUTCString();
+      const currentIsoDate = now.toISOString().slice(0, 10);
+      userTurnBlocks.push(
+        `[System Date & Temporal Grounding]: Current system date is ${currentUtcStr} (UTC date: ${currentIsoDate}). Ground all time-relative queries ("today", "latest", "breaking news", "current year") against this reference.`
+      );
       userTurnBlocks.push(`[User Goal]:\n${userGoal}`);
 
       const effectiveUserGoal = userTurnBlocks.join("\n\n");
@@ -463,7 +469,17 @@ export async function runAutonomousAgent(
         } catch {}
 
         try {
-          const stepTools = selectEnergyEfficientToolsForGoal(userGoal, activeTools, step);
+          if (step === maxSteps && maxSteps > 1 && stepsLog.length > 0) {
+            messages.push({
+              role: "user",
+              content: `[Final Step Alert]: This is your final allowed step (${step}/${maxSteps}). Formulate and deliver your comprehensive final answer to the user now based on the findings above. Do not call any further tools.`,
+            });
+          }
+
+          const stepTools =
+            step === maxSteps && maxSteps > 2 && stepsLog.length >= 2
+              ? []
+              : selectEnergyEfficientToolsForGoal(userGoal, activeTools, step);
           const { response, usedModel } = await callChatCompletionWithFailover(
             messages,
             targets,
@@ -900,10 +916,65 @@ export async function runAutonomousAgent(
       }
 
       console.warn(
-        `\n${colors.yellow}${colors.bold}[Max Steps Reached]${colors.reset} Agent completed maximum allowed iterations (${maxSteps}).`
+        `\n${colors.yellow}${colors.bold}[Max Steps Reached]${colors.reset} Agent completed maximum allowed iterations (${maxSteps}). Running autonomous final synthesis...`
       );
       runSpan.setAttribute("agent.steps_taken", stepsTaken);
       runSpan.setAttribute("agent.max_steps_reached", true);
+
+      // Autonomous Final Synthesis:
+      // When step budget is exhausted after gathering research or tool outputs, invoke model
+      // one final time with tools disabled to synthesize a complete, helpful response.
+      try {
+        const synthesisPrompt: OpenAI.ChatCompletionUserMessageParam = {
+          role: "user",
+          content:
+            "Maximum tool execution iterations reached. Based on all research, tool results, and findings collected above, formulate and deliver your comprehensive, well-structured final answer to the user now. Do not attempt to call any more tools.",
+        };
+        const synthesisMessages = [...messages, synthesisPrompt];
+        const { response: synthResponse, usedModel: synthModel } =
+          await callChatCompletionWithFailover(
+            synthesisMessages,
+            targets,
+            [], // Force pure text synthesis
+            temperature,
+            options.keyOverrides
+          );
+
+        const synthText = synthResponse.choices?.[0]?.message?.content?.trim();
+        if (synthText) {
+          console.log(
+            `\n${colors.green}${colors.bold}[Autonomous Final Synthesis Delivered]${colors.reset}\n${synthText}`
+          );
+          try {
+            options.onProgress?.({
+              type: "final_answer",
+              step: stepsTaken,
+              model: synthModel,
+              text: synthText,
+            });
+          } catch {}
+
+          const promptToks = synthResponse.usage?.prompt_tokens || 0;
+          const compToks = synthResponse.usage?.completion_tokens || 0;
+
+          return {
+            success: true,
+            finalAnswer: synthText,
+            stepsTaken,
+            stepsLog,
+            history: synthesisMessages,
+            usedModel: synthModel,
+            usage: {
+              promptTokens: totalPromptTokens + promptToks,
+              completionTokens: totalCompletionTokens + compToks,
+              totalTokens:
+                totalPromptTokens + totalCompletionTokens + promptToks + compToks,
+            },
+          };
+        }
+      } catch (synthError: any) {
+        console.warn(`[Autonomous Synthesis Fallback Error]: ${synthError?.message || synthError}`);
+      }
 
       return {
         success: false,
