@@ -32,6 +32,7 @@ import {
 } from "../../tools/agentic.js";
 import { executeAgentSwarm, getTenantSwarmHistory, type SwarmSubAgentSpec, type SwarmExecutionMode } from "../../agent/swarm.js";
 import { buildRequestScope } from "../scope.js";
+import { isPrivateHost } from "../../tools/cloud.js";
 
 /**
  * Tools the built-in sovereign `/api/mcp` server actually implements. It
@@ -414,8 +415,17 @@ export async function workspaceRoutes(app: FastifyInstance, options: WorkspaceRo
         return { success: false, error: "JavaScript code string is required." };
       }
       const workspaceFiles = getTenantFilesMap(tenantKey);
+      let safeTimeoutMs = 3000;
+      if (req.body?.timeoutMs !== undefined) {
+        const raw = Number(req.body.timeoutMs);
+        if (Number.isFinite(raw)) {
+          safeTimeoutMs = Math.floor(raw);
+          if (safeTimeoutMs > 10000) safeTimeoutMs = 10000;
+          if (safeTimeoutMs < 500) safeTimeoutMs = 500;
+        }
+      }
       const res = await executeInSandbox(code, {
-        timeoutMs: req.body?.timeoutMs,
+        timeoutMs: safeTimeoutMs,
         workspaceFiles,
       });
       const savedFiles = res.success ? await persistSandboxWrittenFiles(res.writtenFiles, tenantKey) : [];
@@ -493,11 +503,33 @@ export async function workspaceRoutes(app: FastifyInstance, options: WorkspaceRo
       reply.status(400);
       return { success: false, error: "Swarm objective and at least one sub-agent are required." };
     }
+    const sanitizedAgents: SwarmSubAgentSpec[] = agents.map((a) => {
+      let safeTargetUrl: string | undefined;
+      if (typeof a.targetUrl === "string" && a.targetUrl.trim()) {
+        try {
+          const raw = a.targetUrl.trim();
+          const u = new URL(raw.startsWith("http") ? raw : `https://${raw}`);
+          if (
+            (u.protocol === "http:" || u.protocol === "https:") &&
+            !isPrivateHost(u.hostname) &&
+            /^[a-zA-Z0-9_.-]+$/.test(u.hostname)
+          ) {
+            const port = u.port ? `:${u.port}` : "";
+            safeTargetUrl = `${u.protocol}//${u.hostname}${port}${u.pathname}${u.search}`;
+          }
+        } catch {}
+      }
+      return {
+        ...a,
+        targetUrl: safeTargetUrl,
+      };
+    });
+
     const scope = await buildRequestScope(user);
     const result = await executeAgentSwarm({
       objective,
       mode: body.mode || "hybrid_dag",
-      agents,
+      agents: sanitizedAgents,
       saveDeliverableAs: body.saveDeliverableAs,
       scope,
     });
@@ -756,9 +788,21 @@ export async function workspaceRoutes(app: FastifyInstance, options: WorkspaceRo
 
       if (method === "tools/call") {
         const toolName = typeof params?.name === "string" ? params.name : "";
-        const args = (
+        const rawArgs = (
           params?.arguments && typeof params.arguments === "object" ? params.arguments : {}
         ) as Record<string, unknown>;
+        const args: Record<string, unknown> = { ...rawArgs };
+        if (args.timeoutMs !== undefined) {
+          const raw = Number(args.timeoutMs);
+          if (Number.isFinite(raw)) {
+            let t = Math.floor(raw);
+            if (t > 10000) t = 10000;
+            if (t < 500) t = 500;
+            args.timeoutMs = t;
+          } else {
+            args.timeoutMs = 3000;
+          }
+        }
         const outcome = await callBuiltInMcpTool(toolName, args, tenantKey);
         return {
           jsonrpc: "2.0",

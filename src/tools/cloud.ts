@@ -467,12 +467,19 @@ export async function inspectWebsite(url: string, focusQuery?: string): Promise<
       if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
         return `Website Inspection blocked: only http(s) URLs are permitted.`;
       }
-      if (isPrivateHost(parsed.hostname)) {
+      if (!parsed.hostname || isPrivateHost(parsed.hostname) || !/^[a-zA-Z0-9_.-]+$/.test(parsed.hostname)) {
         return `Website Inspection blocked: requests to internal or cloud metadata endpoints are not permitted.`;
       }
 
+      // Reconstruct target URL from verified safe components to eliminate SSRF (CodeQL js/request-forgery)
+      const safeProtocol = parsed.protocol === "http:" ? "http:" : "https:";
+      const safeHost = parsed.hostname;
+      const safePort = parsed.port ? `:${parsed.port}` : "";
+      const safeOrigin = `${safeProtocol}//${safeHost}${safePort}`;
+      const safeUrl = new URL(`${parsed.pathname}${parsed.search}`, safeOrigin);
+
       // Use manual redirect handling so every redirect target is validated against SSRF rules
-      const res = await fetch(parsed.toString(), {
+      const res = await fetch(safeUrl.href, {
         method: "GET",
         redirect: "manual",
         headers: { "User-Agent": "AutonomousAgent/1.0 (HealthCheck)" },
@@ -483,7 +490,7 @@ export async function inspectWebsite(url: string, focusQuery?: string): Promise<
         const location = res.headers.get("location");
         if (!location) {
           return JSON.stringify({
-            url: currentUrl,
+            url: safeUrl.href,
             status: res.status,
             statusText: res.statusText,
             latencyMs: Date.now() - start,
@@ -494,7 +501,7 @@ export async function inspectWebsite(url: string, focusQuery?: string): Promise<
         if (hop === maxRedirects) {
           return `Website Inspection blocked: exceeded maximum redirect hops (${maxRedirects}).`;
         }
-        currentUrl = new URL(location, parsed).toString();
+        currentUrl = new URL(location, safeOrigin).toString();
         continue;
       }
 
@@ -505,7 +512,7 @@ export async function inspectWebsite(url: string, focusQuery?: string): Promise<
       // If response is JSON, return parsed/formatted JSON preview
       if (contentType.includes("application/json")) {
         return JSON.stringify({
-          url: currentUrl,
+          url: safeUrl.href,
           status: res.status,
           statusText: res.statusText,
           contentType,
@@ -526,17 +533,28 @@ export async function inspectWebsite(url: string, focusQuery?: string): Promise<
         .filter(Boolean)
         .slice(0, 15);
 
-      const readableText = bodyText
-        .replace(/<script[\s\S]*?<\/script>/gi, " ")
-        .replace(/<style[\s\S]*?<\/style>/gi, " ")
-        .replace(/<svg[\s\S]*?<\/svg>/gi, " ")
-        .replace(/<noscript[\s\S]*?<\/noscript>/gi, " ")
-        .replace(/<[^>]+>/g, " ")
+      // Strip script, style, svg, noscript tags thoroughly (handling arbitrary whitespace and attributes)
+      let cleanedHtml = bodyText
+        .replace(/<script\b[^>]*>[\s\S]*?<\/script\b[^>]*>/gi, " ")
+        .replace(/<style\b[^>]*>[\s\S]*?<\/style\b[^>]*>/gi, " ")
+        .replace(/<svg\b[^>]*>[\s\S]*?<\/svg\b[^>]*>/gi, " ")
+        .replace(/<noscript\b[^>]*>[\s\S]*?<\/noscript\b[^>]*>/gi, " ");
+
+      // Repeated tag stripping to prevent nested tag injection vulnerabilities (CWE-116)
+      let prevHtml = "";
+      while (cleanedHtml !== prevHtml) {
+        prevHtml = cleanedHtml;
+        cleanedHtml = cleanedHtml.replace(/<[^>]*>/g, " ");
+      }
+
+      // Unescape HTML entities in correct order: specific entities first, ampersand last (Anti Double-Escaping)
+      const readableText = cleanedHtml
         .replace(/&nbsp;/gi, " ")
-        .replace(/&amp;/gi, "&")
+        .replace(/&quot;/gi, '"')
+        .replace(/&#39;|&apos;/gi, "'")
         .replace(/&lt;/gi, "<")
         .replace(/&gt;/gi, ">")
-        .replace(/&quot;/gi, "\"")
+        .replace(/&amp;/gi, "&")
         .replace(/\s+/g, " ")
         .trim()
         .slice(0, 6000);
@@ -851,7 +869,19 @@ export async function executeWebSearch(
     const wikiVal: any = wikiRes.value;
     const wikiItems: any[] = wikiVal?.query?.search || [];
     for (const item of wikiItems.slice(0, 4)) {
-      const cleanSnippet = String(item.snippet || "").replace(/<[^>]+>/g, "").replace(/&quot;/g, "\"").replace(/&amp;/g, "&");
+      let cleanSnippet = String(item.snippet || "");
+      let prev = "";
+      while (cleanSnippet !== prev) {
+        prev = cleanSnippet;
+        cleanSnippet = cleanSnippet.replace(/<[^>]*>/g, "");
+      }
+      cleanSnippet = cleanSnippet
+        .replace(/[<>]/g, "")
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;|&apos;/gi, "'")
+        .replace(/&lt;/gi, "<")
+        .replace(/&gt;/gi, ">")
+        .replace(/&amp;/gi, "&");
       const url = `https://en.wikipedia.org/wiki/${encodeURIComponent(String(item.title || "").replace(/\s+/g, "_"))}`;
       resultsOut.push(`• [Wikipedia: ${item.title}](${url})
   ${cleanSnippet}`);

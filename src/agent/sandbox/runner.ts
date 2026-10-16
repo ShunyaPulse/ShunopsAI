@@ -211,7 +211,10 @@ const PRECOMPILED_RUNNER_SCRIPT = new vm.Script(SANDBOX_RUNNER_SOURCE, {
 function resolveTimeout(timeoutMs: number | undefined): number {
   const requested = Number(timeoutMs);
   if (!Number.isFinite(requested) || requested <= 0) return DEFAULT_TIMEOUT_MS;
-  return Math.min(Math.max(100, Math.floor(requested)), MAX_TIMEOUT_MS);
+  let t = Math.floor(requested);
+  if (t > MAX_TIMEOUT_MS) t = MAX_TIMEOUT_MS;
+  if (t < 100) t = 100;
+  return t;
 }
 
 function resolveMemoryLimitMb(memoryLimitMb: number | undefined): number {
@@ -424,8 +427,20 @@ async function executeInWorkerIsolate(
     });
 
     // CodeQL js/resource-exhaustion remediation: clamp timer delay to a constant ceiling
-    const boundedTimeoutMs = Math.min(Math.max(100, Math.floor(timeoutMs)), MAX_TIMEOUT_MS);
-    const safeTimerDelayMs = Math.min(boundedTimeoutMs + 250, MAX_TIMEOUT_MS + 500);
+    let delayMs = 3250;
+    const numTimeout = Number(timeoutMs);
+    if (Number.isFinite(numTimeout)) {
+      let t = Math.floor(numTimeout);
+      if (t > MAX_TIMEOUT_MS) t = MAX_TIMEOUT_MS;
+      if (t < 100) t = 100;
+      delayMs = t + 250;
+    }
+    if (delayMs > 10500) {
+      delayMs = 10500;
+    }
+    if (delayMs < 350) {
+      delayMs = 350;
+    }
 
     const timer = setTimeout(() => {
       if (settled) return;
@@ -433,13 +448,13 @@ async function executeInWorkerIsolate(
       worker.terminate().catch(() => {});
       resolve({
         success: false,
-        error: `Script execution timed out after ${boundedTimeoutMs}ms`,
+        error: `Script execution timed out after ${delayMs - 250}ms`,
         logs: [],
         executionTimeMs: Date.now() - startTime,
         engine: "worker-v8-isolate",
         memoryLimitMb,
       });
-    }, safeTimerDelayMs);
+    }, delayMs);
     if (typeof timer.unref === "function") timer.unref();
 
     worker.on("message", (msg: any) => {

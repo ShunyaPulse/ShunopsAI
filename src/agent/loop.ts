@@ -336,13 +336,14 @@ export async function runAutonomousAgent(
         { role: "system", content: buildSystemPrompt() },
       ];
 
+      const lines: string[] = [];
       if (scope) {
         const connected = Object.keys(scope.credentials ?? {});
         const safeUsername = (scope.username || "").replace(/[^a-zA-Z0-9_.-]/g, "");
-        const lines = [
+        lines.push(
           `Workspace Execution Scope: running as "${safeUsername || (scope.kind === "admin" ? "admin" : `user_${scope.userId}`)}" (role: ${scope.kind}).`,
-          `Connected platforms: ${connected.length > 0 ? connected.join(", ") : "none"}.`,
-        ];
+          `Connected platforms: ${connected.length > 0 ? connected.join(", ") : "none"}.`
+        );
         if (scope.credentials?.neon || scope.credentials?.supabase) {
           const dbLabel =
             scope.credentials?.neon && scope.credentials?.supabase
@@ -388,31 +389,27 @@ export async function runAutonomousAgent(
             "If a tool refuses because an account is not connected, tell the user to connect it under Account Settings → Platform Connections."
           );
         }
-        const agenticSummary = getTenantAgenticContextSummary(activeTenantKey);
-        if (agenticSummary) {
-          lines.push("", agenticSummary);
-        }
-        messages.push({
-          role: "system",
-          content: lines.join("\n"),
-        });
-      } else {
-        const adminSummary = getTenantAgenticContextSummary("admin:0");
-        if (adminSummary) {
-          messages.push({
-            role: "system",
-            content: adminSummary,
-          });
-        }
       }
 
-      // Security Invariant (CodeQL Alert 174): User-provided context must be supplied
-      // in the user message role, never interpolated into the system prompt.
-      let effectiveUserGoal = userGoal;
-      if (options.initialContext && typeof options.initialContext === "string") {
-        const sanitizedContext = options.initialContext.slice(0, 4000);
-        effectiveUserGoal = `[Context Reference Material]:\n${sanitizedContext}\n\n[User Goal]:\n${userGoal}`;
+      // Security Invariant (CodeQL Alert 174 & 175): System prompt must remain strictly static
+      // and trusted (buildSystemPrompt()). Dynamic tenant scope, workspace state, task checklist,
+      // memories, and user context must NEVER be injected into { role: "system" }; supply them
+      // exclusively in the user turn as structured reference context.
+      const tenantSummary = getTenantAgenticContextSummary(activeTenantKey);
+      const userTurnBlocks: string[] = [];
+
+      if (scope && lines.length > 0) {
+        userTurnBlocks.push(`[Workspace Environment & Connected Scope]:\n${lines.join("\n")}`);
       }
+      if (tenantSummary) {
+        userTurnBlocks.push(`[Active Workspace State & Memories]:\n${tenantSummary}`);
+      }
+      if (options.initialContext && typeof options.initialContext === "string") {
+        userTurnBlocks.push(`[Context Reference Material]:\n${options.initialContext.slice(0, 4000)}`);
+      }
+      userTurnBlocks.push(`[User Goal]:\n${userGoal}`);
+
+      const effectiveUserGoal = userTurnBlocks.join("\n\n");
 
       if (options.image) {
         messages.push({
