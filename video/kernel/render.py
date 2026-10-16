@@ -306,6 +306,20 @@ class WanT4OptimizedEngine:
         else:
             domain_neg = "baseball helmet, american football helmet, cartoon, anime, "
 
+        # Domain-specific physics and geographic negative cues
+        if domain == "nature":
+            geo_neg = (
+                "desert, red sand, red canyon, colorado plateau, arizona canyon, alien rocks, martian terrain, "
+                "balkan map, central asia borders, fantasy borders, red border lines, digital map, cartography, "
+                "solid rubber water, extruded water cylinder, dry waterfall, floating ship on land, "
+            )
+        else:
+            geo_neg = (
+                "ship on beach, ship on cliff, vessel wedged into dirt, cargo cranes in wheat field, harbor in farm, "
+                "floating bridge, broken disconnected highway, floating bridge pillars, "
+                "corporate curved boardroom for unsc, generic meeting room, "
+            )
+
         for s_idx in range(num_shots):
             var_text, seed = shot_variations[s_idx]
             sub_clip = f"{TMP}/sub_{scene_idx}_{s_idx}.mp4"
@@ -318,12 +332,13 @@ class WanT4OptimizedEngine:
             )
             neg_prompt = (
                 f"{domain_neg}"
+                f"{geo_neg}"
                 "horror, choking, strangling, neck grabbing, violence, assault, aggression, threat, painful grimace, distress, screaming, blood, "
                 "warehouse, airplane hangar, modern factory, industrial hall, industrial interior, modern architecture, "
                 "inconsistent face, multiple different faces, female model, woman reading magazine, modern clothing, casual clothing, t-shirt, jeans, hoodie, "
                 "mutated hands, extra fingers, missing fingers, fused fingers, distorted hands, morphing face, melting skin, warped anatomy, "
                 "text, letters, words, writing, numbers, labels, charts, line graphs, pseudo-code, glyphs, bullet points, presentation slide, document, page with text, "
-                "garbled ui, blurry text, watermarks, symbols, subtitles, hud text, "
+                "garbled ui, blurry text, watermarks, symbols, subtitles, hud text, map, cartographic lines, "
                 "temporal morphing, surface rippling, breathing walls, gelatinous motion, boiling edges, "
                 "whip pan, fast zoom, motion smear, extreme motion blur, "
                 "blown-out highlights, clipped cyan, hyper-neon blue glare, "
@@ -767,13 +782,20 @@ async def main():
                 "sin(195*2*PI*t)*0.03 + sin(64.5*2*PI*t)*0.09"
             )
             bg_filter = "lowpass=f=450,volume=0.16,afade=t=in:st=0:d=1.0"
-        else:
-            # Warm documentary pad drone
+        elif domain == "nature":
+            # Natural oceanic/atmospheric texture: low-frequency rolling swell + wind resonance
             aeval = (
-                "sin(60*2*PI*t)*0.16 + sin(120*2*PI*t)*0.08 + "
-                "sin(180*2*PI*t)*0.04 + sin(59.5*2*PI*t)*0.10"
+                "sin(45*2*PI*t)*0.14 + sin(90*2*PI*t)*(0.07+0.04*sin(0.2*2*PI*t)) + "
+                "sin(135*2*PI*t)*0.03 + sin(44.5*2*PI*t)*0.08"
             )
-            bg_filter = "lowpass=f=360,volume=0.15,afade=t=in:st=0:d=1.5"
+            bg_filter = "lowpass=f=300,volume=0.15,afade=t=in:st=0:d=2.0"
+        else:
+            # Warm documentary pad drone: rich ambient bed masking synthetic gaps
+            aeval = (
+                "sin(58*2*PI*t)*0.15 + sin(116*2*PI*t)*0.08 + "
+                "sin(174*2*PI*t)*0.04 + sin(57.5*2*PI*t)*0.09"
+            )
+            bg_filter = "lowpass=f=350,volume=0.14,afade=t=in:st=0:d=1.5"
 
         ok_amb = run([
             "ffmpeg", "-y", "-f", "lavfi",

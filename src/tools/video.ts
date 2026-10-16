@@ -393,21 +393,40 @@ export function getDomainPromptDirectives(domain: VideoDomain): string {
 
     case "nature":
       return `CRITICAL DOMAIN DIRECTIVES (NATURE & DEEP EARTH):
-- NATURAL MAJESTY & MACRO/MICRO TEXTURES:
-  * Deep ocean abyss, bioluminescent creatures, volcanic basalt lava flows, massive Antarctic ice shelves, pristine untouched geological landscapes.
-  * Zero sports gear, zero cartoon aesthetics.
-- ZERO TEXT IN DIFFUSION:
-  * Pure untouched nature, zero artificial text.
+- NATURAL MAJESTY, REAL GEOGRAPHY & AUTHENTIC BIOME FIDELITY:
+  * Strict Real-World Geography: The geographical region MUST match real-world geology and climate.
+    - If Indian Peninsula/Deccan Traps/Western Ghats (e.g. Godavari, Krishna, Sahyadri): depict lush tropical monsoon foliage, dark volcanic basalt rocks, terraced emerald ghats, and fertile river basins. ABSOLUTELY ZERO red sandstone desert plateaus, Colorado canyons, Icelandic moss, or Martian rocks.
+    - If Amazon: dense equatorial rainforest canopy, murky green river tributaries.
+    - If Arctic/Antarctic: massive blue-ice glaciers, real snowpack physics.
+  * Natural Fluid Dynamics & Water Physics:
+    - Real fluid mechanics: turbulent foam, aerosol mist spray at the base of waterfalls, natural bow waves and wake displacement behind vessels, authentic water surface tension and light refraction.
+    - Ban static extruded rubber water cylinders, unmoving wake decals, and vessels fused into dry riverbeds or cliff faces.
+  * Zero sports gear, zero cartoon aesthetics, zero anime.
+- ZERO TEXT & ZERO FAKE MAPS IN DIFFUSION:
+  * ABSOLUTELY NEVER generate maps, cartographic lines, digital country outlines, or boundary plots in diffusion models (which hallucinates alien Balkan/Central Asian borders over Indian states).
+  * Maps and satellite trajectory lines are added exclusively via clean GIS/vector graphics in post-production.
+  * Visual prompts for terrain must depict authentic physical aerial drone shots of real landscapes, not computer screen maps.
 - AWE-INSPIRING TONE:
   * Contemplative, immersive documentary narration.`;
 
     default:
-      return `CRITICAL DOMAIN DIRECTIVES (GENERAL DOCUMENTARY):
+      return `CRITICAL DOMAIN DIRECTIVES (GEOPOLITICAL & GENERAL DOCUMENTARY):
+- AUTHENTIC ARCHITECTURAL & VENUE FIDELITY:
+  * Real-World Venues & Assemblies: If depicting historical or diplomatic venues (e.g. UN Security Council, Geneva, Supreme Court):
+    - Replicate iconic architectural layouts: UNSC must feature the famous Per Krohg mural, circular delegate table with central horseshoe layout, and retro blue acoustic wall panels. Never substitute with generic curved corporate boardrooms.
+- SHIP, HARBOR & STRUCTURAL PHYSICS FIDELITY:
+  * Physical Spatial Logic: Ships and marine vessels MUST strictly float in navigable waterways, open seas, or harbor basins with realistic bow wakes.
+  * ABSOLUTELY NEVER place cargo ships or port container cranes in inland agricultural wheat fields, dry dirt, or wedged inside sheer cliff walls.
+  * Bridge and infrastructure structures must be structurally anchored into bedrock or concrete piers; zero disconnected floating pillars or roadways vanishing mid-air into water.
+- ANATOMICAL FIDELITY & NO GHOSTING/WARPING:
+  * Hand and Typing Realism: In close-up shots of keyboards or machinery, fingers must be naturally separated and press keys mechanically. Ban fused finger joints, rubber hands, or hands merging into rocks/tools.
+  * Face & Head Stability: When characters wear headphones or glasses, frames and headbands must stay rigid and distinct from ear tissue and hair. Ban face morphing and walking ghost trails.
+- ZERO AI TEXT & GIBBERISH UI IN DIFFUSION:
+  * ABSOLUTELY NEVER generate text on screen monitors, price tags, navigation dashboards, market boards, or presentation slides.
+  * Specify: "unlabeled glowing navigation instruments, abstract clean radar rings, ambient volumetric HUD glow with zero text, zero letters, zero numbers, zero pseudocode".
 - AUTHENTIC CINEMATIC REALISM:
   * Modern digital documentary cinematography, authentic textures, balanced natural lighting.
   * Zero sports gear unless the topic is sports; zero cartoon/anime aesthetics.
-- ZERO AI TEXT IN DIFFUSION:
-  * Zero legible text, letters, or numbers inside the generated video frame.
 - ENGAGING, DYNAMIC TONE:
   * Clear, authoritative, intelligent pacing.`;
   }
@@ -580,6 +599,37 @@ export function resolveEdgeVoice(
 }
 
 /**
+ * Standardizes Hindi text and English acronyms for flawless TTS pronunciation.
+ * Prevents voice synthesis engines from garbling acronyms, awkward numbers, and irregular conjuncts.
+ */
+export function sanitizeNarrationForTTS(text: string, language = "Hindi"): string {
+  if (!/hindi/i.test(language)) return text;
+
+  let s = text;
+
+  // 1. Expand English acronyms to natural Hindi hyphenated syllables
+  s = s.replace(/\bUNSC\b/g, "यू-एन-एस-सी");
+  s = s.replace(/\bNATO\b/g, "नाटो");
+  s = s.replace(/\bISRO\b/g, "इसरो");
+  s = s.replace(/\bNASA\b/g, "नासा");
+  s = s.replace(/\bAI\b/g, "ए-आई");
+  s = s.replace(/\bGPU\b/g, "जी-पी-यू");
+  s = s.replace(/\bCPU\b/g, "सी-पी-यू");
+  s = s.replace(/\bWHO\b/g, "डब्ल्यू-एच-ओ");
+  s = s.replace(/\bWTO\b/g, "डब्ल्यू-टी-ओ");
+  s = s.replace(/\bUN\b/g, "संयुक्त राष्ट्र");
+
+  // 2. Fix garbled phonetic pronunciations reported in production renders
+  s = s.replace(/चीरती\s+हुई/g, "पार करती हुई");
+  s = s.replace(/\bह्यूम\b/g, "हमें");
+
+  // 3. Normalize numbers with commas so engines don't stutter (e.g. 1,465 -> 1465)
+  s = s.replace(/(\d+),(\d+)/g, (_match, p1, p2) => `${p1}${p2}`);
+
+  return s;
+}
+
+/**
  * Pre-synthesizes narration locally using Microsoft Edge-TTS via python -m edge_tts.
  * Packages ready audio into the Kaggle dataset to bypass Kaggle datacenter IP 403 Forbidden blocks.
  */
@@ -588,11 +638,13 @@ export async function synthesizeLocalEdgeTTS(
   outPath: string,
   voice = "hi-IN-MadhurNeural",
   pitch = "+0Hz",
-  rate = "+0%"
+  rate = "+0%",
+  language = "Hindi"
 ): Promise<boolean> {
+  const sanitizedText = sanitizeNarrationForTTS(text, language);
   const tmpTxt = path.join(os.tmpdir(), `edge_tts_${Date.now()}_${Math.random().toString(36).slice(2)}.txt`);
   try {
-    await fs.writeFile(tmpTxt, text, "utf-8");
+    await fs.writeFile(tmpTxt, sanitizedText, "utf-8");
     const args = ["-m", "edge_tts", "-f", tmpTxt, "-v", voice, "--pitch", pitch, "--rate", rate, "--write-media", outPath];
     await execFileAsync("python", args, { timeout: 30000 });
     const stat = await fs.stat(outPath);
@@ -659,10 +711,11 @@ export async function startVideoJob(
     }
 
     // Tier 1 for Hindi (or fallback for English): Google Cloud Neural2 with retries
+    const sanitizedNarration = sanitizeNarrationForTTS(sc.narration, language);
     if (!synthesized && gcpAvailable && gcpVoice) {
       for (let gcpAttempt = 1; gcpAttempt <= 2; gcpAttempt++) {
         try {
-          synthesized = await synthesizeGoogleCloudTTS(sc.narration, outMp3, {
+          synthesized = await synthesizeGoogleCloudTTS(sanitizedNarration, outMp3, {
             voiceName: gcpVoice.name,
             language,
             speakingRate: script.domain === "sports" ? 1.04 : 1.0,
@@ -687,7 +740,7 @@ export async function startVideoJob(
     // Edge-TTS (Local host fallback if GCP unavailable/failed)
     if (!synthesized) {
       for (let attempt = 1; attempt <= 3; attempt++) {
-        synthesized = await synthesizeLocalEdgeTTS(sc.narration, outMp3, edgeVoice.name, edgeVoice.pitch, edgeVoice.rate);
+        synthesized = await synthesizeLocalEdgeTTS(sc.narration, outMp3, edgeVoice.name, edgeVoice.pitch, edgeVoice.rate, language);
         if (synthesized) {
           edgeSuccessCount++;
           break;
