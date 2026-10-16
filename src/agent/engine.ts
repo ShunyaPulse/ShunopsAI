@@ -268,7 +268,10 @@ export async function executeAgentStream(
   const message = String(requestBody.message || '').slice(0, 8000);
   const maxTurns = parseInt(env.MAX_HISTORY_TURNS || '10', 10);
   const ttlSeconds = parseInt(env.SESSION_TTL_SECONDS || '86400', 10);
-  const systemPrompt = DEFAULT_SYSTEM_PROMPT;
+  const rawPageCtx = typeof requestBody.pageContext === 'string' ? requestBody.pageContext.trim().slice(0, 6000) : '';
+  const systemPrompt = rawPageCtx
+    ? `${DEFAULT_SYSTEM_PROMPT}\n\n[Host Website Live UI Context — Use these exact on-site sidebar items, menus, button colors, and labels to guide the user instead of generic external advice]:\n${rawPageCtx}`
+    : DEFAULT_SYSTEM_PROMPT;
 
   // Prepare Server-Sent Events TransformStream
   const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();

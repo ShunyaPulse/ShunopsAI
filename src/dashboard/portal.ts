@@ -147,7 +147,7 @@ ${PORTAL_STYLES}
 
         <!-- AI Engine Mode Selector -->
         <div style="background:#0f172a; border:1px solid #1e293b; border-radius:12px; padding:14px; margin-bottom:18px;">
-          <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+          <div class="ai-mode-grid">
             <div id="mode-shared" onclick="setAiMode('shared')" style="cursor:pointer; padding:12px; border-radius:8px; border:2px solid #1e293b; background:#0b1120; transition:all 0.2s;">
               <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px;">
                 <input type="radio" name="ai-mode" id="radio-shared" style="accent-color:#00f0ff;" checked />
@@ -233,7 +233,7 @@ ${PORTAL_STYLES}
                 🔗 Get Kaggle Token &rarr;
               </a>
             </div>
-            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px;">
+            <div class="kaggle-input-grid">
               <input type="text" id="input-kaggle-user" class="chat-input" placeholder="Your Kaggle Username" autocomplete="off" />
               <div class="password-input-wrapper">
                 <input type="text" id="input-kaggle-key" class="chat-input" placeholder="Kaggle API Token" autocomplete="off" data-lpignore="true" data-1p-ignore="true" />

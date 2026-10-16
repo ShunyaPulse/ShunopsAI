@@ -1780,10 +1780,57 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]'): stri
     }
 
 
-    // 10. Interactive Agentic Workspace Hub (Tasks, Virtual Files & Long-Term Memory)
+    // 10. 2-Mode Switcher (Chat vs Work) & Non-Destructive Agentic Workspace Hub
+    let currentMainMode = 'chat';
+    let currentWorkEngineTab = 'task';
     let currentAgenticTab = 'tasks';
+    const AGENTIC_LOCAL_CACHE_KEY = 'shunops_agentic_state_v2_${safeUsername}';
     let cachedAgenticState = { files: [], tasks: [], memories: [], schedules: [] };
     let lastAgenticStateEtag = '';
+
+    function saveLocalAgenticCache() {
+      try {
+        localStorage.setItem(AGENTIC_LOCAL_CACHE_KEY, JSON.stringify(cachedAgenticState));
+      } catch (e) {}
+    }
+
+    function restoreLocalAgenticCache() {
+      try {
+        const raw = localStorage.getItem(AGENTIC_LOCAL_CACHE_KEY);
+        if (!raw) return;
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === 'object') {
+          cachedAgenticState = {
+            files: Array.isArray(parsed.files) ? parsed.files : [],
+            tasks: Array.isArray(parsed.tasks) ? parsed.tasks : [],
+            memories: Array.isArray(parsed.memories) ? parsed.memories : [],
+            schedules: Array.isArray(parsed.schedules) ? parsed.schedules : [],
+          };
+        }
+      } catch (e) {}
+    }
+
+    function switchWorkspaceMainMode(mode) {
+      currentMainMode = mode === 'work' ? 'work' : 'chat';
+      const chatView = document.getElementById('workspace-mode-chat');
+      const workView = document.getElementById('workspace-mode-work');
+      const chatBtn = document.getElementById('mode-tab-btn-chat');
+      const workBtn = document.getElementById('mode-tab-btn-work');
+      if (chatView) chatView.style.display = currentMainMode === 'chat' ? 'block' : 'none';
+      if (workView) workView.style.display = currentMainMode === 'work' ? 'block' : 'none';
+      if (chatBtn) chatBtn.classList.toggle('active', currentMainMode === 'chat');
+      if (workBtn) workBtn.classList.toggle('active', currentMainMode === 'work');
+    }
+
+    function switchWorkEngineTab(subTab) {
+      currentWorkEngineTab = subTab;
+      ['task', 'code', 'swarm'].forEach(function(t) {
+        const btn = document.getElementById('work-subtab-btn-' + t);
+        const panel = document.getElementById('work-subpanel-' + t);
+        if (btn) btn.classList.toggle('active', t === subTab);
+        if (panel) panel.style.display = t === subTab ? 'block' : 'none';
+      });
+    }
 
     function switchAgenticTab(tab) {
       currentAgenticTab = tab;
@@ -1805,23 +1852,94 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]'): stri
       });
     }
 
-    async function loadAgenticWorkspaceState() {
+    function mergeNonDestructiveArrays(localArr, serverArr, keyField) {
+      const map = new Map();
+      (Array.isArray(localArr) ? localArr : []).forEach(function(item) {
+        if (item && item[keyField] !== undefined) map.set(String(item[keyField]), item);
+      });
+      (Array.isArray(serverArr) ? serverArr : []).forEach(function(item) {
+        if (item && item[keyField] !== undefined) map.set(String(item[keyField]), item);
+      });
+      return Array.from(map.values());
+    }
+
+    async function loadAgenticWorkspaceState(isManualSync) {
+      const syncBadge = document.getElementById('sync-status-badge');
+      if (isManualSync && syncBadge) {
+        syncBadge.style.display = 'inline';
+        syncBadge.style.color = '#38bdf8';
+        syncBadge.textContent = '↻ Syncing...';
+      }
       try {
-        const hdrs = lastAgenticStateEtag ? { 'If-None-Match': lastAgenticStateEtag } : {};
-        const res = await fetch('/api/workspace/agentic-state', { credentials: 'same-origin', headers: hdrs });
-        if (res.status === 304 || !res.ok) return;
-        const newEtag = res.headers.get('ETag');
-        if (newEtag) lastAgenticStateEtag = newEtag;
-        const data = await res.json();
+        let data = null;
+        if (isManualSync) {
+          const res = await fetch('/api/workspace/agentic-state/sync', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify(cachedAgenticState),
+          });
+          if (res.ok) data = await res.json();
+        } else {
+          const hdrs = lastAgenticStateEtag ? { 'If-None-Match': lastAgenticStateEtag } : {};
+          const res = await fetch('/api/workspace/agentic-state', { credentials: 'same-origin', headers: hdrs });
+          if (res.status === 304) return;
+          if (res.ok) {
+            const newEtag = res.headers.get('ETag');
+            if (newEtag) lastAgenticStateEtag = newEtag;
+            data = await res.json();
+          }
+        }
         if (!data || !data.success) return;
+
+        const serverFiles = Array.isArray(data.files) ? data.files : [];
+        const serverTasks = Array.isArray(data.tasks) ? data.tasks : [];
+        const serverMemories = Array.isArray(data.memories) ? data.memories : [];
+        const serverSchedules = Array.isArray(data.schedules) ? data.schedules : [];
+
+        const serverEmpty = serverFiles.length === 0 && serverTasks.length === 0 && serverMemories.length === 0 && serverSchedules.length === 0;
+        const localHasRecords = (cachedAgenticState.files && cachedAgenticState.files.length > 0) ||
+          (cachedAgenticState.tasks && cachedAgenticState.tasks.length > 0) ||
+          (cachedAgenticState.memories && cachedAgenticState.memories.length > 0) ||
+          (cachedAgenticState.schedules && cachedAgenticState.schedules.length > 0);
+
+        if (serverEmpty && localHasRecords && !window.__shunopsUserEmptiedAll) {
+          fetch('/api/workspace/agentic-state/sync', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify(cachedAgenticState),
+          }).catch(function() {});
+          renderAgenticWorkspaceState();
+          return;
+        }
+
+        // Authoritative update when server has records (prevents deleted items from becoming zombie records),
+        // while manual sync merges any unsynced local additions first via POST /api/workspace/agentic-state/sync.
         cachedAgenticState = {
-          files: Array.isArray(data.files) ? data.files : [],
-          tasks: Array.isArray(data.tasks) ? data.tasks : [],
-          memories: Array.isArray(data.memories) ? data.memories : [],
-          schedules: Array.isArray(data.schedules) ? data.schedules : [],
+          files: serverFiles,
+          tasks: serverTasks,
+          memories: serverMemories,
+          schedules: serverSchedules,
         };
+        const totalRemaining = tasks.length + files.length + memories.length + schedules.length;
+      window.__shunopsUserEmptiedAll = (totalRemaining === 0);
+      saveLocalAgenticCache();
         renderAgenticWorkspaceState();
-      } catch (e) {}
+
+        if (isManualSync && syncBadge) {
+          syncBadge.style.color = '#10b981';
+          syncBadge.textContent = '✓ Synced';
+          setTimeout(function() {
+            if (syncBadge) syncBadge.style.display = 'none';
+          }, 2500);
+        }
+      } catch (e) {
+        if (isManualSync && syncBadge) {
+          syncBadge.style.color = '#f59e0b';
+          syncBadge.textContent = 'Local Cache Active';
+        }
+      }
     }
 
     function renderAgenticWorkspaceState() {
@@ -1838,6 +1956,14 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]'): stri
       if (fCount) fCount.textContent = String(files.length);
       if (mCount) mCount.textContent = String(memories.length);
       if (sCount) sCount.textContent = String(schedules.length);
+      const summaryBadge = document.getElementById('work-mode-summary-badge');
+      if (summaryBadge) {
+        const totalItems = tasks.length + files.length + memories.length + schedules.length;
+        summaryBadge.textContent = totalItems > 0
+          ? (tasks.length + ' Tasks • ' + files.length + ' Files')
+          : 'Tasks • Code • Swarm';
+      }
+      saveLocalAgenticCache();
 
       // Render Tasks
       const tList = document.getElementById('agentic-tasks-list');
@@ -2131,7 +2257,59 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]'): stri
     function runCurrentWorkspaceFileInSandbox() {
       const contentInput = document.getElementById('workspace-file-content-input');
       const codeVal = (contentInput && contentInput.value) || '';
+      const workCodeIn = document.getElementById('work-sandbox-code-input');
+      if (workCodeIn && codeVal) workCodeIn.value = codeVal;
+      closeWorkspaceFileModal();
       openSandboxCodeModal(codeVal);
+    }
+
+    function loadSandboxTemplate(tplName, forModal) {
+      const targetId = forModal ? 'sandbox-code-input' : 'work-sandbox-code-input';
+      const input = document.getElementById(targetId);
+      if (!input) return;
+      if (tplName === 'blank') {
+        input.value = '// Write your custom JavaScript task here:\\n';
+        input.focus();
+      } else if (tplName === 'benchmark') {
+        input.value = [
+          '// Custom Data Structure Speed Benchmark',
+          'const N = 25000;',
+          'const arr = Array.from({ length: N }, (_, i) => "id_" + i);',
+          'const set = new Set(arr);',
+          'const t0 = Date.now();',
+          'let hitsArr = 0;',
+          'for (let i = 0; i < 500; i++) { if (arr.includes("id_" + (N - 1))) hitsArr++; }',
+          'const arrMs = Date.now() - t0;',
+          'const t1 = Date.now();',
+          'let hitsSet = 0;',
+          'for (let i = 0; i < 500; i++) { if (set.has("id_" + (N - 1))) hitsSet++; }',
+          'const setMs = Date.now() - t1;',
+          'return { items: N, arrayLookupMs: arrMs, setLookupMs: setMs, winner: setMs <= arrMs ? "Set" : "Array" };'
+        ].join('\\n');
+      } else if (tplName === 'file_gen') {
+        input.value = [
+          '// Generate a custom report or JSON config and save it to your Workspace Files',
+          'const report = {',
+          '  generatedAt: new Date().toISOString(),',
+          '  service: "ShunopsAI Multi-Cloud",',
+          '  metrics: { p50Ms: 14, p95Ms: 39, cacheHitRatio: 0.88 }',
+          '};',
+          'writeWorkspaceFile("custom-metrics.json", JSON.stringify(report, null, 2));',
+          'return { savedTo: "custom-metrics.json", preview: report };'
+        ].join('\\n');
+      } else if (tplName === 'stats') {
+        input.value = [
+          '// Quantitative Math & Statistical Analysis',
+          'const latencies = [12, 18, 25, 14, 92, 19, 22, 16, 31];',
+          'return {',
+          '  count: latencies.length,',
+          '  sum: sum(latencies),',
+          '  mean: Number(mean(latencies).toFixed(2)),',
+          '  median: median(latencies),',
+          '  stdDev: Number(stdDev(latencies).toFixed(2))',
+          '};'
+        ].join('\\n');
+      }
     }
 
     function openSandboxCodeModal(initialCode) {
@@ -2142,8 +2320,6 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]'): stri
       if (!modal || !input) return;
       if (initialCode !== undefined) {
         input.value = initialCode;
-      } else if (!input.value.trim()) {
-        input.value = ['// Run JavaScript in isolated sovereign sandbox', 'const data = [12, 45, 68, 23, 89];', 'console.log(\"Analyzing array:\", data);', 'return {', '  total: sum(data),', '  average: mean(data),', '  medianVal: median(data),', '  stdDeviation: stdDev(data).toFixed(2)', '};'].join('\\n');
       }
       if (outBox) outBox.style.display = 'none';
       if (meta) meta.textContent = '';
@@ -2155,39 +2331,57 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]'): stri
       if (modal) modal.classList.remove('active');
     }
 
-    async function executeSandboxCodeFromModal() {
-      const input = document.getElementById('sandbox-code-input');
-      const outBox = document.getElementById('sandbox-output-box');
-      const outContent = document.getElementById('sandbox-output-content');
-      const meta = document.getElementById('sandbox-run-meta');
-      const btn = document.getElementById('sandbox-exec-btn');
-      if (!input || !outBox || !outContent) return;
-
-      const codeVal = (input.value || '').trim();
-      if (!codeVal) {
-        alert('Please enter some JavaScript code to execute.');
-        return;
-      }
-
+    async function runSandboxExecutionHelper(opts) {
+      const { codeVal, taskPrompt, codeInputEl, outBox, outContent, meta, btn, defaultBtnLabel } = opts;
       if (btn) {
         btn.disabled = true;
-        btn.textContent = 'Running...';
+        btn.textContent = taskPrompt ? '✨ AI Generating & Running...' : 'Running...';
       }
-      if (meta) meta.textContent = 'Executing in sandbox...';
+      if (meta) {
+        meta.style.color = '#38bdf8';
+        meta.textContent = taskPrompt ? 'AI is writing & executing JS in sandbox...' : 'Executing in sandbox...';
+      }
 
       try {
+        const headers = { 'Content-Type': 'application/json' };
+        try {
+          const vault = await loadVaultKeys();
+          if (vault && vault.aiMode !== 'shared') {
+            if (vault.groq) headers['x-groq-key'] = vault.groq;
+            if (vault.gemini) headers['x-gemini-key'] = vault.gemini;
+          }
+        } catch (e) {}
+
         const res = await fetch('/api/workspace/execute-code', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: headers,
           credentials: 'same-origin',
-          body: JSON.stringify({ code: codeVal, timeoutMs: 5000 }),
+          body: JSON.stringify({
+            code: codeVal || undefined,
+            taskPrompt: taskPrompt || undefined,
+            timeoutMs: 5000,
+          }),
         });
         const data = await res.json();
-        outBox.style.display = 'block';
-
+        if (outBox) outBox.style.display = 'block';
         if (btn) {
           btn.disabled = false;
-          btn.textContent = '▶ Execute Code';
+          btn.textContent = defaultBtnLabel;
+        }
+
+        if (data.generatedCode && codeInputEl) {
+          codeInputEl.value = data.generatedCode;
+        }
+
+        if (Array.isArray(data.files)) {
+          cachedAgenticState = {
+            files: mergeNonDestructiveArrays(cachedAgenticState.files, data.files, 'name'),
+            tasks: mergeNonDestructiveArrays(cachedAgenticState.tasks, data.tasks, 'id'),
+            memories: mergeNonDestructiveArrays(cachedAgenticState.memories, data.memories, 'key'),
+            schedules: mergeNonDestructiveArrays(cachedAgenticState.schedules, data.schedules, 'id'),
+          };
+          saveLocalAgenticCache();
+          renderAgenticWorkspaceState();
         }
 
         if (data.success) {
@@ -2197,40 +2391,128 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]'): stri
           }
           let outText = '';
           if (Array.isArray(data.savedFiles) && data.savedFiles.length > 0) {
-            outText += 'Saved Workspace Files: ' + data.savedFiles.join(', ') + '\\n\\n';
-            loadAgenticWorkspaceState();
+            outText += '📁 Saved Workspace Files: ' + data.savedFiles.join(', ') + '\\n\\n';
+            switchAgenticTab('files');
           }
           if (data.logs && data.logs.length > 0) {
             outText += 'Console Output:\\n' + data.logs.join('\\n') + '\\n\\n';
           }
           outText += 'Return Value:\\n' + (data.result !== null ? JSON.stringify(data.result, null, 2) : 'null');
-          outContent.style.color = '#38bdf8';
-          outContent.textContent = outText;
+          if (outContent) {
+            outContent.style.color = '#38bdf8';
+            outContent.textContent = outText;
+          }
         } else {
           if (meta) {
             meta.style.color = '#f87171';
-            meta.textContent = '✗ Execution failed (' + (data.executionTimeMs || 0) + 'ms)';
+            meta.textContent = '✗ Failed (' + (data.executionTimeMs || 0) + 'ms)';
           }
           let errText = 'Error: ' + (data.error || 'Unknown failure') + '\\n';
           if (data.logs && data.logs.length > 0) {
             errText += '\\nConsole Logs:\\n' + data.logs.join('\\n');
           }
-          outContent.style.color = '#f87171';
-          outContent.textContent = errText;
+          if (outContent) {
+            outContent.style.color = '#f87171';
+            outContent.textContent = errText;
+          }
         }
       } catch (e) {
         if (btn) {
           btn.disabled = false;
-          btn.textContent = '▶ Execute Code';
+          btn.textContent = defaultBtnLabel;
         }
         if (meta) {
           meta.style.color = '#f87171';
           meta.textContent = 'Network error';
         }
-        outBox.style.display = 'block';
-        outContent.style.color = '#f87171';
-        outContent.textContent = 'Network error while reaching sandbox endpoint.';
+        if (outBox) outBox.style.display = 'block';
+        if (outContent) {
+          outContent.style.color = '#f87171';
+          outContent.textContent = 'Network error while reaching sandbox endpoint.';
+        }
       }
+    }
+
+    async function executeWorkSandboxCode() {
+      const input = document.getElementById('work-sandbox-code-input');
+      const promptIn = document.getElementById('work-code-task-prompt');
+      const codeVal = (input && input.value ? input.value.trim() : '');
+      const taskVal = (promptIn && promptIn.value ? promptIn.value.trim() : '');
+      if (!codeVal && !taskVal) {
+        alert('Type a task in the AI bar above or enter custom JavaScript code to execute.');
+        return;
+      }
+      await runSandboxExecutionHelper({
+        codeVal: codeVal,
+        taskPrompt: !codeVal ? taskVal : undefined,
+        codeInputEl: input,
+        outBox: document.getElementById('work-sandbox-output-box'),
+        outContent: document.getElementById('work-sandbox-output-content'),
+        meta: document.getElementById('work-sandbox-run-meta'),
+        btn: document.getElementById('work-sandbox-exec-btn'),
+        defaultBtnLabel: '▶ Execute Custom Code',
+      });
+    }
+
+    async function runAiCodeTaskFromWork() {
+      const promptIn = document.getElementById('work-code-task-prompt');
+      const input = document.getElementById('work-sandbox-code-input');
+      const taskVal = (promptIn && promptIn.value ? promptIn.value.trim() : '');
+      if (!taskVal) {
+        alert('Describe the task you want AI to write and execute in the sandbox.');
+        return;
+      }
+      await runSandboxExecutionHelper({
+        codeVal: undefined,
+        taskPrompt: taskVal,
+        codeInputEl: input,
+        outBox: document.getElementById('work-sandbox-output-box'),
+        outContent: document.getElementById('work-sandbox-output-content'),
+        meta: document.getElementById('work-sandbox-run-meta'),
+        btn: document.getElementById('work-ai-code-btn'),
+        defaultBtnLabel: '✨ AI Generate & Run',
+      });
+    }
+
+    async function runAiCodeTaskFromModal() {
+      const promptIn = document.getElementById('modal-code-task-prompt');
+      const input = document.getElementById('sandbox-code-input');
+      const taskVal = (promptIn && promptIn.value ? promptIn.value.trim() : '');
+      if (!taskVal) {
+        alert('Describe the task you want AI to write and execute.');
+        return;
+      }
+      await runSandboxExecutionHelper({
+        codeVal: undefined,
+        taskPrompt: taskVal,
+        codeInputEl: input,
+        outBox: document.getElementById('sandbox-output-box'),
+        outContent: document.getElementById('sandbox-output-content'),
+        meta: document.getElementById('sandbox-run-meta'),
+        btn: document.getElementById('modal-ai-code-btn'),
+        defaultBtnLabel: '✨ AI Write & Run',
+      });
+    }
+
+    async function executeSandboxCodeFromModal() {
+      const input = document.getElementById('sandbox-code-input');
+      const promptIn = document.getElementById('modal-code-task-prompt');
+      const codeVal = (input && input.value ? input.value.trim() : '');
+      const taskVal = (promptIn && promptIn.value ? promptIn.value.trim() : '');
+      if (!codeVal && !taskVal) {
+        alert('Enter JavaScript code or a task description to execute.');
+        return;
+      }
+      await runSandboxExecutionHelper({
+        codeVal: codeVal,
+        taskPrompt: !codeVal ? taskVal : undefined,
+        codeInputEl: input,
+        outBox: document.getElementById('sandbox-output-box'),
+        outContent: document.getElementById('sandbox-output-content'),
+        meta: document.getElementById('sandbox-run-meta'),
+        btn: document.getElementById('sandbox-exec-btn'),
+        defaultBtnLabel: '▶ Execute Code',
+      });
     }
 
 
@@ -2326,13 +2608,13 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]'): stri
       if (modal) modal.classList.remove('active');
     }
 
-    async function dispatchSwarmFromModal() {
-      const objIn = document.getElementById('swarm-objective-input');
-      const modeSel = document.getElementById('swarm-mode-select');
-      const fileIn = document.getElementById('swarm-deliverable-input');
-      const btn = document.getElementById('swarm-dispatch-btn');
-      const meta = document.getElementById('swarm-run-meta');
-      const box = document.getElementById('swarm-blackboard-box');
+    async function dispatchSwarmCommon(ids) {
+      const objIn = document.getElementById(ids.objId);
+      const modeSel = document.getElementById(ids.modeId);
+      const fileIn = document.getElementById(ids.fileId);
+      const btn = document.getElementById(ids.btnId);
+      const meta = document.getElementById(ids.metaId);
+      const box = document.getElementById(ids.boxId);
       if (!objIn || !box) return;
 
       const objective = (objIn.value || '').trim();
@@ -2351,12 +2633,6 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]'): stri
       box.style.display = 'block';
       box.innerHTML = '<div style="color:#94a3b8;">⏳ Dispatching Researcher, Coder, Analyst &amp; Auditor on Shared Blackboard...</div>';
 
-      const sampleCode = [
-        'const samples = [10, 25, 50, 100];',
-        'const overheadPct = samples.map(s => Number((s * 0.035).toFixed(2)));',
-        'return { meanOverheadPct: mean(overheadPct), medianOverheadPct: median(overheadPct) };'
-      ].join('\\n');
-
       try {
         const res = await fetch('/api/workspace/swarm', {
           method: 'POST',
@@ -2368,9 +2644,9 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]'): stri
             saveDeliverableAs: saveDeliverableAs || undefined,
             agents: [
               { role: 'researcher', task: 'Search live web documentation and best practices for: ' + objective, searchQuery: objective },
-              { role: 'coder', task: 'Execute quantitative benchmark model in sandbox for: ' + objective, code: sampleCode },
-              { role: 'analyst', task: 'Synthesize Researcher & Coder findings into a structured architectural comparison' },
-              { role: 'auditor', task: 'Audit the proposed architecture and code for security, reliability, and edge-case risks' }
+              { role: 'coder', task: 'Write and execute a runnable JavaScript benchmark or quantitative verification script in the sandbox for: ' + objective },
+              { role: 'analyst', task: 'Synthesize Researcher & Coder findings into a structured architectural comparison for: ' + objective },
+              { role: 'auditor', task: 'Audit the proposed architecture and code for security, reliability, and edge-case risks for: ' + objective }
             ]
           })
         });
@@ -2396,11 +2672,12 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]'): stri
           }).join('');
 
           cachedAgenticState = {
-            files: Array.isArray(data.files) ? data.files : cachedAgenticState.files,
-            tasks: Array.isArray(data.tasks) ? data.tasks : cachedAgenticState.tasks,
-            memories: Array.isArray(data.memories) ? data.memories : cachedAgenticState.memories,
-            schedules: Array.isArray(data.schedules) ? data.schedules : cachedAgenticState.schedules,
+            files: mergeNonDestructiveArrays(cachedAgenticState.files, data.files, 'name'),
+            tasks: mergeNonDestructiveArrays(cachedAgenticState.tasks, data.tasks, 'id'),
+            memories: mergeNonDestructiveArrays(cachedAgenticState.memories, data.memories, 'key'),
+            schedules: mergeNonDestructiveArrays(cachedAgenticState.schedules, data.schedules, 'id'),
           };
+          saveLocalAgenticCache();
           renderAgenticWorkspaceState();
           if (sw.savedDeliverableFile) {
             switchAgenticTab('files');
@@ -2419,9 +2696,33 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]'): stri
       }
     }
 
+    async function dispatchSwarmFromModal() {
+      await dispatchSwarmCommon({
+        objId: 'swarm-objective-input',
+        modeId: 'swarm-mode-select',
+        fileId: 'swarm-deliverable-input',
+        btnId: 'swarm-dispatch-btn',
+        metaId: 'swarm-run-meta',
+        boxId: 'swarm-blackboard-box',
+      });
+    }
+
+    async function dispatchSwarmFromWork() {
+      await dispatchSwarmCommon({
+        objId: 'work-swarm-objective-input',
+        modeId: 'work-swarm-mode-select',
+        fileId: 'work-swarm-deliverable-input',
+        btnId: 'work-swarm-dispatch-btn',
+        metaId: 'work-swarm-run-meta',
+        boxId: 'work-swarm-blackboard-box',
+      });
+    }
+
     window.addEventListener('DOMContentLoaded', () => {
+      restoreLocalAgenticCache();
+      renderAgenticWorkspaceState();
       loadSavedChatHistory();
-      loadAgenticWorkspaceState();
+      loadAgenticWorkspaceState(false);
       fetchWorkspaceApprovals();
       fetchBillingUsage();
       loadApiKeys();

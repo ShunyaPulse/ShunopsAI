@@ -1,4 +1,5 @@
 import { computeDeterministicEmbedding } from "../server/db/knowledge.js";
+import { getSql } from "../server/db/store.js";
 import { executeWebSearch, inspectWebsite } from "./cloud.js";
 import { executeInSandbox } from "../agent/sandbox/runner.js";
 
@@ -73,9 +74,10 @@ const tenantFilesStore = new Map<string, Map<string, WorkspaceVirtualFile>>();
 const tenantTasksStore = new Map<string, { nextId: number; tasks: Map<number, AgentTaskItem> }>();
 const tenantMemoriesStore = new Map<string, Map<string, AgentMemoryFact>>();
 
-export function resolveTenantKey(userId?: number, kind?: "admin" | "user"): string {
-  if (kind === "admin" && (!userId || userId <= 0)) return "admin:0";
-  if (typeof userId === "number" && userId > 0) return `user:${userId}`;
+export function resolveTenantKey(userId?: number | string, kind?: "admin" | "user"): string {
+  const numId = Number(userId);
+  if (kind === "admin" && (!Number.isFinite(numId) || numId <= 0)) return "admin:0";
+  if (Number.isFinite(numId) && numId > 0) return `user:${numId}`;
   return "anon:0";
 }
 
@@ -106,6 +108,7 @@ export async function executeManageWorkspaceFiles(
   },
   tenantKey: string
 ): Promise<string> {
+  await hydrateTenantAgenticState(tenantKey);
   let fileMap = tenantFilesStore.get(tenantKey);
   if (!fileMap) {
     fileMap = new Map<string, WorkspaceVirtualFile>();
@@ -165,6 +168,7 @@ export async function executeManageWorkspaceFiles(
 
   if (op === "delete") {
     const existed = fileMap.delete(safeName);
+    if (existed) await persistTenantAgenticState(tenantKey);
     return existed
       ? `Deleted file "${safeName}" from workspace.`
       : `File "${safeName}" did not exist in workspace.`;
@@ -189,6 +193,7 @@ export async function executeManageWorkspaceFiles(
       sizeBytes,
       updatedAt: now,
     });
+    await persistTenantAgenticState(tenantKey);
     return `Successfully ${op === "append" ? "appended to" : "saved"} workspace file "${safeName}" (${sizeBytes} bytes).`;
   }
 
@@ -237,6 +242,7 @@ export async function executeManageAgentTasks(
   },
   tenantKey: string
 ): Promise<string> {
+  await hydrateTenantAgenticState(tenantKey);
   let state = tenantTasksStore.get(tenantKey);
   if (!state) {
     state = { nextId: 1, tasks: new Map<number, AgentTaskItem>() };
@@ -270,6 +276,7 @@ export async function executeManageAgentTasks(
       state.tasks.set(id, item);
       created.push(item);
     }
+    await persistTenantAgenticState(tenantKey);
     return formatTaskBoard(state.tasks, `Created plan with ${created.length} step(s):`);
   }
 
@@ -290,6 +297,7 @@ export async function executeManageAgentTasks(
       updatedAt: now,
     };
     state.tasks.set(id, item);
+    await persistTenantAgenticState(tenantKey);
     return formatTaskBoard(state.tasks, `Added task #${id} ("${item.title}"):`);
   }
 
@@ -322,6 +330,7 @@ export async function executeManageAgentTasks(
       }
     }
 
+    await persistTenantAgenticState(tenantKey);
     return formatTaskBoard(
       state.tasks,
       `Updated task #${id} -> [${existing.status.toUpperCase()}]:`
@@ -336,6 +345,7 @@ export async function executeManageAgentTasks(
         removed++;
       }
     }
+    await persistTenantAgenticState(tenantKey);
     return formatTaskBoard(state.tasks, `Cleared ${removed} completed task(s):`);
   }
 
@@ -412,6 +422,7 @@ export async function executeManageAgentMemory(
   },
   tenantKey: string
 ): Promise<string> {
+  await hydrateTenantAgenticState(tenantKey);
   let memMap = tenantMemoriesStore.get(tenantKey);
   if (!memMap) {
     memMap = new Map<string, AgentMemoryFact>();
@@ -445,6 +456,7 @@ export async function executeManageAgentMemory(
       embedding,
       updatedAt: new Date().toISOString(),
     });
+    await persistTenantAgenticState(tenantKey);
     return `Remembered fact under key "${key}": "${fact}"${tags.length > 0 ? ` [tags: ${tags.join(", ")}]` : ""}.`;
   }
 
@@ -452,6 +464,7 @@ export async function executeManageAgentMemory(
     const key = String(args.key || "").trim().toLowerCase();
     if (!key) return "Error: 'key' is required for operation='forget'.";
     const removed = memMap.delete(key);
+    if (removed) await persistTenantAgenticState(tenantKey);
     return removed
       ? `Forgot memory "${key}".`
       : `Memory key "${key}" was not found.`;
@@ -843,6 +856,7 @@ export async function executeManageAgentSchedules(
   },
   tenantKey: string
 ): Promise<string> {
+  await hydrateTenantAgenticState(tenantKey);
   let state = tenantSchedulesStore.get(tenantKey);
   if (!state) {
     state = { nextId: 1, schedules: new Map<number, AgentScheduledMonitor>() };
@@ -902,6 +916,7 @@ export async function executeManageAgentSchedules(
 
     // Run initial verification pass immediately so the user gets instant output in their workspace file
     const initialRun = await runScheduledMonitorOnce(job, tenantKey);
+    await persistTenantAgenticState(tenantKey);
     return `Created schedule #${id} ("${job.name}", every ${intervalMinutes}m, next run at ${job.nextRunAt}, output -> ${outputFilename}).\nInitial Run Status: [${initialRun.status}] ${initialRun.summary}`;
   }
 
@@ -910,6 +925,7 @@ export async function executeManageAgentSchedules(
     const job = state.schedules.get(id);
     if (!job) return `Error: Schedule #${id} not found.`;
     const runRes = await runScheduledMonitorOnce(job, tenantKey);
+    await persistTenantAgenticState(tenantKey);
     return `Executed schedule #${id} ("${job.name}") -> [${runRes.status}] ${runRes.summary} (logged to ${job.outputFilename}).`;
   }
 
@@ -923,12 +939,14 @@ export async function executeManageAgentSchedules(
       job.nextRunAt = computeNextRunIso(job.intervalMinutes);
       ensureScheduleTickerStarted();
     }
+    await persistTenantAgenticState(tenantKey);
     return `Schedule #${id} ("${job.name}") is now ${job.enabled ? "ACTIVE" : "PAUSED"}.`;
   }
 
   if (op === "delete_schedule") {
     const id = Number(args.scheduleId);
     const existed = state.schedules.delete(id);
+    if (existed) await persistTenantAgenticState(tenantKey);
     return existed ? `Deleted schedule #${id}.` : `Error: Schedule #${id} not found.`;
   }
 
@@ -1031,4 +1049,198 @@ export function getTenantFilesMap(tenantKey: string): Record<string, string> {
     out[name] = file.content;
   }
   return out;
+}
+
+
+// ==========================================
+// 6. Durable Database Persistence & Non-Destructive Sync
+// ==========================================
+
+let agenticStateTableReady = false;
+const hydratedTenants = new Set<string>();
+const initializedTenants = new Set<string>();
+
+async function ensureAgenticStateTable(sql: any): Promise<void> {
+  if (agenticStateTableReady || !sql) return;
+  try {
+    await sql.query(`
+      CREATE TABLE IF NOT EXISTS shunops_agentic_state (
+        tenant_key VARCHAR(64) PRIMARY KEY,
+        state_json JSONB NOT NULL DEFAULT '{}',
+        updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    agenticStateTableReady = true;
+  } catch {}
+}
+
+/**
+ * Hydrate in-memory stores from Neon PostgreSQL if not yet loaded in this container instance,
+ * merging non-destructively so neither in-memory nor DB records are lost.
+ */
+export async function hydrateTenantAgenticState(tenantKey: string, force = false): Promise<void> {
+  if (!tenantKey || (hydratedTenants.has(tenantKey) && !force)) return;
+  hydratedTenants.add(tenantKey);
+  const sql = getSql() as any;
+  if (!sql) return;
+  try {
+    await ensureAgenticStateTable(sql);
+    const rows = await sql.query(
+      `SELECT state_json FROM shunops_agentic_state WHERE tenant_key = $1 LIMIT 1;`,
+      [tenantKey]
+    );
+    const raw = rows?.[0]?.state_json;
+    if (!raw) return;
+    const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+    mergeSnapshotIntoStores(tenantKey, parsed, false);
+    initializedTenants.add(tenantKey);
+  } catch {}
+}
+
+/**
+ * Persist the current tenant snapshot to Neon PostgreSQL so serverless cold starts
+ * or multi-instance routing never reset or lose workspace records.
+ */
+export async function persistTenantAgenticState(tenantKey: string): Promise<void> {
+  if (!tenantKey) return;
+  initializedTenants.add(tenantKey);
+  const sql = getSql() as any;
+  if (!sql) return;
+  try {
+    await ensureAgenticStateTable(sql);
+    const snap = getTenantAgenticSnapshot(tenantKey);
+    await sql.query(
+      `INSERT INTO shunops_agentic_state (tenant_key, state_json, updated_at)
+       VALUES ($1, $2::jsonb, CURRENT_TIMESTAMP)
+       ON CONFLICT (tenant_key) DO UPDATE
+       SET state_json = EXCLUDED.state_json,
+           updated_at = CURRENT_TIMESTAMP;`,
+      [tenantKey, JSON.stringify(snap)]
+    );
+  } catch {}
+}
+
+/**
+ * Merge a snapshot (from DB or client cache) into in-memory stores without wiping existing records.
+ * Purely synchronous — no recursive hydrate calls!
+ */
+export function mergeSnapshotIntoStores(
+  tenantKey: string,
+  snap: {
+    files?: WorkspaceVirtualFile[];
+    tasks?: AgentTaskItem[];
+    memories?: Array<{ key: string; fact: string; tags?: string[]; updatedAt?: string }>;
+    schedules?: AgentScheduledMonitor[];
+  },
+  overwriteExisting = false
+): void {
+  if (!snap || typeof snap !== "object") return;
+
+  // 1. Files
+  if (Array.isArray(snap.files) && snap.files.length > 0) {
+    let fileMap = tenantFilesStore.get(tenantKey);
+    if (!fileMap) {
+      fileMap = new Map<string, WorkspaceVirtualFile>();
+      tenantFilesStore.set(tenantKey, fileMap);
+    }
+    for (const f of snap.files) {
+      if (!f || typeof f.name !== "string" || !f.name.trim()) continue;
+      if (overwriteExisting || !fileMap.has(f.name)) {
+        const contentStr = String(f.content ?? "");
+        fileMap.set(f.name, {
+          name: f.name,
+          content: contentStr,
+          sizeBytes: typeof f.sizeBytes === "number" ? f.sizeBytes : Buffer.byteLength(contentStr, "utf8"),
+          updatedAt: f.updatedAt || new Date().toISOString(),
+        });
+      }
+    }
+  }
+
+  // 2. Tasks
+  if (Array.isArray(snap.tasks) && snap.tasks.length > 0) {
+    let taskState = tenantTasksStore.get(tenantKey);
+    if (!taskState) {
+      taskState = { nextId: 1, tasks: new Map<number, AgentTaskItem>() };
+      tenantTasksStore.set(tenantKey, taskState);
+    }
+    for (const t of snap.tasks) {
+      if (!t || typeof t.title !== "string" || !t.title.trim()) continue;
+      const id = Number(t.id) > 0 ? Number(t.id) : taskState.nextId++;
+      if (id >= taskState.nextId) taskState.nextId = id + 1;
+      if (overwriteExisting || !taskState.tasks.has(id)) {
+        taskState.tasks.set(id, {
+          id,
+          title: t.title,
+          status: t.status === "completed" || t.status === "in_progress" ? t.status : "pending",
+          priority: t.priority === "high" || t.priority === "low" ? t.priority : "medium",
+          ...(t.notes ? { notes: String(t.notes) } : {}),
+          createdAt: t.createdAt || new Date().toISOString(),
+          updatedAt: t.updatedAt || new Date().toISOString(),
+        });
+      }
+    }
+  }
+
+  // 3. Memories
+  if (Array.isArray(snap.memories) && snap.memories.length > 0) {
+    let memMap = tenantMemoriesStore.get(tenantKey);
+    if (!memMap) {
+      memMap = new Map<string, AgentMemoryFact>();
+      tenantMemoriesStore.set(tenantKey, memMap);
+    }
+    for (const m of snap.memories) {
+      if (!m || typeof m.key !== "string" || !m.key.trim() || typeof m.fact !== "string") continue;
+      if (overwriteExisting || !memMap.has(m.key)) {
+        memMap.set(m.key, {
+          key: m.key,
+          fact: m.fact,
+          tags: Array.isArray(m.tags) ? m.tags : [],
+          embedding: computeDeterministicEmbedding(`${m.key} ${m.fact}`),
+          updatedAt: m.updatedAt || new Date().toISOString(),
+        });
+      }
+    }
+  }
+
+  // 4. Schedules
+  if (Array.isArray(snap.schedules) && snap.schedules.length > 0) {
+    let schedState = tenantSchedulesStore.get(tenantKey);
+    if (!schedState) {
+      schedState = { nextId: 1, schedules: new Map<number, AgentScheduledMonitor>() };
+      tenantSchedulesStore.set(tenantKey, schedState);
+    }
+    for (const s of snap.schedules) {
+      if (!s || typeof s.name !== "string" || !s.name.trim()) continue;
+      const id = Number(s.id) > 0 ? Number(s.id) : schedState.nextId++;
+      if (id >= schedState.nextId) schedState.nextId = id + 1;
+      if (overwriteExisting || !schedState.schedules.has(id)) {
+        schedState.schedules.set(id, {
+          ...s,
+          id,
+        });
+      }
+    }
+  }
+}
+
+/**
+ * Full non-destructive sync: hydrates from DB, merges client-cached state if the
+ * server cold-started or has missing records, persists back to DB, and returns the unified snapshot.
+ */
+export async function syncTenantAgenticState(
+  tenantKey: string,
+  clientSnapshot?: {
+    files?: WorkspaceVirtualFile[];
+    tasks?: AgentTaskItem[];
+    memories?: Array<{ key: string; fact: string; tags?: string[]; updatedAt?: string }>;
+    schedules?: AgentScheduledMonitor[];
+  }
+) {
+  await hydrateTenantAgenticState(tenantKey, true);
+  if (clientSnapshot) {
+    mergeSnapshotIntoStores(tenantKey, clientSnapshot, false);
+  }
+  await persistTenantAgenticState(tenantKey);
+  return getTenantAgenticSnapshot(tenantKey);
 }

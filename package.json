@@ -1,6 +1,6 @@
 {
   "name": "shunopsai",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "type": "module",
   "description": "ShunopsAI: Autonomous Multi-Cloud & DevOps Sentinel Agent powered by OpenRouter, GitHub Actions, and n8n",
   "main": "agent.ts",

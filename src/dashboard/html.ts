@@ -123,7 +123,7 @@ export function getShunopsDashboardHtml(initialData: {
           </div>
           <button class="btn btn-secondary" onclick="fetchAdminUsers()">🔄 Load Users</button>
         </div>
-        <div id="admin-stats-bar" style="padding: 12px 16px; background: rgba(255,255,255,0.03); border-bottom: 1px solid var(--border); display: flex; gap: 20px; font-size: 12px; font-family: var(--code-font);">
+        <div id="admin-stats-bar" style="padding: 12px 16px; background: rgba(255,255,255,0.03); border-bottom: 1px solid var(--border); display: flex; flex-wrap: wrap; gap: 16px; font-size: 12px; font-family: var(--code-font);">
           <span>Users: <strong id="stat-total-users" style="color:#38bdf8;">0</strong></span>
           <span>Tasks: <strong id="stat-total-tasks" style="color:#10b981;">0</strong></span>
           <span>Messages: <strong id="stat-total-msgs" style="color:#f59e0b;">0</strong></span>

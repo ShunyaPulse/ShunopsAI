@@ -105,7 +105,151 @@ export const DASHBOARD_STYLES = `
       flex: 1;
     }
     @media (max-width: 1024px) {
-      .container { grid-template-columns: 1fr; }
+      .container {
+        grid-template-columns: 1fr;
+        padding: 18px;
+        gap: 20px;
+      }
+    }
+
+    /* Mobile & Tablet Responsiveness */
+    @media (max-width: 768px) {
+      header {
+        padding: 12px 16px;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 12px;
+      }
+      .brand {
+        justify-content: flex-start;
+      }
+      .brand-title {
+        font-size: 17px;
+      }
+      .brand-subtitle {
+        font-size: 10px;
+      }
+      .header-pills {
+        flex-wrap: wrap;
+        gap: 8px;
+        justify-content: flex-start;
+      }
+      .pill {
+        padding: 5px 10px;
+        font-size: 11px;
+      }
+      .container {
+        padding: 12px;
+        gap: 14px;
+      }
+      .panel {
+        border-radius: 12px;
+      }
+      .panel-header {
+        padding: 12px 14px;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+      .panel-title {
+        font-size: 14px;
+      }
+      .grid-cards {
+        grid-template-columns: 1fr;
+        padding: 12px;
+        gap: 12px;
+      }
+      .banner-paused {
+        flex-direction: column;
+        text-align: center;
+        gap: 8px;
+        padding: 10px 14px;
+        font-size: 12px;
+      }
+      .banner-paused button {
+        margin-left: 0 !important;
+      }
+      .chat-container {
+        height: clamp(480px, 70vh, 650px);
+      }
+      .chat-messages {
+        padding: 12px 10px;
+        font-size: 13px;
+        gap: 10px;
+      }
+      .chat-bubble {
+        max-width: 94%;
+        padding: 10px 12px;
+      }
+      .chat-agent pre {
+        -webkit-overflow-scrolling: touch;
+        max-width: 100%;
+      }
+      .chat-input-bar {
+        padding: 10px;
+        gap: 8px;
+      }
+      .chat-input {
+        font-size: 16px; /* Prevents auto-zoom on iOS */
+        padding: 10px 12px;
+      }
+      .quick-pills {
+        padding: 8px 12px;
+        gap: 6px;
+        -webkit-overflow-scrolling: touch;
+      }
+      #telemetry-stats-bar, #admin-stats-bar {
+        gap: 10px 14px !important;
+        padding: 10px 12px !important;
+        font-size: 11px !important;
+      }
+      #telemetry-traces-container table, #users-table-container table {
+        min-width: 520px;
+      }
+      #telemetry-traces-container, #users-table-container {
+        -webkit-overflow-scrolling: touch;
+      }
+    }
+
+    @media (max-width: 480px) {
+      header {
+        padding: 10px 12px;
+        gap: 10px;
+      }
+      .brand-icon {
+        width: 32px;
+        height: 32px;
+        font-size: 16px;
+      }
+      .brand-title {
+        font-size: 15px;
+      }
+      .brand-subtitle {
+        font-size: 9.5px;
+      }
+      .header-pills {
+        gap: 6px;
+      }
+      .pill {
+        padding: 4px 8px;
+        font-size: 10.5px;
+      }
+      .btn {
+        padding: 7px 12px;
+        font-size: 11.5px;
+      }
+      .container {
+        padding: 8px;
+        gap: 12px;
+      }
+      .panel-header {
+        padding: 10px 12px;
+      }
+      .service-card {
+        padding: 12px;
+      }
+      .sc-metric {
+        font-size: 16px;
+      }
     }
     .panel {
       background: var(--card-bg);

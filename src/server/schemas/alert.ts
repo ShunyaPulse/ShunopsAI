@@ -55,8 +55,9 @@ export type TaskRequest = Static<typeof TaskRequestSchema>;
 
 export const ChatRequestSchema = Type.Object({
   sessionId: Type.Optional(Type.String({ maxLength: 128 })),
-  message: Type.String({ minLength: 1, maxLength: 4000 }),
-  history: Type.Optional(Type.String({ maxLength: 8000 })),
+  message: Type.String({ minLength: 1, maxLength: 12000 }),
+  history: Type.Optional(Type.String({ maxLength: 12000 })),
+  pageContext: Type.Optional(Type.String({ maxLength: 10000 })),
   modelPreference: Type.Optional(Type.String({ maxLength: 50 })),
   image: Type.Optional(Type.String({ maxLength: 8 * 1024 * 1024 })),
   // Layer 1: Honeypot trap (Kanban-Cloud pattern: bots fill this, humans don't)

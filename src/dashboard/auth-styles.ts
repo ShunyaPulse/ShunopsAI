@@ -309,4 +309,42 @@ export const AUTH_PAGE_STYLES = `    :root {
       font-size: 9.5px;
       color: #64748b;
       margin-top: 2px;
-    }`;
+    }
+    /* Mobile Responsiveness */
+    @media (max-width: 480px) {
+      body {
+        padding: 12px 8px;
+      }
+      .auth-container {
+        padding: 22px 16px;
+        border-radius: 14px;
+        box-shadow: 0 15px 35px -8px rgba(0, 0, 0, 0.7);
+      }
+      .brand-title {
+        font-size: 22px;
+      }
+      .brand-subtitle {
+        font-size: 12px;
+      }
+      input[type="text"], input[type="email"], input[type="password"] {
+        font-size: 16px !important; /* Prevents auto-zoom on iOS Safari */
+        padding: 11px 12px;
+      }
+      .input-row {
+        gap: 6px;
+      }
+      .btn-secondary {
+        padding: 0 10px;
+        font-size: 11.5px;
+      }
+      .oauth-btn {
+        font-size: 13px;
+        padding: 10px 12px;
+      }
+      .btn-primary {
+        font-size: 14px;
+        padding: 12px;
+        min-height: 44px;
+      }
+    }
+`;

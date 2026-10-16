@@ -675,6 +675,53 @@
       0%, 100% { opacity: 1; }
       50% { opacity: 0; }
     }
+
+    /* Mobile Responsiveness */
+    @media (max-width: 480px) {
+      #cf-widget-container {
+        bottom: 12px;
+        right: 12px;
+      }
+      #cf-launcher-btn {
+        width: 50px;
+        height: 50px;
+      }
+      #cf-launcher-btn svg {
+        width: 22px;
+        height: 22px;
+      }
+      #cf-chat-window {
+        width: calc(100vw - 24px);
+        max-width: calc(100vw - 24px);
+        height: calc(100vh - 84px);
+        max-height: calc(100vh - 84px);
+        border-radius: 14px;
+        margin-bottom: 10px;
+      }
+      .cf-header {
+        padding: 12px 14px;
+      }
+      .cf-header h3 {
+        font-size: 14px;
+      }
+      .cf-body {
+        padding: 12px;
+        gap: 10px;
+      }
+      .cf-msg {
+        max-width: 90%;
+      }
+      .cf-footer {
+        padding: 10px 12px;
+      }
+      .cf-input {
+        font-size: 16px;
+      }
+      .cf-chips {
+        padding: 6px 12px;
+      }
+    }
+
   `;
   document.head.appendChild(styleEl);
 
@@ -978,6 +1025,215 @@
   document.addEventListener('mouseup', capturePageSelection);
   document.addEventListener('touchend', capturePageSelection);
 
+
+  // ============================================================================
+  // Live Host Website DOM & UI Introspector (Zero-Hardcode On-Site Guidance)
+  // Dynamically discovers sidebar menus, navigation tabs, buttons (with visual
+  // colors & labels), headings, and workflows on the host webpage so the widget
+  // speaks on behalf of the website and guides users through actual on-site UI.
+  // ============================================================================
+  function detectElementColorName(el) {
+    if (!el) return '';
+    const clsAndStyle = (
+      String(el.className || '') + ' ' + String(el.getAttribute && el.getAttribute('style') || '')
+    ).toLowerCase();
+
+    if (/\b(green|emerald|lime|success|pair|online)\b/.test(clsAndStyle) || /#10b981|#22c55e|#059669|#16a34a|#28a745|#00c853/.test(clsAndStyle)) {
+      return 'green';
+    }
+    if (/\b(red|rose|crimson|danger|error|alert|sos)\b/.test(clsAndStyle) || /#ef4444|#dc2626|#f43f5e|#dc3545/.test(clsAndStyle)) {
+      return 'red';
+    }
+    if (/\b(blue|sky|indigo|primary|info)\b/.test(clsAndStyle) || /#2563eb|#3b82f6|#0ea5e9|#0284c7|#007bff/.test(clsAndStyle)) {
+      return 'blue';
+    }
+    if (/\b(yellow|amber|orange|warning)\b/.test(clsAndStyle) || /#f59e0b|#eab308|#f97316|#ffc107/.test(clsAndStyle)) {
+      return 'yellow/orange';
+    }
+    if (/\b(purple|violet|fuchsia)\b/.test(clsAndStyle) || /#8b5cf6|#a855f7|#7c3aed/.test(clsAndStyle)) {
+      return 'purple';
+    }
+    if (/\b(teal|cyan)\b/.test(clsAndStyle) || /#06b6d4|#14b8a6|#00f0ff/.test(clsAndStyle)) {
+      return 'teal/cyan';
+    }
+
+    if (typeof window !== 'undefined' && window.getComputedStyle) {
+      try {
+        const cs = window.getComputedStyle(el);
+        const bg = cs.backgroundColor || cs.borderColor || '';
+        const m = bg.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*([\d.]+))?\s*\)/i);
+        if (m) {
+          const r = Number(m[1]);
+          const g = Number(m[2]);
+          const b = Number(m[3]);
+          const a = m[4] !== undefined ? Number(m[4]) : 1;
+          if (a > 0.15) {
+            if (g > r + 25 && g > b + 15 && g > 70) return 'green';
+            if (r > g + 35 && r > b + 35 && r > 90) return 'red';
+            if (b > r + 25 && b > g + 10 && b > 90) return 'blue';
+            if (r > 170 && g > 110 && b < 90) return 'yellow/orange';
+            if (r > 100 && b > 130 && g < 110) return 'purple';
+            if (g > 130 && b > 130 && r < 90) return 'teal/cyan';
+          }
+        }
+      } catch {}
+    }
+    return '';
+  }
+
+  function detectUiRegion(el) {
+    if (!el) return 'Page';
+    const parts = [];
+    let cur = el;
+    let depth = 0;
+    let regionType = '';
+    let sectionName = '';
+
+    while (cur && cur !== document.body && depth < 10) {
+      const tag = (cur.tagName || '').toLowerCase();
+      const cls = String(cur.className || '').toLowerCase();
+      const id = String(cur.id || '').toLowerCase();
+      const role = String((cur.getAttribute && cur.getAttribute('role')) || '').toLowerCase();
+      const ariaLabel = String((cur.getAttribute && cur.getAttribute('aria-label')) || '').trim();
+      const dataSection = String((cur.getAttribute && (cur.getAttribute('data-section') || cur.getAttribute('data-tab') || cur.getAttribute('data-view'))) || '').trim();
+
+      if (!regionType) {
+        if (tag === 'aside' || role === 'complementary' || /sidebar|side-nav|sidenav|drawer|left-nav/.test(cls + ' ' + id)) {
+          regionType = 'Sidebar';
+        } else if (tag === 'nav' || role === 'navigation' || /navbar|topbar|header-nav|main-nav/.test(cls + ' ' + id)) {
+          regionType = 'Navigation Bar';
+        } else if (tag === 'header') {
+          regionType = 'Top Header';
+        } else if (role === 'dialog' || /modal|dialog|drawer|popup/.test(cls + ' ' + id)) {
+          regionType = 'Modal / Dialog';
+        } else if (tag === 'footer') {
+          regionType = 'Footer';
+        }
+      }
+
+      if (!sectionName) {
+        if (dataSection) {
+          sectionName = dataSection;
+        } else if (ariaLabel && ariaLabel.length <= 40) {
+          sectionName = ariaLabel;
+        } else if (cur.querySelector) {
+          const heading = cur.querySelector('h1, h2, h3, h4, [class*="title"], [class*="heading"]');
+          if (heading && heading !== el && !heading.contains(el)) {
+            const hText = (heading.innerText || heading.textContent || '').replace(/\s+/g, ' ').trim();
+            if (hText && hText.length <= 45) {
+              sectionName = hText;
+            }
+          }
+        }
+      }
+
+      cur = cur.parentElement;
+      depth++;
+    }
+
+    if (regionType) parts.push(regionType);
+    if (sectionName && (!regionType || sectionName.toLowerCase() !== regionType.toLowerCase())) {
+      parts.push(sectionName);
+    }
+    return parts.length > 0 ? parts.join(' -> ') : 'Main Screen';
+  }
+
+  function cleanText(raw, maxLen = 60) {
+    const s = String(raw || '').replace(/\s+/g, ' ').trim();
+    return s.length > maxLen ? s.slice(0, maxLen) + '...' : s;
+  }
+
+  function captureHostWebsiteContext() {
+    if (typeof document === 'undefined' || !document.body) return '';
+    try {
+      const siteName =
+        (currentScript && (currentScript.getAttribute('data-site-name') || currentScript.getAttribute('data-title'))) ||
+        document.title ||
+        (window.location && window.location.hostname) ||
+        'Host Website';
+      const customContext = (currentScript && currentScript.getAttribute('data-site-context')) || '';
+      const metaDescEl = document.querySelector('meta[name="description"]');
+      const metaDesc = metaDescEl ? cleanText(metaDescEl.getAttribute('content') || '', 160) : '';
+      const currentPath = (window.location ? (window.location.pathname + window.location.hash) : '/') || '/';
+
+      // 1. Collect Sidebar & Navigation Items
+      const navItems = [];
+      const seenNav = new Set();
+      const navEls = document.querySelectorAll(
+        'aside a, aside button, aside [role="button"], aside [role="tab"], nav a, nav button, [class*="sidebar"] a, [class*="sidebar"] button, [class*="sidebar"] [role="button"], [id*="sidebar"] a, [id*="sidebar"] button, [role="navigation"] a, [role="navigation"] button, [role="tablist"] button, [role="tablist"] [role="tab"]'
+      );
+      navEls.forEach((el) => {
+        if (container && container.contains(el)) return;
+        const label = cleanText(el.innerText || el.textContent || el.getAttribute('aria-label') || el.getAttribute('title') || '', 45);
+        if (!label || label.length < 2) return;
+        const key = label.toLowerCase();
+        if (seenNav.has(key)) return;
+        seenNav.add(key);
+        const region = detectUiRegion(el);
+        const color = detectElementColorName(el);
+        const colorDesc = color ? ` (${color})` : '';
+        navItems.push(`[${region}] "${label}"${colorDesc}`);
+      });
+
+      // 2. Collect Interactive Buttons & Controls on the Host Page
+      const buttonItems = [];
+      const seenBtns = new Set();
+      const btnEls = document.querySelectorAll(
+        'button, [role="button"], a[class*="btn"], a[class*="button"], input[type="button"], input[type="submit"], [data-action]'
+      );
+      btnEls.forEach((el) => {
+        if (container && container.contains(el)) return;
+        const label = cleanText(
+          el.innerText || el.textContent || el.value || el.getAttribute('aria-label') || el.getAttribute('title') || '',
+          50
+        );
+        if (!label || label.length < 2) return;
+        const region = detectUiRegion(el);
+        const color = detectElementColorName(el);
+        const titleHint = cleanText(el.getAttribute('title') || el.getAttribute('aria-label') || '', 60);
+        const hintPart = titleHint && titleHint.toLowerCase() !== label.toLowerCase() ? ` — ${titleHint}` : '';
+        const colorPart = color ? `${color} button` : 'button';
+        const entry = `[${region}] ${colorPart} "${label}"${hintPart}`;
+        const dedupKey = `${region.toLowerCase()}|${label.toLowerCase()}`;
+        if (seenBtns.has(dedupKey)) return;
+        seenBtns.add(dedupKey);
+        buttonItems.push(entry);
+      });
+
+      // 3. Collect Page Headings & Sections
+      const headings = [];
+      const seenHeadings = new Set();
+      document.querySelectorAll('h1, h2, h3, h4, [data-ai-help], [data-feature]').forEach((el) => {
+        if (container && container.contains(el)) return;
+        const text = cleanText(el.innerText || el.textContent || el.getAttribute('data-ai-help') || '', 70);
+        if (!text || text.length < 2) return;
+        const key = text.toLowerCase();
+        if (seenHeadings.has(key)) return;
+        seenHeadings.add(key);
+        headings.push(text);
+      });
+
+      const lines = [
+        `Website: ${cleanText(siteName, 80)} (Path: ${currentPath})`,
+      ];
+      if (metaDesc) lines.push(`Site Description: ${metaDesc}`);
+      if (customContext) lines.push(`Site Guidance Notes: ${cleanText(customContext, 400)}`);
+      if (navItems.length > 0) {
+        lines.push(`Sidebar & Navigation Menu Items (${navItems.slice(0, 18).join(' | ')})`);
+      }
+      if (buttonItems.length > 0) {
+        lines.push(`Available On-Page Buttons & Controls:\n- ${buttonItems.slice(0, 28).join('\n- ')}`);
+      }
+      if (headings.length > 0) {
+        lines.push(`Page Sections & Headings: ${headings.slice(0, 15).join(' | ')}`);
+      }
+      return lines.join('\n');
+    } catch {
+      return '';
+    }
+  }
+
+
   // Assistant Bubble Model Tag & Copy Button Helper
   function attachModelTag(bubbleEl, compLabel = 'Assistant', modelName = 'Flash Edge') {
     if (!bubbleEl || bubbleEl.querySelector('.cf-model-tag')) return;
@@ -1221,8 +1477,9 @@
         } catch {}
       }
 
-      // Step 3: Model preference & Page context awareness
+      // Step 3: Model preference & Live Host Website UI Context awareness
       const modelPreference = (modeSelect && modeSelect.value) ? modeSelect.value : 'auto';
+      const hostUiContext = captureHostWebsiteContext();
 
       let contextualMessage = text;
       const quote = activeQuotedSelection;
@@ -1244,6 +1501,7 @@
         body: JSON.stringify({
           sessionId,
           message: contextualMessage,
+          pageContext: hostUiContext || undefined,
           history: formatHistory(),
           modelPreference,
           shield: shieldSolution || undefined,

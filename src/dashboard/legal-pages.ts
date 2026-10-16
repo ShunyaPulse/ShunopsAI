@@ -106,6 +106,47 @@ function getLegalPageShell(title: string, subtitle: string, contentHtml: string)
       color: #fff;
       text-decoration: underline;
     }
+
+    /* Mobile Responsiveness */
+    @media (max-width: 768px) {
+      .legal-container {
+        margin: 16px auto;
+        padding: 0 10px 40px;
+      }
+      .legal-card {
+        padding: 20px 14px;
+        border-radius: 12px;
+      }
+      .legal-header {
+        padding-bottom: 16px;
+        margin-bottom: 20px;
+      }
+      .legal-header h1 {
+        font-size: 22px;
+      }
+      .legal-header p {
+        font-size: 13px;
+      }
+      .legal-content h2 {
+        font-size: 17px;
+        margin-top: 24px;
+      }
+      .legal-content p, .legal-content li {
+        font-size: 13.5px;
+        line-height: 1.6;
+      }
+      .callout-box {
+        padding: 12px 14px;
+      }
+      .footer-nav {
+        flex-direction: column;
+        text-align: center;
+        gap: 12px;
+      }
+      .legal-models-grid {
+        grid-template-columns: 1fr !important;
+      }
+    }
   </style>
 </head>
 <body>
@@ -293,7 +334,7 @@ export function getAboutHtml(): string {
     <p>
       All inference paths adhere to the Multi-Provider Fallback Cascade Rule: a failure in any individual provider or model endpoint never terminates an active user session or background audit.
     </p>
-    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:16px; margin:20px 0;">
+    <div class="legal-models-grid" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:14px; margin:20px 0;">
       <div style="background:#0f172a; border:1px solid #1e293b; border-radius:10px; padding:16px;">
         <h3 style="margin-top:0;">1. Google AI Studio Pool</h3>
         <p style="font-size:13px; color:#cbd5e1; margin-bottom:8px;">

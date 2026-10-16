@@ -131,6 +131,7 @@ export interface ChatRequestBody {
   sessionId: string;
   message: string;
   history?: string;
+  pageContext?: string;
   modelPreference?: string;
   turnstileToken?: string;
   systemPrompt?: string;

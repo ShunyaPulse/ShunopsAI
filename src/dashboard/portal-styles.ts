@@ -345,4 +345,70 @@ export const PORTAL_STYLES = `    ${DASHBOARD_STYLES}
     }
     .code-snippet-content code {
       font-family: inherit;
-    }`;
+    }
+    /* Responsive Mode & Key Grids */
+    .ai-mode-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    .kaggle-input-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    @media (max-width: 768px) {
+      .portal-page-container {
+        padding: 12px 10px 40px;
+      }
+      .portal-hero {
+        padding: 10px 6px 18px;
+      }
+      .portal-hero h1 {
+        font-size: 21px;
+        line-height: 1.3;
+      }
+      .portal-hero p {
+        font-size: 13px;
+      }
+      .key-config-panel {
+        padding: 14px 12px;
+        border-radius: 12px;
+      }
+      .security-status-banner {
+        padding: 10px 12px;
+        font-size: 12px;
+        gap: 8px;
+      }
+      .key-input-group {
+        padding: 12px 10px;
+      }
+      .key-label-row {
+        gap: 6px;
+      }
+      .direct-link-badge {
+        font-size: 10.5px;
+        padding: 3px 8px;
+      }
+      .service-choice-card {
+        padding: 12px;
+      }
+      .chat-input {
+        font-size: 16px !important; /* Prevents auto-zoom on iOS */
+      }
+      .security-modal-card {
+        padding: 18px 14px;
+        max-width: 95vw;
+        border-radius: 12px;
+      }
+    }
+
+    @media (max-width: 640px) {
+      .ai-mode-grid,
+      .kaggle-input-grid {
+        grid-template-columns: 1fr !important;
+        gap: 8px !important;
+      }
+    }
+`;

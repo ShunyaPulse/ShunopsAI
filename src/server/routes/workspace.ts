@@ -27,6 +27,9 @@ import {
   executeManageAgentMemory,
   executeManageAgentSchedules,
   getTenantAgenticSnapshot,
+  hydrateTenantAgenticState,
+  syncTenantAgenticState,
+  persistTenantAgenticState,
   resolveTenantKey,
   type ScheduledActionType,
 } from "../../tools/agentic.js";
@@ -270,10 +273,11 @@ export async function workspaceRoutes(app: FastifyInstance, options: WorkspaceRo
     return { success: true, message: "Chat history cleared." };
   });
 
-  // 3b. Agentic Workspace Hub Snapshot (Tasks, Files, Memories, Schedules) with ETag / 304 Not Modified
+  // 3b. Agentic Workspace Hub Snapshot (Tasks, Files, Memories, Schedules) with DB hydration & ETag
   app.get("/api/workspace/agentic-state", { preHandler: [requireAuth] }, async (req, reply) => {
     const user = (req as any).user;
     const tenantKey = resolveTenantKey(user?.id, user?.role === "admin" ? "admin" : "user");
+    await hydrateTenantAgenticState(tenantKey);
     const snapshot = getTenantAgenticSnapshot(tenantKey);
     const rawJson = JSON.stringify(snapshot);
     let h = 2166136261;
@@ -290,6 +294,23 @@ export async function workspaceRoutes(app: FastifyInstance, options: WorkspaceRo
     return {
       success: true,
       ...snapshot,
+    };
+  });
+
+  // 3b-sync. Non-Destructive Sync Endpoint (Merges client local state + DB state + memory state)
+  app.post("/api/workspace/agentic-state/sync", { preHandler: [requireAuth] }, async (req) => {
+    const user = (req as any).user;
+    const tenantKey = resolveTenantKey(user?.id, user?.role === "admin" ? "admin" : "user");
+    const body = (req.body || {}) as any;
+    const merged = await syncTenantAgenticState(tenantKey, {
+      files: Array.isArray(body.files) ? body.files : undefined,
+      tasks: Array.isArray(body.tasks) ? body.tasks : undefined,
+      memories: Array.isArray(body.memories) ? body.memories : undefined,
+      schedules: Array.isArray(body.schedules) ? body.schedules : undefined,
+    });
+    return {
+      success: true,
+      ...merged,
     };
   });
 
@@ -400,22 +421,92 @@ export async function workspaceRoutes(app: FastifyInstance, options: WorkspaceRo
     };
   });
 
-  // 3f. Interactive Code Sandbox Runner from Workspace UI
-  app.post<{ Body: { code?: string; timeoutMs?: number } }>(
+  // 3f. Interactive Code Sandbox Runner & AI Task-to-Code Generator from Workspace UI
+  app.post<{ Body: { code?: string; taskPrompt?: string; timeoutMs?: number } }>(
     "/api/workspace/execute-code",
     { preHandler: [requireAuth] },
     async (req, reply) => {
       const user = (req as any).user;
       const tenantKey = resolveTenantKey(user?.id, user?.role === "admin" ? "admin" : "user");
+      await hydrateTenantAgenticState(tenantKey);
       const { executeInSandbox } = await import("../../agent/sandbox/runner.js");
       const { getTenantFilesMap, persistSandboxWrittenFiles } = await import("../../tools/agentic.js");
-      const code = String(req.body?.code || "");
+      const { AGENT_MODELS_CHAIN, callChatCompletionWithFailover } = await import("../../agent/models.js");
+      const { extractRunnableJsFromText } = await import("../../agent/swarm.js");
+
+      let code = String(req.body?.code || "").trim();
+      const taskPrompt = String(req.body?.taskPrompt || "").trim();
+      let generatedByAi = false;
+
+      const workspaceFiles = getTenantFilesMap(tenantKey);
+      const existingFileNames = Object.keys(workspaceFiles);
+
+      // If the user provided a natural-language taskPrompt, dynamically generate runnable JS code for it!
+      if (taskPrompt) {
+        generatedByAi = true;
+        const userGroqKey = (req.headers["x-groq-key"] as string | undefined)?.trim();
+        const userGeminiKey = (req.headers["x-gemini-key"] as string | undefined)?.trim();
+        const scope = await buildRequestScope(user);
+        const keyOverrides = {
+          ...(userGroqKey ? { groqApiKey: userGroqKey } : {}),
+          ...(userGeminiKey ? { geminiApiKey: userGeminiKey } : {}),
+          ...(scope.credentials?.github?.token ? { githubToken: scope.credentials.github.token } : {}),
+          ...(scope.credentials?.cloudflare?.accountId ? { cloudflareAccountId: scope.credentials.cloudflare.accountId } : {}),
+          ...(scope.credentials?.cloudflare?.apiToken ? { cloudflareApiToken: scope.credentials.cloudflare.apiToken } : {}),
+        };
+
+        const sysPrompt = [
+          "You are the ShunopsAI Sandbox JavaScript Engineer.",
+          "Write clean, self-contained, immediately runnable JavaScript for the isolated V8 sandbox to fulfill the user's task.",
+          "Available built-in sandbox globals (no imports or require needed):",
+          "- `writeWorkspaceFile(filename, content)`: Save a file (e.g. .json, .md, .csv, .txt) to the user's workspace",
+          "- `appendWorkspaceFile(filename, content)`: Append to a workspace file",
+          "- `readWorkspaceFile(filename)`: Read an existing workspace file",
+          "- `listWorkspaceFiles()`: List workspace filenames",
+          "- `sum(arr)`, `mean(arr)`, `median(arr)`, `stdDev(arr)`, `groupBy(arr, key)`, `csvParse(text)`, `formatMarkdownTable(rows)`",
+          "Enclose your code in a single ```javascript code block and end with `return ...;` so the result is returned.",
+        ].join("\n");
+
+        const userMsg = [
+          existingFileNames.length > 0 ? `Existing workspace files: ${existingFileNames.join(", ")}` : "",
+          `Task to solve in JavaScript sandbox: ${taskPrompt}`,
+        ].filter(Boolean).join("\n");
+
+        try {
+          const { response } = await callChatCompletionWithFailover(
+            [
+              { role: "system", content: sysPrompt },
+              { role: "user", content: userMsg },
+            ],
+            AGENT_MODELS_CHAIN,
+            [],
+            0.2,
+            keyOverrides
+          );
+          const rawReply = response.choices?.[0]?.message?.content?.trim() || "";
+          const extracted = extractRunnableJsFromText(rawReply);
+          if (extracted) {
+            code = extracted;
+          } else if (rawReply && !rawReply.includes("```")) {
+            code = rawReply;
+          }
+        } catch (err: any) {
+          if (!code) {
+            reply.status(500);
+            return {
+              success: false,
+              error: `AI code generation failed: ${err?.message || "model unavailable"}. You can also type JavaScript directly in the editor.`,
+            };
+          }
+        }
+      }
+
       if (!code.trim()) {
         reply.status(400);
-        return { success: false, error: "JavaScript code string is required." };
+        return { success: false, error: "Provide a task description or JavaScript code to execute." };
       }
-      const workspaceFiles = getTenantFilesMap(tenantKey);
-      let safeTimeoutMs = 3000;
+
+      let safeTimeoutMs = 5000;
       if (req.body?.timeoutMs !== undefined) {
         const raw = Number(req.body.timeoutMs);
         if (Number.isFinite(raw)) {
@@ -429,14 +520,20 @@ export async function workspaceRoutes(app: FastifyInstance, options: WorkspaceRo
         workspaceFiles,
       });
       const savedFiles = res.success ? await persistSandboxWrittenFiles(res.writtenFiles, tenantKey) : [];
+      if (savedFiles.length > 0) {
+        await persistTenantAgenticState(tenantKey);
+      }
       return {
         success: res.success,
+        generatedByAi,
+        generatedCode: code,
         result: res.result,
         error: res.error,
         logs: res.logs,
         savedFiles,
         executionTimeMs: res.executionTimeMs,
         engine: res.engine,
+        ...getTenantAgenticSnapshot(tenantKey),
       };
     }
   );
