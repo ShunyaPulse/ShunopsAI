@@ -33,6 +33,18 @@ import {
   type ToolScope,
 } from "./scope.js";
 import { searchKnowledgeHybrid, indexKnowledgeDocument } from "../server/db.js";
+import {
+  executeManageWorkspaceFiles,
+  executeManageAgentTasks,
+  executeManageAgentMemory,
+  executeAgenticPipeline,
+  executeManageAgentSchedules,
+  persistSandboxWrittenFiles,
+  resolveTenantKey,
+  type AgenticPipelineStep,
+  type ScheduledActionType,
+} from "../tools/agentic.js";
+import { executeAgentSwarm, type SwarmSubAgentSpec, type SwarmExecutionMode } from "./swarm.js";
 
 const execAsync = promisify(exec);
 
@@ -75,7 +87,13 @@ export type ToolName =
   | "index_knowledge_document"
   | "execute_sandboxed_code"
   | "web_search"
-  | "inspect_gcp_cloud";
+  | "inspect_gcp_cloud"
+  | "manage_workspace_files"
+  | "manage_agent_tasks"
+  | "manage_agent_memory"
+  | "run_agentic_pipeline"
+  | "delegate_to_agent_swarm"
+  | "manage_agent_schedules";
 
 export const toolRegistry: Record<ToolName, ToolDefinition> = {
   run_shell_command: {
@@ -418,7 +436,7 @@ export const toolRegistry: Record<ToolName, ToolDefinition> = {
       function: {
         name: "inspect_website",
         description:
-          "Checks the live HTTP status, latency, response headers, and content snippet of any website or API endpoint to diagnose errors, outages, or UI health.",
+          "Deep website inspection tool that fetches any public URL or API and returns title, meta description, headings, latency, and readable text content. Supports optional focusQuery to extract matching paragraphs from large pages.",
         parameters: {
           type: "object",
           properties: {
@@ -426,13 +444,17 @@ export const toolRegistry: Record<ToolName, ToolDefinition> = {
               type: "string",
               description: "Full URL of the website or endpoint (e.g. 'https://mywebsite.com' or 'http://localhost:8080/health')",
             },
+            focusQuery: {
+              type: "string",
+              description: "Optional topic, keyword, or section to extract from large pages (e.g. 'pricing', 'installation', 'docker compose').",
+            },
           },
           required: ["url"],
         },
       },
     },
-    execute: async (args: { url: string }) => {
-      return await inspectWebsite(args.url);
+    execute: async (args: { url: string; focusQuery?: string }) => {
+      return await inspectWebsite(args.url, args.focusQuery);
     },
   },
 
@@ -858,14 +880,22 @@ export const toolRegistry: Record<ToolName, ToolDefinition> = {
         },
       },
     },
-    execute: async (args: { code: string; timeoutMs?: number }) => {
+    execute: async (args: { code: string; timeoutMs?: number }, scope?: ToolScope) => {
       const { executeInSandbox } = await import("./sandbox/runner.js");
-      const res = await executeInSandbox(args.code, { timeoutMs: args.timeoutMs });
+      const { getTenantFilesMap, resolveTenantKey } = await import("../tools/agentic.js");
+      const tenantKey = resolveTenantKey(scope?.userId, scope?.kind);
+      const workspaceFiles = getTenantFilesMap(tenantKey);
+      const res = await executeInSandbox(args.code, {
+        timeoutMs: args.timeoutMs,
+        workspaceFiles,
+      });
       if (!res.success) {
         return `Execution Failed (in ${res.executionTimeMs}ms):\nError: ${res.error}\nLogs: ${res.logs.join("\n") || "none"}`;
       }
+      const savedFiles = await persistSandboxWrittenFiles(res.writtenFiles, tenantKey);
       const output = [
-        `Executed successfully in ${res.executionTimeMs}ms.`,
+        `Executed successfully in ${res.executionTimeMs}ms (${res.engine || "sandbox"}).`,
+        savedFiles.length > 0 ? `Saved Workspace Files: ${savedFiles.join(", ")}` : "",
         res.result !== null ? `Return Value: ${JSON.stringify(res.result, null, 2)}` : "",
         res.logs.length > 0 ? `Console Output:\n${res.logs.join("\n")}` : "",
       ]
@@ -900,9 +930,8 @@ export const toolRegistry: Record<ToolName, ToolDefinition> = {
     },
     execute: async (args: { query: string; maxResults?: number }, scope?: ToolScope) => {
       const credential = resolveWebSearch(scope);
-      if (!credential.ok) return credential.message;
       return await executeWebSearch(args.query, {
-        ...(credential.source === "user" ? credential.value : {}),
+        ...(credential.ok && credential.source === "user" ? credential.value : {}),
         maxResults: args.maxResults,
       });
     },
@@ -955,6 +984,381 @@ export const toolRegistry: Record<ToolName, ToolDefinition> = {
         args,
         credential.source === "user" ? credential.value : {}
       );
+    },
+  },
+
+  manage_workspace_files: {
+    schema: {
+      type: "function",
+      function: {
+        name: "manage_workspace_files",
+        description:
+          "Creates, reads, appends, lists, searches, or deletes files in the user's isolated Agent Workspace File System. Use this whenever the user asks you to write/save code, scripts, markdown reports, notes, or configs.",
+        parameters: {
+          type: "object",
+          properties: {
+            operation: {
+              type: "string",
+              enum: ["write", "append", "read", "list", "delete", "search"],
+              description: "File operation to perform.",
+            },
+            filename: {
+              type: "string",
+              description: "Relative filename (e.g., 'plan.md', 'script.js', 'notes.txt'). Required for write, append, read, delete.",
+            },
+            content: {
+              type: "string",
+              description: "File content to write or append.",
+            },
+            query: {
+              type: "string",
+              description: "Search keyword when operation is 'search'.",
+            },
+          },
+          required: ["operation"],
+        },
+      },
+    },
+    execute: async (
+      args: {
+        operation: "write" | "append" | "read" | "list" | "delete" | "search";
+        filename?: string;
+        content?: string;
+        query?: string;
+      },
+      scope?: ToolScope
+    ) => {
+      const tenantKey = resolveTenantKey(scope?.userId, scope?.kind);
+      return await executeManageWorkspaceFiles(args, tenantKey);
+    },
+  },
+
+  manage_agent_tasks: {
+    schema: {
+      type: "function",
+      function: {
+        name: "manage_agent_tasks",
+        description:
+          "Manages the persistent Agent Task Planner & Checklist for breaking down multi-step goals, adding todos, updating task statuses (pending, in_progress, completed), and tracking progress.",
+        parameters: {
+          type: "object",
+          properties: {
+            operation: {
+              type: "string",
+              enum: ["create_plan", "add_task", "update_task", "list_tasks", "clear_completed"],
+              description: "Task planner operation to perform.",
+            },
+            tasks: {
+              type: "array",
+              items: { type: "string" },
+              description: "Array of step titles when operation is 'create_plan'.",
+            },
+            title: {
+              type: "string",
+              description: "Task title when operation is 'add_task'.",
+            },
+            taskId: {
+              type: "number",
+              description: "Numeric task ID when operation is 'update_task'.",
+            },
+            status: {
+              type: "string",
+              enum: ["pending", "in_progress", "completed"],
+              description: "New status for the task.",
+            },
+            priority: {
+              type: "string",
+              enum: ["low", "medium", "high"],
+              description: "Task priority (default: 'medium').",
+            },
+            notes: {
+              type: "string",
+              description: "Optional progress notes or findings attached to the task.",
+            },
+          },
+          required: ["operation"],
+        },
+      },
+    },
+    execute: async (
+      args: {
+        operation: "create_plan" | "add_task" | "update_task" | "list_tasks" | "clear_completed";
+        tasks?: string[];
+        title?: string;
+        taskId?: number;
+        status?: "pending" | "in_progress" | "completed";
+        priority?: "low" | "medium" | "high";
+        notes?: string;
+      },
+      scope?: ToolScope
+    ) => {
+      const tenantKey = resolveTenantKey(scope?.userId, scope?.kind);
+      return await executeManageAgentTasks(args, tenantKey);
+    },
+  },
+
+  manage_agent_memory: {
+    schema: {
+      type: "function",
+      function: {
+        name: "manage_agent_memory",
+        description:
+          "Stores and recalls persistent long-term facts, user preferences, tech stack details, and project decisions across sessions using semantic + keyword retrieval.",
+        parameters: {
+          type: "object",
+          properties: {
+            operation: {
+              type: "string",
+              enum: ["remember", "recall", "list", "forget"],
+              description: "Memory operation: 'remember' (save a fact), 'recall' (search memories), 'list' (show all), 'forget' (delete by key).",
+            },
+            key: {
+              type: "string",
+              description: "Short identifier key for the memory (e.g., 'user_tech_stack', 'deploy_region').",
+            },
+            fact: {
+              type: "string",
+              description: "Detailed fact or preference to remember (required when operation is 'remember').",
+            },
+            query: {
+              type: "string",
+              description: "Search query when operation is 'recall'.",
+            },
+            tags: {
+              type: "array",
+              items: { type: "string" },
+              description: "Optional tags for categorizing the memory.",
+            },
+          },
+          required: ["operation"],
+        },
+      },
+    },
+    execute: async (
+      args: {
+        operation: "remember" | "recall" | "list" | "forget";
+        key?: string;
+        fact?: string;
+        query?: string;
+        tags?: string[];
+      },
+      scope?: ToolScope
+    ) => {
+      const tenantKey = resolveTenantKey(scope?.userId, scope?.kind);
+      return await executeManageAgentMemory(args, tenantKey);
+    },
+  },
+  run_agentic_pipeline: {
+    schema: {
+      type: "function",
+      function: {
+        name: "run_agentic_pipeline",
+        description:
+          "Executes a multi-step agentic workflow pipeline in a single chained operation (e.g. create_plan -> web_search -> inspect_website -> execute_code -> write_file -> update_task -> remember). Each step output is automatically passed to subsequent execute_code steps via globalThis.pipelineOutputs.",
+        parameters: {
+          type: "object",
+          properties: {
+            steps: {
+              type: "array",
+              description: "Ordered list of pipeline steps to execute sequentially (up to 8 steps).",
+              items: {
+                type: "object",
+                properties: {
+                  action: {
+                    type: "string",
+                    enum: [
+                      "create_plan",
+                      "update_task",
+                      "web_search",
+                      "inspect_website",
+                      "execute_code",
+                      "write_file",
+                      "read_file",
+                      "remember",
+                      "recall",
+                    ],
+                  },
+                  tasks: { type: "array", items: { type: "string" } },
+                  taskId: { type: "number" },
+                  status: { type: "string", enum: ["pending", "in_progress", "completed"] },
+                  notes: { type: "string" },
+                  query: { type: "string" },
+                  url: { type: "string" },
+                  focusQuery: { type: "string" },
+                  code: { type: "string" },
+                  filename: { type: "string" },
+                  content: { type: "string" },
+                  append: { type: "boolean" },
+                  key: { type: "string" },
+                  fact: { type: "string" },
+                  tags: { type: "array", items: { type: "string" } },
+                },
+                required: ["action"],
+              },
+            },
+          },
+          required: ["steps"],
+        },
+      },
+    },
+    execute: async (args: { steps: AgenticPipelineStep[] }, scope?: ToolScope) => {
+      const tenantKey = resolveTenantKey(scope?.userId, scope?.kind);
+      const webCred = resolveWebSearch(scope);
+      return await executeAgenticPipeline(
+        args,
+        tenantKey,
+        webCred.ok && webCred.source === "user" ? webCred.value : undefined
+      );
+    },
+  },
+  delegate_to_agent_swarm: {
+    schema: {
+      type: "function",
+      function: {
+        name: "delegate_to_agent_swarm",
+        description:
+          "Spawns a coordinated Multi-Agent Swarm of specialized sub-agents (researcher, coder, analyst, auditor) that collaborate on a Shared Blackboard in parallel or sequential handoff mode, optionally saving the synthesized report to a workspace file.",
+        parameters: {
+          type: "object",
+          properties: {
+            objective: {
+              type: "string",
+              description: "Overall objective for the Multi-Agent Swarm.",
+            },
+            mode: {
+              type: "string",
+              enum: ["hybrid_dag", "parallel", "sequential"],
+              description: "Execution mode: 'hybrid_dag' (Wave 1 parallel research+code -> Wave 2 analyst -> Wave 3 auditor), 'parallel', or 'sequential'. Default: 'hybrid_dag'.",
+            },
+            agents: {
+              type: "array",
+              description: "Up to 4 specialized sub-agents to dispatch.",
+              items: {
+                type: "object",
+                properties: {
+                  role: {
+                    type: "string",
+                    enum: ["researcher", "coder", "analyst", "auditor"],
+                  },
+                  task: { type: "string" },
+                  targetUrl: { type: "string" },
+                  searchQuery: { type: "string" },
+                  code: { type: "string" },
+                },
+                required: ["role", "task"],
+              },
+            },
+            saveDeliverableAs: {
+              type: "string",
+              description: "Optional workspace filename (e.g. 'swarm-report.md') to save the synthesized swarm report.",
+            },
+          },
+          required: ["objective", "agents"],
+        },
+      },
+    },
+    execute: async (
+      args: {
+        objective: string;
+        mode?: SwarmExecutionMode;
+        agents: SwarmSubAgentSpec[];
+        saveDeliverableAs?: string;
+      },
+      scope?: ToolScope
+    ) => {
+      const res = await executeAgentSwarm({
+        objective: args.objective,
+        mode: args.mode,
+        agents: args.agents,
+        saveDeliverableAs: args.saveDeliverableAs,
+        scope,
+        keyOverrides: scope?.keyOverrides,
+      });
+      return res.synthesizedReport;
+    },
+  },
+
+  manage_agent_schedules: {
+    schema: {
+      type: "function",
+      function: {
+        name: "manage_agent_schedules",
+        description:
+          "Creates, lists, runs, pauses, resumes, or deletes recurring Autonomous Scheduled Monitors & Watchdogs (website health monitors, recurring web research digests, or scheduled sandbox jobs) that log outputs to workspace files.",
+        parameters: {
+          type: "object",
+          properties: {
+            operation: {
+              type: "string",
+              enum: [
+                "create_schedule",
+                "list_schedules",
+                "run_now",
+                "pause_schedule",
+                "resume_schedule",
+                "delete_schedule",
+              ],
+            },
+            scheduleId: {
+              type: "number",
+              description: "Schedule ID for run_now, pause_schedule, resume_schedule, or delete_schedule.",
+            },
+            name: {
+              type: "string",
+              description: "Human-readable name for the scheduled monitor.",
+            },
+            actionType: {
+              type: "string",
+              enum: ["website_monitor", "web_research_digest", "sandbox_script", "swarm_audit"],
+              description: "Type of autonomous recurring job.",
+            },
+            intervalMinutes: {
+              type: "number",
+              description: "Interval in minutes between runs (5 to 1440, default: 30).",
+            },
+            targetUrl: {
+              type: "string",
+              description: "URL to inspect when actionType is 'website_monitor'.",
+            },
+            query: {
+              type: "string",
+              description: "Search query or focus keyword.",
+            },
+            code: {
+              type: "string",
+              description: "JavaScript code to run when actionType is 'sandbox_script'.",
+            },
+            outputFilename: {
+              type: "string",
+              description: "Workspace file where monitor logs/digests are appended (e.g. 'uptime-log.md').",
+            },
+          },
+          required: ["operation"],
+        },
+      },
+    },
+    execute: async (
+      args: {
+        operation:
+          | "create_schedule"
+          | "list_schedules"
+          | "run_now"
+          | "pause_schedule"
+          | "resume_schedule"
+          | "delete_schedule";
+        scheduleId?: number;
+        name?: string;
+        actionType?: ScheduledActionType;
+        intervalMinutes?: number;
+        targetUrl?: string;
+        query?: string;
+        code?: string;
+        outputFilename?: string;
+      },
+      scope?: ToolScope
+    ) => {
+      const tenantKey = resolveTenantKey(scope?.userId, scope?.kind);
+      return await executeManageAgentSchedules(args, tenantKey);
     },
   },
 };

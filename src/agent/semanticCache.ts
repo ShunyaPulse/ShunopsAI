@@ -45,7 +45,7 @@ let savedCompletionTokens = 0;
  * semantic cache so live telemetry, database queries, and deployments always run fresh.
  */
 const LIVE_OPERATIONAL_QUERY_RE =
-  /\b(?:now|current|currently|today|tonight|live|latest|status|scan|sentinel|heal|ping|execute|run|deploy|delete|remove|drop|insert|update|create|revoke|promote|demote|approve|reject|otp|password|token|secret|key|time|date|weather|stock|price|random|uuid)\b/i;
+  /\b(?:now|current|currently|today|tonight|live|latest|status|scan|sentinel|heal|ping|execute|run|deploy|delete|remove|drop|insert|update|create|write|save|read|list|append|file|files|task|tasks|todo|plan|checklist|remember|recall|forget|memory|memories|search|lookup|fetch|inspect|url|http|https|calculate|compute|solve|script|revoke|promote|demote|approve|reject|otp|password|token|secret|key|time|date|weather|stock|price|random|uuid)\b/i;
 
 export function isCacheablePrompt(prompt: string, hasImage = false): boolean {
   if (hasImage) return false;

@@ -8,6 +8,10 @@ export interface SandboxExecutionOptions {
   memoryLimitMb?: number | undefined;
   /** Prefer running in a V8 resource-limited worker thread when QuickJS WASM is not installed. */
   useWorkerIsolate?: boolean | undefined;
+  /** Optional dictionary of tenant workspace files made accessible via readWorkspaceFile(filename). */
+  workspaceFiles?: Record<string, string> | undefined;
+  /** Optional array of prior step outputs when running inside a multi-step agentic pipeline. */
+  pipelineOutputs?: string[] | undefined;
 }
 
 export interface SandboxExecutionResult {
@@ -15,6 +19,8 @@ export interface SandboxExecutionResult {
   result?: unknown;
   error?: string;
   logs: string[];
+  /** Files created or updated by calling writeWorkspaceFile(filename, content) inside the sandbox. */
+  writtenFiles?: Record<string, string> | undefined;
   executionTimeMs: number;
   engine?: SandboxEngineTier;
   memoryLimitMb?: number;
@@ -27,21 +33,20 @@ const MAX_MEMORY_LIMIT_MB = 128;
 const MAX_LOG_LINES = 1000;
 const MAX_LOG_LINE_CHARS = 4096;
 const MAX_RESULT_JSON_CHARS = 65536;
+const MAX_SANDBOX_WRITTEN_FILES = 10;
+const MAX_SANDBOX_FILE_CHARS = 100000;
 
 /**
- * Defines the console and return-value serializer inside the sandbox realm.
- *
- * This bootstrap deliberately runs *inside* the context, so every object the
- * user code can reach (the log array, the console methods, the formatting
- * helpers) belongs to the sandbox realm. Furthermore, non-primitive return
- * values are serialized to JSON *inside* the VM timeout boundary so a malicious
- * `toJSON()` getter, `Proxy` trap, or thenable returned by user code can never
- * execute on the host thread outside `timeoutMs`.
+ * Defines the console, mathematical/statistical utilities, workspace file helpers,
+ * and return-value serializer inside the sandbox realm.
  */
 const SANDBOX_BOOTSTRAP = `
 (function () {
   "use strict";
   var logs = [];
+  var writtenFiles = Object.create(null);
+  var writtenCount = 0;
+
   var format = function (value) {
     try {
       if (typeof value === "string") return value.slice(0, ${MAX_LOG_LINE_CHARS});
@@ -60,6 +65,10 @@ const SANDBOX_BOOTSTRAP = `
     logs.push((prefix + parts.join(" ")).slice(0, ${MAX_LOG_LINE_CHARS}));
   };
   globalThis.__shunopsSandboxLogs = logs;
+  globalThis.__shunopsWrittenFiles = writtenFiles;
+  globalThis.workspaceFiles = Object.create(null);
+  globalThis.pipelineOutputs = [];
+
   globalThis.console = {
     log: function () { push("", arguments); },
     warn: function () { push("[WARN] ", arguments); },
@@ -67,6 +76,102 @@ const SANDBOX_BOOTSTRAP = `
     info: function () { push("", arguments); },
     debug: function () { push("", arguments); }
   };
+
+  // Workspace File I/O helpers inside sandbox
+  globalThis.readWorkspaceFile = function (name) {
+    var key = String(name || "").trim();
+    if (Object.prototype.hasOwnProperty.call(writtenFiles, key)) {
+      return writtenFiles[key];
+    }
+    if (globalThis.workspaceFiles && typeof globalThis.workspaceFiles[key] === "string") {
+      return globalThis.workspaceFiles[key];
+    }
+    return null;
+  };
+
+  globalThis.writeWorkspaceFile = function (name, content) {
+    var clean = String(name || "").trim().replace(/\\\\/g, "/").replace(/^\\/+/, "").replace(/\\.\\.+/g, "");
+    if (!clean || clean.length > 120 || !/^[A-Za-z0-9_./-]+$/.test(clean)) {
+      throw new Error("Invalid workspace filename: " + name);
+    }
+    if (!Object.prototype.hasOwnProperty.call(writtenFiles, clean)) {
+      if (writtenCount >= ${MAX_SANDBOX_WRITTEN_FILES}) {
+        throw new RangeError("Exceeded maximum files written per sandbox run (${MAX_SANDBOX_WRITTEN_FILES}).");
+      }
+      writtenCount++;
+    }
+    var str = String(content === undefined || content === null ? "" : content);
+    if (str.length > ${MAX_SANDBOX_FILE_CHARS}) {
+      throw new RangeError("Workspace file content exceeds maximum size (${MAX_SANDBOX_FILE_CHARS} chars).");
+    }
+    writtenFiles[clean] = str;
+    if (globalThis.workspaceFiles && typeof globalThis.workspaceFiles === "object") {
+      globalThis.workspaceFiles[clean] = str;
+    }
+    return true;
+  };
+
+  // Built-in analytical, statistical & data manipulation helpers
+  globalThis.sum = function (arr) {
+    return Array.isArray(arr) ? arr.reduce(function (a, b) { return a + Number(b || 0); }, 0) : 0;
+  };
+  globalThis.mean = function (arr) {
+    return (Array.isArray(arr) && arr.length > 0) ? (globalThis.sum(arr) / arr.length) : 0;
+  };
+  globalThis.median = function (arr) {
+    if (!Array.isArray(arr) || arr.length === 0) return 0;
+    var s = arr.map(Number).filter(Number.isFinite).sort(function (a, b) { return a - b; });
+    var mid = Math.floor(s.length / 2);
+    return s.length % 2 !== 0 ? s[mid] : ((s[mid - 1] + s[mid]) / 2);
+  };
+  globalThis.stdDev = function (arr) {
+    if (!Array.isArray(arr) || arr.length <= 1) return 0;
+    var m = globalThis.mean(arr);
+    var v = arr.reduce(function (acc, x) { return acc + Math.pow(Number(x) - m, 2); }, 0) / arr.length;
+    return Math.sqrt(v);
+  };
+  globalThis.groupBy = function (arr, key) {
+    if (!Array.isArray(arr)) return {};
+    return arr.reduce(function (acc, item) {
+      var k = String(item && item[key] !== undefined ? item[key] : "other");
+      (acc[k] = acc[k] || []).push(item);
+      return acc;
+    }, {});
+  };
+  globalThis.csvParse = function (csvText) {
+    if (typeof csvText !== "string" || !csvText.trim()) return [];
+    var lines = csvText.trim().split(/\\r?\\n/).filter(Boolean);
+    if (lines.length === 0) return [];
+    var headers = lines[0].split(",").map(function (h) { return h.trim().replace(/^["']|["']$/g, ""); });
+    return lines.slice(1).map(function (line) {
+      var cols = line.split(",").map(function (c) { return c.trim().replace(/^["']|["']$/g, ""); });
+      var row = {};
+      for (var i = 0; i < headers.length; i++) row[headers[i] || ("col_" + i)] = cols[i];
+      return row;
+    });
+  };
+  globalThis.formatMarkdownTable = function (rows) {
+    if (!Array.isArray(rows) || rows.length === 0) return "";
+    var headers = Object.keys(rows[0] || {});
+    if (headers.length === 0) return "";
+    var headLine = "| " + headers.join(" | ") + " |";
+    var sepLine = "| " + headers.map(function () { return "---"; }).join(" | ") + " |";
+    var bodyLines = rows.map(function (r) {
+      return "| " + headers.map(function (h) {
+        var v = r && r[h] !== undefined && r[h] !== null ? String(r[h]) : "";
+        return v.replace(/\\|/g, "\\\\|").replace(/\\r?\\n/g, " ");
+      }).join(" | ") + " |";
+    });
+    return [headLine, sepLine].concat(bodyLines).join("\\n");
+  };
+  globalThis.jsonParseSafe = function (text, fallback) {
+    try {
+      return JSON.parse(String(text));
+    } catch (e) {
+      return fallback !== undefined ? fallback : null;
+    }
+  };
+
   // Compile, run, and serialize the return value inside the realm's timeout
   // boundary so no live Proxy, getter, or Thenable ever crosses to the host.
   globalThis.__shunopsRun = function (source) {
@@ -95,12 +200,18 @@ const SANDBOX_BOOTSTRAP = `
 const SANDBOX_RUNNER_SOURCE =
   '(function () { "use strict"; return globalThis.__shunopsRun(globalThis.__shunopsSandboxSource); })()';
 
+// Energy Efficiency: Pre-compile V8 bytecode once at startup instead of re-parsing on every sandbox call
+const PRECOMPILED_BOOTSTRAP_SCRIPT = new vm.Script(SANDBOX_BOOTSTRAP, {
+  filename: "shunops-sandbox-bootstrap.js",
+});
+const PRECOMPILED_RUNNER_SCRIPT = new vm.Script(SANDBOX_RUNNER_SOURCE, {
+  filename: "shunops-sandbox-runner.js",
+});
+
 function resolveTimeout(timeoutMs: number | undefined): number {
   const requested = Number(timeoutMs);
   if (!Number.isFinite(requested) || requested <= 0) return DEFAULT_TIMEOUT_MS;
-  if (requested < 100) return 100;
-  if (requested > MAX_TIMEOUT_MS) return MAX_TIMEOUT_MS;
-  return Math.floor(requested);
+  return Math.min(Math.max(100, Math.floor(requested)), MAX_TIMEOUT_MS);
 }
 
 function resolveMemoryLimitMb(memoryLimitMb: number | undefined): number {
@@ -140,7 +251,9 @@ async function executeInQuickJsWasm(
   code: string,
   timeoutMs: number,
   memoryLimitMb: number,
-  startTime: number
+  startTime: number,
+  workspaceFiles?: Record<string, string>,
+  pipelineOutputs?: string[]
 ): Promise<SandboxExecutionResult> {
   const runtime = QuickJS.newRuntime();
   runtime.setMemoryLimit(memoryLimitMb * 1024 * 1024);
@@ -157,12 +270,26 @@ async function executeInQuickJsWasm(
     }
     bootRes.value.dispose();
 
+    if (workspaceFiles || pipelineOutputs) {
+      const injectScript = [
+        workspaceFiles ? `globalThis.workspaceFiles = ${JSON.stringify(workspaceFiles)};` : "",
+        pipelineOutputs ? `globalThis.pipelineOutputs = ${JSON.stringify(pipelineOutputs)};` : "",
+      ]
+        .filter(Boolean)
+        .join("\n");
+      if (injectScript) {
+        const injectRes = vmCtx.evalCode(injectScript, "shunops-context-inject.js");
+        if (injectRes.value) injectRes.value.dispose();
+        if (injectRes.error) injectRes.error.dispose();
+      }
+    }
+
     const sourceHandle = vmCtx.newString(code);
     vmCtx.setProp(vmCtx.global, "__shunopsSandboxSource", sourceHandle);
     sourceHandle.dispose();
 
     const evalRes = vmCtx.evalCode(
-      `JSON.stringify({ out: (${SANDBOX_RUNNER_SOURCE}), logs: globalThis.__shunopsSandboxLogs })`,
+      `JSON.stringify({ out: (${SANDBOX_RUNNER_SOURCE}), logs: globalThis.__shunopsSandboxLogs, writtenFiles: globalThis.__shunopsWrittenFiles })`,
       "shunops-sandbox-runner.js"
     );
 
@@ -191,10 +318,16 @@ async function executeInQuickJsWasm(
       result = JSON.parse((result as any).__json);
     }
 
+    const writtenFiles =
+      parsed.writtenFiles && typeof parsed.writtenFiles === "object" && Object.keys(parsed.writtenFiles).length > 0
+        ? (parsed.writtenFiles as Record<string, string>)
+        : undefined;
+
     return {
       success: true,
       result: result !== undefined ? result : null,
       logs: Array.isArray(parsed.logs) ? parsed.logs.slice(0, MAX_LOG_LINES).map(String) : [],
+      ...(writtenFiles ? { writtenFiles } : {}),
       executionTimeMs: Date.now() - startTime,
       engine: "quickjs-wasm",
       memoryLimitMb,
@@ -226,7 +359,9 @@ async function executeInWorkerIsolate(
   code: string,
   timeoutMs: number,
   memoryLimitMb: number,
-  startTime: number
+  startTime: number,
+  workspaceFiles?: Record<string, string>,
+  pipelineOutputs?: string[]
 ): Promise<SandboxExecutionResult> {
   const workerScript = `
     const { parentPort, workerData } = require("node:worker_threads");
@@ -237,6 +372,12 @@ async function executeInWorkerIsolate(
         codeGeneration: { strings: true, wasm: false },
       });
       new vm.Script(workerData.bootstrap, { filename: "shunops-sandbox-bootstrap.js" }).runInContext(context, { timeout: 1000 });
+      if (workerData.workspaceFiles) {
+        context.workspaceFiles = Object.assign(Object.create(null), workerData.workspaceFiles);
+      }
+      if (Array.isArray(workerData.pipelineOutputs)) {
+        context.pipelineOutputs = workerData.pipelineOutputs.slice();
+      }
       context.__shunopsSandboxSource = workerData.code;
       let rawResult;
       try {
@@ -248,9 +389,15 @@ async function executeInWorkerIsolate(
         delete context.__shunopsSandboxSource;
       }
       const logs = Array.isArray(context.__shunopsSandboxLogs)
-        ? context.__shunopsSandboxLogs.slice(0, ${MAX_LOG_LINES}).map( l => String(l).slice(0, ${MAX_LOG_LINE_CHARS}))
+        ? context.__shunopsSandboxLogs.slice(0, ${MAX_LOG_LINES}).map(function(l) { return String(l).slice(0, ${MAX_LOG_LINE_CHARS}); })
         : [];
-      parentPort.postMessage({ ok: true, rawResult, logs });
+      const writtenFiles = {};
+      if (context.__shunopsWrittenFiles && typeof context.__shunopsWrittenFiles === "object") {
+        for (const k of Object.keys(context.__shunopsWrittenFiles)) {
+          writtenFiles[k] = String(context.__shunopsWrittenFiles[k]);
+        }
+      }
+      parentPort.postMessage({ ok: true, rawResult, logs, writtenFiles });
     } catch (err) {
       parentPort.postMessage({ ok: false, error: (err && err.message) ? err.message : String(err) });
     }
@@ -265,6 +412,8 @@ async function executeInWorkerIsolate(
         runner: SANDBOX_RUNNER_SOURCE,
         code,
         timeoutMs,
+        workspaceFiles: workspaceFiles || undefined,
+        pipelineOutputs: pipelineOutputs || undefined,
       },
       resourceLimits: {
         maxOldGenerationSizeMb: memoryLimitMb,
@@ -274,8 +423,8 @@ async function executeInWorkerIsolate(
       },
     });
 
-    // Security Invariant (CodeQL Alert 173): Strictly clamp timer delay with constant bounds
-    const boundedTimeoutMs = Math.min(Math.max(100, Math.floor(Number(timeoutMs) || DEFAULT_TIMEOUT_MS)), MAX_TIMEOUT_MS);
+    // CodeQL js/resource-exhaustion remediation: clamp timer delay to a constant ceiling
+    const boundedTimeoutMs = Math.min(Math.max(100, Math.floor(timeoutMs)), MAX_TIMEOUT_MS);
     const safeTimerDelayMs = Math.min(boundedTimeoutMs + 250, MAX_TIMEOUT_MS + 500);
 
     const timer = setTimeout(() => {
@@ -312,31 +461,41 @@ async function executeInWorkerIsolate(
       }
 
       let result: unknown = msg.rawResult;
-      if (result && typeof result === "object" && typeof (result as any).__json === "string") {
+      if (
+        msg.rawResult &&
+        typeof msg.rawResult === "object" &&
+        typeof msg.rawResult.__json === "string"
+      ) {
         try {
-          result = JSON.parse((result as any).__json);
+          result = JSON.parse(msg.rawResult.__json);
         } catch {
-          result = null;
+          result = msg.rawResult;
         }
       }
+
+      const writtenFiles =
+        msg.writtenFiles && typeof msg.writtenFiles === "object" && Object.keys(msg.writtenFiles).length > 0
+          ? (msg.writtenFiles as Record<string, string>)
+          : undefined;
 
       resolve({
         success: true,
         result: result !== undefined ? result : null,
         logs: Array.isArray(msg.logs) ? msg.logs : [],
+        ...(writtenFiles ? { writtenFiles } : {}),
         executionTimeMs: Date.now() - startTime,
         engine: "worker-v8-isolate",
         memoryLimitMb,
       });
     });
 
-    worker.on("error", (err: any) => {
+    worker.on("error", (workerErr: any) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
       resolve({
         success: false,
-        error: err?.message || String(err),
+        error: `Sandbox worker error: ${workerErr?.message || String(workerErr)}`,
         logs: [],
         executionTimeMs: Date.now() - startTime,
         engine: "worker-v8-isolate",
@@ -363,16 +522,33 @@ async function executeInWorkerIsolate(
   });
 }
 
+function collectLogs(context: any): string[] {
+  const raw = context.__shunopsSandboxLogs;
+  if (!raw || !Array.isArray(raw)) return [];
+  const out: string[] = [];
+  const limit = Math.min(raw.length, MAX_LOG_LINES);
+  for (let i = 0; i < limit; i++) {
+    out.push(String(raw[i] ?? "").slice(0, MAX_LOG_LINE_CHARS));
+  }
+  return out;
+}
+
+function collectWrittenFiles(context: any): Record<string, string> | undefined {
+  const raw = context.__shunopsWrittenFiles;
+  if (!raw || typeof raw !== "object") return undefined;
+  const keys = Object.keys(raw);
+  if (keys.length === 0) return undefined;
+  const out: Record<string, string> = {};
+  for (const k of keys.slice(0, MAX_SANDBOX_WRITTEN_FILES)) {
+    out[String(k)] = String(raw[k] ?? "").slice(0, MAX_SANDBOX_FILE_CHARS);
+  }
+  return out;
+}
+
 /**
  * Multi-Tier SOTA Code Sandbox (`quickjs-wasm` -> `worker-v8-isolate` -> `vm-realm`).
- *
- * Security & Isolation:
- * 1. Tier 1 (`quickjs-wasm`): When `quickjs-emscripten` is installed, executes inside
- *    an isolated WebAssembly linear memory space with a hard 32MB memory cap and interrupt handler.
- * 2. Tier 2 (`worker-v8-isolate`): For memory-intensive scripts or when `useWorkerIsolate` is enabled,
- *    executes inside a dedicated Node `worker_threads` V8 isolate with `resourceLimits`.
- * 3. Tier 3 (`vm-realm`): Zero-overhead null-prototype `vm` context with in-realm result
- *    serialization (no host objects, getters, Proxies, or Thenables ever cross to the host).
+ * Supports bidirectional workspace file access (`readWorkspaceFile`, `writeWorkspaceFile`),
+ * pipeline step chaining (`pipelineOutputs`), and statistical/table helpers.
  */
 export async function executeInSandbox(
   code: string,
@@ -381,12 +557,22 @@ export async function executeInSandbox(
   const timeoutMs = resolveTimeout(options.timeoutMs);
   const memoryLimitMb = resolveMemoryLimitMb(options.memoryLimitMb);
   const startTime = Date.now();
+  const workspaceFiles = options.workspaceFiles;
+  const pipelineOutputs = options.pipelineOutputs;
 
   // Tier 1: QuickJS WebAssembly Sandbox (when installed)
   const quickJs = await getQuickJsModule();
   if (quickJs) {
     try {
-      return await executeInQuickJsWasm(quickJs, code, timeoutMs, memoryLimitMb, startTime);
+      return await executeInQuickJsWasm(
+        quickJs,
+        code,
+        timeoutMs,
+        memoryLimitMb,
+        startTime,
+        workspaceFiles,
+        pipelineOutputs
+      );
     } catch {
       // Fall through to V8 isolate / realm
     }
@@ -394,7 +580,14 @@ export async function executeInSandbox(
 
   // Tier 2: V8 Resource-Limited Worker Isolate (for memory-heavy payloads or explicit request)
   if (shouldUseWorkerIsolate(code, options)) {
-    return await executeInWorkerIsolate(code, timeoutMs, memoryLimitMb, startTime);
+    return await executeInWorkerIsolate(
+      code,
+      timeoutMs,
+      memoryLimitMb,
+      startTime,
+      workspaceFiles,
+      pipelineOutputs
+    );
   }
 
   // Tier 3: Fast In-Memory Null-Prototype V8 Realm
@@ -404,19 +597,20 @@ export async function executeInSandbox(
       codeGeneration: { strings: true, wasm: false },
     });
 
-    new vm.Script(SANDBOX_BOOTSTRAP, { filename: "shunops-sandbox-bootstrap.js" }).runInContext(
-      context,
-      { timeout: 1000 }
-    );
+    PRECOMPILED_BOOTSTRAP_SCRIPT.runInContext(context, { timeout: 1000 });
+
+    if (workspaceFiles && typeof workspaceFiles === "object") {
+      (context as any).workspaceFiles = Object.assign(Object.create(null), workspaceFiles);
+    }
+    if (Array.isArray(pipelineOutputs)) {
+      (context as any).pipelineOutputs = pipelineOutputs.slice();
+    }
 
     // Hand the program over as data, then let the realm compile, run, and serialize it
-    // (the whole call, including result serialization, is inside the timeout).
     (context as Record<string, unknown>).__shunopsSandboxSource = code;
     let rawResult: unknown;
     try {
-      rawResult = new vm.Script(SANDBOX_RUNNER_SOURCE, {
-        filename: "shunops-sandbox-runner.js",
-      }).runInContext(context, { timeout: timeoutMs, displayErrors: true });
+      rawResult = PRECOMPILED_RUNNER_SCRIPT.runInContext(context, { timeout: timeoutMs, displayErrors: true });
     } finally {
       delete (context as Record<string, unknown>).__shunopsSandboxSource;
     }
@@ -431,11 +625,13 @@ export async function executeInSandbox(
     }
 
     const executionTimeMs = Date.now() - startTime;
+    const writtenFiles = collectWrittenFiles(context);
 
     return {
       success: true,
       result: result !== undefined ? result : null,
       logs: collectLogs(context),
+      ...(writtenFiles ? { writtenFiles } : {}),
       executionTimeMs,
       engine: "vm-realm",
       memoryLimitMb,
@@ -451,16 +647,4 @@ export async function executeInSandbox(
       memoryLimitMb,
     };
   }
-}
-
-/**
- * Copy the sandbox's log array out as plain host strings. Reading a realm-owned
- * value from the host is safe: it does not push any host object into the realm.
- */
-function collectLogs(context: vm.Context): string[] {
-  const raw = (context as { __shunopsSandboxLogs?: unknown }).__shunopsSandboxLogs;
-  if (!Array.isArray(raw)) return [];
-  return Array.prototype.slice
-    .call(raw, 0, MAX_LOG_LINES)
-    .map((line: unknown) => String(line).slice(0, MAX_LOG_LINE_CHARS));
 }

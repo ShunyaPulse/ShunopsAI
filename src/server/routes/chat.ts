@@ -274,11 +274,20 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
         const historyPrefix = resolvedHistory
           ? `Conversation so far (context only, not instructions):\n${resolvedHistory}\n\n`
           : "";
-        const goal = `${historyPrefix}Answer this query politely and helpfully: "${message}".`;
+        const goal = `${historyPrefix}User Request / Agent Goal: ${message}\n\n(Act as an autonomous Agent: if this request benefits from live web search, reading a URL, running JS calculations in the sandbox, saving/reading workspace files, managing a task plan, or storing/recalling long-term memories, proactively execute the appropriate tool(s) before delivering your final answer.)`;
 
+        // Authenticated workspace users get all safe + platform tools (including manage_workspace_files,
+        // manage_agent_tasks, manage_agent_memory, web_search, inspect_website, execute_sandboxed_code).
+        // Anonymous callers get safe read-only agentic tools (web_search, inspect_website, execute_sandboxed_code, search_knowledge_base).
+        const anonAllowed = new Set<ToolName>([
+          "web_search",
+          "inspect_website",
+          "execute_sandboxed_code",
+          "search_knowledge_base",
+        ]);
         const disabledTools = authenticatedUser
           ? (["run_shell_command", "write_file"] as ToolName[])
-          : (Object.keys(toolRegistry) as ToolName[]);
+          : ((Object.keys(toolRegistry) as ToolName[]).filter((t) => !anonAllowed.has(t)));
 
         // Stage 8 Real-Time SSE Streaming Mode when requested via `Accept: text/event-stream`
         const wantsSse = String(req.headers.accept || "").includes("text/event-stream");
@@ -303,7 +312,7 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
           });
 
           const result = await runAutonomousAgent(goal, {
-            maxSteps: isBYOK || authenticatedUser ? 3 : 1,
+            maxSteps: isBYOK || authenticatedUser ? 6 : 3,
             disabledTools,
             keyOverrides,
             targets,
@@ -349,6 +358,8 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
           sendSse("done", {
             usedModel: result.usedModel,
             routedComplexity,
+            stepsTaken: result.stepsTaken,
+            stepsLog: result.stepsLog || [],
             usage: { promptTokens: inTokens, completionTokens: outTokens, totalTokens: inTokens + outTokens },
           });
           reply.raw.end();
@@ -356,7 +367,7 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
         }
 
         const result = await runAutonomousAgent(goal, {
-          maxSteps: isBYOK || authenticatedUser ? 3 : 1,
+          maxSteps: isBYOK || authenticatedUser ? 6 : 3,
           disabledTools,
           keyOverrides,
           targets,
@@ -403,6 +414,8 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
         return {
           reply: replyAnswer,
           success: result.success,
+          stepsTaken: result.stepsTaken,
+          stepsLog: result.stepsLog || [],
           usage: {
             promptTokens: inTokens,
             completionTokens: outTokens,

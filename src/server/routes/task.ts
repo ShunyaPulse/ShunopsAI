@@ -43,7 +43,7 @@ export async function taskRoutes(app: FastifyInstance, options: TaskRouteOptions
         "Perform autonomous repository and database health check";
 
       const requestedSteps = typeof body.maxSteps === "number" ? body.maxSteps : 6;
-      const maxSteps = isAdmin ? requestedSteps : Math.min(Math.max(1, requestedSteps), 6);
+      const maxSteps = isAdmin ? requestedSteps : Math.min(Math.max(1, requestedSteps), 10);
       // Only admin/operator runs may inject privileged system-level `initialContext`;
       // for tenant users, fold `body.context` safely into the user-turn goal.
       const context = isAdmin ? body.context : undefined;
@@ -183,6 +183,7 @@ export async function taskRoutes(app: FastifyInstance, options: TaskRouteOptions
             success: result.success,
             taskId: syncTaskId,
             stepsTaken: result.stepsTaken,
+            stepsLog: result.stepsLog || [],
             usedModel: result.usedModel,
             finalAnswer: result.finalAnswer,
           });
@@ -224,6 +225,8 @@ export async function taskRoutes(app: FastifyInstance, options: TaskRouteOptions
           success: result.success,
           finalAnswer: result.finalAnswer,
           stepsTaken: result.stepsTaken,
+          stepsLog: result.stepsLog || [],
+          usedModel: result.usedModel,
           taskId: syncTaskId,
         };
       } catch (error: any) {

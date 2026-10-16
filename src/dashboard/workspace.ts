@@ -7,10 +7,11 @@ import { POPULAR_100_MCP_PRESETS } from "./mcp-presets-catalog.js";
  * Multi-Tenant User Workspace Dashboard HTML.
  * Includes:
  * 1. Human-in-the-Loop Approvals Queue
- * 2. Persistent Conversation Thread & History
- * 3. Account Lifecycle (Password Change, Export Data, Delete Account)
- * 4. Personal API Key Management
- * 5. Plan & Usage Metering
+ * 2. Persistent Conversation Thread & History + Agentic Execution Trace
+ * 3. Agentic Workspace Hub (Live Task Planner, Virtual File System & Long-Term Memory)
+ * 4. Account Lifecycle (Password Change, Export Data, Delete Account)
+ * 5. Personal API Key Management
+ * 6. Plan & Usage Metering
  *
  * The stylesheet and client script live in `workspace-styles.ts` /
  * `workspace-scripts.ts` so the markup here stays reviewable in isolation.
@@ -69,7 +70,7 @@ ${WORKSPACE_STYLES}
       <!-- Left: Chat Assistant with Persistent Conversation History (Primary Daily Workspace) -->
       <div class="box box-hero">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
-          <h2>💬 Ask Your AI Assistant</h2>
+          <h2>💬 Ask Your AI Agent</h2>
           <div style="display:flex; align-items:center; gap:8px;">
             <span id="context-badge" style="font-size:11px; background:rgba(56,189,248,0.12); color:#38bdf8; border:1px solid rgba(56,189,248,0.25); padding:2px 8px; border-radius:12px; font-weight:600;">
               🧠 Persistent Memory Active
@@ -173,21 +174,104 @@ ${WORKSPACE_STYLES}
               <line x1="5" y1="12" x2="19" y2="12"></line>
             </svg>
           </button>
-          <input type="text" id="user-chat-input" class="chat-input" placeholder="Type your message or follow-up question..." onkeydown="if(event.key==='Enter') sendUserChat(true)">
+          <input type="text" id="user-chat-input" class="chat-input" placeholder="Ask your agent to plan tasks, search the web, run code, or write files..." onkeydown="if(event.key==='Enter') sendUserChat(true)">
           <button class="chat-send-btn" id="send-btn" onclick="sendUserChat()">Send</button>
         </div>
 
-        <!-- Quick Suggestions -->
+        <!-- Agentic Quick Action Chips -->
         <div class="quick-chips">
-          <div class="chip" onclick="askSuggestion('What can you help me do?')">💡 What can you do?</div>
-          <div class="chip" onclick="askSuggestion('Search knowledge base for Neon Postgres architecture')">📚 Search docs</div>
-          <div class="chip" onclick="askSuggestion('Help me write a friendly professional email')">✉️ Draft an email</div>
-          <div class="chip" onclick="askSuggestion('Explain cloud hosting and containers simply')">☁️ Explain simply</div>
+          <div class="chip" onclick="askSuggestion('Create a 4-step action plan for launching my API and mark step 1 in progress')">📋 Create Task Plan</div>
+          <div class="chip" onclick="askSuggestion('Search the web for OpenTelemetry distributed tracing best practices and save a summary to otel-guide.md')">🌐 Web Research &rarr; File</div>
+          <div class="chip" onclick="askSuggestion('Write and execute a JavaScript benchmark in the sandbox to compare Map vs Object lookup speed')">💻 Run Code in Sandbox</div>
+          <div class="chip" onclick="askSuggestion('Remember that my preferred tech stack is TypeScript, Fastify, and PostgreSQL')">🧠 Save Agent Memory</div>
         </div>
       </div>
 
-      <!-- Right Column: Secondary Utilities (Quota Metering & Embed Snippet) -->
+      <!-- Right Column: Agentic Workspace Hub & Secondary Utilities -->
       <aside class="workspace-sidebar">
+        <!-- NEW: Interactive Agentic Workspace Hub (Tasks, Virtual Files & Long-Term Memory) -->
+        <div class="box box-sidebar">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+            <h2>🧠 Agentic Workspace</h2>
+            <div style="display:flex; gap:6px;">
+              <button type="button" class="btn-sub" style="font-size:10.5px; padding:2px 8px; border-color:rgba(168,85,247,0.4); color:#c084fc;" onclick="openSwarmLauncherModal()" title="Launch Multi-Agent Swarm (Researcher, Coder, Analyst, Auditor)">🐝 Swarm</button>
+              <button type="button" class="btn-sub" style="font-size:10.5px; padding:2px 8px; border-color:rgba(56,189,248,0.35); color:#38bdf8;" onclick="openSandboxCodeModal()" title="Run JavaScript in isolated sandbox">▶ Code</button>
+              <button type="button" class="btn-sub" style="font-size:10.5px; padding:2px 8px;" onclick="loadAgenticWorkspaceState()" title="Refresh tasks, files, and memories">↻ Sync</button>
+            </div>
+          </div>
+          <!-- 3-Tab Switcher -->
+          <div style="display:flex; gap:4px; background:#060a12; padding:3px; border-radius:8px; border:1px solid #1e293b; margin-bottom:10px;">
+            <button type="button" id="agentic-tab-btn-tasks" onclick="switchAgenticTab('tasks')" style="flex:1; font-size:11px; padding:5px 6px; border-radius:6px; background:#2563eb; color:#fff; border:none; font-weight:600; cursor:pointer;">
+              📋 Tasks (<span id="agentic-tasks-count">0</span>)
+            </button>
+            <button type="button" id="agentic-tab-btn-files" onclick="switchAgenticTab('files')" style="flex:1; font-size:11px; padding:5px 6px; border-radius:6px; background:transparent; color:#94a3b8; border:none; font-weight:600; cursor:pointer;">
+              📁 Files (<span id="agentic-files-count">0</span>)
+            </button>
+            <button type="button" id="agentic-tab-btn-memory" onclick="switchAgenticTab('memory')" style="flex:1; font-size:10.5px; padding:5px 4px; border-radius:6px; background:transparent; color:#94a3b8; border:none; font-weight:600; cursor:pointer;">
+              🧠 Mem (<span id="agentic-memory-count">0</span>)
+            </button>
+            <button type="button" id="agentic-tab-btn-schedules" onclick="switchAgenticTab('schedules')" style="flex:1; font-size:10.5px; padding:5px 4px; border-radius:6px; background:transparent; color:#94a3b8; border:none; font-weight:600; cursor:pointer;">
+              ⏰ Watch (<span id="agentic-schedules-count">0</span>)
+            </button>
+          </div>
+
+          <!-- Tab 1: Live Agent Task Checklist -->
+          <div id="agentic-panel-tasks">
+            <div id="agentic-tasks-progress" style="display:none; margin-bottom:8px;">
+              <div style="display:flex; justify-content:space-between; font-size:10.5px; color:#94a3b8; margin-bottom:4px;">
+                <span id="agentic-tasks-progress-label">0/0 completed</span>
+                <button type="button" onclick="clearCompletedAgentTasks()" style="background:transparent; border:none; color:#38bdf8; font-size:10.5px; cursor:pointer; padding:0;">Clear Done</button>
+              </div>
+              <div style="background:#1e293b; border-radius:5px; height:5px; overflow:hidden;">
+                <div id="agentic-tasks-progress-bar" style="background:#10b981; height:100%; width:0%; transition:width 0.3s;"></div>
+              </div>
+            </div>
+            <div id="agentic-tasks-list" style="max-height:190px; overflow-y:auto; display:flex; flex-direction:column; gap:5px; font-size:11.5px; color:#94a3b8; margin-bottom:8px;">
+              <div style="color:#64748b; font-size:11px; padding:6px 0;">No active task plan yet. Ask the agent to create a plan or add a step below.</div>
+            </div>
+            <div style="display:flex; gap:6px;">
+              <input type="text" id="agentic-new-task-input" placeholder="Add step to checklist..." onkeydown="if(event.key==='Enter') addManualAgentTask()" style="flex:1; background:#090d16; border:1px solid #1e293b; border-radius:6px; padding:5px 8px; color:#fff; font-size:11.5px; outline:none;" />
+              <button type="button" class="btn-sub" style="padding:5px 9px; font-size:11px;" onclick="addManualAgentTask()">+ Add</button>
+            </div>
+          </div>
+
+          <!-- Tab 2: Virtual Workspace File Explorer -->
+          <div id="agentic-panel-files" style="display:none;">
+            <div id="agentic-files-list" style="max-height:190px; overflow-y:auto; display:flex; flex-direction:column; gap:5px; font-size:11.5px; color:#94a3b8; margin-bottom:8px;">
+              <div style="color:#64748b; font-size:11px; padding:6px 0;">No workspace files yet. Ask the agent to save notes, code, or reports.</div>
+            </div>
+            <button type="button" class="btn-sub" style="width:100%; padding:6px; font-size:11px; border-color:rgba(56,189,248,0.35); color:#38bdf8;" onclick="openWorkspaceFileModal('', '')">+ Create New Workspace File</button>
+          </div>
+
+          <!-- Tab 3: Long-Term Semantic Memory Store -->
+          <div id="agentic-panel-memory" style="display:none;">
+            <div id="agentic-memory-list" style="max-height:190px; overflow-y:auto; display:flex; flex-direction:column; gap:5px; font-size:11.5px; color:#94a3b8; margin-bottom:8px;">
+              <div style="color:#64748b; font-size:11px; padding:6px 0;">No saved memories yet. Tell the agent to remember your stack or preferences.</div>
+            </div>
+            <div style="display:flex; flex-direction:column; gap:5px;">
+              <div style="display:flex; gap:5px;">
+                <input type="text" id="agentic-mem-key-input" placeholder="Key (e.g. stack)" style="width:38%; background:#090d16; border:1px solid #1e293b; border-radius:6px; padding:5px 7px; color:#fff; font-size:11px; outline:none;" />
+                <input type="text" id="agentic-mem-fact-input" placeholder="Fact to remember..." onkeydown="if(event.key==='Enter') addManualAgentMemory()" style="flex:1; background:#090d16; border:1px solid #1e293b; border-radius:6px; padding:5px 7px; color:#fff; font-size:11px; outline:none;" />
+                <button type="button" class="btn-sub" style="padding:5px 8px; font-size:11px;" onclick="addManualAgentMemory()">Save</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Tab 4: Autonomous Scheduled Monitors & Watchdogs -->
+          <div id="agentic-panel-schedules" style="display:none;">
+            <div id="agentic-schedules-list" style="max-height:190px; overflow-y:auto; display:flex; flex-direction:column; gap:5px; font-size:11.5px; color:#94a3b8; margin-bottom:8px;">
+              <div style="color:#64748b; font-size:11px; padding:6px 0;">No active watchdogs yet. Add a website monitor or research digest below.</div>
+            </div>
+            <div style="display:flex; flex-direction:column; gap:5px;">
+              <div style="display:flex; gap:5px;">
+                <input type="text" id="agentic-sched-name-input" placeholder="Monitor name..." style="width:40%; background:#090d16; border:1px solid #1e293b; border-radius:6px; padding:5px 7px; color:#fff; font-size:11px; outline:none;" />
+                <input type="text" id="agentic-sched-target-input" placeholder="https://... or search query" onkeydown="if(event.key==='Enter') addManualAgentSchedule()" style="flex:1; background:#090d16; border:1px solid #1e293b; border-radius:6px; padding:5px 7px; color:#fff; font-size:11px; outline:none;" />
+                <button type="button" class="btn-sub" style="padding:5px 8px; font-size:11px;" onclick="addManualAgentSchedule()">+ Watch</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- Autonomous Task Dispatcher: runs ONLY with this user's connected accounts -->
         <div class="box box-sidebar">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
@@ -196,7 +280,7 @@ ${WORKSPACE_STYLES}
               Your Accounts Only
             </span>
           </div>
-          <textarea id="task-goal-input" rows="3" placeholder="e.g. List the 10 newest rows in my orders table" style="width:100%; background:#090d16; border:1px solid #1e293b; border-radius:8px; padding:8px 10px; color:#fff; font-size:12.5px; outline:none; resize:vertical;"></textarea>
+          <textarea id="task-goal-input" rows="3" placeholder="e.g. Research Redis caching patterns, create a 3-step rollout plan, and save config.json to my workspace" style="width:100%; background:#090d16; border:1px solid #1e293b; border-radius:8px; padding:8px 10px; color:#fff; font-size:12.5px; outline:none; resize:vertical;"></textarea>
           <div style="display:flex; gap:8px; margin-top:8px;">
             <select id="task-max-steps" style="background:#090d16; border:1px solid #1e293b; border-radius:8px; padding:7px 8px; color:#fff; font-size:12px; outline:none;">
               <option value="3">3 steps</option>
@@ -261,6 +345,103 @@ ${WORKSPACE_STYLES}
           </div>
         </div>
       </aside>
+    </div>
+  </div>
+
+  <!-- Workspace File Viewer / Editor Modal -->
+  <div id="workspace-file-modal" class="modal-overlay" onclick="if(event.target === this) closeWorkspaceFileModal()" style="z-index:1150;">
+    <div class="modal-dialog" style="max-width:680px;">
+      <div class="modal-header">
+        <h2 id="workspace-file-modal-title">📄 Workspace File</h2>
+        <button class="modal-close-btn" onclick="closeWorkspaceFileModal()" title="Close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div style="margin-bottom:10px;">
+          <label for="workspace-file-name-input" style="font-size:11.5px; color:#94a3b8; display:block; margin-bottom:4px;">Filename (e.g. <code>architecture.md</code>, <code>script.js</code>)</label>
+          <input type="text" id="workspace-file-name-input" placeholder="notes.md" style="width:100%; background:#090d16; border:1px solid #1e293b; border-radius:8px; padding:8px 10px; color:#fff; font-size:12.5px; font-family:'JetBrains Mono', monospace; outline:none;" />
+        </div>
+        <div style="margin-bottom:12px;">
+          <label for="workspace-file-content-input" style="font-size:11.5px; color:#94a3b8; display:block; margin-bottom:4px;">Content</label>
+          <textarea id="workspace-file-content-input" rows="13" placeholder="Write or inspect file content..." style="width:100%; background:#050811; border:1px solid #1e293b; border-radius:8px; padding:10px 12px; color:#e2e8f0; font-size:12px; font-family:'JetBrains Mono', monospace; line-height:1.5; resize:vertical; outline:none;"></textarea>
+        </div>
+        <div style="display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap;">
+          <div style="display:flex; gap:8px;">
+            <button type="button" class="btn-sub" onclick="copyCurrentWorkspaceFile(this)">📋 Copy</button>
+            <button type="button" class="btn-sub" onclick="downloadCurrentWorkspaceFile()">📥 Download</button>
+            <button type="button" id="workspace-file-run-btn" class="btn-sub" style="border-color:rgba(16,185,129,0.35); color:#10b981; display:none;" onclick="runCurrentWorkspaceFileInSandbox()">▶ Run JS</button>
+          </div>
+          <div style="display:flex; gap:8px;">
+            <button type="button" class="btn-sub" onclick="closeWorkspaceFileModal()">Cancel</button>
+            <button type="button" class="btn-action" onclick="saveCurrentWorkspaceFile()">💾 Save File</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- Sandbox Code Runner Modal -->
+  <div id="sandbox-code-modal" class="modal-overlay" onclick="if(event.target === this) closeSandboxCodeModal()" style="z-index:1160;">
+    <div class="modal-dialog" style="max-width:700px;">
+      <div class="modal-header">
+        <h2>💻 Autonomous Code Sandbox</h2>
+        <button class="modal-close-btn" onclick="closeSandboxCodeModal()" title="Close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div style="font-size:11.5px; color:#94a3b8; margin-bottom:8px; line-height:1.45;">
+          Run JavaScript in the sovereign V8 / QuickJS sandbox. Built-in helpers: <code>readWorkspaceFile("filename")</code>, <code>sum()</code>, <code>mean()</code>, <code>median()</code>, <code>stdDev()</code>, <code>groupBy()</code>, <code>csvParse()</code>.
+        </div>
+        <div style="margin-bottom:10px;">
+          <textarea id="sandbox-code-input" rows="9" placeholder="// Type JavaScript code here...\nreturn sum([12, 34, 56, 78]);" style="width:100%; background:#050811; border:1px solid #1e293b; border-radius:8px; padding:10px 12px; color:#e2e8f0; font-size:12px; font-family:'JetBrains Mono', monospace; line-height:1.5; resize:vertical; outline:none;"></textarea>
+        </div>
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+          <button type="button" class="btn-action" id="sandbox-exec-btn" onclick="executeSandboxCodeFromModal()">▶ Execute Code</button>
+          <span id="sandbox-run-meta" style="font-size:11px; color:#94a3b8; font-family:'JetBrains Mono', monospace;"></span>
+        </div>
+        <div id="sandbox-output-box" style="display:none; background:#070a12; border:1px solid #1e293b; border-radius:8px; padding:10px 12px; font-size:12px; font-family:'JetBrains Mono', monospace;">
+          <div style="font-size:10.5px; color:#64748b; text-transform:uppercase; margin-bottom:4px; font-weight:700;">Output</div>
+          <pre id="sandbox-output-content" style="margin:0; white-space:pre-wrap; word-break:break-word; color:#38bdf8;"></pre>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- Multi-Agent Swarm Orchestrator Modal -->
+  <div id="swarm-launcher-modal" class="modal-overlay" onclick="if(event.target === this) closeSwarmLauncherModal()" style="z-index:1165;">
+    <div class="modal-dialog" style="max-width:740px;">
+      <div class="modal-header">
+        <h2>🐝 Multi-Agent Swarm Orchestrator (Shared Blackboard)</h2>
+        <button class="modal-close-btn" onclick="closeSwarmLauncherModal()" title="Close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div style="font-size:11.5px; color:#94a3b8; margin-bottom:10px; line-height:1.45;">
+          Coordinate up to 4 specialized sub-agents (<strong>🔍 Researcher</strong>, <strong>💻 Coder</strong>, <strong>📊 Analyst</strong>, <strong>🛡️ Auditor</strong>) sharing a tenant-isolated Blackboard and saving the synthesized report directly to your workspace.
+        </div>
+        <div style="margin-bottom:8px;">
+          <label style="font-size:11px; color:#cbd5e1; font-weight:600; display:block; margin-bottom:4px;">Swarm Objective</label>
+          <input type="text" id="swarm-objective-input" value="Research OpenTelemetry tracing overhead, benchmark sampling rates in sandbox, and produce a security & architecture audit" style="width:100%; background:#090d16; border:1px solid #1e293b; border-radius:8px; padding:8px 10px; color:#fff; font-size:12px; outline:none;" />
+        </div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:10px;">
+          <div>
+            <label style="font-size:11px; color:#cbd5e1; font-weight:600; display:block; margin-bottom:4px;">Execution Mode</label>
+            <select id="swarm-mode-select" style="width:100%; background:#090d16; border:1px solid #1e293b; border-radius:8px; padding:7px 9px; color:#fff; font-size:12px; outline:none;">
+              <option value="hybrid_dag" selected>⚡ Hybrid DAG (Wave 1 Parallel Research+Code &rarr; Wave 2 Analyst &rarr; Auditor)</option>
+              <option value="sequential">🔗 Sequential Blackboard Handoff (Researcher &rarr; Coder &rarr; Analyst &rarr; Auditor)</option>
+              <option value="parallel">🚀 Full Parallel Fan-Out (All Sub-Agents Run Concurrently)</option>
+            </select>
+          </div>
+          <div>
+            <label style="font-size:11px; color:#cbd5e1; font-weight:600; display:block; margin-bottom:4px;">Save Deliverable File</label>
+            <input type="text" id="swarm-deliverable-input" value="swarm-audit-report.md" placeholder="e.g. swarm-report.md" style="width:100%; background:#090d16; border:1px solid #1e293b; border-radius:8px; padding:7px 9px; color:#fff; font-size:12px; font-family:'JetBrains Mono', monospace; outline:none;" />
+          </div>
+        </div>
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+          <button type="button" class="btn-action" id="swarm-dispatch-btn" onclick="dispatchSwarmFromModal()">🐝 Dispatch 4-Agent Swarm</button>
+          <span id="swarm-run-meta" style="font-size:11px; color:#c084fc; font-family:'JetBrains Mono', monospace;"></span>
+        </div>
+        <div id="swarm-blackboard-box" style="display:none; max-height:280px; overflow-y:auto; background:#050811; border:1px solid #1e293b; border-radius:8px; padding:10px 12px; font-size:12px;"></div>
+      </div>
     </div>
   </div>
 

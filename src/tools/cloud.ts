@@ -450,7 +450,7 @@ export function isPrivateHost(hostname: string): boolean {
   return false;
 }
 
-export async function inspectWebsite(url: string): Promise<string> {
+export async function inspectWebsite(url: string, focusQuery?: string): Promise<string> {
   let currentUrl = url.startsWith("http") ? url : `https://${url}`;
 
   const start = Date.now();
@@ -499,8 +499,60 @@ export async function inspectWebsite(url: string): Promise<string> {
       }
 
       const latency = Date.now() - start;
+      const contentType = (res.headers.get("content-type") || "").toLowerCase();
       const bodyText = await res.text();
-      const snippet = bodyText.slice(0, 400).replace(/\s+/g, " ");
+
+      // If response is JSON, return parsed/formatted JSON preview
+      if (contentType.includes("application/json")) {
+        return JSON.stringify({
+          url: currentUrl,
+          status: res.status,
+          statusText: res.statusText,
+          contentType,
+          latencyMs: latency,
+          contentLength: bodyText.length,
+          jsonContent: bodyText.slice(0, 6000),
+        }, null, 2);
+      }
+
+      // Extract title, meta description, headings, and clean readable text from HTML
+      const titleMatch = bodyText.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+      const pageTitle = titleMatch && titleMatch[1] ? titleMatch[1].replace(/\s+/g, " ").trim() : "";
+      const descMatch = bodyText.match(/<meta[^>]+name=["\x27]description["\x27][^>]+content=["\x27]([^"\x27]+)["\x27]/i);
+      const metaDescription = descMatch && descMatch[1] ? descMatch[1].trim() : "";
+
+      const headings = Array.from(bodyText.matchAll(/<h[1-3][^>]*>([\s\S]*?)<\/h[1-3]>/gi))
+        .map((m) => (m && m[1] ? m[1].replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim() : ""))
+        .filter(Boolean)
+        .slice(0, 15);
+
+      const readableText = bodyText
+        .replace(/<script[\s\S]*?<\/script>/gi, " ")
+        .replace(/<style[\s\S]*?<\/style>/gi, " ")
+        .replace(/<svg[\s\S]*?<\/svg>/gi, " ")
+        .replace(/<noscript[\s\S]*?<\/noscript>/gi, " ")
+        .replace(/<[^>]+>/g, " ")
+        .replace(/&nbsp;/gi, " ")
+        .replace(/&amp;/gi, "&")
+        .replace(/&lt;/gi, "<")
+        .replace(/&gt;/gi, ">")
+        .replace(/&quot;/gi, "\"")
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, 6000);
+
+      let focusedExcerpts: string[] = [];
+      if (focusQuery && typeof focusQuery === "string" && focusQuery.trim()) {
+        const terms = focusQuery.toLowerCase().split(/\s+/).filter((t) => t.length > 2);
+        const blocks = readableText.split(/\n\n+/).map((b) => b.trim()).filter((b) => b.length > 30);
+        for (const block of blocks) {
+          const bLow = block.toLowerCase();
+          if (terms.some((t) => bLow.includes(t))) {
+            focusedExcerpts.push(block.slice(0, 450));
+            if (focusedExcerpts.length >= 6) break;
+          }
+        }
+      }
 
       return JSON.stringify({
         url: currentUrl,
@@ -508,7 +560,12 @@ export async function inspectWebsite(url: string): Promise<string> {
         statusText: res.statusText,
         latencyMs: latency,
         contentLength: bodyText.length,
-        htmlPreview: snippet,
+        title: pageTitle,
+        metaDescription,
+        headings,
+        ...(focusedExcerpts.length > 0 ? { focusedExcerpts } : {}),
+        readableText,
+        htmlPreview: bodyText.slice(0, 400).replace(/\s+/g, " "),
       }, null, 2);
     }
     return `Website Inspection blocked: redirect loop detected.`;
@@ -748,7 +805,75 @@ export async function executeWebSearch(
     }
   }
 
-  return "Error: Neither TAVILY_API_KEY nor BRAVE_API_KEY is configured. Connect Brave Web Search or Tavily AI Search under Account Settings → Platform Connections.";
+  // Zero-Key Multi-Source Live Web Search Engine (Wikipedia + DuckDuckGo Instant Answer + HackerNews Algolia)
+  const resultsOut: string[] = [];
+
+  const [ddgRes, wikiRes, hnRes] = await Promise.allSettled([
+    fetch(`https://api.duckduckgo.com/?q=${encodeURIComponent(cleanQuery)}&format=json&no_html=1&skip_disambig=1`, {
+      method: "GET",
+      redirect: "error",
+      headers: { Accept: "application/json", "User-Agent": "ShunopsAI-Agent/1.0" },
+      signal: AbortSignal.timeout(8000),
+    }).then((r) => (r.ok ? r.json() : null)),
+
+    fetch(`https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(cleanQuery)}&utf8=&format=json&srlimit=${Math.min(count, 5)}`, {
+      method: "GET",
+      redirect: "error",
+      headers: { Accept: "application/json", "User-Agent": "ShunopsAI-Agent/1.0" },
+      signal: AbortSignal.timeout(8000),
+    }).then((r) => (r.ok ? r.json() : null)),
+
+    fetch(`https://hn.algolia.com/api/v1/search?query=${encodeURIComponent(cleanQuery)}&hitsPerPage=${Math.min(count, 5)}`, {
+      method: "GET",
+      redirect: "error",
+      headers: { Accept: "application/json", "User-Agent": "ShunopsAI-Agent/1.0" },
+      signal: AbortSignal.timeout(8000),
+    }).then((r) => (r.ok ? r.json() : null)),
+  ]);
+
+  if (ddgRes.status === "fulfilled" && ddgRes.value) {
+    const ddg: any = ddgRes.value;
+    if (ddg.AbstractText) {
+      resultsOut.push(`• [DuckDuckGo Instant Answer: ${ddg.Heading || cleanQuery}](${ddg.AbstractURL || "https://duckduckgo.com"})
+  ${ddg.AbstractText}`);
+    }
+    if (Array.isArray(ddg.RelatedTopics)) {
+      for (const topic of ddg.RelatedTopics.slice(0, 4)) {
+        if (topic && topic.Text && topic.FirstURL) {
+          resultsOut.push(`• [${topic.Text.slice(0, 90)}](${topic.FirstURL})
+  ${topic.Text}`);
+        }
+      }
+    }
+  }
+
+  if (wikiRes.status === "fulfilled" && wikiRes.value) {
+    const wikiVal: any = wikiRes.value;
+    const wikiItems: any[] = wikiVal?.query?.search || [];
+    for (const item of wikiItems.slice(0, 4)) {
+      const cleanSnippet = String(item.snippet || "").replace(/<[^>]+>/g, "").replace(/&quot;/g, "\"").replace(/&amp;/g, "&");
+      const url = `https://en.wikipedia.org/wiki/${encodeURIComponent(String(item.title || "").replace(/\s+/g, "_"))}`;
+      resultsOut.push(`• [Wikipedia: ${item.title}](${url})
+  ${cleanSnippet}`);
+    }
+  }
+
+  if (hnRes.status === "fulfilled" && hnRes.value) {
+    const hnVal: any = hnRes.value;
+    const hits: any[] = hnVal?.hits || [];
+    for (const hit of hits.slice(0, 4)) {
+      if (hit && hit.title) {
+        const url = hit.url || `https://news.ycombinator.com/item?id=${hit.objectID}`;
+        resultsOut.push(`• [HackerNews: ${hit.title}](${url}) (points: ${hit.points || 0}, comments: ${hit.num_comments || 0})`);
+      }
+    }
+  }
+
+  if (resultsOut.length > 0) {
+    return `Live Web Search Results for "${cleanQuery}" (Zero-Key Multi-Source Engine):\n\n${resultsOut.slice(0, count + 3).join("\n\n")}`;
+  }
+
+  return `No live web search results found for "${cleanQuery}". Try refining your search keywords or use inspect_website with a direct URL.`;
 }
 
 /**

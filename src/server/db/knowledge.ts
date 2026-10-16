@@ -114,8 +114,10 @@ function setCachedEmbedding(key: string, vector: number[], tier: EmbeddingTier):
  * projections so hybrid vector + BM25 RRF works offline and in-memory with zero latency,
  * while remaining compatible with 768-dim BGE / Gemini vectors in pgvector.
  */
+const MAX_DETERMINISTIC_MEMO = 256;
+const deterministicEmbeddingMemo = new Map<string, number[]>();
+
 export function computeDeterministicEmbedding(text: string): number[] {
-  const vec = new Float64Array(EMBEDDING_DIM);
   const clean = String(text || "")
     .toLowerCase()
     .replace(/[^a-z0-9_\s-]/g, " ")
@@ -123,8 +125,18 @@ export function computeDeterministicEmbedding(text: string): number[] {
     .trim();
 
   if (!clean) {
-    return Array.from(vec);
+    return new Array<number>(EMBEDDING_DIM).fill(0);
   }
+
+  const memoKey = clean.slice(0, 500);
+  const memoHit = deterministicEmbeddingMemo.get(memoKey);
+  if (memoHit) {
+    deterministicEmbeddingMemo.delete(memoKey);
+    deterministicEmbeddingMemo.set(memoKey, memoHit);
+    return memoHit;
+  }
+
+  const vec = new Float64Array(EMBEDDING_DIM);
 
   const tokens = clean.split(" ").filter((t) => t.length > 1);
   const features: Array<{ term: string; weight: number }> = [];
@@ -171,6 +183,11 @@ export function computeDeterministicEmbedding(text: string): number[] {
   for (let i = 0; i < EMBEDDING_DIM; i++) {
     out[i] = Number((vec[i]! / norm).toFixed(6));
   }
+  if (deterministicEmbeddingMemo.size >= MAX_DETERMINISTIC_MEMO) {
+    const oldest = deterministicEmbeddingMemo.keys().next().value;
+    if (oldest !== undefined) deterministicEmbeddingMemo.delete(oldest);
+  }
+  deterministicEmbeddingMemo.set(memoKey, out);
   return out;
 }
 

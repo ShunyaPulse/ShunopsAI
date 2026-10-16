@@ -226,6 +226,65 @@ function isTextOnlyModel(target: ModelTarget): boolean {
 }
 
 /**
+ * Convert OpenAI tool schemas + `role: "tool"` messages into a universal text-based
+ * ReAct `<tool_call>` protocol for models/endpoints that do not support native OpenAI `tools`.
+ */
+export function buildToolPromptFallbackMessages(
+  messages: OpenAI.ChatCompletionMessageParam[],
+  tools: OpenAI.ChatCompletionTool[]
+): OpenAI.ChatCompletionMessageParam[] {
+  const toolSummaries = tools
+    .filter((t) => t.type === "function")
+    .map((t) => {
+      const fn = (t as any).function;
+      const props = fn?.parameters?.properties
+        ? Object.keys(fn.parameters.properties).join(", ")
+        : "";
+      return `- ${fn.name}(${props}): ${String(fn.description || "").slice(0, 160)}`;
+    })
+    .join("\n");
+
+  const protocolInstruction =
+    tools.length > 0
+      ? `\n\n[UNIVERSAL TOOL CALLING PROTOCOL]\nYou have access to these tools:\n${toolSummaries}\n\nWhen you need to call a tool, output ONLY a <tool_call> XML block containing valid JSON with "name" and "arguments", like this:\n<tool_call>{"name": "manage_agent_tasks", "arguments": {"operation": "create_plan", "tasks": ["Step 1", "Step 2"]}}</tool_call>\nAfter the tool executes and you receive the [Tool Result], continue reasoning or provide your final answer to the user.`
+      : "";
+
+  const converted: OpenAI.ChatCompletionMessageParam[] = [];
+  let injectedProtocol = false;
+
+  for (const m of messages) {
+    if (m.role === "system" && !injectedProtocol) {
+      injectedProtocol = true;
+      converted.push({
+        role: "system",
+        content: `${typeof m.content === "string" ? m.content : ""}${protocolInstruction}`,
+      });
+    } else if (m.role === "assistant" && (m as any).tool_calls?.length) {
+      const callsText = ((m as any).tool_calls as any[])
+        .map((tc) => `<tool_call>${JSON.stringify({ name: tc.function?.name, arguments: JSON.parse(tc.function?.arguments || "{}") })}</tool_call>`)
+        .join("\n");
+      converted.push({
+        role: "assistant",
+        content: [typeof m.content === "string" ? m.content : "", callsText].filter(Boolean).join("\n"),
+      });
+    } else if (m.role === "tool") {
+      converted.push({
+        role: "user",
+        content: `[Tool Execution Result (id=${(m as any).tool_call_id || "tool"})]:\n${typeof m.content === "string" ? m.content : JSON.stringify(m.content)}`,
+      });
+    } else {
+      converted.push(m);
+    }
+  }
+
+  if (!injectedProtocol && protocolInstruction) {
+    converted.unshift({ role: "system", content: protocolInstruction.trim() });
+  }
+
+  return converted;
+}
+
+/**
  * Create an OpenAI-compatible client for a provider target, with optional request-scoped BYOK overrides.
  */
 export function createClientForTarget(target: ModelTarget, overrides?: ProviderKeyOverrides): OpenAI {
@@ -378,12 +437,21 @@ export async function callChatCompletionWithFailover(
             const effectiveMessages =
               isMultimodal && isTextOnlyModel(target) ? flattenMultimodalMessages(messages) : messages;
 
+            // Models known not to accept native `tools` parameter use prompt-injected `<tool_call>` protocol directly
+            const usePromptToolsDirectly =
+              tools.length > 0 &&
+              (target.model === "o1-mini" ||
+                target.model.includes("qwen1.5-7b") ||
+                target.model.includes("gemma-4-31b"));
+
             const params: OpenAI.ChatCompletionCreateParamsNonStreaming = {
               model: target.model,
-              messages: effectiveMessages,
+              messages: usePromptToolsDirectly
+                ? buildToolPromptFallbackMessages(effectiveMessages, tools)
+                : effectiveMessages,
               temperature,
             };
-            if (tools.length > 0) {
+            if (tools.length > 0 && !usePromptToolsDirectly) {
               params.tools = tools;
               params.tool_choice = "auto";
             }
@@ -392,10 +460,31 @@ export async function callChatCompletionWithFailover(
             try {
               response = await client.chat.completions.create(params);
             } catch (innerErr: any) {
-              if (
+              const errStatus = innerErr?.status || innerErr?.statusCode;
+              const errMsg = String(innerErr?.message || "").toLowerCase();
+              const isToolUnsupportedError =
+                tools.length > 0 &&
+                !usePromptToolsDirectly &&
+                (errStatus === 400 ||
+                  errStatus === 422 ||
+                  errStatus === 404 ||
+                  errMsg.includes("tool") ||
+                  errMsg.includes("function"));
+
+              if (isToolUnsupportedError) {
+                // Retry transparently with Universal ReAct `<tool_call>` prompt protocol
+                response = await client.chat.completions.create({
+                  model: target.model,
+                  messages: buildToolPromptFallbackMessages(
+                    flattenMultimodalMessages(effectiveMessages),
+                    tools
+                  ),
+                  temperature,
+                });
+              } else if (
                 isMultimodal &&
                 effectiveMessages === messages &&
-                (innerErr?.status === 400 || innerErr?.status === 422)
+                (errStatus === 400 || errStatus === 422)
               ) {
                 response = await client.chat.completions.create({
                   ...params,

@@ -50,7 +50,8 @@ export function isAdminScope(scope?: ToolScope): boolean {
 //            the shared GPU/video pipeline, and the operator's infra. Admin only.
 // platform — talks to a third-party account; safe for users once they connect
 //            that platform themselves.
-// safe     — no account mutation (public HTTP inspection, model debate, reads).
+// safe     — no host mutation (public HTTP inspection, zero-key web search,
+//            sandboxed JS execution, tenant-isolated workspace files, tasks, and memory).
 
 export type ToolTier = "host" | "platform" | "safe";
 
@@ -76,7 +77,6 @@ const PLATFORM_TOOLS: ReadonlySet<ToolName> = new Set<ToolName>([
   "execute_redis_command",
   "manage_github",
   "run_cloudflare_ai",
-  "web_search",
   "inspect_gcp_cloud",
 ]);
 
@@ -127,8 +127,14 @@ const TOOL_TIER_REFERENCE: Record<ToolName, ToolTier> = {
   search_knowledge_base: "safe",
   index_knowledge_document: "host",
   execute_sandboxed_code: "safe",
-  web_search: "platform",
+  web_search: "safe",
   inspect_gcp_cloud: "platform",
+  manage_workspace_files: "safe",
+  manage_agent_tasks: "safe",
+  manage_agent_memory: "safe",
+  run_agentic_pipeline: "safe",
+  delegate_to_agent_swarm: "safe",
+  manage_agent_schedules: "safe",
 };
 
 // ==========================================
@@ -144,7 +150,7 @@ export type CredentialResolution<T> =
   | { ok: false; message: string };
 
 export function hostToolRefusal(toolName: ToolName): string {
-  return `Refused: "${toolName}" operates on the server host and is not available to user accounts. Connect the platform you need under Account Settings → Platform Connections, or ask the workspace owner to run this.`;
+  return `Refused: "${toolName}" operates on the server host and is not available to user accounts. For file operations, use "manage_workspace_files" to read/write files in your personal workspace.`;
 }
 
 function notConnected(platform: string, instruction: string): { ok: false; message: string } {
@@ -223,7 +229,8 @@ export type ResolvedWebSearchCredential = {
 };
 
 /**
- * Resolves a connected Tavily AI Search or Brave Web Search API key.
+ * Resolves a connected Tavily AI Search or Brave Web Search API key,
+ * or falls back gracefully to built-in zero-key multi-source search.
  */
 export function resolveWebSearch(
   scope?: ToolScope

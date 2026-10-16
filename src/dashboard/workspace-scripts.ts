@@ -251,6 +251,21 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]'): stri
       return div.innerHTML;
     }
 
+    function renderSafeMarkdown(md) {
+      if (!md) return '';
+      let html = escapeHtmlText(String(md));
+      html = html.replace(/\\x60\\x60\\x60([a-zA-Z0-9_-]*)\\n([\\s\\S]*?)\\x60\\x60\\x60/g, function(_, lang, code) {
+        return '<pre style="background:#020617;border:1px solid rgba(255,255,255,0.12);border-radius:8px;padding:10px 12px;overflow-x:auto;font-family:monospace;font-size:12px;color:#e2e8f0;margin:8px 0;"><code>' + code.trim() + '</code></pre>';
+      });
+      html = html.replace(/\\x60([^\\x60\\n]+)\\x60/g, '<code style="background:rgba(56,189,248,0.12);color:#38bdf8;padding:1px 5px;border-radius:4px;font-family:monospace;font-size:12px;">$1</code>');
+      html = html.replace(/^### (.*$)/gim, '<strong style="display:block;font-size:14px;color:#f8fafc;margin:10px 0 4px;">$1</strong>');
+      html = html.replace(/^## (.*$)/gim, '<strong style="display:block;font-size:15px;color:#38bdf8;margin:12px 0 6px;">$1</strong>');
+      html = html.replace(/\\*\\*([^*]+)\\*\\*/g, '<strong style="color:#fff;">$1</strong>');
+      html = html.replace(/\\[([^\\]]+)\\]\\((https?:\\/\\/[^\\s)]+)\\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" style="color:#38bdf8;text-decoration:underline;">$1</a>');
+      html = html.replace(/\\n/g, '<br>');
+      return html;
+    }
+
     function appendMessageBubble(role, content, autoScroll = true, meta = null, imageUri = null) {
       const emptyState = document.getElementById('empty-state');
       if (emptyState) emptyState.remove();
@@ -304,9 +319,77 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]'): stri
         bubble.appendChild(img);
       }
 
+      // Render Agentic Execution Trace (Tool Calls & Steps) when present
+      if (role === 'assistant' && meta && Array.isArray(meta.stepsLog) && meta.stepsLog.length > 0) {
+        const traceBox = document.createElement('details');
+        traceBox.style.margin = '8px 0 10px 0';
+        traceBox.style.background = 'rgba(15, 23, 42, 0.75)';
+        traceBox.style.border = '1px solid rgba(56, 189, 248, 0.28)';
+        traceBox.style.borderRadius = '8px';
+        traceBox.style.padding = '8px 12px';
+        traceBox.style.fontSize = '12px';
+        traceBox.open = true;
+
+        const summary = document.createElement('summary');
+        summary.style.cursor = 'pointer';
+        summary.style.fontWeight = '600';
+        summary.style.color = '#38bdf8';
+        summary.style.userSelect = 'none';
+        summary.textContent = '🤖 Agentic Execution Trace (' + meta.stepsLog.length + ' tool action' + (meta.stepsLog.length > 1 ? 's' : '') + ' executed)';
+        traceBox.appendChild(summary);
+
+        const listDiv = document.createElement('div');
+        listDiv.style.marginTop = '8px';
+        listDiv.style.display = 'flex';
+        listDiv.style.flexDirection = 'column';
+        listDiv.style.gap = '6px';
+
+        meta.stepsLog.forEach((st) => {
+          const item = document.createElement('div');
+          item.style.background = 'rgba(2, 6, 23, 0.65)';
+          item.style.border = '1px solid ' + (st.isError ? 'rgba(239,68,68,0.35)' : 'rgba(16,185,129,0.25)');
+          item.style.borderRadius = '6px';
+          item.style.padding = '6px 10px';
+          item.style.fontFamily = 'monospace';
+          item.style.fontSize = '11px';
+
+          const topRow = document.createElement('div');
+          topRow.style.display = 'flex';
+          topRow.style.justifyContent = 'space-between';
+          topRow.style.color = st.isError ? '#f87171' : '#34d399';
+          topRow.style.fontWeight = '600';
+          topRow.textContent = (st.isError ? '⚠️ Step ' : '🛠️ Step ') + st.step + ': ' + st.tool + ' (' + (st.durationMs || 1) + 'ms)';
+          item.appendChild(topRow);
+
+          if (st.argsPreview) {
+            const argsEl = document.createElement('div');
+            argsEl.style.color = '#94a3b8';
+            argsEl.style.marginTop = '2px';
+            argsEl.textContent = 'Args: ' + st.argsPreview;
+            item.appendChild(argsEl);
+          }
+          if (st.resultPreview) {
+            const resEl = document.createElement('div');
+            resEl.style.color = '#cbd5e1';
+            resEl.style.marginTop = '3px';
+            resEl.style.whiteSpace = 'pre-wrap';
+            resEl.textContent = 'Output: ' + st.resultPreview;
+            item.appendChild(resEl);
+          }
+          listDiv.appendChild(item);
+        });
+
+        traceBox.appendChild(listDiv);
+        bubble.appendChild(traceBox);
+      }
+
       const body = document.createElement('div');
       body.className = 'msg-body';
-      body.textContent = content;
+      if (role === 'assistant') {
+        body.innerHTML = renderSafeMarkdown(content);
+      } else {
+        body.textContent = content;
+      }
 
       bubble.appendChild(body);
       thread.appendChild(bubble);
@@ -540,12 +623,26 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]'): stri
         appendMessageBubble('assistant', reply, true, {
           usedModel: usedModel ? usedModel.replace(/^openrouter:/i, '').replace(/^github:/i, '').replace(/^gemini:/i, '').replace(/^groq:/i, '').replace(/^cloudflare:/i, '') : '',
           switched: isSwitched,
+          stepsLog: Array.isArray(data.stepsLog) ? data.stepsLog : [],
         });
 
         conversationHistory.push({ role: 'user', content: msg });
         conversationHistory.push({ role: 'assistant', content: reply });
         updateContextBadge();
         fetchBillingUsage();
+        loadAgenticWorkspaceState();
+        if (Array.isArray(data.stepsLog) && data.stepsLog.length > 0) {
+          const toolsUsed = data.stepsLog.map(function(s) { return s.tool; });
+          if (toolsUsed.indexOf('manage_workspace_files') !== -1) {
+            switchAgenticTab('files');
+          } else if (toolsUsed.indexOf('manage_agent_tasks') !== -1) {
+            switchAgenticTab('tasks');
+          } else if (toolsUsed.indexOf('manage_agent_schedules') !== -1) {
+            switchAgenticTab('schedules');
+          } else if (toolsUsed.indexOf('manage_agent_memory') !== -1) {
+            switchAgenticTab('memory');
+          }
+        }
 
         if (data.routedComplexity && modelPreference === 'auto') {
           const badge = document.getElementById('model-status-badge');
@@ -1428,9 +1525,13 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]'): stri
           statusBox.style.color = '#10b981';
           const answer = (task.result && task.result.finalAnswer) || 'Task completed.';
           const steps = (task.result && task.result.stepsTaken) ? (' (' + task.result.stepsTaken + ' step(s))') : '';
-          statusBox.textContent = '✅ Completed' + steps + ':\\n' + answer;
+          const sLog = (task.result && Array.isArray(task.result.stepsLog) && task.result.stepsLog.length > 0)
+            ? '\\n\\n🤖 Executed Tools:\\n' + task.result.stepsLog.map(function(s) { return '• Step ' + s.step + ': ' + s.tool + ' (' + (s.durationMs || 1) + 'ms)'; }).join('\\n')
+            : '';
+          statusBox.textContent = '✅ Completed' + steps + ':\\n' + answer + sLog;
           fetchBillingUsage();
           loadWorkspaceTasks();
+          loadAgenticWorkspaceState();
           return;
         }
 
@@ -1440,11 +1541,14 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]'): stri
           statusBox.textContent = '❌ Task failed: ' + errText;
           fetchBillingUsage();
           loadWorkspaceTasks();
+          loadAgenticWorkspaceState();
           return;
         }
 
         statusBox.style.color = '#38bdf8';
-        statusBox.textContent = '⏳ Task ' + taskId + ' is ' + (task.status || 'RUNNING') + '... (checking approvals & tool progress)';
+        const stepInfo = task.currentStep ? (' [Step ' + task.currentStep + (task.currentTool ? (' • ' + task.currentTool) : '') + ']') : '';
+        statusBox.textContent = '⏳ Task ' + taskId + ' is ' + (task.status || 'RUNNING') + stepInfo + '...';
+        loadAgenticWorkspaceState();
         setTimeout(function () { pollTaskResult(taskId, statusBox, attempt + 1); }, 2000);
       } catch (e) {
         setTimeout(function () { pollTaskResult(taskId, statusBox, attempt + 1); }, 2500);
@@ -1675,14 +1779,681 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]'): stri
       }, 50);
     }
 
+
+    // 10. Interactive Agentic Workspace Hub (Tasks, Virtual Files & Long-Term Memory)
+    let currentAgenticTab = 'tasks';
+    let cachedAgenticState = { files: [], tasks: [], memories: [], schedules: [] };
+    let lastAgenticStateEtag = '';
+
+    function switchAgenticTab(tab) {
+      currentAgenticTab = tab;
+      ['tasks', 'files', 'memory', 'schedules'].forEach(function(t) {
+        const btn = document.getElementById('agentic-tab-btn-' + t);
+        const panel = document.getElementById('agentic-panel-' + t);
+        if (btn) {
+          if (t === tab) {
+            btn.style.background = '#2563eb';
+            btn.style.color = '#fff';
+          } else {
+            btn.style.background = 'transparent';
+            btn.style.color = '#94a3b8';
+          }
+        }
+        if (panel) {
+          panel.style.display = t === tab ? 'block' : 'none';
+        }
+      });
+    }
+
+    async function loadAgenticWorkspaceState() {
+      try {
+        const hdrs = lastAgenticStateEtag ? { 'If-None-Match': lastAgenticStateEtag } : {};
+        const res = await fetch('/api/workspace/agentic-state', { credentials: 'same-origin', headers: hdrs });
+        if (res.status === 304 || !res.ok) return;
+        const newEtag = res.headers.get('ETag');
+        if (newEtag) lastAgenticStateEtag = newEtag;
+        const data = await res.json();
+        if (!data || !data.success) return;
+        cachedAgenticState = {
+          files: Array.isArray(data.files) ? data.files : [],
+          tasks: Array.isArray(data.tasks) ? data.tasks : [],
+          memories: Array.isArray(data.memories) ? data.memories : [],
+          schedules: Array.isArray(data.schedules) ? data.schedules : [],
+        };
+        renderAgenticWorkspaceState();
+      } catch (e) {}
+    }
+
+    function renderAgenticWorkspaceState() {
+      const tasks = cachedAgenticState.tasks || [];
+      const files = cachedAgenticState.files || [];
+      const memories = cachedAgenticState.memories || [];
+
+      const tCount = document.getElementById('agentic-tasks-count');
+      const fCount = document.getElementById('agentic-files-count');
+      const schedules = cachedAgenticState.schedules || [];
+      const mCount = document.getElementById('agentic-memory-count');
+      const sCount = document.getElementById('agentic-schedules-count');
+      if (tCount) tCount.textContent = String(tasks.length);
+      if (fCount) fCount.textContent = String(files.length);
+      if (mCount) mCount.textContent = String(memories.length);
+      if (sCount) sCount.textContent = String(schedules.length);
+
+      // Render Tasks
+      const tList = document.getElementById('agentic-tasks-list');
+      const tProgBox = document.getElementById('agentic-tasks-progress');
+      const tProgLbl = document.getElementById('agentic-tasks-progress-label');
+      const tProgBar = document.getElementById('agentic-tasks-progress-bar');
+      if (tList) {
+        if (tasks.length === 0) {
+          if (tProgBox) tProgBox.style.display = 'none';
+          tList.innerHTML = '<div style="color:#64748b; font-size:11px; padding:6px 0;">No active task plan yet. Ask the agent to create a plan or add a step below.</div>';
+        } else {
+          const doneCount = tasks.filter(function(t) { return t.status === 'completed'; }).length;
+          const pct = Math.round((doneCount / tasks.length) * 100);
+          if (tProgBox) tProgBox.style.display = 'block';
+          if (tProgLbl) tProgLbl.textContent = doneCount + '/' + tasks.length + ' completed (' + pct + '%)';
+          if (tProgBar) tProgBar.style.width = pct + '%';
+
+          tList.innerHTML = tasks.map(function(t) {
+            const isDone = t.status === 'completed';
+            const isProg = t.status === 'in_progress';
+            const badgeIcon = isDone ? '✅' : (isProg ? '⏳' : '⬜');
+            const titleStyle = isDone ? 'text-decoration:line-through; color:#64748b;' : (isProg ? 'color:#38bdf8; font-weight:600;' : 'color:#e2e8f0;');
+            return '<div style="display:flex; align-items:center; justify-content:space-between; gap:6px; padding:6px 8px; background:#070a12; border:1px solid ' + (isProg ? 'rgba(56,189,248,0.4)' : '#1e293b') + '; border-radius:6px; cursor:pointer;" data-task-id="' + t.id + '" data-task-status="' + escapeHtmlAttr(t.status) + '" onclick="cycleAgentTaskStatus(Number(this.dataset.taskId), this.dataset.taskStatus)" title="Click to cycle status (Pending -> In Progress -> Completed)">'
+              + '<div style="display:flex; align-items:center; gap:6px; overflow:hidden;">'
+              + '<span>' + badgeIcon + '</span>'
+              + '<span style="font-size:11.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; ' + titleStyle + '">' + escapeHtmlText(t.title) + '</span>'
+              + '</div>'
+              + '<span style="font-size:9.5px; color:#64748b; font-family:monospace; flex-shrink:0;">#' + t.id + '</span>'
+              + '</div>';
+          }).join('');
+        }
+      }
+
+      // Render Files
+      const fList = document.getElementById('agentic-files-list');
+      if (fList) {
+        if (files.length === 0) {
+          fList.innerHTML = '<div style="color:#64748b; font-size:11px; padding:6px 0;">No workspace files yet. Ask the agent to save notes, code, or reports.</div>';
+        } else {
+          fList.innerHTML = files.map(function(f, idx) {
+            return '<div style="display:flex; align-items:center; justify-content:space-between; gap:6px; padding:6px 8px; background:#070a12; border:1px solid #1e293b; border-radius:6px;">'
+              + '<div style="overflow:hidden; cursor:pointer; flex:1;" data-file-idx="' + idx + '" onclick="openWorkspaceFileByIdx(Number(this.dataset.fileIdx))" title="Click to view or edit file">'
+              + '<div style="color:#38bdf8; font-weight:600; font-family:monospace; font-size:11.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">📄 ' + escapeHtmlText(f.name) + '</div>'
+              + '<div style="color:#64748b; font-size:10px;">' + (f.sizeBytes || 0) + ' bytes</div>'
+              + '</div>'
+              + '<div style="display:flex; gap:4px; flex-shrink:0;">'
+              + '<button type="button" class="btn-sub" style="padding:2px 6px; font-size:10px;" data-file-idx="' + idx + '" onclick="openWorkspaceFileByIdx(Number(this.dataset.fileIdx))">Open</button>'
+              + '<button type="button" class="btn-sub" style="padding:2px 6px; font-size:10px; border-color:rgba(239,68,68,0.35); color:#ef4444;" data-file-idx="' + idx + '" onclick="deleteWorkspaceFileByIdx(Number(this.dataset.fileIdx))">&times;</button>'
+              + '</div>'
+              + '</div>';
+          }).join('');
+        }
+      }
+
+      // Render Memories
+      const mList = document.getElementById('agentic-memory-list');
+      if (mList) {
+        if (memories.length === 0) {
+          mList.innerHTML = '<div style="color:#64748b; font-size:11px; padding:6px 0;">No saved memories yet. Tell the agent to remember your stack or preferences.</div>';
+        } else {
+          mList.innerHTML = memories.map(function(m, idx) {
+            return '<div style="display:flex; align-items:flex-start; justify-content:space-between; gap:6px; padding:6px 8px; background:#070a12; border:1px solid #1e293b; border-radius:6px;">'
+              + '<div style="overflow:hidden; flex:1;">'
+              + '<div style="color:#a855f7; font-weight:600; font-family:monospace; font-size:10.5px;">[' + escapeHtmlText(m.key) + ']</div>'
+              + '<div style="color:#cbd5e1; font-size:11px; line-height:1.35; word-break:break-word;">' + escapeHtmlText(m.fact) + '</div>'
+              + '</div>'
+              + '<button type="button" class="btn-sub" style="padding:1px 5px; font-size:10px; border-color:rgba(239,68,68,0.35); color:#ef4444; flex-shrink:0;" data-mem-idx="' + idx + '" onclick="forgetAgentMemoryByIdx(Number(this.dataset.memIdx))" title="Forget memory">&times;</button>'
+              + '</div>';
+          }).join('');
+        }
+      }
+
+      // Render Schedules
+      const sList = document.getElementById('agentic-schedules-list');
+      if (sList) {
+        if (schedules.length === 0) {
+          sList.innerHTML = '<div style="color:#64748b; font-size:11px; padding:6px 0;">No active watchdogs yet. Add a website monitor or research digest below.</div>';
+        } else {
+          sList.innerHTML = schedules.map(function(s) {
+            const stColor = s.lastStatus === 'ALERT' || s.lastStatus === 'ERROR' ? '#f87171' : '#10b981';
+            return '<div style="padding:6px 8px; background:#070a12; border:1px solid #1e293b; border-radius:6px;">'
+              + '<div style="display:flex; justify-content:space-between; align-items:center; gap:6px;">'
+              + '<strong style="color:#e2e8f0; font-size:11px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">' + (s.enabled ? '🟢 ' : '⏸️ ') + escapeHtmlText(s.name) + '</strong>'
+              + '<div style="display:flex; gap:3px; flex-shrink:0;">'
+              + '<button type="button" class="btn-sub" style="padding:1px 5px; font-size:9.5px; color:#38bdf8;" onclick="runAgentScheduleNow(' + s.id + ')" title="Run monitor immediately">▶ Run</button>'
+              + '<button type="button" class="btn-sub" style="padding:1px 5px; font-size:9.5px;" onclick="toggleAgentScheduleEnabled(' + s.id + ', ' + (!s.enabled) + ')">' + (s.enabled ? 'Pause' : 'Resume') + '</button>'
+              + '<button type="button" class="btn-sub" style="padding:1px 5px; font-size:9.5px; color:#ef4444; border-color:rgba(239,68,68,0.35);" onclick="deleteAgentSchedule(' + s.id + ')">&times;</button>'
+              + '</div>'
+              + '</div>'
+              + '<div style="font-size:10px; color:#64748b; margin-top:2px;">Every ' + s.intervalMinutes + 'm &rarr; <code>' + escapeHtmlText(s.outputFilename) + '</code> (Runs: ' + (s.runCount || 0) + ')</div>'
+              + (s.lastSummary ? ('<div style="font-size:10px; color:' + stColor + '; margin-top:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">' + escapeHtmlText(s.lastSummary) + '</div>') : '')
+              + '</div>';
+          }).join('');
+        }
+      }
+    }
+
+    async function cycleAgentTaskStatus(taskId, currentStatus) {
+      const nextStatus = currentStatus === 'pending' ? 'in_progress' : (currentStatus === 'in_progress' ? 'completed' : 'pending');
+      try {
+        const res = await fetch('/api/workspace/agent-tasks', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({ operation: 'update_task', taskId: taskId, status: nextStatus }),
+        });
+        const data = await res.json();
+        if (data && data.success) {
+          cachedAgenticState.tasks = data.tasks || [];
+          renderAgenticWorkspaceState();
+        }
+      } catch (e) {}
+    }
+
+    async function addManualAgentTask() {
+      const input = document.getElementById('agentic-new-task-input');
+      if (!input) return;
+      const title = (input.value || '').trim();
+      if (!title) return;
+      input.value = '';
+      try {
+        const res = await fetch('/api/workspace/agent-tasks', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({ operation: 'add_task', title: title }),
+        });
+        const data = await res.json();
+        if (data && data.success) {
+          cachedAgenticState.tasks = data.tasks || [];
+          renderAgenticWorkspaceState();
+        }
+      } catch (e) {}
+    }
+
+    async function clearCompletedAgentTasks() {
+      try {
+        const res = await fetch('/api/workspace/agent-tasks', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({ operation: 'clear_completed' }),
+        });
+        const data = await res.json();
+        if (data && data.success) {
+          cachedAgenticState.tasks = data.tasks || [];
+          renderAgenticWorkspaceState();
+        }
+      } catch (e) {}
+    }
+
+    function openWorkspaceFileByIdx(idx) {
+      const file = (cachedAgenticState.files || [])[idx];
+      if (!file) return;
+      openWorkspaceFileModal(file.name, file.content);
+    }
+
+    function openWorkspaceFileModal(filename, fileContent) {
+      const modal = document.getElementById('workspace-file-modal');
+      const nameInput = document.getElementById('workspace-file-name-input');
+      const contentInput = document.getElementById('workspace-file-content-input');
+      const runBtn = document.getElementById('workspace-file-run-btn');
+      if (!modal || !nameInput || !contentInput) return;
+      nameInput.value = filename || '';
+      contentInput.value = fileContent || '';
+      if (runBtn) {
+        runBtn.style.display = (filename && filename.endsWith('.js')) ? 'inline-block' : 'none';
+      }
+      modal.classList.add('active');
+    }
+
+    function closeWorkspaceFileModal() {
+      const modal = document.getElementById('workspace-file-modal');
+      if (modal) modal.classList.remove('active');
+    }
+
+    async function saveCurrentWorkspaceFile() {
+      const nameInput = document.getElementById('workspace-file-name-input');
+      const contentInput = document.getElementById('workspace-file-content-input');
+      if (!nameInput || !contentInput) return;
+      const filename = (nameInput.value || '').trim();
+      const fileContent = contentInput.value || '';
+      if (!filename) {
+        alert('Please enter a filename (e.g. notes.md).');
+        return;
+      }
+      try {
+        const res = await fetch('/api/workspace/files', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({ operation: 'write', filename: filename, content: fileContent }),
+        });
+        const data = await res.json();
+        if (data && data.success) {
+          cachedAgenticState.files = data.files || [];
+          renderAgenticWorkspaceState();
+          closeWorkspaceFileModal();
+        } else {
+          alert((data && data.error) || 'Could not save file.');
+        }
+      } catch (e) {
+        alert('Network error while saving file.');
+      }
+    }
+
+    async function deleteWorkspaceFileByIdx(idx) {
+      const file = (cachedAgenticState.files || [])[idx];
+      if (!file) return;
+      if (!confirm('Delete workspace file "' + file.name + '"?')) return;
+      try {
+        const res = await fetch('/api/workspace/files', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({ operation: 'delete', filename: file.name }),
+        });
+        const data = await res.json();
+        if (data && data.success) {
+          cachedAgenticState.files = data.files || [];
+          renderAgenticWorkspaceState();
+        }
+      } catch (e) {}
+    }
+
+    function copyCurrentWorkspaceFile(btn) {
+      const contentInput = document.getElementById('workspace-file-content-input');
+      if (!contentInput) return;
+      copyToClipboardStandard(btn, contentInput.value, 'Copied!');
+    }
+
+    function downloadCurrentWorkspaceFile() {
+      const nameInput = document.getElementById('workspace-file-name-input');
+      const contentInput = document.getElementById('workspace-file-content-input');
+      if (!nameInput || !contentInput) return;
+      const filename = (nameInput.value || 'workspace-file.txt').trim();
+      const blob = new Blob([contentInput.value || ''], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename.split('/').pop() || 'file.txt';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    }
+
+    async function addManualAgentMemory() {
+      const keyInput = document.getElementById('agentic-mem-key-input');
+      const factInput = document.getElementById('agentic-mem-fact-input');
+      if (!keyInput || !factInput) return;
+      const key = (keyInput.value || '').trim();
+      const fact = (factInput.value || '').trim();
+      if (!key || !fact) return;
+      keyInput.value = '';
+      factInput.value = '';
+      try {
+        const res = await fetch('/api/workspace/memories', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({ operation: 'remember', key: key, fact: fact }),
+        });
+        const data = await res.json();
+        if (data && data.success) {
+          cachedAgenticState.memories = data.memories || [];
+          renderAgenticWorkspaceState();
+        }
+      } catch (e) {}
+    }
+
+    async function forgetAgentMemoryByIdx(idx) {
+      const mem = (cachedAgenticState.memories || [])[idx];
+      if (!mem) return;
+      try {
+        const res = await fetch('/api/workspace/memories', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({ operation: 'forget', key: mem.key }),
+        });
+        const data = await res.json();
+        if (data && data.success) {
+          cachedAgenticState.memories = data.memories || [];
+          renderAgenticWorkspaceState();
+        }
+      } catch (e) {}
+    }
+
+
+    function runCurrentWorkspaceFileInSandbox() {
+      const contentInput = document.getElementById('workspace-file-content-input');
+      const codeVal = (contentInput && contentInput.value) || '';
+      openSandboxCodeModal(codeVal);
+    }
+
+    function openSandboxCodeModal(initialCode) {
+      const modal = document.getElementById('sandbox-code-modal');
+      const input = document.getElementById('sandbox-code-input');
+      const outBox = document.getElementById('sandbox-output-box');
+      const meta = document.getElementById('sandbox-run-meta');
+      if (!modal || !input) return;
+      if (initialCode !== undefined) {
+        input.value = initialCode;
+      } else if (!input.value.trim()) {
+        input.value = ['// Run JavaScript in isolated sovereign sandbox', 'const data = [12, 45, 68, 23, 89];', 'console.log(\"Analyzing array:\", data);', 'return {', '  total: sum(data),', '  average: mean(data),', '  medianVal: median(data),', '  stdDeviation: stdDev(data).toFixed(2)', '};'].join('\\n');
+      }
+      if (outBox) outBox.style.display = 'none';
+      if (meta) meta.textContent = '';
+      modal.classList.add('active');
+    }
+
+    function closeSandboxCodeModal() {
+      const modal = document.getElementById('sandbox-code-modal');
+      if (modal) modal.classList.remove('active');
+    }
+
+    async function executeSandboxCodeFromModal() {
+      const input = document.getElementById('sandbox-code-input');
+      const outBox = document.getElementById('sandbox-output-box');
+      const outContent = document.getElementById('sandbox-output-content');
+      const meta = document.getElementById('sandbox-run-meta');
+      const btn = document.getElementById('sandbox-exec-btn');
+      if (!input || !outBox || !outContent) return;
+
+      const codeVal = (input.value || '').trim();
+      if (!codeVal) {
+        alert('Please enter some JavaScript code to execute.');
+        return;
+      }
+
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Running...';
+      }
+      if (meta) meta.textContent = 'Executing in sandbox...';
+
+      try {
+        const res = await fetch('/api/workspace/execute-code', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({ code: codeVal, timeoutMs: 5000 }),
+        });
+        const data = await res.json();
+        outBox.style.display = 'block';
+
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = '▶ Execute Code';
+        }
+
+        if (data.success) {
+          if (meta) {
+            meta.style.color = '#10b981';
+            meta.textContent = '✓ Executed in ' + data.executionTimeMs + 'ms (' + (data.engine || 'sandbox') + ')';
+          }
+          let outText = '';
+          if (Array.isArray(data.savedFiles) && data.savedFiles.length > 0) {
+            outText += 'Saved Workspace Files: ' + data.savedFiles.join(', ') + '\\n\\n';
+            loadAgenticWorkspaceState();
+          }
+          if (data.logs && data.logs.length > 0) {
+            outText += 'Console Output:\\n' + data.logs.join('\\n') + '\\n\\n';
+          }
+          outText += 'Return Value:\\n' + (data.result !== null ? JSON.stringify(data.result, null, 2) : 'null');
+          outContent.style.color = '#38bdf8';
+          outContent.textContent = outText;
+        } else {
+          if (meta) {
+            meta.style.color = '#f87171';
+            meta.textContent = '✗ Execution failed (' + (data.executionTimeMs || 0) + 'ms)';
+          }
+          let errText = 'Error: ' + (data.error || 'Unknown failure') + '\\n';
+          if (data.logs && data.logs.length > 0) {
+            errText += '\\nConsole Logs:\\n' + data.logs.join('\\n');
+          }
+          outContent.style.color = '#f87171';
+          outContent.textContent = errText;
+        }
+      } catch (e) {
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = '▶ Execute Code';
+        }
+        if (meta) {
+          meta.style.color = '#f87171';
+          meta.textContent = 'Network error';
+        }
+        outBox.style.display = 'block';
+        outContent.style.color = '#f87171';
+        outContent.textContent = 'Network error while reaching sandbox endpoint.';
+      }
+    }
+
+
+    async function addManualAgentSchedule() {
+      const nameIn = document.getElementById('agentic-sched-name-input');
+      const targetIn = document.getElementById('agentic-sched-target-input');
+      if (!nameIn || !targetIn) return;
+      const name = (nameIn.value || '').trim();
+      const target = (targetIn.value || '').trim();
+      if (!target) return;
+      nameIn.value = '';
+      targetIn.value = '';
+      const isUrl = /^https?:\/\//i.test(target);
+      try {
+        const res = await fetch('/api/workspace/schedules', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({
+            operation: 'create_schedule',
+            name: name || (isUrl ? 'Website Monitor' : 'Research Digest'),
+            actionType: isUrl ? 'website_monitor' : 'web_research_digest',
+            targetUrl: isUrl ? target : undefined,
+            query: !isUrl ? target : undefined,
+            intervalMinutes: 30,
+          }),
+        });
+        const data = await res.json();
+        if (data && data.success) {
+          cachedAgenticState.schedules = data.schedules || [];
+          cachedAgenticState.files = data.files || [];
+          renderAgenticWorkspaceState();
+        }
+      } catch (e) {}
+    }
+
+    async function runAgentScheduleNow(scheduleId) {
+      try {
+        const res = await fetch('/api/workspace/schedules', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({ operation: 'run_now', scheduleId: scheduleId }),
+        });
+        const data = await res.json();
+        if (data && data.success) {
+          cachedAgenticState.schedules = data.schedules || [];
+          cachedAgenticState.files = data.files || [];
+          renderAgenticWorkspaceState();
+        }
+      } catch (e) {}
+    }
+
+    async function toggleAgentScheduleEnabled(scheduleId, enable) {
+      try {
+        const res = await fetch('/api/workspace/schedules', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({ operation: enable ? 'resume_schedule' : 'pause_schedule', scheduleId: scheduleId }),
+        });
+        const data = await res.json();
+        if (data && data.success) {
+          cachedAgenticState.schedules = data.schedules || [];
+          renderAgenticWorkspaceState();
+        }
+      } catch (e) {}
+    }
+
+    async function deleteAgentSchedule(scheduleId) {
+      try {
+        const res = await fetch('/api/workspace/schedules', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({ operation: 'delete_schedule', scheduleId: scheduleId }),
+        });
+        const data = await res.json();
+        if (data && data.success) {
+          cachedAgenticState.schedules = data.schedules || [];
+          renderAgenticWorkspaceState();
+        }
+      } catch (e) {}
+    }
+
+    function openSwarmLauncherModal() {
+      const modal = document.getElementById('swarm-launcher-modal');
+      if (modal) modal.classList.add('active');
+    }
+
+    function closeSwarmLauncherModal() {
+      const modal = document.getElementById('swarm-launcher-modal');
+      if (modal) modal.classList.remove('active');
+    }
+
+    async function dispatchSwarmFromModal() {
+      const objIn = document.getElementById('swarm-objective-input');
+      const modeSel = document.getElementById('swarm-mode-select');
+      const fileIn = document.getElementById('swarm-deliverable-input');
+      const btn = document.getElementById('swarm-dispatch-btn');
+      const meta = document.getElementById('swarm-run-meta');
+      const box = document.getElementById('swarm-blackboard-box');
+      if (!objIn || !box) return;
+
+      const objective = (objIn.value || '').trim();
+      if (!objective) {
+        alert('Please enter a Swarm Objective.');
+        return;
+      }
+      const mode = (modeSel && modeSel.value) || 'hybrid_dag';
+      const saveDeliverableAs = (fileIn && fileIn.value ? fileIn.value.trim() : 'swarm-report.md');
+
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = '🐝 Running Swarm...';
+      }
+      if (meta) meta.textContent = 'Executing 4 specialized sub-agents...';
+      box.style.display = 'block';
+      box.innerHTML = '<div style="color:#94a3b8;">⏳ Dispatching Researcher, Coder, Analyst &amp; Auditor on Shared Blackboard...</div>';
+
+      const sampleCode = [
+        'const samples = [10, 25, 50, 100];',
+        'const overheadPct = samples.map(s => Number((s * 0.035).toFixed(2)));',
+        'return { meanOverheadPct: mean(overheadPct), medianOverheadPct: median(overheadPct) };'
+      ].join('\\n');
+
+      try {
+        const res = await fetch('/api/workspace/swarm', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({
+            objective: objective,
+            mode: mode,
+            saveDeliverableAs: saveDeliverableAs || undefined,
+            agents: [
+              { role: 'researcher', task: 'Search live web documentation and best practices for: ' + objective, searchQuery: objective },
+              { role: 'coder', task: 'Execute quantitative benchmark model in sandbox for: ' + objective, code: sampleCode },
+              { role: 'analyst', task: 'Synthesize Researcher & Coder findings into a structured architectural comparison' },
+              { role: 'auditor', task: 'Audit the proposed architecture and code for security, reliability, and edge-case risks' }
+            ]
+          })
+        });
+        const data = await res.json();
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = '🐝 Dispatch 4-Agent Swarm';
+        }
+        if (data && data.success && data.swarm) {
+          const sw = data.swarm;
+          if (meta) {
+            meta.textContent = '✓ Consensus: ' + (sw.consensusScore || 95) + '% • ' + sw.totalDurationMs + 'ms' + (sw.savedDeliverableFile ? (' -> ' + sw.savedDeliverableFile) : '');
+          }
+          box.innerHTML = (sw.blackboard || []).map(function(b) {
+            return '<div style="background:#090d16; border:1px solid rgba(168,85,247,0.3); border-radius:6px; padding:8px 10px; margin-bottom:8px;">'
+              + '<div style="display:flex; justify-content:space-between; color:#c084fc; font-weight:700; font-size:11.5px; margin-bottom:4px;">'
+              + '<span>🐝 ' + escapeHtmlText(b.role.toUpperCase()) + ' (Wave ' + (b.wave || 1) + ' • ' + escapeHtmlText(b.status || 'VERIFIED') + ')</span>'
+              + '<span>' + b.durationMs + 'ms</span>'
+              + '</div>'
+              + (b.toolExecuted ? ('<div style="font-size:10.5px; color:#38bdf8; font-family:monospace; margin-bottom:4px;">Tool: ' + escapeHtmlText(b.toolExecuted) + '</div>') : '')
+              + '<div style="color:#e2e8f0; font-size:11.5px; line-height:1.45;">' + renderSafeMarkdown(b.findings) + '</div>'
+              + '</div>';
+          }).join('');
+
+          cachedAgenticState = {
+            files: Array.isArray(data.files) ? data.files : cachedAgenticState.files,
+            tasks: Array.isArray(data.tasks) ? data.tasks : cachedAgenticState.tasks,
+            memories: Array.isArray(data.memories) ? data.memories : cachedAgenticState.memories,
+            schedules: Array.isArray(data.schedules) ? data.schedules : cachedAgenticState.schedules,
+          };
+          renderAgenticWorkspaceState();
+          if (sw.savedDeliverableFile) {
+            switchAgenticTab('files');
+          }
+        } else {
+          if (meta) meta.textContent = '✗ Swarm failed';
+          box.innerHTML = '<div style="color:#f87171;">' + escapeHtmlText((data && data.error) || 'Swarm execution failed.') + '</div>';
+        }
+      } catch (e) {
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = '🐝 Dispatch 4-Agent Swarm';
+        }
+        if (meta) meta.textContent = 'Network error';
+        box.innerHTML = '<div style="color:#f87171;">Network error while running swarm.</div>';
+      }
+    }
+
     window.addEventListener('DOMContentLoaded', () => {
       loadSavedChatHistory();
+      loadAgenticWorkspaceState();
       fetchWorkspaceApprovals();
       fetchBillingUsage();
       loadApiKeys();
       fetchModelStatus();
       loadPlatformCredentials();
       loadWorkspaceTasks(true);
-      setInterval(fetchWorkspaceApprovals, 4000); // Live approvals polling
+      // Energy-Efficient Visibility-Aware & Idle-Backoff Poller (pauses when tab is hidden)
+      let approvalPollTimer = null;
+      function scheduleNextApprovalPoll() {
+        if (approvalPollTimer) clearTimeout(approvalPollTimer);
+        if (document.hidden) return;
+        const isBusy = Boolean(currentChatAbortController);
+        const box = document.getElementById('workspace-approvals-box');
+        const hasPending = Boolean(box && box.style.display !== 'none');
+        const nextDelayMs = (isBusy || hasPending) ? 3500 : 15000;
+        approvalPollTimer = setTimeout(async function() {
+          if (!document.hidden) {
+            await fetchWorkspaceApprovals();
+          }
+          scheduleNextApprovalPoll();
+        }, nextDelayMs);
+      }
+      document.addEventListener('visibilitychange', function() {
+        if (!document.hidden) {
+          fetchWorkspaceApprovals();
+          loadAgenticWorkspaceState();
+          scheduleNextApprovalPoll();
+        } else if (approvalPollTimer) {
+          clearTimeout(approvalPollTimer);
+          approvalPollTimer = null;
+        }
+      });
+      scheduleNextApprovalPoll();
     });`;
 }

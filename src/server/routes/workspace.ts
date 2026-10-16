@@ -21,6 +21,17 @@ import {
   isBuiltInMcpEndpoint,
   KNOWN_ALLOWED_MCP_HOSTS,
 } from "../../agent/mcp/client.js";
+import {
+  executeManageWorkspaceFiles,
+  executeManageAgentTasks,
+  executeManageAgentMemory,
+  executeManageAgentSchedules,
+  getTenantAgenticSnapshot,
+  resolveTenantKey,
+  type ScheduledActionType,
+} from "../../tools/agentic.js";
+import { executeAgentSwarm, getTenantSwarmHistory, type SwarmSubAgentSpec, type SwarmExecutionMode } from "../../agent/swarm.js";
+import { buildRequestScope } from "../scope.js";
 
 /**
  * Tools the built-in sovereign `/api/mcp` server actually implements. It
@@ -49,6 +60,51 @@ const BUILT_IN_MCP_TOOLS = [
       required: ["expression"],
     },
   },
+  {
+    name: "manage_workspace_files",
+    description: "Create, read, append, list, search, or delete files in the isolated Agent Workspace File System",
+    inputSchema: {
+      type: "object",
+      properties: {
+        operation: { type: "string", enum: ["write", "append", "read", "list", "delete", "search"] },
+        filename: { type: "string" },
+        content: { type: "string" },
+        query: { type: "string" },
+      },
+      required: ["operation"],
+    },
+  },
+  {
+    name: "manage_agent_tasks",
+    description: "Manage the persistent Agent Task Planner & Checklist (create_plan, add_task, update_task, list_tasks, clear_completed)",
+    inputSchema: {
+      type: "object",
+      properties: {
+        operation: { type: "string", enum: ["create_plan", "add_task", "update_task", "list_tasks", "clear_completed"] },
+        tasks: { type: "array", items: { type: "string" } },
+        title: { type: "string" },
+        taskId: { type: "number" },
+        status: { type: "string", enum: ["pending", "in_progress", "completed"] },
+        priority: { type: "string", enum: ["low", "medium", "high"] },
+        notes: { type: "string" },
+      },
+      required: ["operation"],
+    },
+  },
+  {
+    name: "manage_agent_memory",
+    description: "Store and recall persistent long-term semantic & episodic agent memories",
+    inputSchema: {
+      type: "object",
+      properties: {
+        operation: { type: "string", enum: ["remember", "recall", "list", "forget"] },
+        key: { type: "string" },
+        fact: { type: "string" },
+        query: { type: "string" },
+      },
+      required: ["operation"],
+    },
+  },
 ];
 
 /**
@@ -74,7 +130,8 @@ function safeStringify(value: unknown): string {
  */
 async function callBuiltInMcpTool(
   name: string,
-  args: Record<string, unknown>
+  args: Record<string, unknown>,
+  tenantKey = "admin:0"
 ): Promise<{ text: string; isError: boolean }> {
   const { executeInSandbox } = await import("../../agent/sandbox/runner.js");
 
@@ -84,7 +141,9 @@ async function callBuiltInMcpTool(
       return { text: "Refused: 'code' is required.", isError: true };
     }
     const rawTimeout = Number(args.timeoutMs);
-    const safeTimeout = Number.isFinite(rawTimeout) && rawTimeout > 0 ? Math.min(Math.max(500, Math.floor(rawTimeout)), 10_000) : 3000;
+    const safeTimeout = Number.isFinite(rawTimeout)
+      ? Math.min(Math.max(500, Math.floor(rawTimeout)), 10_000)
+      : 5000;
     const res = await executeInSandbox(code, { timeoutMs: safeTimeout });
     if (!res.success) {
       return { text: `Execution failed in ${res.executionTimeMs}ms: ${res.error}`, isError: true };
@@ -121,6 +180,21 @@ async function callBuiltInMcpTool(
     return { text: String(value), isError: false };
   }
 
+  if (name === "manage_workspace_files") {
+    const text = await executeManageWorkspaceFiles(args as any, tenantKey);
+    return { text, isError: text.startsWith("Error:") };
+  }
+
+  if (name === "manage_agent_tasks") {
+    const text = await executeManageAgentTasks(args as any, tenantKey);
+    return { text, isError: text.startsWith("Error:") };
+  }
+
+  if (name === "manage_agent_memory") {
+    const text = await executeManageAgentMemory(args as any, tenantKey);
+    return { text, isError: text.startsWith("Error:") };
+  }
+
   return { text: `Unknown tool: ${name || "(missing name)"}`, isError: true };
 }
 
@@ -154,7 +228,8 @@ export interface WorkspaceRouteOptions {
 }
 
 /**
- * User Workspace Routes: Chat Conversation Persistence & Personal API Keys.
+ * User Workspace Routes: Chat Conversation Persistence, Agentic Workspace Hub
+ * (Tasks, Files, Long-Term Memory), & Personal API Keys.
  */
 export async function workspaceRoutes(app: FastifyInstance, options: WorkspaceRouteOptions): Promise<void> {
   const { requireAuth } = options;
@@ -192,6 +267,254 @@ export async function workspaceRoutes(app: FastifyInstance, options: WorkspaceRo
     const userId = user?.id || 0;
     await clearChatHistory(userId);
     return { success: true, message: "Chat history cleared." };
+  });
+
+  // 3b. Agentic Workspace Hub Snapshot (Tasks, Files, Memories, Schedules) with ETag / 304 Not Modified
+  app.get("/api/workspace/agentic-state", { preHandler: [requireAuth] }, async (req, reply) => {
+    const user = (req as any).user;
+    const tenantKey = resolveTenantKey(user?.id, user?.role === "admin" ? "admin" : "user");
+    const snapshot = getTenantAgenticSnapshot(tenantKey);
+    const rawJson = JSON.stringify(snapshot);
+    let h = 2166136261;
+    for (let i = 0; i < rawJson.length; i++) {
+      h ^= rawJson.charCodeAt(i);
+      h = Math.imul(h, 16777619) >>> 0;
+    }
+    const etag = `W/"ag-${h.toString(16)}-${rawJson.length}"`;
+    reply.header("ETag", etag);
+    if (req.headers["if-none-match"] === etag) {
+      reply.status(304);
+      return "";
+    }
+    return {
+      success: true,
+      ...snapshot,
+    };
+  });
+
+  // 3c. Interactive Task Planner Operations from Workspace UI
+  app.post<{
+    Body: {
+      operation?: "create_plan" | "add_task" | "update_task" | "list_tasks" | "clear_completed";
+      tasks?: string[];
+      title?: string;
+      taskId?: number;
+      status?: "pending" | "in_progress" | "completed";
+      priority?: "low" | "medium" | "high";
+      notes?: string;
+    };
+  }>("/api/workspace/agent-tasks", { preHandler: [requireAuth] }, async (req, reply) => {
+    const user = (req as any).user;
+    const tenantKey = resolveTenantKey(user?.id, user?.role === "admin" ? "admin" : "user");
+    const body = req.body || {};
+    const op = body.operation || "list_tasks";
+    const message = await executeManageAgentTasks(
+      {
+        operation: op,
+        tasks: body.tasks,
+        title: body.title,
+        taskId: body.taskId,
+        status: body.status,
+        priority: body.priority,
+        notes: body.notes,
+      },
+      tenantKey
+    );
+    if (message.startsWith("Error:")) {
+      reply.status(400);
+      return { success: false, error: message };
+    }
+    return {
+      success: true,
+      message,
+      ...getTenantAgenticSnapshot(tenantKey),
+    };
+  });
+
+  // 3d. Interactive Workspace File System Operations from Workspace UI
+  app.post<{
+    Body: {
+      operation?: "write" | "append" | "read" | "list" | "delete" | "search";
+      filename?: string;
+      content?: string;
+      query?: string;
+    };
+  }>("/api/workspace/files", { preHandler: [requireAuth] }, async (req, reply) => {
+    const user = (req as any).user;
+    const tenantKey = resolveTenantKey(user?.id, user?.role === "admin" ? "admin" : "user");
+    const body = req.body || {};
+    const op = body.operation || "list";
+    const message = await executeManageWorkspaceFiles(
+      {
+        operation: op,
+        filename: body.filename,
+        content: body.content,
+        query: body.query,
+      },
+      tenantKey
+    );
+    if (message.startsWith("Error:")) {
+      reply.status(400);
+      return { success: false, error: message };
+    }
+    return {
+      success: true,
+      message,
+      ...getTenantAgenticSnapshot(tenantKey),
+    };
+  });
+
+  // 3e. Interactive Long-Term Memory Operations from Workspace UI
+  app.post<{
+    Body: {
+      operation?: "remember" | "recall" | "list" | "forget";
+      key?: string;
+      fact?: string;
+      query?: string;
+      tags?: string[];
+    };
+  }>("/api/workspace/memories", { preHandler: [requireAuth] }, async (req, reply) => {
+    const user = (req as any).user;
+    const tenantKey = resolveTenantKey(user?.id, user?.role === "admin" ? "admin" : "user");
+    const body = req.body || {};
+    const op = body.operation || "list";
+    const message = await executeManageAgentMemory(
+      {
+        operation: op,
+        key: body.key,
+        fact: body.fact,
+        query: body.query,
+        tags: body.tags,
+      },
+      tenantKey
+    );
+    if (message.startsWith("Error:")) {
+      reply.status(400);
+      return { success: false, error: message };
+    }
+    return {
+      success: true,
+      message,
+      ...getTenantAgenticSnapshot(tenantKey),
+    };
+  });
+
+  // 3f. Interactive Code Sandbox Runner from Workspace UI
+  app.post<{ Body: { code?: string; timeoutMs?: number } }>(
+    "/api/workspace/execute-code",
+    { preHandler: [requireAuth] },
+    async (req, reply) => {
+      const user = (req as any).user;
+      const tenantKey = resolveTenantKey(user?.id, user?.role === "admin" ? "admin" : "user");
+      const { executeInSandbox } = await import("../../agent/sandbox/runner.js");
+      const { getTenantFilesMap, persistSandboxWrittenFiles } = await import("../../tools/agentic.js");
+      const code = String(req.body?.code || "");
+      if (!code.trim()) {
+        reply.status(400);
+        return { success: false, error: "JavaScript code string is required." };
+      }
+      const workspaceFiles = getTenantFilesMap(tenantKey);
+      const res = await executeInSandbox(code, {
+        timeoutMs: req.body?.timeoutMs,
+        workspaceFiles,
+      });
+      const savedFiles = res.success ? await persistSandboxWrittenFiles(res.writtenFiles, tenantKey) : [];
+      return {
+        success: res.success,
+        result: res.result,
+        error: res.error,
+        logs: res.logs,
+        savedFiles,
+        executionTimeMs: res.executionTimeMs,
+        engine: res.engine,
+      };
+    }
+  );
+
+
+  // 3g. Interactive Autonomous Scheduled Monitors from Workspace UI
+  app.post<{
+    Body: {
+      operation?: "create_schedule" | "list_schedules" | "run_now" | "pause_schedule" | "resume_schedule" | "delete_schedule";
+      scheduleId?: number;
+      name?: string;
+      actionType?: ScheduledActionType;
+      intervalMinutes?: number;
+      targetUrl?: string;
+      query?: string;
+      code?: string;
+      outputFilename?: string;
+    };
+  }>("/api/workspace/schedules", { preHandler: [requireAuth] }, async (req, reply) => {
+    const user = (req as any).user;
+    const tenantKey = resolveTenantKey(user?.id, user?.role === "admin" ? "admin" : "user");
+    const body = req.body || {};
+    const op = body.operation || "list_schedules";
+    const message = await executeManageAgentSchedules(
+      {
+        operation: op,
+        scheduleId: body.scheduleId,
+        name: body.name,
+        actionType: body.actionType,
+        intervalMinutes: body.intervalMinutes,
+        targetUrl: body.targetUrl,
+        query: body.query,
+        code: body.code,
+        outputFilename: body.outputFilename,
+      },
+      tenantKey
+    );
+    if (message.startsWith("Error:")) {
+      reply.status(400);
+      return { success: false, error: message };
+    }
+    return {
+      success: true,
+      message,
+      ...getTenantAgenticSnapshot(tenantKey),
+    };
+  });
+
+  // 3h. Interactive Multi-Agent Swarm Dispatcher from Workspace UI
+  app.post<{
+    Body: {
+      objective?: string;
+      mode?: SwarmExecutionMode;
+      agents?: SwarmSubAgentSpec[];
+      saveDeliverableAs?: string;
+    };
+  }>("/api/workspace/swarm", { preHandler: [requireAuth] }, async (req, reply) => {
+    const user = (req as any).user;
+    const tenantKey = resolveTenantKey(user?.id, user?.role === "admin" ? "admin" : "user");
+    const body = req.body || {};
+    const objective = String(body.objective || "").trim();
+    const agents = Array.isArray(body.agents) ? body.agents : [];
+    if (!objective || agents.length === 0) {
+      reply.status(400);
+      return { success: false, error: "Swarm objective and at least one sub-agent are required." };
+    }
+    const scope = await buildRequestScope(user);
+    const result = await executeAgentSwarm({
+      objective,
+      mode: body.mode || "hybrid_dag",
+      agents,
+      saveDeliverableAs: body.saveDeliverableAs,
+      scope,
+    });
+    return {
+      success: true,
+      swarm: result,
+      ...getTenantAgenticSnapshot(tenantKey),
+    };
+  });
+
+  app.get("/api/workspace/swarm-history", { preHandler: [requireAuth] }, async (req) => {
+    const user = (req as any).user;
+    const tenantKey = resolveTenantKey(user?.id, user?.role === "admin" ? "admin" : "user");
+    return {
+      success: true,
+      history: getTenantSwarmHistory(tenantKey),
+    };
   });
 
   // 4. List Personal API Keys
@@ -414,6 +737,8 @@ export async function workspaceRoutes(app: FastifyInstance, options: WorkspaceRo
     "/api/mcp",
     { preHandler: [requireAuth] },
     async (req) => {
+      const user = (req as any).user;
+      const tenantKey = resolveTenantKey(user?.id, user?.role === "admin" ? "admin" : "user");
       const { id, method, params } = req.body || {};
       if (method === "tools/list") {
         return {
@@ -434,7 +759,7 @@ export async function workspaceRoutes(app: FastifyInstance, options: WorkspaceRo
         const args = (
           params?.arguments && typeof params.arguments === "object" ? params.arguments : {}
         ) as Record<string, unknown>;
-        const outcome = await callBuiltInMcpTool(toolName, args);
+        const outcome = await callBuiltInMcpTool(toolName, args, tenantKey);
         return {
           jsonrpc: "2.0",
           id: id || 1,

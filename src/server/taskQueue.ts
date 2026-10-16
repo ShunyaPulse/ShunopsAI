@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { runAutonomousAgent, type ProviderKeyOverrides } from "../agent/index.js";
+import type { AgentStepLogEntry } from "../agent/loop.js";
 import type { ToolScope } from "../agent/scope.js";
 import { getRedisClient } from "./redis.js";
 import { saveTaskRecord, getTaskRecord, recordUserTokenUsage } from "./db.js";
@@ -11,10 +12,14 @@ export interface QueuedTaskState {
   goal: string;
   createdAt: string;
   completedAt?: string | undefined;
+  currentStep?: number | undefined;
+  currentTool?: string | undefined;
   result?: {
     success: boolean;
     finalAnswer: string;
     stepsTaken: number;
+    stepsLog?: AgentStepLogEntry[] | undefined;
+    usedModel?: string | undefined;
     usage?: {
       promptTokens: number;
       completionTokens: number;
@@ -27,7 +32,7 @@ export interface QueuedTaskState {
 const taskStore = new Map<string, QueuedTaskState>();
 
 // Bounds so a long-running server cannot accumulate task state without limit.
-const MAX_TASK_ENTRIES = Number(process.env.MAX_TASK_STATE_ENTRIES) || 500;
+const MAX_TASK_ENTRIES = Number(process.env.MAX_TASK_ENTRIES) || 500;
 const TASK_RETENTION_MS = Number(process.env.TASK_STATE_RETENTION_MS) || 24 * 60 * 60 * 1000;
 
 /** Evict finished tasks past their retention window and cap the total size. */
@@ -143,7 +148,7 @@ export function createQueuedTask(
   };
   persistTask(task).catch(() => {});
 
-  // Background execution
+  // Background execution with live step & tool progress tracking
   setTimeout(async () => {
     task.status = "RUNNING";
     await persistTask(task);
@@ -153,6 +158,14 @@ export function createQueuedTask(
         ...(context ? { initialContext: context } : {}),
         keyOverrides,
         ...(scope ? { scope } : {}),
+        onProgress: (ev) => {
+          if (ev.type === "step_start") {
+            task.currentStep = ev.step;
+          } else if (ev.type === "tool_call") {
+            task.currentStep = ev.step;
+            task.currentTool = ev.name;
+          }
+        },
       });
       task.status = result.success ? "COMPLETED" : "FAILED";
       task.completedAt = new Date().toISOString();
@@ -162,6 +175,8 @@ export function createQueuedTask(
         success: result.success,
         finalAnswer: result.finalAnswer ?? "",
         stepsTaken: result.stepsTaken,
+        stepsLog: result.stepsLog || [],
+        usedModel: result.usedModel,
         usage: {
           promptTokens: inTokens,
           completionTokens: outTokens,

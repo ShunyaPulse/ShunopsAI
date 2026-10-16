@@ -360,6 +360,21 @@ export async function getModelsHealthStatus(): Promise<IndividualModelStatus[]> 
  * 2. Within the same provider group, promotes models with higher empirical banditScore
  *    (lower EWMA latency & higher reliability) while preserving the architectural tier order.
  */
+
+/**
+ * Green Energy Efficiency Bonus:
+ * For simple queries, rewards ultra-low-wattage SRAM LPUs (Groq 27B), Flash/MoE models (Gemini Flash),
+ * and Serverless Edge models without altering complex reasoning priority.
+ */
+function computeGreenEfficiencyBonus(target: ModelTarget, complexity: ComplexityLevel): number {
+  if (complexity === "complex") return 0;
+  if (target.provider === "groq" && target.model.includes("27b")) return 6;
+  if (target.provider === "gemini" && target.model.includes("flash")) return 6;
+  if (target.provider === "cloudflare" && target.model.includes("8b")) return 5;
+  if (target.provider === "github" && target.model.includes("mini")) return 4;
+  return 0;
+}
+
 export async function getRoutingTargets(
   preference: string = "auto",
   message: string,
@@ -378,7 +393,8 @@ export async function getRoutingTargets(
       degraded.push(target);
     } else {
       const bandit = getModelBanditTelemetry(target.provider, target.model);
-      healthy.push({ target, idx: i, banditScore: bandit.banditScore });
+      const greenBonus = computeGreenEfficiencyBonus(target, complexity);
+      healthy.push({ target, idx: i, banditScore: bandit.banditScore + greenBonus });
     }
   }
 

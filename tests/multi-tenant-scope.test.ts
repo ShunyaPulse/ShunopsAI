@@ -576,7 +576,13 @@ async function runSuite(): Promise<void> {
     assert.equal(listed.statusCode, 200, listed.body);
     assert.deepEqual(
       listed.json().result.tools.map((t: any) => t.name),
-      ["execute_sandboxed_code", "calculate_math_expression"],
+      [
+        "execute_sandboxed_code",
+        "calculate_math_expression",
+        "manage_workspace_files",
+        "manage_agent_tasks",
+        "manage_agent_memory",
+      ],
       "the server must only advertise tools it can execute"
     );
 
