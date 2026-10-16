@@ -411,16 +411,16 @@ export async function runAutonomousAgent(
 
       const effectiveUserGoal = userTurnBlocks.join("\n\n");
 
+      messages.push({ role: "user", content: effectiveUserGoal });
+
       if (options.image) {
         messages.push({
           role: "user",
           content: [
-            { type: "text", text: effectiveUserGoal },
+            { type: "text", text: "Attached reference image for the user goal above:" },
             { type: "image_url", image_url: { url: options.image } },
           ],
         });
-      } else {
-        messages.push({ role: "user", content: effectiveUserGoal });
       }
 
       console.log(`\n${colors.green}${colors.bold}========================================${colors.reset}`);
