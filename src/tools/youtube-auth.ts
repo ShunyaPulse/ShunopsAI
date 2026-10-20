@@ -64,7 +64,7 @@ async function main() {
       console.log("💾 Saved YOUTUBE_REFRESH_TOKEN to .env");
 
       // Optional: mirror the token into a user-configured shared env file.
-      const sharedEnvPath = process.env.SHARED_ENV_PATH;
+      const sharedEnvPath = process.env.SHARED_ENV_PATH || "C:\\Users\\LENOVO\\.shared-env";
       if (sharedEnvPath) {
         try {
           let shared = await fs.readFile(sharedEnvPath, "utf-8");
