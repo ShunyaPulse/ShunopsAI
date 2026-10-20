@@ -5,8 +5,174 @@
  * into the empty-state greeting. Kept as a plain string so the page stays a
  * zero-build, single-response HTML document.
  */
-export function workspaceScripts(safeUsername: string, presetsJson = '[]'): string {
-  return `    let conversationHistory = [];
+export function workspaceScripts(safeUsername: string, presetsJson = '[]', isGuest = false): string {
+  return `    const isGuest = ${Boolean(isGuest)};
+    let guestRunsLeft = parseInt(localStorage.getItem('shunops_guest_runs_left') || '3', 10);
+    window.guestTurnstileToken = '';
+    window.onGuestTurnstileSuccess = function(token) {
+      window.guestTurnstileToken = token;
+    };
+
+    function updateGuestRunsDisplay() {
+      const el = document.getElementById('guest-runs-display');
+      if (el) {
+        el.textContent = guestRunsLeft + ' free trial run' + (guestRunsLeft === 1 ? '' : 's') + ' remaining today';
+      }
+    }
+
+    function openSignupGateModal(featureName, customDesc) {
+      const modal = document.getElementById('signup-gate-modal');
+      const title = document.getElementById('signup-gate-title');
+      const desc = document.getElementById('signup-gate-desc');
+      if (title && featureName) title.textContent = '🔒 ' + featureName + ' Requires Free Signup';
+      if (desc && customDesc) desc.textContent = customDesc;
+      if (modal) modal.style.display = 'flex';
+    }
+
+    function closeSignupGateModal() {
+      const modal = document.getElementById('signup-gate-modal');
+      if (modal) modal.style.display = 'none';
+    }
+
+    // Pillar 1: Client-Side Web Worker Sandbox (Aapka Server Chhuyega Bhi Nahi)
+    function runCodeInBrowserSandbox(code, timeoutMs) {
+      timeoutMs = timeoutMs || 3000;
+      return new Promise(function(resolve) {
+        const start = performance.now();
+        const logs = [];
+        const writtenFiles = {};
+
+        const workerSource = "self.onmessage = function(e) {\\n" +
+          "  var code = e.data.code;\\n" +
+          "  var logs = [];\\n" +
+          "  var writtenFiles = {};\\n" +
+          "  var console = {\\n" +
+          "    log: function() { logs.push(Array.from(arguments).map(function(a){ return typeof a === 'object' ? JSON.stringify(a) : String(a); }).join(' ')); },\\n" +
+          "    warn: function() { logs.push('[WARN] ' + Array.from(arguments).map(String).join(' ')); },\\n" +
+          "    error: function() { logs.push('[ERROR] ' + Array.from(arguments).map(String).join(' ')); }\\n" +
+          "  };\\n" +
+          "  var sum = function(arr) { return (arr||[]).reduce(function(a,b){return a+b;},0); };\\n" +
+          "  var mean = function(arr) { return (arr && arr.length) ? sum(arr)/arr.length : 0; };\\n" +
+          "  var median = function(arr) {\\n" +
+          "    if (!arr || !arr.length) return 0;\\n" +
+          "    var s = arr.slice().sort(function(a,b){return a-b;});\\n" +
+          "    var m = Math.floor(s.length/2);\\n" +
+          "    return s.length % 2 !== 0 ? s[m] : (s[m-1] + s[m])/2;\\n" +
+          "  };\\n" +
+          "  var stdDev = function(arr) {\\n" +
+          "    if (!arr || arr.length < 2) return 0;\\n" +
+          "    var m = mean(arr);\\n" +
+          "    var v = arr.reduce(function(acc, x){ return acc + Math.pow(x - m, 2); }, 0) / arr.length;\\n" +
+          "    return Math.sqrt(v);\\n" +
+          "  };\\n" +
+          "  var csvParse = function(text) {\\n" +
+          "    var lines = String(text||'').trim().split('\\n');\\n" +
+          "    if (!lines.length) return [];\\n" +
+          "    var headers = lines[0].split(',').map(function(h){return h.trim();});\\n" +
+          "    return lines.slice(1).map(function(line){\\n" +
+          "      var vals = line.split(',');\\n" +
+          "      var obj = {};\\n" +
+          "      headers.forEach(function(h, i){ obj[h] = (vals[i]||'').trim(); });\\n" +
+          "      return obj;\\n" +
+          "    });\\n" +
+          "  };\\n" +
+          "  var groupBy = function(arr, key) {\\n" +
+          "    return (arr||[]).reduce(function(acc, item){\\n" +
+          "      var k = item[key];\\n" +
+          "      (acc[k] = acc[k] || []).push(item);\\n" +
+          "      return acc;\\n" +
+          "    }, {});\\n" +
+          "  };\\n" +
+          "  var formatMarkdownTable = function(rows) {\\n" +
+          "    if (!rows || !rows.length) return '';\\n" +
+          "    var headers = Object.keys(rows[0]);\\n" +
+          "    var out = '| ' + headers.join(' | ') + ' |\\n| ' + headers.map(function(){return '---';}).join(' | ') + ' |\\n';\\n" +
+          "    rows.forEach(function(r){\\n" +
+          "      out += '| ' + headers.map(function(h){return r[h] !== undefined ? r[h] : '';}).join(' | ') + ' |\\n';\\n" +
+          "    });\\n" +
+          "    return out;\\n" +
+          "  };\\n" +
+          "  var writeWorkspaceFile = function(name, content) {\\n" +
+          "    var clean = String(name || '').trim().replace(/^\\/+/, '');\\n" +
+          "    writtenFiles[clean] = String(content || '');\\n" +
+          "    return true;\\n" +
+          "  };\\n" +
+          "  var appendWorkspaceFile = function(name, content) {\\n" +
+          "    var clean = String(name || '').trim().replace(/^\\/+/, '');\\n" +
+          "    writtenFiles[clean] = (writtenFiles[clean] || '') + String(content || '');\\n" +
+          "    return true;\\n" +
+          "  };\\n" +
+          "  var listWorkspaceFiles = function() {\\n" +
+          "    return Object.keys(writtenFiles);\\n" +
+          "  };\\n" +
+          "  try {\\n" +
+          "    var fn = new Function('console', 'sum', 'mean', 'median', 'stdDev', 'csvParse', 'groupBy', 'formatMarkdownTable', 'writeWorkspaceFile', 'appendWorkspaceFile', 'listWorkspaceFiles', code);\\n" +
+          "    var result = fn(console, sum, mean, median, stdDev, csvParse, groupBy, formatMarkdownTable, writeWorkspaceFile, appendWorkspaceFile, listWorkspaceFiles);\\n" +
+          "    self.postMessage({ success: true, result: result, logs: logs, writtenFiles: writtenFiles });\\n" +
+          "  } catch (err) {\\n" +
+          "    self.postMessage({ success: false, error: err.message, logs: logs, writtenFiles: writtenFiles });\\n" +
+          "  }\\n" +
+          "};";
+
+        var blob = new Blob([workerSource], { type: 'application/javascript' });
+        var workerUrl = URL.createObjectURL(blob);
+        var worker = new Worker(workerUrl);
+
+        var finished = false;
+        var timer = setTimeout(function() {
+          if (!finished) {
+            finished = true;
+            worker.terminate();
+            URL.revokeObjectURL(workerUrl);
+            resolve({
+              success: false,
+              error: 'Execution timed out (' + timeoutMs + 'ms) — terminated in client browser (server load: 0.00%).',
+              logs: logs,
+              executionTimeMs: Math.round(performance.now() - start),
+              engine: 'client-wasm-worker',
+            });
+          }
+        }, timeoutMs);
+
+        worker.onmessage = function(e) {
+          if (!finished) {
+            finished = true;
+            clearTimeout(timer);
+            worker.terminate();
+            URL.revokeObjectURL(workerUrl);
+            var data = e.data;
+            resolve({
+              success: data.success,
+              result: data.result,
+              error: data.error,
+              logs: data.logs || [],
+              writtenFiles: data.writtenFiles || {},
+              executionTimeMs: Math.round(performance.now() - start),
+              engine: 'client-wasm-worker',
+            });
+          }
+        };
+
+        worker.onerror = function(err) {
+          if (!finished) {
+            finished = true;
+            clearTimeout(timer);
+            worker.terminate();
+            URL.revokeObjectURL(workerUrl);
+            resolve({
+              success: false,
+              error: err.message || 'Worker execution error',
+              logs: logs,
+              executionTimeMs: Math.round(performance.now() - start),
+              engine: 'client-wasm-worker',
+            });
+          }
+        };
+
+        worker.postMessage({ code: code });
+      });
+    }
+    let conversationHistory = [];
     let attachedImageDataUri = null;
     const MCP_PRESETS = ${presetsJson};
 
@@ -2150,6 +2316,18 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]'): stri
         alert('Please enter a filename (e.g. notes.md).');
         return;
       }
+      if (isGuest) {
+        cachedAgenticState.files = mergeNonDestructiveArrays(cachedAgenticState.files, [{
+          name: filename,
+          content: fileContent,
+          sizeBytes: fileContent.length,
+          updatedAt: new Date().toISOString()
+        }], 'name');
+        saveLocalAgenticCache();
+        renderAgenticWorkspaceState();
+        closeWorkspaceFileModal();
+        return;
+      }
       try {
         const res = await fetch('/api/workspace/files', {
           method: 'POST',
@@ -2342,6 +2520,68 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]'): stri
         meta.textContent = taskPrompt ? 'AI is writing & executing JS in sandbox...' : 'Executing in sandbox...';
       }
 
+      // Pillar 1: Client-Side WASM / WebWorker Run (Aapka Server Chhuyega Bhi Nahi)
+      if (isGuest && !taskPrompt) {
+        try {
+          const res = await runCodeInBrowserSandbox(codeVal, 3000);
+          if (outBox) outBox.style.display = 'block';
+          if (btn) {
+            btn.disabled = false;
+            btn.textContent = defaultBtnLabel;
+          }
+          if (res.success) {
+            if (meta) {
+              meta.style.color = '#10b981';
+              meta.textContent = '✓ Executed in ' + res.executionTimeMs + 'ms (Client QuickJS/WASM Sandbox • 0% Server Load)';
+            }
+            let outText = '';
+            if (res.logs && res.logs.length > 0) {
+              outText += '=== Console Logs ===\n' + res.logs.join('\n') + '\n\n';
+            }
+            if (res.writtenFiles && Object.keys(res.writtenFiles).length > 0) {
+              outText += '=== Files Created in Browser Storage ===\n';
+              const newFiles = [];
+              for (const [fn, cnt] of Object.entries(res.writtenFiles)) {
+                outText += '📁 ' + fn + ' (' + cnt.length + ' chars)\n';
+                newFiles.push({
+                  name: fn,
+                  content: cnt,
+                  sizeBytes: cnt.length,
+                  updatedAt: new Date().toISOString()
+                });
+              }
+              cachedAgenticState.files = mergeNonDestructiveArrays(cachedAgenticState.files, newFiles, 'name');
+              saveLocalAgenticCache();
+              renderAgenticWorkspaceState();
+            }
+            outText += '=== Return Value ===\n' + (typeof res.result === 'object' ? JSON.stringify(res.result, null, 2) : String(res.result));
+            if (outContent) outContent.textContent = outText;
+          } else {
+            if (meta) {
+              meta.style.color = '#ef4444';
+              meta.textContent = '✗ Halted in browser (' + res.executionTimeMs + 'ms)';
+            }
+            if (outContent) outContent.textContent = res.error || 'Execution failed in browser sandbox.';
+          }
+          return;
+        } catch (clientErr) {
+          if (btn) { btn.disabled = false; btn.textContent = defaultBtnLabel; }
+          if (meta) { meta.style.color = '#ef4444'; meta.textContent = '✗ Client sandbox error'; }
+          if (outContent) outContent.textContent = String(clientErr);
+          return;
+        }
+      }
+
+      // Pillar 2 & 4: LLM Cost Shield & Quota check for guests
+      if (isGuest && taskPrompt) {
+        if (guestRunsLeft <= 0) {
+          if (btn) { btn.disabled = false; btn.textContent = defaultBtnLabel; }
+          if (meta) { meta.textContent = ''; }
+          openSignupGateModal('AI Code Generator', 'You have used all 3 free trial runs for today. Create a free account in 10 seconds to unlock unlimited AI code generation, PostgreSQL cloud storage, and autonomous watchdogs.');
+          return;
+        }
+      }
+
       try {
         const headers = { 'Content-Type': 'application/json' };
         try {
@@ -2359,10 +2599,21 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]'): stri
           body: JSON.stringify({
             code: codeVal || undefined,
             taskPrompt: taskPrompt || undefined,
+            turnstileToken: window.guestTurnstileToken || undefined,
             timeoutMs: 5000,
           }),
         });
         const data = await res.json();
+        if (data.trialExhausted) {
+          if (btn) { btn.disabled = false; btn.textContent = defaultBtnLabel; }
+          openSignupGateModal('Trial Limit Reached', 'You have reached the free guest limit of 3 trial runs per 24 hours. Sign up for a free account to continue without restrictions.');
+          return;
+        }
+        if (isGuest && data.success) {
+          guestRunsLeft = Math.max(0, guestRunsLeft - 1);
+          localStorage.setItem('shunops_guest_runs_left', String(guestRunsLeft));
+          updateGuestRunsDisplay();
+        }
         if (outBox) outBox.style.display = 'block';
         if (btn) {
           btn.disabled = false;
@@ -2517,6 +2768,10 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]'): stri
 
 
     async function addManualAgentSchedule() {
+      if (isGuest) {
+        openSignupGateModal('Autonomous Watchdog Schedules', 'Watchdogs run 24/7 background monitors on cloud infrastructure. Sign up for a free account in 10 seconds to schedule watchdogs.');
+        return;
+      }
       const nameIn = document.getElementById('agentic-sched-name-input');
       const targetIn = document.getElementById('agentic-sched-target-input');
       if (!nameIn || !targetIn) return;
@@ -2617,6 +2872,10 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]'): stri
       const box = document.getElementById(ids.boxId);
       if (!objIn || !box) return;
 
+      if (isGuest) {
+        openSignupGateModal('Multi-Agent Swarm Orchestrator', 'Autonomous Swarm Teams dispatch parallel Researcher, Coder, Analyst, and Auditor agents. Sign up for a free account to run Swarm teams.');
+        return;
+      }
       const objective = (objIn.value || '').trim();
       if (!objective) {
         alert('Please enter a Swarm Objective.');

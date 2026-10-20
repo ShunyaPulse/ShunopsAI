@@ -80,6 +80,21 @@ export const WORKSPACE_STYLES = `    :root {
       font-weight: 600;
       transition: background 0.15s;
     }
+        .guest-trial-banner {
+      background: linear-gradient(90deg, rgba(56, 189, 248, 0.12), rgba(99, 102, 241, 0.12));
+      border: 1px solid rgba(56, 189, 248, 0.3);
+      border-radius: 12px;
+      padding: 12px 18px;
+      margin-bottom: 18px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    .guest-trial-banner strong {
+      color: #38bdf8;
+    }
     .logout-btn:hover {
       background: rgba(239, 68, 68, 0.15);
     }

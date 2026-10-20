@@ -1,5 +1,6 @@
 import type { FastifyInstance, preHandlerHookHandler } from "fastify";
 import {
+  findUserBySessionToken,
   saveChatMessage,
   getChatHistory,
   clearChatHistory,
@@ -36,6 +37,8 @@ import {
 import { executeAgentSwarm, getTenantSwarmHistory, type SwarmSubAgentSpec, type SwarmExecutionMode } from "../../agent/swarm.js";
 import { buildRequestScope } from "../scope.js";
 import { isPrivateHost } from "../../tools/cloud.js";
+import { getClientIp, checkDistributedSubnetQuota } from "../middleware/ratelimit.js";
+import { verifyCloudflareTurnstile, verifyShieldSolution } from "../middleware/bot-shield.js";
 
 /**
  * Tools the built-in sovereign `/api/mcp` server actually implements. It
@@ -421,17 +424,84 @@ export async function workspaceRoutes(app: FastifyInstance, options: WorkspaceRo
     };
   });
 
-  // 3f. Interactive Code Sandbox Runner & AI Task-to-Code Generator from Workspace UI
-  app.post<{ Body: { code?: string; taskPrompt?: string; timeoutMs?: number } }>(
+  // 3f. Interactive Code Sandbox Runner & AI Task-to-Code Generator from Workspace UI (Zero Signup Barrier)
+  app.post<{ Body: { code?: string; taskPrompt?: string; timeoutMs?: number; turnstileToken?: string; shield?: any } }>(
     "/api/workspace/execute-code",
-    { preHandler: [requireAuth] },
     async (req, reply) => {
-      const user = (req as any).user;
-      const tenantKey = resolveTenantKey(user?.id, user?.role === "admin" ? "admin" : "user");
-      await hydrateTenantAgenticState(tenantKey);
+      const sessionToken = (req.cookies as any)?.shunops_user_session;
+      let user: any = (req as any).user || null;
+      if (!user && sessionToken) {
+        try {
+          user = await findUserBySessionToken(sessionToken);
+        } catch {}
+      }
+
+      const clientIp = getClientIp(req);
+      const isGuest = !user;
+
+      // Pillar 2 & 3: Anti-Bot & Token Bucket Quota for Guests
+      if (isGuest) {
+        const body = req.body || {};
+        const turnstileToken = body.turnstileToken;
+        const shield = body.shield;
+
+        if (!turnstileToken && !shield) {
+          reply.status(403);
+          return {
+            success: false,
+            error: "Bot shield validation required for guest trial. Please solve the challenge or sign up.",
+          };
+        }
+
+        if (turnstileToken) {
+          const isHuman = await verifyCloudflareTurnstile(turnstileToken, clientIp);
+          if (!isHuman) {
+            reply.status(403);
+            return {
+              success: false,
+              error: "Cloudflare Turnstile verification failed. Please refresh and try again.",
+            };
+          }
+        } else if (shield) {
+          const isValid = verifyShieldSolution(
+            shield.salt,
+            Number(shield.timestamp),
+            Number(shield.targetDifficulty),
+            shield.signature,
+            String(shield.solution)
+          );
+          if (!isValid) {
+            reply.status(403);
+            return {
+              success: false,
+              error: "Browser security challenge failed. Please refresh.",
+            };
+          }
+        }
+
+        // Strict 3 Trial Runs per 24 hours per IP address via OCI Redis Token Bucket
+        const quota = await checkDistributedSubnetQuota(`guest:trial:${clientIp}`, 3, 86400);
+        if (!quota.allowed) {
+          reply.status(429);
+          return {
+            success: false,
+            trialExhausted: true,
+            error: "Free guest trial limit reached (3 runs per 24 hours). Create a free account to unlock unlimited workspace runs!",
+          };
+        }
+      }
+
+      const tenantKey = user
+        ? resolveTenantKey(user.id, user.role === "admin" ? "admin" : "user")
+        : `tenant:guest:${clientIp.replace(/[^a-zA-Z0-9]/g, "_")}`;
+
+      if (user) {
+        await hydrateTenantAgenticState(tenantKey);
+      }
       const { executeInSandbox } = await import("../../agent/sandbox/runner.js");
       const { getTenantFilesMap, persistSandboxWrittenFiles } = await import("../../tools/agentic.js");
       const { AGENT_MODELS_CHAIN, callChatCompletionWithFailover } = await import("../../agent/models.js");
+      type ModelTarget = (typeof AGENT_MODELS_CHAIN)[number];
       const { extractRunnableJsFromText } = await import("../../agent/swarm.js");
 
       let code = String(req.body?.code || "").trim();
@@ -446,13 +516,14 @@ export async function workspaceRoutes(app: FastifyInstance, options: WorkspaceRo
         generatedByAi = true;
         const userGroqKey = (req.headers["x-groq-key"] as string | undefined)?.trim();
         const userGeminiKey = (req.headers["x-gemini-key"] as string | undefined)?.trim();
-        const scope = await buildRequestScope(user);
+        const scope = user ? await buildRequestScope(user) : { credentials: {} };
+        const creds = (scope.credentials || {}) as any;
         const keyOverrides = {
           ...(userGroqKey ? { groqApiKey: userGroqKey } : {}),
           ...(userGeminiKey ? { geminiApiKey: userGeminiKey } : {}),
-          ...(scope.credentials?.github?.token ? { githubToken: scope.credentials.github.token } : {}),
-          ...(scope.credentials?.cloudflare?.accountId ? { cloudflareAccountId: scope.credentials.cloudflare.accountId } : {}),
-          ...(scope.credentials?.cloudflare?.apiToken ? { cloudflareApiToken: scope.credentials.cloudflare.apiToken } : {}),
+          ...(creds.github?.token ? { githubToken: creds.github.token } : {}),
+          ...(creds.cloudflare?.accountId ? { cloudflareAccountId: creds.cloudflare.accountId } : {}),
+          ...(creds.cloudflare?.apiToken ? { cloudflareApiToken: creds.cloudflare.apiToken } : {}),
         };
 
         const sysPrompt = [
@@ -478,7 +549,12 @@ export async function workspaceRoutes(app: FastifyInstance, options: WorkspaceRo
               { role: "system", content: sysPrompt },
               { role: "user", content: userMsg },
             ],
-            AGENT_MODELS_CHAIN,
+            (isGuest
+              ? [
+                  { provider: "gemini" as const, model: "gemini-3.8-flash", name: "Gemini 3.8 Flash (Guest Active)" },
+                  { provider: "groq" as const, model: "qwen/qwen3.8-27b", name: "Groq Qwen 27B (Guest Active)" },
+                ]
+              : AGENT_MODELS_CHAIN),
             [],
             0.2,
             keyOverrides
@@ -519,8 +595,8 @@ export async function workspaceRoutes(app: FastifyInstance, options: WorkspaceRo
         timeoutMs: safeTimeoutMs,
         workspaceFiles,
       });
-      const savedFiles = res.success ? await persistSandboxWrittenFiles(res.writtenFiles, tenantKey) : [];
-      if (savedFiles.length > 0) {
+      const savedFiles = (res.success && !isGuest) ? await persistSandboxWrittenFiles(res.writtenFiles, tenantKey) : [];
+      if (savedFiles.length > 0 && !isGuest) {
         await persistTenantAgenticState(tenantKey);
       }
       return {
@@ -533,7 +609,8 @@ export async function workspaceRoutes(app: FastifyInstance, options: WorkspaceRo
         savedFiles,
         executionTimeMs: res.executionTimeMs,
         engine: res.engine,
-        ...getTenantAgenticSnapshot(tenantKey),
+        isGuest,
+        ...(isGuest ? {} : getTenantAgenticSnapshot(tenantKey)),
       };
     }
   );

@@ -16,7 +16,12 @@ import { POPULAR_100_MCP_PRESETS } from "./mcp-presets-catalog.js";
  * The stylesheet and client script live in `workspace-styles.ts` /
  * `workspace-scripts.ts` so the markup here stays reviewable in isolation.
  */
-export function getUserWorkspaceHtml(username: string): string {
+export function getUserWorkspaceHtml(username: string, isGuest = false): string {
+  const turnstileSiteKey =
+    process.env.CLOUDFLARE_TURNSTILE_SITE_KEY ||
+    process.env.TURNSTILE_SITE_KEY ||
+    process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ||
+    "0x4AAAAAAFVaFzGbMCgv2_Kr";
   const safeUsername = escapeHtml(username);
 
   return `<!DOCTYPE html>
@@ -27,6 +32,7 @@ export function getUserWorkspaceHtml(username: string): string {
   <title>My Workspace • ShunopsAI</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
   <style>
 ${WORKSPACE_STYLES}
   </style>
@@ -38,13 +44,35 @@ ${WORKSPACE_STYLES}
       <div class="brand-text">ShunopsAI Workspace</div>
     </a>
     <div class="user-pill">
-      <div class="username-badge">👤 <span id="display-username">${safeUsername}</span></div>
-      <button class="logout-btn" onclick="logout()">Sign Out</button>
+      ${isGuest ? `
+        <div class="username-badge" style="background:rgba(245,158,11,0.15); border-color:rgba(245,158,11,0.3); color:#fbbf24;">⚡ <span id="display-username">Guest Trial</span></div>
+        <a href="/login" class="btn-sub" style="font-size:12px; padding:5px 12px; text-decoration:none;">Log In</a>
+        <a href="/register" class="btn-action" style="font-size:12px; padding:5px 14px; text-decoration:none; font-weight:600;">Sign Up Free</a>
+      ` : `
+        <div class="username-badge">👤 <span id="display-username">${safeUsername}</span></div>
+        <button class="logout-btn" onclick="logout()">Sign Out</button>
+      `}
     </div>
   </header>
 
   <div class="container">
     <div class="welcome-card">
+      ${isGuest ? `
+        <div class="guest-trial-banner" style="background:linear-gradient(90deg, rgba(56,189,248,0.12), rgba(99,102,241,0.12)); border:1px solid rgba(56,189,248,0.3); border-radius:12px; padding:12px 18px; margin-bottom:18px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+          <div style="display:flex; align-items:center; gap:10px;">
+            <span style="font-size:22px;">⚡</span>
+            <div>
+              <div style="font-size:13.5px; font-weight:700; color:#f8fafc;">Zero Signup Guest Sandbox Active</div>
+              <div style="font-size:12px; color:#94a3b8;">
+                Runs 100% in your browser WebAssembly (0% server load). <strong id="guest-runs-display" style="color:#38bdf8;">3 free trial runs remaining today</strong>.
+              </div>
+            </div>
+          </div>
+          <div style="display:flex; gap:8px;">
+            <button type="button" class="btn-action" style="font-size:11.5px; padding:6px 14px;" onclick="openSignupGateModal('Permanent Cloud Workspace')">🚀 Unlock Unlimited Workspace</button>
+          </div>
+        </div>
+      ` : ''}
       <div style="display:flex; align-items:center; gap:16px; flex-wrap:wrap;">
         <div>
           <h1 class="welcome-title">Welcome, ${safeUsername}!</h1>
@@ -725,6 +753,30 @@ ${WORKSPACE_STYLES}
     </div>
   </div>
 
+    <!-- Hard Signup Gate Modal (Zero Signup Barrier Protection) -->
+  <div id="signup-gate-modal" class="modal-overlay" onclick="if(event.target === this) closeSignupGateModal()" style="display:none; z-index:1250;">
+    <div class="modal-content" style="max-width:480px; text-align:center; padding:32px 28px; background:#0b0f19; border:1px solid #1e293b; border-radius:16px; box-shadow:0 25px 50px rgba(0,0,0,0.85);">
+      <div style="font-size:44px; margin-bottom:12px;">🔒</div>
+      <h2 id="signup-gate-title" style="color:#f8fafc; font-size:20px; font-weight:700; margin-bottom:10px;">Sign Up to Unlock Feature</h2>
+      <p id="signup-gate-desc" style="color:#94a3b8; font-size:13.5px; line-height:1.6; margin-bottom:24px;">
+        You are currently in <strong>Zero Signup Guest Sandbox</strong>. To save virtual files to PostgreSQL, schedule autonomous watchdogs, or connect external MCP tools, create a free account in 10 seconds.
+      </p>
+      <div style="display:flex; flex-direction:column; gap:10px;">
+        <a href="/register" class="btn-action" style="text-decoration:none; padding:12px; font-size:14px; text-align:center; font-weight:600;">
+          🚀 Create Free Account (Instant)
+        </a>
+        <a href="/login" class="btn-sub" style="text-decoration:none; padding:10px; font-size:13px; text-align:center;">
+          Already have an account? Log In
+        </a>
+        <button type="button" onclick="closeSignupGateModal()" style="background:transparent; border:none; color:#64748b; font-size:12px; cursor:pointer; margin-top:6px;">
+          Continue testing in guest sandbox &rarr;
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div id="guest-turnstile-widget" class="cf-turnstile" data-sitekey="${turnstileSiteKey}" data-callback="onGuestTurnstileSuccess" data-theme="dark" style="display:none;"></div>
+
   <div class="footer">
     <div>&copy; 2026 ShunopsAI. Designed for multi-tenant privacy and sovereign autonomy.</div>
     <div style="display:flex; gap:16px;">
@@ -736,7 +788,7 @@ ${WORKSPACE_STYLES}
   </div>
 
   <script>
-${workspaceScripts(safeUsername, JSON.stringify(POPULAR_100_MCP_PRESETS))}
+${workspaceScripts(safeUsername, JSON.stringify(POPULAR_100_MCP_PRESETS), isGuest)}
   </script>
 </body>
 </html>`;

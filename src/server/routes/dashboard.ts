@@ -145,20 +145,23 @@ export async function dashboardRoutes(app: FastifyInstance, opts: DashboardRoute
     return reply.type("text/html").send(getAuthPageHtml("register"));
   });
 
-  // User Private Workspace Dashboard
+  // User Private & Guest Workspace Dashboard (Zero Signup Barrier)
   app.get("/workspace", async (req, reply) => {
     reply.header("Cache-Control", "no-store, no-cache, must-revalidate");
     const token = (req.cookies as any)?.shunops_user_session;
-    if (!token) {
-      return reply.redirect("/login");
+    let username = "Guest";
+    let isGuest = true;
+    if (token) {
+      try {
+        const user = await findUserBySessionToken(token);
+        if (user) {
+          username = user.username;
+          isGuest = false;
+        }
+      } catch {}
     }
 
-    const user = await findUserBySessionToken(token);
-    if (!user) {
-      return reply.redirect("/login");
-    }
-
-    return reply.type("text/html").send(getUserWorkspaceHtml(user.username));
+    return reply.type("text/html").send(getUserWorkspaceHtml(username, isGuest));
   });
 
   // Legal & Technical Architecture Documentation Pages
