@@ -3,6 +3,7 @@ import { Redis } from "ioredis";
 import { pingCloudflareAi } from "./cloudflare-ai.js";
 import { inspectWebsite, manageComputeEngine } from "./cloud.js";
 import { manageKaggle, rerunVideoJob } from "./video.js";
+import { getYouTubeAccessToken } from "./youtube.js";
 import { sendIncidentAlert } from "./notifier.js";
 import * as os from "node:os";
 
@@ -315,6 +316,60 @@ export async function checkKaggleHealth(): Promise<ServiceHealthReport> {
 /**
  * 6. System & Compute Health
  */
+
+/**
+ * YouTube Publishing API Health Check
+ */
+export async function checkYouTubeHealth(): Promise<ServiceHealthReport> {
+  const now = new Date().toISOString();
+  const clientId = process.env.YOUTUBE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID;
+  const clientSecret = process.env.YOUTUBE_CLIENT_SECRET || process.env.GOOGLE_CLIENT_SECRET;
+  const refreshToken = process.env.YOUTUBE_REFRESH_TOKEN;
+
+  if (!clientId || !clientSecret || !refreshToken) {
+    return {
+      service: "YouTube Publishing API",
+      category: "pipeline",
+      status: "unconfigured",
+      error: "YOUTUBE_CLIENT_ID, YOUTUBE_CLIENT_SECRET, or YOUTUBE_REFRESH_TOKEN not configured in environment",
+      lastChecked: now,
+    };
+  }
+
+  const start = Date.now();
+  try {
+    const accessToken = await getYouTubeAccessToken();
+    const latencyMs = Date.now() - start;
+
+    return {
+      service: "YouTube Publishing API",
+      category: "pipeline",
+      status: "healthy",
+      latencyMs,
+      details: {
+        tokenStatus: "active",
+        tokenObtained: Boolean(accessToken),
+      },
+      lastChecked: now,
+    };
+  } catch (err: any) {
+    const isTokenExpired = /invalid_grant|expired|revoked/i.test(err?.message || "");
+    return {
+      service: "YouTube Publishing API",
+      category: "pipeline",
+      status: isTokenExpired ? "down" : "degraded",
+      latencyMs: Date.now() - start,
+      error: isTokenExpired
+        ? "YouTube OAuth Refresh Token expired or revoked (invalid_grant). Ensure Google OAuth Consent Screen is set to 'In Production' and re-authorize."
+        : (err?.message || "YouTube API health check failed"),
+      details: {
+        reauthRequired: isTokenExpired,
+      },
+      lastChecked: now,
+    };
+  }
+}
+
 export async function checkSystemHealth(): Promise<ServiceHealthReport> {
   const now = new Date().toISOString();
   const start = Date.now();
@@ -403,6 +458,7 @@ export async function runComprehensiveSentinelScan(): Promise<SentinelStatusSumm
     probe("Saralgati Cloud Run App", "web", () => checkAppHealth(process.env.SARALGATI_APP_URL || "", "Saralgati Cloud Run App")),
     probe("Kanban Cloud Run App", "web", () => checkAppHealth(process.env.KANBAN_APP_URL || "", "Kanban Cloud Run App")),
     probe("Kaggle GPU Pipeline", "pipeline", checkKaggleHealth),
+    probe("YouTube Publishing API", "pipeline", checkYouTubeHealth),
     probe("Compute Host / OS", "compute", checkSystemHealth),
   ];
 
@@ -628,6 +684,43 @@ async function healKagglePipeline(failedKernelRef?: string): Promise<HealReport>
 }
 
 /** Report a service with no mapped self-healing script. */
+
+/** Auto-heal YouTube publishing connection or broadcast reauth workflow. */
+async function healYouTube(): Promise<HealReport> {
+  const clientId = process.env.YOUTUBE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID;
+  const clientSecret = process.env.YOUTUBE_CLIENT_SECRET || process.env.GOOGLE_CLIENT_SECRET;
+  const refreshToken = process.env.YOUTUBE_REFRESH_TOKEN;
+
+  if (!clientId || !clientSecret) {
+    return {
+      success: false,
+      actionTaken: "Diagnosed YouTube Publishing API configuration",
+      result: "Missing YOUTUBE_CLIENT_ID or YOUTUBE_CLIENT_SECRET in environment.",
+    };
+  }
+
+  try {
+    await getYouTubeAccessToken();
+    return {
+      success: true,
+      actionTaken: "Refreshed and verified YouTube OAuth access token",
+      result: "YouTube Publishing API is fully authenticated and ready to upload videos.",
+    };
+  } catch (err: any) {
+    const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(
+      clientId
+    )}&redirect_uri=${encodeURIComponent("http://localhost:8085/oauth2callback")}&response_type=code&scope=${encodeURIComponent(
+      "https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube"
+    )}&access_type=offline&prompt=consent`;
+
+    return {
+      success: false,
+      actionTaken: "Diagnosed YouTube OAuth expiry and formatted re-authorization link",
+      result: `YouTube refresh token is expired or revoked. Permanent fix: set OAuth Consent Screen to 'In Production' in Google Cloud Console, then authorize: ${authUrl}`,
+    };
+  }
+}
+
 function unmappedServiceReport(serviceName: string, reason?: string): HealReport {
   return {
     success: false,
@@ -667,6 +760,8 @@ async function healSingleService(serviceName: string, reason?: string): Promise<
   } else if (norm.includes("kaggle") || norm.includes("gpu") || norm.includes("pipeline")) {
     const failedMatch = reason?.match(/([a-z0-9_-]{3,50}\/video-render-[a-z0-9]{4,32})/);
     healReport = await healKagglePipeline(failedMatch ? failedMatch[1] : undefined);
+  } else if (norm.includes("youtube")) {
+    healReport = await healYouTube();
   } else {
     healReport = unmappedServiceReport(serviceName, reason);
   }

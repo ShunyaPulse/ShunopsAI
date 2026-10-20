@@ -301,6 +301,13 @@ export async function sweepAndPublishVideos(): Promise<{ checked: number; publis
       publishedCount++;
     } catch (publishErr: any) {
       console.error(`[Cloud Sweeper] YouTube publishing failed:`, publishErr?.message ? "[REDACTED]" : "none");
+      await sendIncidentAlert({
+        title: `YouTube Auto-Publish Failed: Job ${jobId}`,
+        service: "YouTube Publishing API",
+        status: "DEGRADED",
+        actionTaken: `Attempted to publish video for job ${jobId} to YouTube`,
+        details: `Upload failed: ${publishErr?.message || String(publishErr)}. Token refresh or OAuth consent status requires attention.`,
+      }).catch(() => {});
     }
   }
 
