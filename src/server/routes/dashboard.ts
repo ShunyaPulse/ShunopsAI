@@ -31,11 +31,11 @@ export async function dashboardRoutes(app: FastifyInstance, opts: DashboardRoute
     if (req.headers.accept?.includes("text/html")) {
       const token = (req.cookies as any)?.shunops_user_session;
       if (!token) {
-        return reply.redirect("/login");
+        return reply.redirect("/workspace");
       }
       const user = await findUserBySessionToken(token);
       if (!user) {
-        return reply.redirect("/login");
+        return reply.redirect("/workspace");
       }
       if (isAdminUser(user)) {
         return reply.type("text/html").send(renderDashboard());

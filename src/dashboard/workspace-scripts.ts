@@ -38,83 +38,85 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]', isGue
     function runCodeInBrowserSandbox(code, timeoutMs) {
       timeoutMs = timeoutMs || 3000;
       return new Promise(function(resolve) {
-        const start = performance.now();
-        const logs = [];
-        const writtenFiles = {};
+        var start = performance.now();
+        var logs = [];
 
-        const workerSource = "self.onmessage = function(e) {\\n" +
-          "  var code = e.data.code;\\n" +
-          "  var logs = [];\\n" +
-          "  var writtenFiles = {};\\n" +
-          "  var console = {\\n" +
-          "    log: function() { logs.push(Array.from(arguments).map(function(a){ return typeof a === 'object' ? JSON.stringify(a) : String(a); }).join(' ')); },\\n" +
-          "    warn: function() { logs.push('[WARN] ' + Array.from(arguments).map(String).join(' ')); },\\n" +
-          "    error: function() { logs.push('[ERROR] ' + Array.from(arguments).map(String).join(' ')); }\\n" +
-          "  };\\n" +
-          "  var sum = function(arr) { return (arr||[]).reduce(function(a,b){return a+b;},0); };\\n" +
-          "  var mean = function(arr) { return (arr && arr.length) ? sum(arr)/arr.length : 0; };\\n" +
-          "  var median = function(arr) {\\n" +
-          "    if (!arr || !arr.length) return 0;\\n" +
-          "    var s = arr.slice().sort(function(a,b){return a-b;});\\n" +
-          "    var m = Math.floor(s.length/2);\\n" +
-          "    return s.length % 2 !== 0 ? s[m] : (s[m-1] + s[m])/2;\\n" +
-          "  };\\n" +
-          "  var stdDev = function(arr) {\\n" +
-          "    if (!arr || arr.length < 2) return 0;\\n" +
-          "    var m = mean(arr);\\n" +
-          "    var v = arr.reduce(function(acc, x){ return acc + Math.pow(x - m, 2); }, 0) / arr.length;\\n" +
-          "    return Math.sqrt(v);\\n" +
-          "  };\\n" +
-          "  var csvParse = function(text) {\\n" +
-          "    var lines = String(text||'').trim().split('\\n');\\n" +
-          "    if (!lines.length) return [];\\n" +
-          "    var headers = lines[0].split(',').map(function(h){return h.trim();});\\n" +
-          "    return lines.slice(1).map(function(line){\\n" +
-          "      var vals = line.split(',');\\n" +
-          "      var obj = {};\\n" +
-          "      headers.forEach(function(h, i){ obj[h] = (vals[i]||'').trim(); });\\n" +
-          "      return obj;\\n" +
-          "    });\\n" +
-          "  };\\n" +
-          "  var groupBy = function(arr, key) {\\n" +
-          "    return (arr||[]).reduce(function(acc, item){\\n" +
-          "      var k = item[key];\\n" +
-          "      (acc[k] = acc[k] || []).push(item);\\n" +
-          "      return acc;\\n" +
-          "    }, {});\\n" +
-          "  };\\n" +
-          "  var formatMarkdownTable = function(rows) {\\n" +
-          "    if (!rows || !rows.length) return '';\\n" +
-          "    var headers = Object.keys(rows[0]);\\n" +
-          "    var out = '| ' + headers.join(' | ') + ' |\\n| ' + headers.map(function(){return '---';}).join(' | ') + ' |\\n';\\n" +
-          "    rows.forEach(function(r){\\n" +
-          "      out += '| ' + headers.map(function(h){return r[h] !== undefined ? r[h] : '';}).join(' | ') + ' |\\n';\\n" +
-          "    });\\n" +
-          "    return out;\\n" +
-          "  };\\n" +
-          "  var writeWorkspaceFile = function(name, content) {\\n" +
-          "    var clean = String(name || '').trim().replace(/^\\/+/, '');\\n" +
-          "    writtenFiles[clean] = String(content || '');\\n" +
-          "    return true;\\n" +
-          "  };\\n" +
-          "  var appendWorkspaceFile = function(name, content) {\\n" +
-          "    var clean = String(name || '').trim().replace(/^\\/+/, '');\\n" +
-          "    writtenFiles[clean] = (writtenFiles[clean] || '') + String(content || '');\\n" +
-          "    return true;\\n" +
-          "  };\\n" +
-          "  var listWorkspaceFiles = function() {\\n" +
-          "    return Object.keys(writtenFiles);\\n" +
-          "  };\\n" +
-          "  try {\\n" +
-          "    var fn = new Function('console', 'sum', 'mean', 'median', 'stdDev', 'csvParse', 'groupBy', 'formatMarkdownTable', 'writeWorkspaceFile', 'appendWorkspaceFile', 'listWorkspaceFiles', code);\\n" +
-          "    var result = fn(console, sum, mean, median, stdDev, csvParse, groupBy, formatMarkdownTable, writeWorkspaceFile, appendWorkspaceFile, listWorkspaceFiles);\\n" +
-          "    self.postMessage({ success: true, result: result, logs: logs, writtenFiles: writtenFiles });\\n" +
-          "  } catch (err) {\\n" +
-          "    self.postMessage({ success: false, error: err.message, logs: logs, writtenFiles: writtenFiles });\\n" +
-          "  }\\n" +
-          "};";
+        var workerFn = function() {
+          self.onmessage = function(e) {
+            var userCode = e.data.code;
+            var logs = [];
+            var writtenFiles = {};
+            var customConsole = {
+              log: function() { logs.push(Array.from(arguments).map(function(a){ return typeof a === 'object' ? JSON.stringify(a) : String(a); }).join(' ')); },
+              warn: function() { logs.push('[WARN] ' + Array.from(arguments).map(String).join(' ')); },
+              error: function() { logs.push('[ERROR] ' + Array.from(arguments).map(String).join(' ')); }
+            };
+            var sum = function(arr) { return (arr||[]).reduce(function(a,b){return a+b;},0); };
+            var mean = function(arr) { return (arr && arr.length) ? sum(arr)/arr.length : 0; };
+            var median = function(arr) {
+              if (!arr || !arr.length) return 0;
+              var s = arr.slice().sort(function(a,b){return a-b;});
+              var m = Math.floor(s.length/2);
+              return s.length % 2 !== 0 ? s[m] : (s[m-1] + s[m])/2;
+            };
+            var stdDev = function(arr) {
+              if (!arr || arr.length < 2) return 0;
+              var m = mean(arr);
+              var v = arr.reduce(function(acc, x){ return acc + Math.pow(x - m, 2); }, 0) / arr.length;
+              return Math.sqrt(v);
+            };
+            var csvParse = function(text) {
+              var lines = String(text||'').trim().split('\\n');
+              if (!lines.length) return [];
+              var headers = lines[0].split(',').map(function(h){return h.trim();});
+              return lines.slice(1).map(function(line){
+                var vals = line.split(',');
+                var obj = {};
+                headers.forEach(function(h, i){ obj[h] = (vals[i]||'').trim(); });
+                return obj;
+              });
+            };
+            var groupBy = function(arr, key) {
+              return (arr||[]).reduce(function(acc, item){
+                var k = item[key];
+                (acc[k] = acc[k] || []).push(item);
+                return acc;
+              }, {});
+            };
+            var formatMarkdownTable = function(rows) {
+              if (!rows || !rows.length) return '';
+              var headers = Object.keys(rows[0]);
+              var out = '| ' + headers.join(' | ') + ' |\\n| ' + headers.map(function(){return '---';}).join(' | ') + ' |\\n';
+              rows.forEach(function(r){
+                out += '| ' + headers.map(function(h){return r[h] !== undefined ? r[h] : '';}).join(' | ') + ' |\\n';
+              });
+              return out;
+            };
+            var writeWorkspaceFile = function(name, content) {
+              var clean = String(name || '').trim().replace(/^\\/+/, '');
+              writtenFiles[clean] = String(content || '');
+              return true;
+            };
+            var appendWorkspaceFile = function(name, content) {
+              var clean = String(name || '').trim().replace(/^\\/+/, '');
+              writtenFiles[clean] = (writtenFiles[clean] || '') + String(content || '');
+              return true;
+            };
+            var listWorkspaceFiles = function() {
+              return Object.keys(writtenFiles);
+            };
 
-        var blob = new Blob([workerSource], { type: 'application/javascript' });
+            try {
+              var fn = new Function('console', 'sum', 'mean', 'median', 'stdDev', 'csvParse', 'groupBy', 'formatMarkdownTable', 'writeWorkspaceFile', 'appendWorkspaceFile', 'listWorkspaceFiles', userCode);
+              var result = fn(customConsole, sum, mean, median, stdDev, csvParse, groupBy, formatMarkdownTable, writeWorkspaceFile, appendWorkspaceFile, listWorkspaceFiles);
+              self.postMessage({ success: true, result: result, logs: logs, writtenFiles: writtenFiles });
+            } catch (err) {
+              self.postMessage({ success: false, error: err.message, logs: logs, writtenFiles: writtenFiles });
+            }
+          };
+        };
+
+        var blob = new Blob(['(' + workerFn.toString() + ')()'], { type: 'application/javascript' });
         var workerUrl = URL.createObjectURL(blob);
         var worker = new Worker(workerUrl);
 
@@ -172,6 +174,7 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]', isGue
         worker.postMessage({ code: code });
       });
     }
+
     let conversationHistory = [];
     let attachedImageDataUri = null;
     const MCP_PRESETS = ${presetsJson};
@@ -2536,13 +2539,13 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]', isGue
             }
             let outText = '';
             if (res.logs && res.logs.length > 0) {
-              outText += '=== Console Logs ===\n' + res.logs.join('\n') + '\n\n';
+              outText += '=== Console Logs ===\\n' + res.logs.join('\\n') + '\\n\\n';
             }
             if (res.writtenFiles && Object.keys(res.writtenFiles).length > 0) {
-              outText += '=== Files Created in Browser Storage ===\n';
+              outText += '=== Files Created in Browser Storage ===\\n';
               const newFiles = [];
               for (const [fn, cnt] of Object.entries(res.writtenFiles)) {
-                outText += '📁 ' + fn + ' (' + cnt.length + ' chars)\n';
+                outText += '📁 ' + fn + ' (' + cnt.length + ' chars)\\n';
                 newFiles.push({
                   name: fn,
                   content: cnt,
@@ -2554,7 +2557,7 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]', isGue
               saveLocalAgenticCache();
               renderAgenticWorkspaceState();
             }
-            outText += '=== Return Value ===\n' + (typeof res.result === 'object' ? JSON.stringify(res.result, null, 2) : String(res.result));
+            outText += '=== Return Value ===\\n' + (typeof res.result === 'object' ? JSON.stringify(res.result, null, 2) : String(res.result));
             if (outContent) outContent.textContent = outText;
           } else {
             if (meta) {
