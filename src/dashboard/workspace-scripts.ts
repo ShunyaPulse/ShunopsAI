@@ -431,6 +431,13 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]', isGue
       html = html.replace(/^## (.*$)/gim, '<strong style="display:block;font-size:15px;color:#38bdf8;margin:12px 0 6px;">$1</strong>');
       html = html.replace(/\\*\\*([^*]+)\\*\\*/g, '<strong style="color:#fff;">$1</strong>');
       html = html.replace(/\\[([^\\]]+)\\]\\((https?:\\/\\/[^\\s)]+)\\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" style="color:#38bdf8;text-decoration:underline;">$1</a>');
+      // Convert workspace file references like 📄 filename.md into 1-click open buttons
+      html = html.replace(/(?:📄|&#128196;)\\s*([a-zA-Z0-9_\\-\\.\\/]+\\.[a-zA-Z0-9]+)/g, function(_, fname) {
+        return '<button type="button" class="btn-sub" onclick="openWorkspaceFileByName(\\'' + fname + '\\')" style="display:inline-flex; align-items:center; gap:5px; padding:3px 9px; font-size:11.5px; font-family:monospace; color:#38bdf8; border:1px solid rgba(56,189,248,0.35); background:rgba(56,189,248,0.1); border-radius:6px; cursor:pointer; margin:2px 0; vertical-align:middle; font-weight:600;" title="Click to view/edit file in workspace">📄 ' + fname + ' <span style="font-size:9.5px; opacity:0.85; background:rgba(56,189,248,0.2); padding:1px 5px; border-radius:3px;">Open</span></button>';
+      });
+      html = html.replace(/\\[(?:file|workspace):\\s*([a-zA-Z0-9_\\-\\.\\/]+\\.[a-zA-Z0-9]+)\\]/gi, function(_, fname) {
+        return '<button type="button" class="btn-sub" onclick="openWorkspaceFileByName(\\'' + fname + '\\')" style="display:inline-flex; align-items:center; gap:5px; padding:3px 9px; font-size:11.5px; font-family:monospace; color:#38bdf8; border:1px solid rgba(56,189,248,0.35); background:rgba(56,189,248,0.1); border-radius:6px; cursor:pointer; margin:2px 0; vertical-align:middle; font-weight:600;" title="Click to view/edit file in workspace">📄 ' + fname + ' <span style="font-size:9.5px; opacity:0.85; background:rgba(56,189,248,0.2); padding:1px 5px; border-radius:3px;">Open</span></button>';
+      });
       html = html.replace(/\\n/g, '<br>');
       return html;
     }
@@ -2091,9 +2098,9 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]', isGue
           memories: serverMemories,
           schedules: serverSchedules,
         };
-        const totalRemaining = tasks.length + files.length + memories.length + schedules.length;
-      window.__shunopsUserEmptiedAll = (totalRemaining === 0);
-      saveLocalAgenticCache();
+        const totalRemaining = serverTasks.length + serverFiles.length + serverMemories.length + serverSchedules.length;
+        window.__shunopsUserEmptiedAll = (totalRemaining === 0);
+        saveLocalAgenticCache();
         renderAgenticWorkspaceState();
 
         if (isManualSync && syncBadge) {
@@ -2125,6 +2132,8 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]', isGue
       if (fCount) fCount.textContent = String(files.length);
       if (mCount) mCount.textContent = String(memories.length);
       if (sCount) sCount.textContent = String(schedules.length);
+      const chatFCount = document.getElementById('chat-header-files-count');
+      if (chatFCount) chatFCount.textContent = String(files.length);
       const summaryBadge = document.getElementById('work-mode-summary-badge');
       if (summaryBadge) {
         const totalItems = tasks.length + files.length + memories.length + schedules.length;
@@ -2283,6 +2292,52 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]', isGue
         }
       } catch (e) {}
     }
+
+    function openWorkspaceFileByName(filename) {
+      filename = (filename || '').trim();
+      if (!filename) return;
+      var cleanName = filename.replace(/^[\\s📄\\-*#\\x60'"]+|[#\\x60'"\\s]+$/g, '');
+      var files = cachedAgenticState.files || [];
+      var target = files.find(function(f) {
+        return (f.name || '').toLowerCase() === cleanName.toLowerCase();
+      });
+      if (!target) {
+        target = files.find(function(f) {
+          var fn = (f.name || '').toLowerCase();
+          var cn = cleanName.toLowerCase();
+          return fn.includes(cn) || cn.includes(fn);
+        });
+      }
+      if (target) {
+        openWorkspaceFileModal(target.name, target.content);
+        return;
+      }
+      fetch('/api/workspace/agentic-state', { credentials: 'same-origin' })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          if (data && data.success && Array.isArray(data.files)) {
+            cachedAgenticState.files = data.files;
+            renderAgenticWorkspaceState();
+            var serverTarget = data.files.find(function(f) {
+              return (f.name || '').toLowerCase() === cleanName.toLowerCase();
+            }) || data.files.find(function(f) {
+              var sfn = (f.name || '').toLowerCase();
+              var scn = cleanName.toLowerCase();
+              return sfn.includes(scn) || scn.includes(sfn);
+            });
+            if (serverTarget) {
+              openWorkspaceFileModal(serverTarget.name, serverTarget.content);
+              return;
+            }
+          }
+          alert('Workspace file "' + cleanName + '" was not found in your workspace.');
+        })
+        .catch(function() {
+          alert('Workspace file "' + cleanName + '" was not found in your workspace.');
+        });
+    }
+    window.openWorkspaceFileByName = openWorkspaceFileByName;
+    window.openWorkspaceFileByIdx = openWorkspaceFileByIdx;
 
     function openWorkspaceFileByIdx(idx) {
       const file = (cachedAgenticState.files || [])[idx];

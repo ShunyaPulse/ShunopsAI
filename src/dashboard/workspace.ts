@@ -122,6 +122,9 @@ ${WORKSPACE_STYLES}
             <button type="button" onclick="switchWorkspaceMainMode('work')" class="btn-sub" style="font-size:11px; padding:3px 10px; border-color:rgba(56,189,248,0.35); color:#38bdf8;">
               ⚡ Open Work Studio &rarr;
             </button>
+            <button type="button" onclick="switchWorkspaceMainMode('work'); switchAgenticTab('files');" class="btn-sub" style="font-size:11px; padding:3px 10px; border-color:rgba(56,189,248,0.35); color:#38bdf8;" title="View all workspace files">
+              📁 Files (<span id="chat-header-files-count">0</span>)
+            </button>
             <button type="button" onclick="clearConversation()" style="background:transparent; border:1px solid rgba(255,255,255,0.12); color:#94a3b8; font-size:11px; padding:3px 9px; border-radius:8px; cursor:pointer; transition:all 0.15s;" title="Wipe chat history from database and start fresh">
               🧹 Clear History
             </button>
