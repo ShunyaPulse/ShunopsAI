@@ -27,45 +27,212 @@
   const rawWelcome = currentScript?.getAttribute('data-welcome');
   const rawChips = currentScript?.getAttribute('data-chips');
 
-  // Intelligent Context Detection
+  // ===========================================================================
+  // Intelligent On-Site Context & Auto-Chip Synthesizer (with Persistence)
+  // When embedded on any new website for the first time, analyzes page metadata,
+  // headings, brand name, and domain semantics to synthesize custom action chips
+  // and caches them in localStorage so subsequent visits show the exact same
+  // site-tailored chips without latency or falling back to generic prompts.
+  // ===========================================================================
   const host = (typeof window !== 'undefined' && window.location && window.location.hostname) ? window.location.hostname.toLowerCase() : '';
-  const docTitle = (typeof document !== 'undefined' && document.title) ? document.title.toLowerCase() : '';
-  const isSaralGati = host.includes('saralgati') || docTitle.includes('saralgati') || host.includes('sage-webbing');
-  const isKanban = host.includes('kanban') || docTitle.includes('kanban');
+  const docTitle = (typeof document !== 'undefined' && document.title) ? document.title : '';
+  const CHIPS_STORAGE_KEY = 'cf_widget_chips_' + (host || 'default');
+  const TITLE_STORAGE_KEY = 'cf_widget_title_' + (host || 'default');
+  const WELCOME_STORAGE_KEY = 'cf_widget_welcome_' + (host || 'default');
 
-  let defaultTitle = 'Edge AI Command Engine';
-  let defaultWelcome = 'Hello! I am your Edge AI Assistant powered by Cloudflare Workers. How can I assist you today?';
-  let defaultChips = [
-    { label: '📅 Book Consultation', prompt: 'Book a consultation for tomorrow at 4 PM' },
-    { label: '📦 Track Order / Ticket', prompt: 'Track status for reference #1042' },
-    { label: '⚡ System Status', prompt: 'Trigger system action check_status' },
-    { label: '💼 Contact Support', prompt: 'Submit an inquiry or support request' },
-  ];
-
-  if (isSaralGati) {
-    defaultTitle = 'SaralGati Care AI';
-    defaultWelcome = 'Namaste! Main SaralGati Elder & Caregiver AI Assistant hoon. Main emergency alert check karne, smartphone screen guidance dene, dawai schedule ya suspicious call scam verify karne me aapki madad kar sakta hoon. Kaise madad karoon?';
-    defaultChips = [
-      { label: '🚨 SOS & Health Check', prompt: 'Check active elder emergency alerts and health vitals status' },
-      { label: '📱 Phone Guide (सरल)', prompt: 'Mujhe smartphone screen aur buttons chalana simple Hindi me samjhao' },
-      { label: '💊 Dawai Reminder', prompt: 'Elder daily medicine reminder aur care routine schedule dikhao' },
-      { label: '🛡️ Scam & Fraud Shield', prompt: 'Check if a suspicious phone call, SMS, or banking alert is a fraud or scam' },
-    ];
-  } else if (isKanban) {
-    defaultTitle = 'Kanban Cloud AI';
-    defaultWelcome = 'Hi! I am your Kanban Cloud AI Assistant. I can help create tasks, summarize sprint WIP limits, highlight blockers, and configure board automation. How can I assist you?';
-    defaultChips = [
-      { label: '➕ Create Task', prompt: 'Create a new task card on the board' },
-      { label: '📊 Sprint WIP Status', prompt: 'Summarize active board columns and WIP limits' },
-      { label: '🔍 Find Blockers', prompt: 'Show blocked cards and urgent priority tasks' },
-      { label: '⚡ Board Automations', prompt: 'How do I configure automation rules or export board data?' },
-    ];
+  function getMetaContent(nameOrProp) {
+    if (typeof document === 'undefined') return '';
+    const el = document.querySelector(`meta[name="${nameOrProp}"], meta[property="${nameOrProp}"]`);
+    return el ? (el.getAttribute('content') || '').trim() : '';
   }
 
-  const widgetTitle = rawTitle || defaultTitle;
-  const welcomeMessage = rawWelcome || defaultWelcome;
+  function resolveBrandName() {
+    if (currentScript && currentScript.getAttribute('data-site-name')) {
+      return currentScript.getAttribute('data-site-name');
+    }
+    const ogSite = getMetaContent('og:site_name');
+    if (ogSite && ogSite.length >= 2 && ogSite.length <= 30) return ogSite;
+    if (docTitle) {
+      const parts = docTitle.split(/[-|•–:]/);
+      if (parts[0] && parts[0].trim().length >= 2 && parts[0].trim().length <= 35) {
+        return parts[0].trim();
+      }
+    }
+    if (host) {
+      const clean = host.replace(/^(www\.|app\.|staging\.|dev\.)/, '').split('.')[0];
+      if (clean && clean !== 'localhost') {
+        return clean.charAt(0).toUpperCase() + clean.slice(1);
+      }
+    }
+    return '';
+  }
 
-  let activeChips = defaultChips;
+  function synthesizeIntelligentSiteContext() {
+    const brand = resolveBrandName();
+    const metaDesc = getMetaContent('description') || getMetaContent('og:description');
+    const ogTitle = getMetaContent('og:title');
+    const headings = typeof document !== 'undefined'
+      ? Array.from(document.querySelectorAll('h1, h2')).map((e) => (e.innerText || e.textContent || '').trim()).filter(Boolean).slice(0, 5).join(' ')
+      : '';
+    const corpus = `${host} ${docTitle} ${ogTitle} ${metaDesc} ${headings}`.toLowerCase();
+
+    // 1. ShunopsAI / YouTube Video Studio / Autonomous Engine
+    if (corpus.includes('shunops') || corpus.includes('youtube') || corpus.includes('video render') || corpus.includes('tts') || corpus.includes('run.app')) {
+      const siteTitle = brand ? `${brand} Studio AI` : 'ShunopsAI Studio';
+      return {
+        title: siteTitle,
+        welcome: `Namaste! Main ${siteTitle} hoon. Main YouTube video script, multi-track rendering, audio TTS aur autonomous publishing status me aapki madad kar sakta hoon. Kaise help karoon?`,
+        chips: [
+          { label: '🎬 Video Script & Render', prompt: 'Generate an autonomous video script and start scene rendering' },
+          { label: '📺 YouTube Upload Status', prompt: 'Check recent YouTube video upload status and publishing queue' },
+          { label: '⚡ Run Code / Sandbox', prompt: 'Run code in the secure WebAssembly sandbox' },
+          { label: '📋 Autonomous Task Plan', prompt: 'Create a multi-step execution plan for my project' },
+        ],
+      };
+    }
+
+    // 2. SaralGati / Elder & Caregiver Support
+    if (corpus.includes('saralgati') || corpus.includes('elder') || corpus.includes('caregiver') || corpus.includes('dawai') || corpus.includes('sage-webbing')) {
+      return {
+        title: 'SaralGati Care AI',
+        welcome: 'Namaste! Main SaralGati Elder & Caregiver AI Assistant hoon. Main emergency alert check karne, smartphone screen guidance dene, dawai schedule ya suspicious call scam verify karne me aapki madad kar sakta hoon. Kaise madad karoon?',
+        chips: [
+          { label: '🚨 SOS & Health Check', prompt: 'Check active elder emergency alerts and health vitals status' },
+          { label: '📱 Phone Guide (सरल)', prompt: 'Mujhe smartphone screen aur buttons chalana simple Hindi me samjhao' },
+          { label: '💊 Dawai Reminder', prompt: 'Elder daily medicine reminder aur care routine schedule dikhao' },
+          { label: '🛡️ Scam & Fraud Shield', prompt: 'Check if a suspicious phone call, SMS, or banking alert is a fraud or scam' },
+        ],
+      };
+    }
+
+    // 3. Kanban / Agile / Task Management
+    if (corpus.includes('kanban') || corpus.includes('sprint') || corpus.includes('scrum') || corpus.includes('wip limit') || corpus.includes('backlog')) {
+      return {
+        title: 'Kanban Cloud AI',
+        welcome: 'Hi! I am your Kanban Cloud AI Assistant. I can help create tasks, summarize sprint WIP limits, highlight blockers, and configure board automation. How can I assist you?',
+        chips: [
+          { label: '➕ Create Task', prompt: 'Create a new task card on the board' },
+          { label: '📊 Sprint WIP Status', prompt: 'Summarize active board columns and WIP limits' },
+          { label: '🔍 Find Blockers', prompt: 'Show blocked cards and urgent priority tasks' },
+          { label: '⚡ Board Automations', prompt: 'How do I configure automation rules or export board data?' },
+        ],
+      };
+    }
+
+    // 4. E-Commerce / Store / Shopping / Products
+    if (corpus.includes('shop') || corpus.includes('store') || corpus.includes('cart') || corpus.includes('checkout') || corpus.includes('product') || corpus.includes('buy') || corpus.includes('price') || corpus.includes('discount') || corpus.includes('sale') || corpus.includes('apparel') || corpus.includes('clothing')) {
+      const siteTitle = brand ? `${brand} Shopping AI` : 'Store Shopping Assistant';
+      return {
+        title: siteTitle,
+        welcome: `Welcome to ${brand || 'our store'}! I am your AI shopping assistant. How can I help you discover products, check special offers, or track your orders today?`,
+        chips: [
+          { label: '🛍️ Featured Products', prompt: 'What are the top trending products and popular recommendations today?' },
+          { label: '📦 Track My Order', prompt: 'How do I check the delivery status and tracking for my order?' },
+          { label: '🏷️ Deals & Discounts', prompt: 'What active discount coupons and promotional offers are available?' },
+          { label: '🔄 Returns & Shipping', prompt: 'What is the return policy, warranty, and estimated shipping time?' },
+        ],
+      };
+    }
+
+    // 5. Developer / SaaS / API / Tech Platform
+    if (corpus.includes('api') || corpus.includes('developer') || corpus.includes('sdk') || corpus.includes('docs') || corpus.includes('cloud') || corpus.includes('deploy') || corpus.includes('saas') || corpus.includes('database') || corpus.includes('software')) {
+      const siteTitle = brand ? `${brand} Copilot` : 'Developer Copilot';
+      return {
+        title: siteTitle,
+        welcome: `Hello! I am your AI assistant for ${brand || 'this platform'}. How can I assist with your setup, integration, API docs, or workflows today?`,
+        chips: [
+          { label: '🚀 Getting Started', prompt: `How do I quickly get started with ${brand || 'this platform'}?` },
+          { label: '💻 API & SDK Guide', prompt: 'Show me code examples, authentication, and API integration steps' },
+          { label: '⚙️ Configuration', prompt: 'What are the recommended deployment settings and best practices?' },
+          { label: '🛠️ Troubleshoot', prompt: 'Help me debug an error code or configure platform permissions' },
+        ],
+      };
+    }
+
+    // 6. Education / Courses / Academy
+    if (corpus.includes('course') || corpus.includes('learn') || corpus.includes('academy') || corpus.includes('student') || corpus.includes('syllabus') || corpus.includes('tutorial') || corpus.includes('study') || corpus.includes('training')) {
+      const siteTitle = brand ? `${brand} Learning AI` : 'Study Guide AI';
+      return {
+        title: siteTitle,
+        welcome: `Welcome to ${brand || 'our academy'}! I can guide you through courses, curriculum details, practice questions, and study roadmap.`,
+        chips: [
+          { label: '📚 Explore Courses', prompt: 'What courses, certifications, and learning tracks are available?' },
+          { label: '🎓 Curriculum Details', prompt: 'Can you explain the syllabus, prerequisites, and learning outcomes?' },
+          { label: '📝 Practice & Quiz', prompt: 'Give me a quick practice exercise or quiz on the key concepts' },
+          { label: '💡 Study Roadmap', prompt: 'What is the recommended step-by-step study roadmap for beginners?' },
+        ],
+      };
+    }
+
+    // 7. Healthcare / Clinic / Medical
+    if (corpus.includes('clinic') || corpus.includes('doctor') || corpus.includes('hospital') || corpus.includes('medical') || corpus.includes('dental') || corpus.includes('health') || corpus.includes('patient') || corpus.includes('treatment')) {
+      const siteTitle = brand ? `${brand} Health AI` : 'Care & Wellness AI';
+      return {
+        title: siteTitle,
+        welcome: `Welcome to ${brand || 'our clinic'}! How can I assist you with appointments, clinic timings, treatments, or consultation queries today?`,
+        chips: [
+          { label: '📅 Book Appointment', prompt: 'How can I schedule a consultation or doctor appointment?' },
+          { label: '🩺 Services & Treatments', prompt: 'What medical treatments and specialized services are offered here?' },
+          { label: '⏰ Timings & Location', prompt: 'What are the operating hours, emergency contact, and clinic location?' },
+          { label: '🛡️ Patient Guide', prompt: 'What documents or medical history should I bring to my visit?' },
+        ],
+      };
+    }
+
+    // 8. Real Estate / Housing / Properties
+    if (corpus.includes('realty') || corpus.includes('property') || corpus.includes('real estate') || corpus.includes('apartment') || corpus.includes('villa') || corpus.includes('housing') || corpus.includes('rent') || corpus.includes('broker')) {
+      const siteTitle = brand ? `${brand} Property AI` : 'Real Estate Guide';
+      return {
+        title: siteTitle,
+        welcome: `Welcome to ${brand || 'our property portal'}! I can help you search properties, arrange site visits, and explore pricing details.`,
+        chips: [
+          { label: '🏡 Browse Listings', prompt: 'Show available properties, apartments, and featured listings' },
+          { label: '📍 Locality & Pricing', prompt: 'What are the price ranges, neighborhood amenities, and connectivity?' },
+          { label: '📅 Schedule Site Visit', prompt: 'How can I book an in-person property inspection or virtual tour?' },
+          { label: '📄 Paperwork & Financing', prompt: 'What documentation, registry process, and loan options are supported?' },
+        ],
+      };
+    }
+
+    // 9. Finance / Fintech / Banking / Investments
+    if (corpus.includes('finance') || corpus.includes('fintech') || corpus.includes('bank') || corpus.includes('loan') || corpus.includes('crypto') || corpus.includes('invest') || corpus.includes('insurance') || corpus.includes('wallet')) {
+      const siteTitle = brand ? `${brand} Financial AI` : 'Finance Advisor AI';
+      return {
+        title: siteTitle,
+        welcome: `Welcome to ${brand || 'our financial portal'}! How can I assist you with plans, account queries, rates, or verification today?`,
+        chips: [
+          { label: '📊 Compare Plans', prompt: 'What financial plans, investment tiers, or accounts are available?' },
+          { label: '💳 Rates & Fees', prompt: 'What are the interest rates, processing fees, and minimum requirements?' },
+          { label: '🛡️ Security & KYC', prompt: 'How does account verification, KYC, and transaction security work?' },
+          { label: '📞 Advisor Assistance', prompt: 'How can I connect with a dedicated advisor or customer support?' },
+        ],
+      };
+    }
+
+    // 10. Universal Dynamic Smart Fallback (Any General Website / Blog / Portfolio / Agency)
+    const siteTitle = brand ? `${brand} Assistant` : 'Website Assistant';
+    const firstH1 = typeof document !== 'undefined'
+      ? (document.querySelector('h1')?.innerText || document.querySelector('h1')?.textContent || '').trim().replace(/\s+/g, ' ')
+      : '';
+    const featurePrompt = firstH1 && firstH1.length <= 50 ? `Tell me more about "${firstH1}" and what you offer` : `Explain the key services, features, and purpose of ${siteTitle}`;
+
+    return {
+      title: siteTitle,
+      welcome: `Welcome to ${brand || 'our website'}! I am your interactive AI assistant. How can I help you explore our features, answer questions, or guide you today?`,
+      chips: [
+        { label: `🌟 About ${brand || 'Us'}`, prompt: `What is ${brand || 'this platform'} and how does it help users?` },
+        { label: '🔍 Key Features', prompt: featurePrompt },
+        { label: '❓ FAQ & Answers', prompt: `What are the most common questions and helpful tips for ${brand || 'this website'}?` },
+        { label: '💬 Contact & Help', prompt: 'How can I reach the support team or get further assistance?' },
+      ],
+    };
+  }
+
+  // 1. Explicit data-chips attribute wins
+  let activeChips = null;
+  let defaultTitle = '';
+  let defaultWelcome = '';
+
   if (rawChips) {
     try {
       const parsed = JSON.parse(rawChips);
@@ -82,6 +249,39 @@
       }).filter((c) => c.label);
     }
   }
+
+  // 2. Read from persistent localStorage cache for this website
+  if (!activeChips) {
+    try {
+      const cachedChipsJson = localStorage.getItem(CHIPS_STORAGE_KEY);
+      if (cachedChipsJson) {
+        const parsed = JSON.parse(cachedChipsJson);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          activeChips = parsed;
+        }
+      }
+      defaultTitle = localStorage.getItem(TITLE_STORAGE_KEY) || '';
+      defaultWelcome = localStorage.getItem(WELCOME_STORAGE_KEY) || '';
+    } catch {}
+  }
+
+  // 3. First time on this website ("jab pehli baar kisi nayi website pe lge")
+  // Intelligently synthesize and persist immediately!
+  if (!activeChips || activeChips.length === 0 || !defaultTitle || !defaultWelcome) {
+    const synthesized = synthesizeIntelligentSiteContext();
+    if (!activeChips || activeChips.length === 0) activeChips = synthesized.chips;
+    if (!defaultTitle) defaultTitle = synthesized.title;
+    if (!defaultWelcome) defaultWelcome = synthesized.welcome;
+
+    try {
+      localStorage.setItem(CHIPS_STORAGE_KEY, JSON.stringify(activeChips));
+      localStorage.setItem(TITLE_STORAGE_KEY, defaultTitle);
+      localStorage.setItem(WELCOME_STORAGE_KEY, defaultWelcome);
+    } catch {}
+  }
+
+  const widgetTitle = rawTitle || defaultTitle || 'Website Assistant';
+  const welcomeMessage = rawWelcome || defaultWelcome || 'Hello! How can I assist you today?';
 
   // Safe session ID generator
   function generateSessionId() {
@@ -1301,11 +1501,21 @@
     }
   });
 
-  clearBtn.addEventListener('click', () => {
+  clearBtn.addEventListener('click', (e) => {
     conversationHistory.length = 0;
     sessionId = generateSessionId();
     localStorage.setItem(STORAGE_KEY, sessionId);
     clearQuotedBar();
+    if (e && e.shiftKey) {
+      // Shift+Click on reset re-scans the host website DOM and refreshes cached intelligent chips
+      const fresh = synthesizeIntelligentSiteContext();
+      activeChips = fresh.chips;
+      try {
+        localStorage.setItem(CHIPS_STORAGE_KEY, JSON.stringify(fresh.chips));
+        localStorage.setItem(TITLE_STORAGE_KEY, fresh.title);
+        localStorage.setItem(WELCOME_STORAGE_KEY, fresh.welcome);
+      } catch {}
+    }
     messagesBox.innerHTML = `
       <div class="cf-msg cf-msg-assistant">
         <div class="cf-bubble">
