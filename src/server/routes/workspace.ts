@@ -4,6 +4,9 @@ import {
   saveChatMessage,
   getChatHistory,
   clearChatHistory,
+  listConversations,
+  createConversation,
+  deleteConversation,
   createApiKey,
   listUserApiKeys,
   deleteApiKey,
@@ -241,40 +244,92 @@ export interface WorkspaceRouteOptions {
 export async function workspaceRoutes(app: FastifyInstance, options: WorkspaceRouteOptions): Promise<void> {
   const { requireAuth } = options;
 
-  // 1. Get Chat History for Authenticated User
-  app.get("/api/workspace/chat-history", { preHandler: [requireAuth] }, async (req) => {
+  // 1a. List Conversations for Authenticated User
+  app.get("/api/workspace/conversations", { preHandler: [requireAuth] }, async (req) => {
     const user = (req as any).user;
     const userId = user?.id || 0;
-    const messages = await getChatHistory(userId, 100);
-    return { success: true, messages };
+    const conversations = await listConversations(userId);
+    return { success: true, conversations };
   });
 
+  // 1b. Create or Upsert Conversation
+  app.post<{ Body: { id: string; title?: string } }>(
+    "/api/workspace/conversations",
+    { preHandler: [requireAuth] },
+    async (req, reply) => {
+      const user = (req as any).user;
+      const userId = user?.id || 0;
+      const { id, title } = req.body || {};
+      if (!id) {
+        reply.status(400);
+        return { error: "Conversation ID required." };
+      }
+      const conversation = await createConversation(userId, id, title || "New Conversation");
+      return { success: true, conversation };
+    }
+  );
+
+  // 1c. Delete Specific Conversation
+  app.delete<{ Params: { id: string } }>(
+    "/api/workspace/conversations/:id",
+    { preHandler: [requireAuth] },
+    async (req) => {
+      const user = (req as any).user;
+      const userId = user?.id || 0;
+      const { id } = req.params;
+      await deleteConversation(userId, id);
+      return { success: true, message: "Conversation deleted." };
+    }
+  );
+
+  // 1d. Get Chat History for Authenticated User (by conversationId)
+  app.get<{ Querystring: { conversationId?: string } }>(
+    "/api/workspace/chat-history",
+    { preHandler: [requireAuth] },
+    async (req) => {
+      const user = (req as any).user;
+      const userId = user?.id || 0;
+      const { conversationId } = req.query || {};
+      const messages = await getChatHistory(userId, 100, conversationId);
+      return { success: true, messages, conversationId: conversationId || "default" };
+    }
+  );
+
   // 2. Save Chat Message
-  app.post<{ Body: { role: "user" | "assistant"; message: string } }>(
+  app.post<{ Body: { role: "user" | "assistant"; message: string; conversationId?: string } }>(
     "/api/workspace/chat-history",
     { preHandler: [requireAuth] },
     async (req, reply) => {
       const user = (req as any).user;
       const userId = user?.id || 0;
-      const { role, message } = req.body || {};
+      const { role, message, conversationId } = req.body || {};
 
       if (!message || (role !== "user" && role !== "assistant")) {
         reply.status(400);
         return { error: "Valid role ('user' or 'assistant') and message required." };
       }
 
-      await saveChatMessage(userId, role, message);
+      await saveChatMessage(userId, role, message, conversationId || "default");
       return { success: true };
     }
   );
 
   // 3. Clear Chat History
-  app.delete("/api/workspace/chat-history", { preHandler: [requireAuth] }, async (req) => {
-    const user = (req as any).user;
-    const userId = user?.id || 0;
-    await clearChatHistory(userId);
-    return { success: true, message: "Chat history cleared." };
-  });
+  app.delete<{ Querystring: { conversationId?: string } }>(
+    "/api/workspace/chat-history",
+    { preHandler: [requireAuth] },
+    async (req) => {
+      const user = (req as any).user;
+      const userId = user?.id || 0;
+      const { conversationId } = req.query || {};
+      if (conversationId && conversationId !== "all") {
+        await deleteConversation(userId, conversationId);
+        return { success: true, message: `Conversation ${conversationId} cleared.` };
+      }
+      await clearChatHistory(userId);
+      return { success: true, message: "Chat history cleared." };
+    }
+  );
 
   // 3b. Agentic Workspace Hub Snapshot (Tasks, Files, Memories, Schedules) with DB hydration & ETag
   app.get("/api/workspace/agentic-state", { preHandler: [requireAuth] }, async (req, reply) => {

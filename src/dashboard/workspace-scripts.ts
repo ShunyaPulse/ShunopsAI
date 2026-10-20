@@ -367,27 +367,135 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]', isGue
       }
     }
 
-    // 1. Persistent Chat History: Load from DB on startup
-    async function loadSavedChatHistory() {
-      const thread = document.getElementById('chat-thread');
-      try {
-        const res = await fetch('/api/workspace/chat-history');
-        const data = await res.json();
-        const emptyState = document.getElementById('empty-state');
+    // Multi-Conversation Session Management & Persistence
+    let currentConversationId = localStorage.getItem('shunops_current_conv_id') || ('conv_' + Date.now().toString(36));
+    let cachedConversations = [];
 
-        if (data.success && data.messages && data.messages.length > 0) {
+    function formatRelativeTime(iso) {
+      if (!iso) return 'Recent';
+      try {
+        const diffMs = Date.now() - new Date(iso).getTime();
+        const mins = Math.floor(diffMs / 60000);
+        if (mins < 1) return 'Just now';
+        if (mins < 60) return mins + 'm ago';
+        const hours = Math.floor(mins / 60);
+        if (hours < 24) return hours + 'h ago';
+        const days = Math.floor(hours / 24);
+        if (days === 1) return 'Yesterday';
+        if (days < 7) return days + 'd ago';
+        return new Date(iso).toLocaleDateString();
+      } catch (e) { return 'Recent'; }
+    }
+
+    function escapeHtmlAttr(str) {
+      return String(str || '').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    function escapeHtmlText(str) {
+      const div = document.createElement('div');
+      div.textContent = str;
+      return div.innerHTML;
+    }
+
+    function renderConversationsList() {
+      const container = document.getElementById('conversations-list-container');
+      const countBadge = document.getElementById('chat-conversations-count');
+      if (!container) return;
+
+      if (countBadge) {
+        countBadge.textContent = String(Math.max(1, cachedConversations.length));
+      }
+
+      if (cachedConversations.length === 0) {
+        container.innerHTML = '<div style="color:#64748b; font-size:11px; padding:10px 4px; text-align:center;">No past chats yet. Start chatting below!</div>';
+        return;
+      }
+
+      container.innerHTML = cachedConversations.map(function(c) {
+        const isActive = c.id === currentConversationId;
+        const activeCls = isActive ? 'conv-item active' : 'conv-item';
+        const titleSafe = escapeHtmlText(c.title || 'Conversation');
+        const countTxt = (c.message_count && c.message_count > 0) ? (' • ' + c.message_count + ' msgs') : '';
+        return '<div class="' + activeCls + '" onclick="switchConversation(\\'' + escapeHtmlAttr(c.id) + '\\')" title="Open chat: ' + titleSafe + '">'
+          + '<div style="overflow:hidden; flex:1; min-width:0;">'
+          + '<div style="font-size:11.5px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">' + titleSafe + '</div>'
+          + '<div style="font-size:9.5px; color:#64748b; margin-top:2px;">' + formatRelativeTime(c.updated_at) + countTxt + '</div>'
+          + '</div>'
+          + '<button type="button" onclick="event.stopPropagation(); deleteConversationById(\\'' + escapeHtmlAttr(c.id) + '\\')" class="conv-del-btn" style="background:transparent; border:none; color:#64748b; font-size:14px; cursor:pointer; padding:0 4px;" title="Delete this conversation">&times;</button>'
+          + '</div>';
+      }).join('');
+    }
+
+    async function loadConversationsList() {
+      if (isGuest) {
+        try {
+          const raw = localStorage.getItem('shunops_guest_conversations');
+          cachedConversations = raw ? JSON.parse(raw) : [];
+        } catch (e) { cachedConversations = []; }
+      } else {
+        try {
+          const res = await fetch('/api/workspace/conversations', { credentials: 'same-origin' });
+          if (res.ok) {
+            const data = await res.json();
+            if (data && data.success && Array.isArray(data.conversations)) {
+              cachedConversations = data.conversations;
+            }
+          }
+        } catch (e) {}
+      }
+
+      // If active conversation not yet in list and we have messages, prepend it
+      const exists = cachedConversations.some(function(c) { return c.id === currentConversationId; });
+      if (!exists && conversationHistory.length > 0) {
+        const firstUser = conversationHistory.find(function(m) { return m.role === 'user'; });
+        const autoTitle = firstUser ? firstUser.content.slice(0, 45) : 'Current Chat';
+        cachedConversations.unshift({
+          id: currentConversationId,
+          title: autoTitle,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        });
+      }
+
+      renderConversationsList();
+    }
+
+    async function loadSavedChatHistory(convId) {
+      const thread = document.getElementById('chat-thread');
+      const targetId = convId || currentConversationId;
+      try {
+        let messages = [];
+        if (!isGuest) {
+          const res = await fetch('/api/workspace/chat-history?conversationId=' + encodeURIComponent(targetId), { credentials: 'same-origin' });
+          if (res.ok) {
+            const data = await res.json();
+            if (data && data.success && Array.isArray(data.messages)) {
+              messages = data.messages;
+            }
+          }
+        } else {
+          try {
+            const raw = localStorage.getItem('shunops_guest_msgs_' + targetId);
+            messages = raw ? JSON.parse(raw) : [];
+          } catch (e) {}
+        }
+
+        const emptyState = document.getElementById('empty-state');
+        if (messages.length > 0) {
           if (emptyState) emptyState.remove();
           thread.innerHTML = '';
           conversationHistory = [];
-          data.messages.forEach(m => {
+          messages.forEach(function(m) {
             appendMessageBubble(m.role, m.message, false);
             conversationHistory.push({ role: m.role, content: m.message });
           });
           updateContextBadge();
         } else {
-          if (emptyState) {
-            emptyState.innerHTML = '👋 Hello <strong>${safeUsername}</strong>! Ask a question or pick a prompt below to begin.';
-          }
+          conversationHistory = [];
+          thread.innerHTML = '<div id="empty-state" style="margin:auto; text-align:center; color:#64748b; font-size:13px; padding:20px;">'
+            + '👋 Hello <strong>' + escapeHtmlText('${safeUsername}') + '</strong>! Start a new chat or pick a prompt below to begin.'
+            + '</div>';
+          updateContextBadge();
         }
       } catch (e) {
         const emptyState = document.getElementById('empty-state');
@@ -395,29 +503,103 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]', isGue
       }
     }
 
-    // 2. Clear Chat History in DB & in Memory
-    async function clearConversation() {
-      if (!confirm('Are you sure you want to clear your conversation history?')) return;
-      try {
-        await fetch('/api/workspace/chat-history', { method: 'DELETE' });
-        conversationHistory = [];
-        const thread = document.getElementById('chat-thread');
-        thread.innerHTML = '<div id="empty-state" style="margin:auto; text-align:center; color:#64748b; font-size:13px; padding:20px;">👋 Fresh conversation started! Ask a question below.</div>';
-        updateContextBadge();
-      } catch (e) {
-        alert('Could not clear history: ' + e.message);
+    async function switchConversation(convId) {
+      if (!convId || convId === currentConversationId) return;
+      currentConversationId = convId;
+      localStorage.setItem('shunops_current_conv_id', convId);
+      await loadSavedChatHistory(convId);
+      renderConversationsList();
+    }
+
+    function startNewConversation() {
+      currentConversationId = 'conv_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7);
+      localStorage.setItem('shunops_current_conv_id', currentConversationId);
+      conversationHistory = [];
+
+      const thread = document.getElementById('chat-thread');
+      if (thread) {
+        thread.innerHTML = '<div id="empty-state" style="margin:auto; text-align:center; color:#64748b; font-size:13px; padding:20px;">'
+          + '✨ New conversation started! What would you like to build, debug, or explore?'
+          + '</div>';
+      }
+
+      const input = document.getElementById('user-chat-input');
+      if (input) input.focus();
+
+      updateContextBadge();
+      loadConversationsList();
+    }
+
+    async function deleteConversationById(convId) {
+      if (!confirm('Are you sure you want to delete this conversation?')) return;
+      if (isGuest) {
+        cachedConversations = cachedConversations.filter(function(c) { return c.id !== convId; });
+        try {
+          localStorage.setItem('shunops_guest_conversations', JSON.stringify(cachedConversations));
+          localStorage.removeItem('shunops_guest_msgs_' + convId);
+        } catch (e) {}
+      } else {
+        try {
+          await fetch('/api/workspace/conversations/' + encodeURIComponent(convId), {
+            method: 'DELETE',
+            credentials: 'same-origin'
+          });
+        } catch (e) {}
+      }
+
+      cachedConversations = cachedConversations.filter(function(c) { return c.id !== convId; });
+
+      if (currentConversationId === convId) {
+        startNewConversation();
+      } else {
+        renderConversationsList();
       }
     }
+
+    async function clearCurrentConversation() {
+      if (!confirm('Are you sure you want to clear messages in this chat thread?')) return;
+      if (isGuest) {
+        conversationHistory = [];
+        try { localStorage.removeItem('shunops_guest_msgs_' + currentConversationId); } catch (e) {}
+        const thread = document.getElementById('chat-thread');
+        if (thread) {
+          thread.innerHTML = '<div id="empty-state" style="margin:auto; text-align:center; color:#64748b; font-size:13px; padding:20px;">👋 Conversation cleared. Ask a question below.</div>';
+        }
+      } else {
+        try {
+          await fetch('/api/workspace/chat-history?conversationId=' + encodeURIComponent(currentConversationId), {
+            method: 'DELETE',
+            credentials: 'same-origin'
+          });
+          conversationHistory = [];
+          const thread = document.getElementById('chat-thread');
+          if (thread) {
+            thread.innerHTML = '<div id="empty-state" style="margin:auto; text-align:center; color:#64748b; font-size:13px; padding:20px;">👋 Conversation cleared. Ask a question below.</div>';
+          }
+        } catch (e) {
+          alert('Could not clear history: ' + e.message);
+        }
+      }
+      updateContextBadge();
+      loadConversationsList();
+    }
+
+    function toggleConversationsDrawer() {
+      const drawer = document.getElementById('chat-conversations-drawer');
+      if (!drawer) return;
+      drawer.style.display = (drawer.style.display === 'none') ? 'flex' : 'none';
+    }
+    window.startNewConversation = startNewConversation;
+    window.switchConversation = switchConversation;
+    window.deleteConversationById = deleteConversationById;
+    window.clearCurrentConversation = clearCurrentConversation;
+    window.clearConversation = clearCurrentConversation;
+    window.toggleConversationsDrawer = toggleConversationsDrawer;
+    window.loadConversationsList = loadConversationsList;
 
     function askSuggestion(text) {
       document.getElementById('user-chat-input').value = text;
       sendUserChat();
-    }
-
-    function escapeHtmlText(str) {
-      const div = document.createElement('div');
-      div.textContent = str;
-      return div.innerHTML;
     }
 
     function renderSafeMarkdown(md) {
@@ -768,6 +950,7 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]', isGue
           credentials: 'same-origin',
           signal: currentChatAbortController.signal,
           body: JSON.stringify({
+            sessionId: currentConversationId,
             message: msg,
             history: finalHistoryPayload,
             image: currentAttachedImage || undefined,
@@ -805,6 +988,29 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]', isGue
         conversationHistory.push({ role: 'user', content: msg });
         conversationHistory.push({ role: 'assistant', content: reply });
         updateContextBadge();
+
+        const titleSnippet = msg.slice(0, 45).replace(/\\n/g, ' ').trim() || 'Conversation';
+        const existingIdx = cachedConversations.findIndex(function(c) { return c.id === currentConversationId; });
+        if (existingIdx === -1) {
+          cachedConversations.unshift({
+            id: currentConversationId,
+            title: titleSnippet,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            message_count: conversationHistory.length
+          });
+        } else {
+          cachedConversations[existingIdx].updated_at = new Date().toISOString();
+          cachedConversations[existingIdx].message_count = conversationHistory.length;
+        }
+
+        if (isGuest) {
+          try {
+            localStorage.setItem('shunops_guest_msgs_' + currentConversationId, JSON.stringify(conversationHistory));
+            localStorage.setItem('shunops_guest_conversations', JSON.stringify(cachedConversations));
+          } catch (e) {}
+        }
+        renderConversationsList();
         fetchBillingUsage();
         loadAgenticWorkspaceState();
         if (Array.isArray(data.stepsLog) && data.stepsLog.length > 0) {
@@ -3039,6 +3245,7 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]', isGue
       restoreLocalAgenticCache();
       renderAgenticWorkspaceState();
       loadSavedChatHistory();
+      loadConversationsList();
       loadAgenticWorkspaceState(false);
       fetchWorkspaceApprovals();
       fetchBillingUsage();

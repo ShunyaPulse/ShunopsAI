@@ -210,6 +210,35 @@ export const MIGRATIONS: SchemaMigration[] = [
       );
     },
   },
+  {
+    version: 9,
+    name: "009_multi_conversation_threads",
+    up: async (sql) => {
+      await (sql as any).query(`
+        CREATE TABLE IF NOT EXISTS shunops_conversations (
+          id VARCHAR(64) PRIMARY KEY,
+          user_id INTEGER NOT NULL REFERENCES shunops_users(id) ON DELETE CASCADE,
+          title VARCHAR(255) NOT NULL,
+          created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
+      await (sql as any).query(
+        `CREATE INDEX IF NOT EXISTS idx_shunops_conversations_user ON shunops_conversations(user_id, updated_at DESC);`
+      );
+
+      try {
+        await (sql as any).query(`
+          ALTER TABLE shunops_chat_messages 
+          ADD COLUMN IF NOT EXISTS conversation_id VARCHAR(64) DEFAULT 'default';
+        `);
+        await (sql as any).query(`
+          CREATE INDEX IF NOT EXISTS idx_shunops_chat_messages_conv 
+          ON shunops_chat_messages(user_id, conversation_id, created_at);
+        `);
+      } catch {}
+    },
+  },
 ];
 
 /**

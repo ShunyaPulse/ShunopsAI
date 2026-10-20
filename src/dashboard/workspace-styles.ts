@@ -225,6 +225,48 @@ export const WORKSPACE_STYLES = `    :root {
     }
 
     /* Chat thread & message bubbles */
+    .conv-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+      padding: 7px 10px;
+      border-radius: 8px;
+      cursor: pointer;
+      background: #090d16;
+      border: 1px solid #1e293b;
+      transition: all 0.15s ease;
+      color: #94a3b8;
+    }
+    .conv-item:hover {
+      background: #0d1526;
+      border-color: rgba(56, 189, 248, 0.3);
+      color: #e2e8f0;
+    }
+    .conv-item.active {
+      background: rgba(56, 189, 248, 0.12);
+      border-color: rgba(56, 189, 248, 0.45);
+      color: #38bdf8;
+      font-weight: 500;
+    }
+    .conv-del-btn {
+      opacity: 0.5;
+      transition: opacity 0.15s, color 0.15s;
+    }
+    .conv-del-btn:hover {
+      opacity: 1;
+      color: #ef4444 !important;
+    }
+    @media (max-width: 860px) {
+      .chat-layout-wrapper {
+        flex-direction: column !important;
+      }
+      #chat-conversations-drawer {
+        width: 100% !important;
+        max-height: 220px !important;
+      }
+    }
+
     .chat-thread-container {
       flex: 1;
       min-height: 520px;

@@ -119,17 +119,39 @@ ${WORKSPACE_STYLES}
             <span id="context-badge" style="font-size:11px; background:rgba(56,189,248,0.12); color:#38bdf8; border:1px solid rgba(56,189,248,0.25); padding:2px 8px; border-radius:12px; font-weight:600;">
               🧠 Persistent Memory Active
             </span>
+            <button type="button" onclick="startNewConversation()" class="btn-sub" style="font-size:11px; padding:3px 10px; border-color:rgba(56,189,248,0.45); color:#38bdf8; background:rgba(56,189,248,0.12); font-weight:600;" title="Start a fresh chat thread without deleting past chats">
+              ✨ + New Chat
+            </button>
+            <button type="button" id="toggle-conv-drawer-btn" onclick="toggleConversationsDrawer()" class="btn-sub" style="font-size:11px; padding:3px 10px; border-color:rgba(56,189,248,0.35); color:#38bdf8;" title="View all past conversations">
+              💬 Chats (<span id="chat-conversations-count">1</span>)
+            </button>
             <button type="button" onclick="switchWorkspaceMainMode('work')" class="btn-sub" style="font-size:11px; padding:3px 10px; border-color:rgba(56,189,248,0.35); color:#38bdf8;">
               ⚡ Open Work Studio &rarr;
             </button>
             <button type="button" onclick="switchWorkspaceMainMode('work'); switchAgenticTab('files');" class="btn-sub" style="font-size:11px; padding:3px 10px; border-color:rgba(56,189,248,0.35); color:#38bdf8;" title="View all workspace files">
               📁 Files (<span id="chat-header-files-count">0</span>)
             </button>
-            <button type="button" onclick="clearConversation()" style="background:transparent; border:1px solid rgba(255,255,255,0.12); color:#94a3b8; font-size:11px; padding:3px 9px; border-radius:8px; cursor:pointer; transition:all 0.15s;" title="Wipe chat history from database and start fresh">
-              🧹 Clear History
+            <button type="button" onclick="clearCurrentConversation()" style="background:transparent; border:1px solid rgba(255,255,255,0.12); color:#94a3b8; font-size:11px; padding:3px 9px; border-radius:8px; cursor:pointer; transition:all 0.15s;" title="Clear messages in this conversation">
+              🧹 Clear Chat
             </button>
           </div>
         </div>
+
+        <!-- Chat Workspace 2-Column Layout (Sidebar + Chat Area) -->
+        <div class="chat-layout-wrapper" style="display:flex; gap:14px; position:relative; align-items:stretch; margin-top:10px;">
+          <!-- Collapsible Left Sidebar for Conversations History -->
+          <div id="chat-conversations-drawer" style="width:250px; flex-shrink:0; background:#070a13; border:1px solid #1e293b; border-radius:12px; padding:12px; display:flex; flex-direction:column; gap:8px; max-height:680px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #1e293b; padding-bottom:6px;">
+              <span style="font-size:11.5px; font-weight:600; color:#cbd5e1; display:flex; align-items:center; gap:5px;">💬 Past Chats</span>
+              <button type="button" onclick="startNewConversation()" class="btn-sub" style="padding:2px 7px; font-size:10.5px; color:#38bdf8; border-color:rgba(56,189,248,0.35);" title="Start new conversation">+ New</button>
+            </div>
+            <div id="conversations-list-container" style="display:flex; flex-direction:column; gap:5px; overflow-y:auto; max-height:620px; padding-right:2px;">
+              <div style="color:#64748b; font-size:11px; padding:8px 4px; text-align:center;">Loading conversations...</div>
+            </div>
+          </div>
+
+          <!-- Main Interactive Chat Area -->
+          <div style="flex:1; min-width:0; display:flex; flex-direction:column;">
         <!-- Model Selection Bar -->
         <div class="model-bar-row">
           <div style="display:flex; align-items:center; gap:8px;">
@@ -234,6 +256,8 @@ ${WORKSPACE_STYLES}
           <div class="chip" onclick="askSuggestion('Search the web for OpenTelemetry distributed tracing best practices and save a summary to otel-guide.md')">🌐 Web Research &rarr; File</div>
           <div class="chip" onclick="askSuggestion('Write and execute a JavaScript benchmark in the sandbox to compare Map vs Object lookup speed')">💻 Run Code in Sandbox</div>
           <div class="chip" onclick="askSuggestion('Remember that my preferred tech stack is TypeScript, Fastify, and PostgreSQL')">🧠 Save Agent Memory</div>
+        </div>
+          </div>
         </div>
       </div>
     </div>

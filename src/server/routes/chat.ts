@@ -88,7 +88,7 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
       },
     },
     async (req, reply) => {
-      const { message, history, pageContext, modelPreference, image, hp_website, turnstileToken, shield } = req.body;
+      const { message, history, pageContext, modelPreference, image, hp_website, turnstileToken, shield, sessionId } = req.body;
       const clientIp = getClientIp(req);
       const clientSubnet = getClientSubnet(clientIp);
 
@@ -220,8 +220,8 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
             reply.header("X-Used-Model", `${semanticHit.entry.usedModel} (Semantic Cache)`);
 
             if (authenticatedUser) {
-              saveChatMessage(authenticatedUser.id, "user", message).catch(() => {});
-              saveChatMessage(authenticatedUser.id, "assistant", semanticHit.entry.reply).catch(() => {});
+              saveChatMessage(authenticatedUser.id, "user", message, sessionId || "default").catch(() => {});
+              saveChatMessage(authenticatedUser.id, "assistant", semanticHit.entry.reply, sessionId || "default").catch(() => {});
             }
 
             return {
@@ -355,8 +355,8 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
             await recordUserTokenUsage(authenticatedUser.id, inTokens, outTokens).catch(() => {});
           }
           if (authenticatedUser) {
-            saveChatMessage(authenticatedUser.id, "user", message).catch(() => {});
-            saveChatMessage(authenticatedUser.id, "assistant", replyAnswer).catch(() => {});
+            saveChatMessage(authenticatedUser.id, "user", message, sessionId || "default").catch(() => {});
+            saveChatMessage(authenticatedUser.id, "assistant", replyAnswer, sessionId || "default").catch(() => {});
           }
 
           sendSse("done", {
@@ -412,8 +412,8 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
         }
 
         if (authenticatedUser) {
-          saveChatMessage(authenticatedUser.id, "user", message).catch(() => {});
-          saveChatMessage(authenticatedUser.id, "assistant", replyAnswer).catch(() => {});
+          saveChatMessage(authenticatedUser.id, "user", message, sessionId || "default").catch(() => {});
+          saveChatMessage(authenticatedUser.id, "assistant", replyAnswer, sessionId || "default").catch(() => {});
         }
 
         return {
