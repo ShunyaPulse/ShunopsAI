@@ -116,62 +116,90 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]', isGue
           };
         };
 
-        var blob = new Blob(['(' + workerFn.toString() + ')()'], { type: 'application/javascript' });
-        var workerUrl = URL.createObjectURL(blob);
-        var worker = new Worker(workerUrl);
+        function executeSyncFallback() {
+          var logs = [];
+          var writtenFiles = {};
+          var customConsole = {
+            log: function() { var args = Array.prototype.slice.call(arguments); logs.push(args.map(function(a){return typeof a === 'object' ? JSON.stringify(a) : String(a);}).join(' ')); },
+            info: function() { this.log.apply(this, arguments); },
+            warn: function() { this.log.apply(this, arguments); },
+            error: function() { this.log.apply(this, arguments); }
+          };
+          var sum = function(arr){ return (arr||[]).reduce(function(a,b){return a + (Number(b)||0);}, 0); };
+          var mean = function(arr){ return !arr||!arr.length ? 0 : sum(arr)/arr.length; };
+          var median = function(arr){ if(!arr||!arr.length) return 0; var s = arr.slice().sort(function(a,b){return a-b;}); var m = Math.floor(s.length/2); return s.length%2!==0 ? s[m] : (s[m-1]+s[m])/2; };
+          var stdDev = function(arr){ if(!arr||arr.length<2) return 0; var avg = mean(arr); var sq = arr.map(function(x){return Math.pow(x-avg, 2);}); return Math.sqrt(sum(sq)/(arr.length-1)); };
+          var csvParse = function(txt){ var l = (txt||'').trim().split('\n'); if(!l.length) return []; var h = l[0].split(',').map(function(s){return s.trim();}); return l.slice(1).map(function(row){ var c = row.split(','); var obj = {}; h.forEach(function(col, i){ obj[col] = (c[i]||'').trim(); }); return obj; }); };
+          var groupBy = function(arr, key){ return (arr||[]).reduce(function(acc, item){ var k = item[key]; (acc[k] = acc[k] || []).push(item); return acc; }, {}); };
+          var formatMarkdownTable = function(rows){ if(!rows||!rows.length) return ''; var h = Object.keys(rows[0]); var out = '| ' + h.join(' | ') + ' |\n| ' + h.map(function(){return '---';}).join(' | ') + ' |\n'; rows.forEach(function(r){ out += '| ' + h.map(function(k){return r[k]!==undefined?r[k]:'';}).join(' | ') + ' |\n'; }); return out; };
+          var writeWorkspaceFile = function(name, content){ var c = String(name||'').trim().replace(/^\/+/,''); writtenFiles[c] = String(content||''); return true; };
+          var appendWorkspaceFile = function(name, content){ var c = String(name||'').trim().replace(/^\/+/,''); writtenFiles[c] = (writtenFiles[c]||'') + String(content||''); return true; };
+          var listWorkspaceFiles = function(){ return Object.keys(writtenFiles); };
 
-        var finished = false;
-        var timer = setTimeout(function() {
-          if (!finished) {
-            finished = true;
-            worker.terminate();
-            URL.revokeObjectURL(workerUrl);
-            resolve({
-              success: false,
-              error: 'Execution timed out (' + timeoutMs + 'ms) — terminated in client browser (server load: 0.00%).',
-              logs: logs,
-              executionTimeMs: Math.round(performance.now() - start),
-              engine: 'client-wasm-worker',
-            });
+          try {
+            var fn = new Function('console', 'sum', 'mean', 'median', 'stdDev', 'csvParse', 'groupBy', 'formatMarkdownTable', 'writeWorkspaceFile', 'appendWorkspaceFile', 'listWorkspaceFiles', code);
+            var result = fn(customConsole, sum, mean, median, stdDev, csvParse, groupBy, formatMarkdownTable, writeWorkspaceFile, appendWorkspaceFile, listWorkspaceFiles);
+            return { success: true, result: result, logs: logs, writtenFiles: writtenFiles, executionTimeMs: Math.round(performance.now() - start), engine: 'client-sandbox-inline' };
+          } catch(err) {
+            return { success: false, error: err.message, logs: logs, writtenFiles: writtenFiles, executionTimeMs: Math.round(performance.now() - start), engine: 'client-sandbox-inline' };
           }
-        }, timeoutMs);
+        }
 
-        worker.onmessage = function(e) {
-          if (!finished) {
-            finished = true;
-            clearTimeout(timer);
-            worker.terminate();
-            URL.revokeObjectURL(workerUrl);
-            var data = e.data;
-            resolve({
-              success: data.success,
-              result: data.result,
-              error: data.error,
-              logs: data.logs || [],
-              writtenFiles: data.writtenFiles || {},
-              executionTimeMs: Math.round(performance.now() - start),
-              engine: 'client-wasm-worker',
-            });
-          }
-        };
+        try {
+          var blob = new Blob(['(' + workerFn.toString() + ')()'], { type: 'application/javascript' });
+          var workerUrl = URL.createObjectURL(blob);
+          var worker = new Worker(workerUrl);
 
-        worker.onerror = function(err) {
-          if (!finished) {
-            finished = true;
-            clearTimeout(timer);
-            worker.terminate();
-            URL.revokeObjectURL(workerUrl);
-            resolve({
-              success: false,
-              error: err.message || 'Worker execution error',
-              logs: logs,
-              executionTimeMs: Math.round(performance.now() - start),
-              engine: 'client-wasm-worker',
-            });
-          }
-        };
+          var finished = false;
+          var timer = setTimeout(function() {
+            if (!finished) {
+              finished = true;
+              worker.terminate();
+              try { URL.revokeObjectURL(workerUrl); } catch(e) {}
+              resolve({
+                success: false,
+                error: 'Execution timed out (' + timeoutMs + 'ms) — terminated in client browser (server load: 0.00%).',
+                logs: logs,
+                executionTimeMs: Math.round(performance.now() - start),
+                engine: 'client-wasm-worker',
+              });
+            }
+          }, timeoutMs);
 
-        worker.postMessage({ code: code });
+          worker.onmessage = function(e) {
+            if (!finished) {
+              finished = true;
+              clearTimeout(timer);
+              worker.terminate();
+              try { URL.revokeObjectURL(workerUrl); } catch(e) {}
+              var data = e.data;
+              resolve({
+                success: data.success,
+                result: data.result,
+                error: data.error,
+                logs: data.logs || [],
+                writtenFiles: data.writtenFiles || {},
+                executionTimeMs: Math.round(performance.now() - start),
+                engine: 'client-wasm-worker',
+              });
+            }
+          };
+
+          worker.onerror = function(err) {
+            if (!finished) {
+              finished = true;
+              clearTimeout(timer);
+              worker.terminate();
+              try { URL.revokeObjectURL(workerUrl); } catch(e) {}
+              // Gracefully fall back to inline sandbox if WebWorker was blocked by CSP or browser policy
+              resolve(executeSyncFallback());
+            }
+          };
+
+          worker.postMessage({ code: code });
+        } catch (e) {
+          resolve(executeSyncFallback());
+        }
       });
     }
 

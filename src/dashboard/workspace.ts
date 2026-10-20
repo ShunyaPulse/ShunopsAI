@@ -119,7 +119,7 @@ ${WORKSPACE_STYLES}
             <span id="context-badge" style="font-size:11px; background:rgba(56,189,248,0.12); color:#38bdf8; border:1px solid rgba(56,189,248,0.25); padding:2px 8px; border-radius:12px; font-weight:600;">
               🧠 Persistent Memory Active
             </span>
-            <button type="button" onclick="startNewConversation()" class="btn-sub" style="font-size:11px; padding:3px 10px; border-color:rgba(56,189,248,0.45); color:#38bdf8; background:rgba(56,189,248,0.12); font-weight:600;" title="Start a fresh chat thread without deleting past chats">
+            <button type="button" id="newChatBtn" onclick="startNewConversation()" class="btn-sub" style="font-size:11px; padding:3px 10px; border-color:rgba(56,189,248,0.45); color:#38bdf8; background:rgba(56,189,248,0.12); font-weight:600;" title="Start a fresh chat thread without deleting past chats">
               ✨ + New Chat
             </button>
             <button type="button" id="toggle-conv-drawer-btn" onclick="toggleConversationsDrawer()" class="btn-sub" style="font-size:11px; padding:3px 10px; border-color:rgba(56,189,248,0.35); color:#38bdf8;" title="View all past conversations">

@@ -204,7 +204,8 @@ export async function createApp(config: AppConfig = loadAppConfig()): Promise<Fa
           "Content-Security-Policy",
           [
             "default-src 'self'",
-            "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://challenges.cloudflare.com https://accounts.google.com https://apis.google.com https://edge-agent-widget.shunopsai.workers.dev",
+            "worker-src 'self' blob:",
+            "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://challenges.cloudflare.com https://accounts.google.com https://apis.google.com https://edge-agent-widget.shunopsai.workers.dev",
             "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://accounts.google.com",
             "font-src 'self' https://fonts.gstatic.com data:",
             "img-src 'self' data: https:",
