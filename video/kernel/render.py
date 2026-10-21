@@ -302,7 +302,12 @@ class WanT4OptimizedEngine:
         if domain in ["science", "space", "technology", "nature", "history"]:
             domain_neg = "sports, stadium, athletics, cricket, football, soccer, baseball helmet, american football helmet, sports jersey, scoreboard, crowd cheering, referee, match, ball, bat, pads, wickets, "
         elif domain == "sports":
-            domain_neg = "baseball helmet, american football helmet, cartoon, anime, manga, comic, caricature, "
+            domain_neg = (
+                "baseball, baseball bat, baseball mitt, baseball diamond, american football, american football helmet, "
+                "rugby, rugby ball, tennis, tennis court, tennis racket, basketball, track and field, hurdles, "
+                "corporate office, glass cubicles, executive boardroom, cctv control room, security monitors, abstract 3d objects, "
+                "cartoon, anime, manga, comic, caricature, "
+            )
         else:
             domain_neg = "baseball helmet, american football helmet, cartoon, anime, "
 
@@ -315,6 +320,9 @@ class WanT4OptimizedEngine:
             )
         else:
             geo_neg = (
+                "suspension bridge runway, ocean bridge runway, runway on stilts, runway in water, floating airport runway, "
+                "fids screen text, flight departure board text, airport screen typography, scrambled letters, "
+                "rubber swords, floating drums, stretching limbs, rubber wheels, "
                 "ship on beach, ship on cliff, vessel wedged into dirt, cargo cranes in wheat field, harbor in farm, "
                 "floating bridge, broken disconnected highway, floating bridge pillars, "
                 "corporate curved boardroom for unsc, generic meeting room, "

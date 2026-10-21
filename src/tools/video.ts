@@ -369,6 +369,16 @@ export function getDomainPromptDirectives(domain: VideoDomain): string {
     3. The player's exact individual milestone numbers (e.g. "Mendis ne sirf 77 gendon mein 122 run ki tabadtod paari kheli — jisme 14 chauke aur 6 chhakke shamil the").
     4. Required run rate, partnership numbers, and the ultimate match outcome.
   * STRICTLY BAN generic, abstract fluff ("unhone shandar paari kheli", "match bohot exciting tha") without backing it up with exact numbers, wickets, balls, and runs.
+- STRICT SPORT ISOLATION & BAN ON UNRELATED SPORTS (CRICKET REALISM):
+  * If the topic is Cricket (India team, BCCI, Gill, Iyer, Kohli, Rohit, IPL, Test/ODI/T20):
+    - Visuals MUST accurately depict cricket-specific elements: 22-yard turf pitch, three upright wooden stumps with bails, red or white leather cricket ball, authentic wooden willow bat, batsman wearing protective leg pads and batting gloves, lush green oval stadium under towering floodlights.
+    - ABSOLUTELY NEVER generate Baseball, baseball bats, baseball gloves, baseball diamonds, American football helmets/pads, Rugby balls, Tennis courts/rackets, running tracks, or basketball hoops.
+- ORGANIC CRICKET SETTINGS & STRICT BAN ON RANDOM TECH/OFFICE SCENES:
+  * Strategy and team planning scenes MUST be set in authentic cricket venues: team dugout benches, stadium dressing room / locker room with hung team jerseys and cricket kit bags, practice turf nets, or on-pitch team huddles.
+  * ABSOLUTELY ZERO corporate glass cubicles, modern office meeting rooms, or CCTV security monitoring control rooms (which have zero organic relation to cricket).
+- ELIMINATION OF ATHLETE FACE MORPHING & WARPED CELEBRITIES:
+  * Diffusion models cannot render exact recognizable celebrity faces (e.g. Shubman Gill, Shreyas Iyer) without grotesque facial warping, melted eyes, and plastic skin.
+  * MANDATORY FRAMING: Depict athletes in dynamic medium-to-wide action shots, over-the-shoulder perspectives, or dramatic silhouettes: e.g. batsman walking down pavilion stairs with bat under arm, adjusting batting gloves at the non-striker crease, team huddle seen from behind the captain's shoulder, or silhouetted against glowing stadium floodlights. NEVER prompt for macro facial portrait close-ups.
 - AUTHENTIC ATHLETIC REALISM:
   * Visuals must accurately depict the specific sport being discussed. If cricket, depict green pitch, authentic cricket bats, red/white leather cricket ball, three wooden stumps. NEVER confuse cricket with baseball or American football helmets.
   * Ban cartoon/anime faces and distorted crowds. Use dynamic steadycam motion tracking athlete movements.
@@ -414,6 +424,14 @@ export function getDomainPromptDirectives(domain: VideoDomain): string {
 - AUTHENTIC ARCHITECTURAL & VENUE FIDELITY:
   * Real-World Venues & Assemblies: If depicting historical or diplomatic venues (e.g. UN Security Council, Geneva, Supreme Court):
     - Replicate iconic architectural layouts: UNSC must feature the famous Per Krohg mural, circular delegate table with central horseshoe layout, and retro blue acoustic wall panels. Never substitute with generic curved corporate boardrooms.
+- AIRPORT RUNWAY & TRANSPORT CIVIL REALISM:
+  * Airport runways (including coastal airports like Trivandrum TRV) MUST strictly be depicted as grounded, flat asphalt or concrete runways on solid terra firma mainland, flanked by green tropical palm vegetation, airport perimeter fencing, and taxiway guidance lights.
+  * ABSOLUTELY NEVER generate airport runways as suspension bridges, oceanic piers, elevated stilts over water, or sea bridges.
+  * Flight Information Display Systems (FIDS), departure boards, and gate displays must NEVER attempt to render legible flight numbers or letters (which creates corrupt alien text). Specify: "unlabeled architectural glass airport terminal, illuminated abstract amber status indicator lights, silhouettes of passengers with luggage looking through glass at taxiing aircraft, zero text, zero letters, zero numbers".
+- SACRED PROCESSIONS & CEREMONIAL TRADITIONS (PHYSICS & ANATOMY FIDELITY):
+  * When depicting temple processions (e.g. Arattu, Rath Yatra, royal palanquins):
+    - Frame in wide cinematic angles with slow majestic steadicam push-in, warm evening golden-hour or flaming torchlight (Mashaal) illumination, devotees wearing traditional ivory/gold Kerala Kasavu garments on solid ground.
+    - BAN dynamic flailing swords, floating drums, or rubbery wheels. Keep temple drums (Chenda) and sacred umbrellas naturally resting or carried steadily on solid ground.
 - SHIP, HARBOR & STRUCTURAL PHYSICS FIDELITY:
   * Physical Spatial Logic: Ships and marine vessels MUST strictly float in navigable waterways, open seas, or harbor basins with realistic bow wakes.
   * ABSOLUTELY NEVER place cargo ships or port container cranes in inland agricultural wheat fields, dry dirt, or wedged inside sheer cliff walls.
