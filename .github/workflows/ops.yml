@@ -148,6 +148,9 @@ jobs:
           VIDEO_TOKEN: ${{ secrets.VIDEO_TOKEN }}
           GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
           GCP_DEFAULT_REGION: ${{ secrets.GCP_DEFAULT_REGION }}
+          GCP_TTS_API_KEY: ${{ secrets.GCP_TTS_API_KEY || secrets.GOOGLE_TTS_API_KEY }}
+          GOOGLE_TTS_API_KEY: ${{ secrets.GOOGLE_TTS_API_KEY || secrets.GCP_TTS_API_KEY }}
+          GCP_CREDENTIALS: ${{ secrets.GCP_CREDENTIALS }}
           GH_PAT: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
           AUTONOMOUS_TARGET_REPOS: ${{ secrets.AUTONOMOUS_TARGET_REPOS || 'ShunyaPulse/ShunopsAI,ShunyaPulse/SaralGati,ShunyaPulse/kanban-cloud' }}

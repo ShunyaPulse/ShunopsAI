@@ -161,6 +161,47 @@ async def tts_with_boundaries(text, voice, a_path, rate="+0%", max_retries=3):
     )
 
 
+def synthesize_gcp_neural2(text, out_mp3, api_key, voice_name="hi-IN-Neural2-C", speaking_rate=1.0):
+    """
+    Tier 1 Voice Synthesis: Calls Google Cloud Text-to-Speech (Neural2) directly on Kaggle GPU.
+    Uses standard library urllib (zero external pip packages, ultra-reliable).
+    """
+    import urllib.request
+    import base64
+
+    lang_code = "hi-IN" if "hi-" in voice_name else "en-IN"
+    url = f"https://texttospeech.googleapis.com/v1/text:synthesize?key={api_key}"
+    payload = {
+        "input": {"text": text},
+        "voice": {
+            "languageCode": lang_code,
+            "name": voice_name
+        },
+        "audioConfig": {
+            "audioEncoding": "MP3",
+            "speakingRate": speaking_rate,
+            "sampleRateHertz": 44100
+        }
+    }
+    try:
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"}
+        )
+        with urllib.request.urlopen(req, timeout=25) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            if "audioContent" in data:
+                audio_bytes = base64.b64decode(data["audioContent"])
+                with open(out_mp3, "wb") as f:
+                    f.write(audio_bytes)
+                print(f"[GCP TTS] ✅ Synthesized scene audio ({len(audio_bytes)} bytes) using {voice_name}.")
+                return True
+    except Exception as e:
+        print(f"[GCP TTS Warning] Failed ({e}). Falling back to Edge-TTS...")
+    return False
+
+
 def parse_srt_cues(srt_text, time_offset_sec):
     """
     Parses SRT string from SubMaker and offsets cue timestamps by time_offset_sec.
@@ -577,6 +618,7 @@ async def main():
 
     cfg = find_config()
     hf_token = cfg.get("hf_token", "").strip()
+    gcp_tts_key = cfg.get("gcp_tts_key", "").strip()
 
     # Initialize Wan2.1 (1.3B DiT) T4-Optimized Engine
     diffusion = WanT4OptimizedEngine(hf_token=hf_token)
@@ -597,10 +639,20 @@ async def main():
             print(f"[TTS] Using pre-packaged audio ({os.path.getsize(a_path)} bytes).")
             submaker = edge_tts.SubMaker()
         else:
-            edge_voice = voice
-            if "neural2" in voice.lower():
-                edge_voice = "hi-IN-MadhurNeural" if "hi" in script.get("language", "English").lower() else "en-IN-PrabhatNeural"
-            submaker = await tts_with_boundaries(sc["narration"], edge_voice, a_path, rate=rate)
+            # Tier 1: Try Google Cloud Neural2 directly on Kaggle if gcp_tts_key is provided
+            synthesized_gcp = False
+            if gcp_tts_key:
+                target_rate = 1.04 if domain == "sports" else 1.0
+                gcp_voice = voice if "neural2" in voice.lower() else ("hi-IN-Neural2-B" if domain == "sports" else "hi-IN-Neural2-C")
+                synthesized_gcp = synthesize_gcp_neural2(sc["narration"], a_path, gcp_tts_key, voice_name=gcp_voice, speaking_rate=target_rate)
+                submaker = edge_tts.SubMaker()
+
+            # Tier 2: Edge-TTS Fallback
+            if not synthesized_gcp or not os.path.exists(a_path) or os.path.getsize(a_path) < 500:
+                edge_voice = voice
+                if "neural2" in voice.lower():
+                    edge_voice = "hi-IN-MadhurNeural" if "hi" in script.get("language", "English").lower() else "en-IN-PrabhatNeural"
+                submaker = await tts_with_boundaries(sc["narration"], edge_voice, a_path, rate=rate)
 
         if not os.path.exists(a_path) or os.path.getsize(a_path) < 100:
             raise RuntimeError(f"[TTS] Critical: Audio missing for scene {i+1}. Halting pipeline to prevent rendering a mute video.")

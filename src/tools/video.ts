@@ -1014,6 +1014,7 @@ export async function startVideoJob(
     path.join(dsDir, "config.json"),
     JSON.stringify({
       hf_token: process.env.KAGGLE_BUNDLE_HF_TOKEN === "true" ? (process.env.HF_TOKEN || "") : "",
+      gcp_tts_key: process.env.GCP_TTS_API_KEY || process.env.GOOGLE_TTS_API_KEY || options?.gcpKey || "",
     }, null, 2),
     { mode: 0o600 }
   );
