@@ -146,7 +146,7 @@ export async function knowledgeRoutes(
         textChunks.push(unescaped);
       }
     }
-    const arrayTjRegex = /\[(.*?)\]\s*TJ/g;
+    const arrayTjRegex = /\[([^\]]*)\]\s*TJ/g;
     while ((match = arrayTjRegex.exec(str)) !== null) {
       if (match[1]) {
         const parts = match[1].match(/\(([^)]+)\)/g);
