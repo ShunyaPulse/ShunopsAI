@@ -401,6 +401,48 @@ export const WORKSPACE_STYLES = `    :root {
     .attach-plus-btn:active {
       transform: scale(0.95);
     }
+    .attach-dropdown-wrapper {
+      position: relative;
+    }
+    .attach-dropdown-menu {
+      position: absolute;
+      bottom: calc(100% + 10px);
+      left: 0;
+      background: #0b1120;
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: 12px;
+      box-shadow: 0 15px 35px -5px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(56, 189, 248, 0.1);
+      padding: 6px;
+      min-width: 250px;
+      z-index: 1000;
+      backdrop-filter: blur(16px);
+      animation: fadeIn 0.15s ease-out;
+    }
+    .attach-menu-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      width: 100%;
+      background: transparent;
+      border: none;
+      color: #cbd5e1;
+      font-size: 13px;
+      font-family: inherit;
+      font-weight: 500;
+      padding: 9px 12px;
+      border-radius: 8px;
+      cursor: pointer;
+      text-align: left;
+      transition: all 0.15s ease;
+    }
+    .attach-menu-item:hover {
+      background: rgba(255, 255, 255, 0.08);
+      color: #fff;
+      transform: translateX(2px);
+    }
+    .attach-menu-item svg {
+      flex-shrink: 0;
+    }
     .chat-input {
       flex: 1;
       background: transparent;

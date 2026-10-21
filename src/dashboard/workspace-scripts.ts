@@ -205,6 +205,7 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]', isGue
 
     let conversationHistory = [];
     let attachedImageDataUri = null;
+    let attachedDocMeta = null;
     const MCP_PRESETS = ${presetsJson};
 
     function handleImageAttach(input) {
@@ -247,6 +248,200 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]', isGue
       const thumb = document.getElementById('attached-image-thumb');
       if (thumb) thumb.src = '';
     }
+
+    function toggleAttachDropdown(e) {
+      if (e) {
+        e.stopPropagation();
+        e.preventDefault();
+      }
+      const menu = document.getElementById('attach-dropdown-menu');
+      if (!menu) return;
+      menu.style.display = menu.style.display === 'none' || menu.style.display === '' ? 'flex' : 'none';
+    }
+
+    function triggerAttachImage() {
+      const menu = document.getElementById('attach-dropdown-menu');
+      if (menu) menu.style.display = 'none';
+      const input = document.getElementById('chat-image-input');
+      if (input) input.click();
+    }
+
+    function triggerAttachDoc() {
+      const menu = document.getElementById('attach-dropdown-menu');
+      if (menu) menu.style.display = 'none';
+      const input = document.getElementById('chat-doc-input');
+      if (input) input.click();
+    }
+
+    async function handleDocAttach(input) {
+      if (!input.files || !input.files[0]) return;
+      const file = input.files[0];
+      if (file.size > 20 * 1024 * 1024) {
+        alert('Document must be under 20MB.');
+        input.value = '';
+        return;
+      }
+
+      const container = document.getElementById('attached-doc-container');
+      const nameEl = document.getElementById('attached-doc-name');
+      const statusEl = document.getElementById('attached-doc-status');
+
+      if (container && nameEl && statusEl) {
+        nameEl.textContent = file.name;
+        statusEl.textContent = '⏳ Indexing into pgvector...';
+        statusEl.style.color = '#f59e0b';
+        container.style.display = 'inline-flex';
+      }
+
+      const reader = new FileReader();
+      reader.onload = async function(e) {
+        try {
+          const fileData = e.target.result;
+          const res = await fetch('/api/knowledge/upload-document', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              fileName: file.name,
+              fileData: fileData,
+              fileType: file.type || ''
+            })
+          });
+          const data = await res.json();
+          if (data.success) {
+            attachedDocMeta = {
+              fileName: file.name,
+              totalChunks: data.totalChunks,
+              engine: data.engine
+            };
+            if (statusEl) {
+              statusEl.textContent = '⚡ Vector Indexed (' + data.totalChunks + ' chunks ready for RAG)';
+              statusEl.style.color = '#c084fc';
+            }
+          } else {
+            if (statusEl) {
+              statusEl.textContent = '⚠️ Indexing failed: ' + (data.error || 'Unknown error');
+              statusEl.style.color = '#ef4444';
+            }
+          }
+        } catch (err) {
+          if (statusEl) {
+            statusEl.textContent = '⚠️ Upload failed: ' + err.message;
+            statusEl.style.color = '#ef4444';
+          }
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+
+    function clearAttachedDoc() {
+      attachedDocMeta = null;
+      const input = document.getElementById('chat-doc-input');
+      if (input) input.value = '';
+      const container = document.getElementById('attached-doc-container');
+      if (container) container.style.display = 'none';
+    }
+
+    function openGitHubModal() {
+      const menu = document.getElementById('attach-dropdown-menu');
+      if (menu) menu.style.display = 'none';
+      const modal = document.getElementById('github-rag-modal');
+      const statusEl = document.getElementById('github-modal-status');
+      if (statusEl) {
+        statusEl.style.display = 'none';
+        statusEl.textContent = '';
+      }
+      if (modal) modal.style.display = 'flex';
+      const input = document.getElementById('github-repo-input');
+      if (input) input.focus();
+    }
+
+    function closeGitHubModal() {
+      const modal = document.getElementById('github-rag-modal');
+      if (modal) modal.style.display = 'none';
+    }
+
+    async function submitGitHubConnect() {
+      const repoInput = document.getElementById('github-repo-input');
+      const branchInput = document.getElementById('github-branch-input');
+      const statusEl = document.getElementById('github-modal-status');
+      const submitBtn = document.getElementById('github-submit-btn');
+
+      const repoUrl = (repoInput ? repoInput.value : '').trim();
+      const branch = (branchInput ? branchInput.value : '').trim();
+
+      if (!repoUrl) {
+        if (statusEl) {
+          statusEl.style.display = 'block';
+          statusEl.style.background = 'rgba(239, 68, 68, 0.15)';
+          statusEl.style.border = '1px solid rgba(239, 68, 68, 0.4)';
+          statusEl.style.color = '#fca5a5';
+          statusEl.textContent = 'Please enter a GitHub repository URL or owner/repo (e.g. facebook/react).';
+        }
+        return;
+      }
+
+      if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.textContent = '⏳ Indexing repo into pgvector...';
+      }
+      if (statusEl) {
+        statusEl.style.display = 'block';
+        statusEl.style.background = 'rgba(56, 189, 248, 0.12)';
+        statusEl.style.border = '1px solid rgba(56, 189, 248, 0.3)';
+        statusEl.style.color = '#38bdf8';
+        statusEl.textContent = 'Fetching file tree and generating 768-dim embeddings in Neon pgvector...';
+      }
+
+      try {
+        const res = await fetch('/api/knowledge/connect-github', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ repoUrl, branch })
+        });
+        const data = await res.json();
+        if (data.success) {
+          if (statusEl) {
+            statusEl.style.background = 'rgba(34, 197, 94, 0.15)';
+            statusEl.style.border = '1px solid rgba(34, 197, 94, 0.4)';
+            statusEl.style.color = '#4ade80';
+            statusEl.textContent = '✓ Successfully indexed ' + data.indexedFilesCount + ' files from ' + data.repo + ' (' + data.branch + ') into pgvector!';
+          }
+          setTimeout(() => {
+            closeGitHubModal();
+            appendMessageBubble('assistant', '🔗 **Connected GitHub Repository:** \`' + data.repo + '\` (' + data.branch + ')\n\n' + data.indexedFilesCount + ' files have been chunked and indexed into Neon Lakebase pgvector with ' + data.engine + ' embeddings. You can now ask questions about the repository architecture, code, and documentation.');
+          }, 1200);
+        } else {
+          if (statusEl) {
+            statusEl.style.background = 'rgba(239, 68, 68, 0.15)';
+            statusEl.style.border = '1px solid rgba(239, 68, 68, 0.4)';
+            statusEl.style.color = '#fca5a5';
+            statusEl.textContent = 'Error: ' + (data.error || 'Failed to index repository.');
+          }
+        }
+      } catch (err) {
+        if (statusEl) {
+          statusEl.style.background = 'rgba(239, 68, 68, 0.15)';
+          statusEl.style.border = '1px solid rgba(239, 68, 68, 0.4)';
+          statusEl.style.color = '#fca5a5';
+          statusEl.textContent = 'Network error: ' + err.message;
+        }
+      } finally {
+        if (submitBtn) {
+          submitBtn.disabled = false;
+          submitBtn.textContent = 'Index Repository into pgvector';
+        }
+      }
+    }
+
+    document.addEventListener('click', function(e) {
+      const menu = document.getElementById('attach-dropdown-menu');
+      const btn = document.getElementById('attach-plus-btn');
+      if (menu && menu.style.display === 'flex') {
+        if (!menu.contains(e.target) && (!btn || !btn.contains(e.target))) {
+          menu.style.display = 'none';
+        }
+      }
+    });
 
     async function logout() {
       await fetch('/api/auth/logout', { method: 'POST' });
@@ -904,13 +1099,19 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]', isGue
       const input = document.getElementById('user-chat-input');
       let msg = (input ? input.value : '').trim();
       const currentAttachedImage = attachedImageDataUri;
-      if (!msg && !currentAttachedImage) return;
+      const currentAttachedDoc = attachedDocMeta;
+      if (!msg && !currentAttachedImage && !currentAttachedDoc) return;
       if (!msg && currentAttachedImage) {
         msg = 'Analyze this image and explain what you see.';
+      } else if (!msg && currentAttachedDoc) {
+        msg = 'Please analyze and summarize the attached document "' + currentAttachedDoc.fileName + '".';
+      } else if (currentAttachedDoc) {
+        msg = msg + '\n\n[Refer to uploaded document: "' + currentAttachedDoc.fileName + '" indexed in pgvector]';
       }
 
       if (input) input.value = '';
       clearAttachedImage();
+      clearAttachedDoc();
 
       // Transform button to an interactive STOP button
       currentChatAbortController = new AbortController();

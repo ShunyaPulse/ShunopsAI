@@ -237,15 +237,51 @@ ${WORKSPACE_STYLES}
           <button type="button" onclick="clearAttachedImage()" style="background:transparent; border:none; color:#ef4444; font-size:14px; cursor:pointer; padding:2px 6px; border-radius:4px;" title="Remove image">&times;</button>
         </div>
 
-        <!-- Input Row -->
+        <!-- Attached Document / PDF Container -->
+        <div id="attached-doc-container" style="display:none; align-items:center; gap:10px; padding:7px 12px; background:rgba(168,85,247,0.1); border:1px solid rgba(168,85,247,0.3); border-radius:8px; margin-bottom:8px; width:fit-content;">
+          <div style="width:28px; height:28px; border-radius:6px; background:rgba(168,85,247,0.2); display:flex; align-items:center; justify-content:center;">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#c084fc" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+              <polyline points="14 2 14 8 20 8"></polyline>
+              <line x1="16" y1="13" x2="8" y2="13"></line>
+              <line x1="16" y1="17" x2="8" y2="17"></line>
+            </svg>
+          </div>
+          <div style="font-size:11.5px; color:#cbd5e1;">
+            <div id="attached-doc-name" style="font-weight:600; max-width:240px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">document.pdf</div>
+            <div id="attached-doc-status" style="color:#c084fc; font-size:10.5px; font-weight:500;">⚡ Vector Indexed (Ready for RAG)</div>
+          </div>
+          <button type="button" onclick="clearAttachedDoc()" style="background:transparent; border:none; color:#ef4444; font-size:14px; cursor:pointer; padding:2px 6px; border-radius:4px;" title="Remove document">&times;</button>
+        </div>
+
+        <!-- Input Row with Universal Attach Dropdown (+) -->
         <div class="chat-input-wrapper">
           <input type="file" id="chat-image-input" accept="image/*" style="display:none;" onchange="handleImageAttach(this)">
-          <button type="button" id="attach-image-btn" class="attach-plus-btn" onclick="document.getElementById('chat-image-input').click()" title="Add image or file (PNG, JPG, WEBP)">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-              <line x1="12" y1="5" x2="12" y2="19"></line>
-              <line x1="5" y1="12" x2="19" y2="12"></line>
-            </svg>
-          </button>
+          <input type="file" id="chat-doc-input" accept=".pdf,.txt,.md,.json,.csv,.ts,.js,.py,.html,.css" style="display:none;" onchange="handleDocAttach(this)">
+
+          <div class="attach-dropdown-wrapper" style="position:relative;">
+            <button type="button" id="attach-plus-btn" class="attach-plus-btn" onclick="toggleAttachDropdown(event)" title="Add files: Image, PDF Document, or Connect GitHub Repo">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="12" y1="5" x2="12" y2="19"></line>
+                <line x1="5" y1="12" x2="19" y2="12"></line>
+              </svg>
+            </button>
+            <div id="attach-dropdown-menu" class="attach-dropdown-menu" style="display:none;">
+              <button type="button" class="attach-menu-item" onclick="triggerAttachImage()">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                <span>Upload Image (Vision)</span>
+              </button>
+              <button type="button" class="attach-menu-item" onclick="triggerAttachDoc()">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#c084fc" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+                <span>Upload PDF / Document (RAG)</span>
+              </button>
+              <button type="button" class="attach-menu-item" onclick="openGitHubModal()">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke-width="2"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/></svg>
+                <span>Connect GitHub Repo (RAG)</span>
+              </button>
+            </div>
+          </div>
+
           <input type="text" id="user-chat-input" class="chat-input" placeholder="Ask anything, or tell your agent to plan tasks, run code, or write files..." onkeydown="if(event.key==='Enter') sendUserChat(true)">
           <button class="chat-send-btn" id="send-btn" onclick="sendUserChat()">Send</button>
         </div>
@@ -798,6 +834,37 @@ ${WORKSPACE_STYLES}
         <button type="button" onclick="closeSignupGateModal()" style="background:transparent; border:none; color:#64748b; font-size:12px; cursor:pointer; margin-top:6px;">
           Continue testing in guest sandbox &rarr;
         </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- GitHub Repository RAG Connect Modal -->
+  <div id="github-rag-modal" class="modal-overlay" onclick="if(event.target === this) closeGitHubModal()" style="display:none; z-index:1260;">
+    <div class="modal-dialog" style="max-width:520px; background:#0b1120; border:1px solid rgba(74,222,128,0.25); border-radius:14px; box-shadow:0 25px 50px rgba(0,0,0,0.85); padding:20px 24px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
+        <h3 style="margin:0; font-size:16px; color:#f8fafc; font-weight:700; display:flex; align-items:center; gap:8px;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"></path>
+          </svg>
+          Connect GitHub Repo for Deep RAG
+        </h3>
+        <button type="button" onclick="closeGitHubModal()" style="background:transparent; border:none; color:#94a3b8; font-size:20px; cursor:pointer;" title="Close">&times;</button>
+      </div>
+      <p style="font-size:12.5px; color:#94a3b8; margin:0 0 16px 0; line-height:1.5;">
+        Indexes documentation and code into your <strong>Neon PostgreSQL pgvector store</strong> with 768-dim embeddings. The agent will semantically query and quote files with exact citations.
+      </p>
+      <div style="margin-bottom:12px;">
+        <label for="github-repo-input" style="display:block; font-size:11.5px; color:#cbd5e1; font-weight:600; margin-bottom:5px;">Repository URL or Owner/Repo</label>
+        <input type="text" id="github-repo-input" placeholder="e.g. ShunyaPulse/ShunopsAI or https://github.com/facebook/react" style="width:100%; box-sizing:border-box; background:#070d19; border:1px solid #1e293b; border-radius:6px; color:#fff; padding:8px 12px; font-size:13px; outline:none;">
+      </div>
+      <div style="margin-bottom:14px;">
+        <label for="github-branch-input" style="display:block; font-size:11.5px; color:#cbd5e1; font-weight:600; margin-bottom:5px;">Branch (Optional, defaults to main/master)</label>
+        <input type="text" id="github-branch-input" placeholder="main" style="width:100%; box-sizing:border-box; background:#070d19; border:1px solid #1e293b; border-radius:6px; color:#fff; padding:8px 12px; font-size:13px; outline:none;">
+      </div>
+      <div id="github-modal-status" style="display:none; font-size:12px; margin-bottom:14px; padding:8px 12px; border-radius:6px;"></div>
+      <div style="display:flex; justify-content:flex-end; gap:8px;">
+        <button type="button" onclick="closeGitHubModal()" style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); color:#cbd5e1; border-radius:6px; padding:7px 14px; font-size:12.5px; cursor:pointer;">Cancel</button>
+        <button type="button" id="github-submit-btn" onclick="submitGitHubConnect()" style="background:#22c55e; border:none; color:#0f172a; font-weight:700; border-radius:6px; padding:7px 18px; font-size:12.5px; cursor:pointer;">Index Repository into pgvector</button>
       </div>
     </div>
   </div>

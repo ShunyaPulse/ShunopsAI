@@ -105,4 +105,244 @@ export async function knowledgeRoutes(
       success: deleted,
     };
   });
+
+  // Helper: Chunk text into overlapping segments for vector indexing
+  function chunkDocument(text: string, chunkSize = 1200, overlap = 150): string[] {
+    const clean = text.replace(/\r\n/g, "\n").trim();
+    if (clean.length <= chunkSize) return [clean];
+    const chunks: string[] = [];
+    let start = 0;
+    while (start < clean.length) {
+      let end = start + chunkSize;
+      if (end < clean.length) {
+        const nextBreak = clean.lastIndexOf("\n", end);
+        if (nextBreak > start + 300) {
+          end = nextBreak;
+        } else {
+          const nextSpace = clean.lastIndexOf(" ", end);
+          if (nextSpace > start + 300) end = nextSpace;
+        }
+      }
+      const chunk = clean.slice(start, end).trim();
+      if (chunk.length > 20) chunks.push(chunk);
+      start = end - overlap;
+    }
+    return chunks;
+  }
+
+  // Helper: Extract text from PDF buffer
+  function extractPdfText(buf: Buffer): string {
+    const str = buf.toString("latin1");
+    const textChunks: string[] = [];
+    const tjRegex = /\(([^)]+)\)\s*(?:Tj|'|")/g;
+    let match;
+    while ((match = tjRegex.exec(str)) !== null) {
+      if (match[1]) {
+        const unescaped = match[1]
+          .replace(/\\([()\\])/g, "$1")
+          .replace(/\\n/g, "\n")
+          .replace(/\\r/g, "\r")
+          .replace(/\\t/g, "\t");
+        textChunks.push(unescaped);
+      }
+    }
+    const arrayTjRegex = /\[(.*?)\]\s*TJ/g;
+    while ((match = arrayTjRegex.exec(str)) !== null) {
+      if (match[1]) {
+        const parts = match[1].match(/\(([^)]+)\)/g);
+        if (parts) {
+          for (const p of parts) textChunks.push(p.slice(1, -1));
+        }
+      }
+    }
+    const extracted = textChunks.join(" ").replace(/\s+/g, " ").trim();
+    if (extracted.length < 50) {
+      const rawAscii = str.replace(/[^\x20-\x7E\n\r\t]/g, " ").replace(/\s{2,}/g, " ").trim();
+      const words = rawAscii.split(" ").filter((w) => w.length >= 3 && !w.startsWith("/") && !w.includes("Obj") && !w.includes("endobj"));
+      if (words.length > 20) return words.slice(0, 3000).join(" ");
+    }
+    return extracted;
+  }
+
+  // 4. Upload & Vector-Index Document (PDF, Markdown, Code, TXT)
+  app.post<{
+    Body: {
+      fileName: string;
+      fileType?: string;
+      content: string;
+      category?: string;
+    };
+  }>("/api/knowledge/upload-document", { preHandler: [requireAuth] }, async (req, reply) => {
+    const { fileName, fileType, content, category } = req.body || {};
+    if (!fileName || !content) {
+      reply.status(400);
+      return { success: false, error: "Both 'fileName' and 'content' are required." };
+    }
+
+    let rawText = "";
+    const isBase64 = content.startsWith("data:") || content.includes(";base64,");
+    if (isBase64) {
+      const b64Data = content.split(",")[1] || content;
+      const buf = Buffer.from(b64Data, "base64");
+      const isPdf = (fileType && fileType.includes("pdf")) || fileName.toLowerCase().endsWith(".pdf");
+      if (isPdf) {
+        rawText = extractPdfText(buf);
+      } else {
+        rawText = buf.toString("utf-8");
+      }
+    } else {
+      rawText = content;
+    }
+
+    if (!rawText || rawText.trim().length < 10) {
+      reply.status(400);
+      return { success: false, error: "Could not extract readable text from the uploaded document." };
+    }
+
+    const chunks = chunkDocument(rawText);
+    const cat = category || "documents";
+    const indexedChunks = [];
+
+    for (let i = 0; i < chunks.length; i++) {
+      const chunk = chunks[i];
+      if (!chunk) continue;
+      const title = chunks.length === 1 ? fileName : `${fileName} (Part ${i + 1}/${chunks.length})`;
+      const doc = await indexKnowledgeDocument(title, chunk, cat, {
+        fileName,
+        chunkIndex: i,
+        totalChunks: chunks.length,
+        uploadedAt: new Date().toISOString(),
+      });
+      indexedChunks.push(doc.id);
+    }
+
+    return {
+      success: true,
+      fileName,
+      totalChunks: chunks.length,
+      indexedIds: indexedChunks,
+      engine: getKnowledgeStats().activeTier,
+    };
+  });
+
+  // 5. Connect & Index GitHub Repository into Neon pgvector RAG
+  app.post<{
+    Body: {
+      repoUrl: string;
+      branch?: string;
+      token?: string;
+    };
+  }>("/api/knowledge/connect-github", { preHandler: [requireAuth] }, async (req, reply) => {
+    const { repoUrl, branch, token } = req.body || {};
+    if (!repoUrl) {
+      reply.status(400);
+      return { success: false, error: "GitHub repository URL or 'owner/repo' is required." };
+    }
+
+    const cleanRepo = repoUrl
+      .replace(/^https?:\/\/github\.com\//i, "")
+      .replace(/\.git$/i, "")
+      .replace(/\/+$/, "")
+      .trim();
+    const parts = cleanRepo.split("/");
+    if (parts.length < 2) {
+      reply.status(400);
+      return { success: false, error: "Invalid repository format. Please provide 'owner/repo' or a valid GitHub URL." };
+    }
+    const [owner, repo] = parts;
+    const resolvedBranch = branch?.trim() || "main";
+    const ghToken = token?.trim() || process.env.GH_PAT || process.env.GITHUB_TOKEN;
+
+    const headers: Record<string, string> = {
+      "User-Agent": "ShunopsAI-Agent/3.0",
+      Accept: "application/vnd.github.v3+json",
+    };
+    if (ghToken) {
+      headers["Authorization"] = `Bearer ${ghToken}`;
+    }
+
+    let treeRes = await fetch(
+      `https://api.github.com/repos/${owner}/${repo}/git/trees/${resolvedBranch}?recursive=1`,
+      { headers }
+    );
+
+    if (!treeRes.ok && resolvedBranch === "main") {
+      treeRes = await fetch(
+        `https://api.github.com/repos/${owner}/${repo}/git/trees/master?recursive=1`,
+        { headers }
+      );
+    }
+
+    if (!treeRes.ok) {
+      const errText = await treeRes.text();
+      reply.status(treeRes.status);
+      return {
+        success: false,
+        error: `GitHub API error (${treeRes.status}): ${errText.slice(0, 200)}`,
+      };
+    }
+
+    const treeData = (await treeRes.json()) as any;
+    const tree = treeData.tree || [];
+
+    const priorityFiles = tree
+      .filter((item: any) => item.type === "blob")
+      .filter((item: any) => {
+        const p = item.path.toLowerCase();
+        return (
+          p === "readme.md" ||
+          p === "architecture.md" ||
+          p === "package.json" ||
+          p.startsWith("docs/") ||
+          p.endsWith(".md") ||
+          (p.startsWith("src/") && (p.endsWith(".ts") || p.endsWith(".js") || p.endsWith(".py")))
+        );
+      })
+      .slice(0, 20);
+
+    if (priorityFiles.length === 0) {
+      return {
+        success: false,
+        error: "No indexable documentation or source files found in repository tree.",
+      };
+    }
+
+    const indexedFiles: string[] = [];
+    for (const file of priorityFiles) {
+      try {
+        const rawUrl = `https://raw.githubusercontent.com/${owner}/${repo}/${resolvedBranch}/${file.path}`;
+        const rawRes = await fetch(rawUrl, { headers });
+        if (rawRes.ok) {
+          const content = await rawRes.text();
+          if (content && content.length > 20) {
+            const chunks = chunkDocument(content, 1500, 150);
+            for (let cIdx = 0; cIdx < Math.min(chunks.length, 5); cIdx++) {
+              const chunkText = chunks[cIdx];
+              if (!chunkText) continue;
+              await indexKnowledgeDocument(
+                `${owner}/${repo}: ${file.path}${chunks.length > 1 ? ` (${cIdx + 1})` : ""}`,
+                chunkText,
+                "github-repo",
+                {
+                  repo: `${owner}/${repo}`,
+                  path: file.path,
+                  branch: resolvedBranch,
+                }
+              );
+            }
+            indexedFiles.push(file.path);
+          }
+        }
+      } catch {}
+    }
+
+    return {
+      success: true,
+      repo: `${owner}/${repo}`,
+      branch: resolvedBranch,
+      indexedFilesCount: indexedFiles.length,
+      indexedFiles,
+      engine: getKnowledgeStats().activeTier,
+    };
+  });
 }
