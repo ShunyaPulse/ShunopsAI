@@ -284,11 +284,12 @@ class WanT4OptimizedEngine:
             except Exception:
                 pass
 
-    def generate_scene_montage(self, prompt, target_dur, out_mp4, scene_idx, domain="general"):
+    def generate_scene_montage(self, prompt, target_dur, out_mp4, scene_idx, domain="general", visual_bible=None):
         """
         Generates continuous, non-repeating video for a scene with Wan2.1 DiT.
         Token Slicing: Uses 640x384 widescreen @ 33 frames (~30k tokens) to fit T4 16GB VRAM.
         RIFE motion-compensated interpolation smoothly upscales to fluid 24 FPS 1080p broadcast video.
+        Dynamically applies Director's Visual Bible (realWorldGrounding + latentTrapsToBan).
         """
         num_shots = 2 if target_dur > 3.0 else 1
         shot_dur = target_dur / num_shots
@@ -299,48 +300,35 @@ class WanT4OptimizedEngine:
             ("close-up detailed perspective, gentle optical push-in, rigid stable architecture, modern cinema", scene_idx * 19 + 7),
         ]
 
+        # Extract dynamic directives from Director's Visual Bible
+        vb = visual_bible or {}
+        latent_traps = vb.get("latentTrapsToBan", [])
+        real_grounding = vb.get("realWorldGrounding", "")
+        grounding_prefix = f"{real_grounding[:120]}, " if real_grounding else ""
+
+        # Dynamic topic-specific negative cues synthesized by AI Director
+        bible_neg = ", ".join(latent_traps[:15]) + ", " if latent_traps else ""
+
         if domain in ["science", "space", "technology", "nature", "history"]:
             domain_neg = "sports, stadium, athletics, cricket, football, soccer, baseball helmet, american football helmet, sports jersey, scoreboard, crowd cheering, referee, match, ball, bat, pads, wickets, "
         elif domain == "sports":
-            domain_neg = (
-                "baseball, baseball bat, baseball mitt, baseball diamond, american football, american football helmet, "
-                "rugby, rugby ball, tennis, tennis court, tennis racket, basketball, track and field, hurdles, "
-                "corporate office, glass cubicles, executive boardroom, cctv control room, security monitors, abstract 3d objects, "
-                "cartoon, anime, manga, comic, caricature, "
-            )
+            domain_neg = "cartoon, anime, manga, comic, caricature, "
         else:
-            domain_neg = "baseball helmet, american football helmet, cartoon, anime, "
-
-        # Domain-specific physics and geographic negative cues
-        if domain == "nature":
-            geo_neg = (
-                "desert, red sand, red canyon, colorado plateau, arizona canyon, alien rocks, martian terrain, "
-                "balkan map, central asia borders, fantasy borders, red border lines, digital map, cartography, "
-                "solid rubber water, extruded water cylinder, dry waterfall, floating ship on land, "
-            )
-        else:
-            geo_neg = (
-                "suspension bridge runway, ocean bridge runway, runway on stilts, runway in water, floating airport runway, "
-                "fids screen text, flight departure board text, airport screen typography, scrambled letters, "
-                "rubber swords, floating drums, stretching limbs, rubber wheels, "
-                "ship on beach, ship on cliff, vessel wedged into dirt, cargo cranes in wheat field, harbor in farm, "
-                "floating bridge, broken disconnected highway, floating bridge pillars, "
-                "corporate curved boardroom for unsc, generic meeting room, "
-            )
+            domain_neg = "cartoon, anime, "
 
         for s_idx in range(num_shots):
             var_text, seed = shot_variations[s_idx]
             sub_clip = f"{TMP}/sub_{scene_idx}_{s_idx}.mp4"
 
             clean_prompt = (
-                f"{prompt[:240]}, {var_text}, modern digital cinema, 4k ultra-high definition, "
+                f"{grounding_prefix}{prompt[:220]}, {var_text}, modern digital cinema, 4k ultra-high definition, "
                 f"sharp crystal clear focus, vivid natural colors, documentary broadcast quality, "
                 f"subtle natural character breathing, stable non-morphing walls, rigid background structures, "
                 f"unlabeled telemetry displays, zero text, zero letters, zero numbers"
             )
             neg_prompt = (
+                f"{bible_neg}"
                 f"{domain_neg}"
-                f"{geo_neg}"
                 "horror, choking, strangling, neck grabbing, violence, assault, aggression, threat, painful grimace, distress, screaming, blood, "
                 "warehouse, airplane hangar, modern factory, industrial hall, industrial interior, modern architecture, "
                 "inconsistent face, multiple different faces, female model, woman reading magazine, modern clothing, casual clothing, t-shirt, jeans, hoodie, "
@@ -460,15 +448,22 @@ class WanT4OptimizedEngine:
             raise RuntimeError(f"Failed to produce video clip for {out_mp4}")
         return True
 
-    def generate_hero_thumbnail_diffusion(self, visual_prompt, out_jpg, domain="general"):
+    def generate_hero_thumbnail_diffusion(self, visual_prompt, out_jpg, domain="general", visual_bible=None):
         """
         OPTION A: Dedicated Concept Diffusion Pass on Kaggle T4 GPU.
         Generates a pristine, high-resolution, high-dynamic-range hero visual
         symbolizing the core topic with authentic subject fidelity (no text in image).
+        Dynamically applies Director's Visual Bible (realWorldGrounding + latentTrapsToBan).
         """
         print(f"[{self.engine_name}] Generating Option A dedicated thumbnail concept diffusion...")
+        vb = visual_bible or {}
+        latent_traps = vb.get("latentTrapsToBan", [])
+        real_grounding = vb.get("realWorldGrounding", "")
+        grounding_prefix = f"{real_grounding[:120]}, " if real_grounding else ""
+        bible_neg = ", ".join(latent_traps[:15]) + ", " if latent_traps else ""
+
         clean_prompt = (
-            f"{visual_prompt[:320]}, hyper-cinematic documentary poster art, award-winning photography, "
+            f"{grounding_prefix}{visual_prompt[:280]}, hyper-cinematic documentary poster art, award-winning photography, "
             f"masterpiece composition, dramatic volumetric rim lighting, deep contrast, vibrant authentic colors, "
             f"hyper-detailed textures, sharp focus, 8k resolution, completely clean composition with lower negative space, "
             f"zero text, zero words, zero letters, zero watermarks"
@@ -476,11 +471,12 @@ class WanT4OptimizedEngine:
         if domain in ["science", "space", "technology", "nature", "history"]:
             domain_neg = "sports, stadium, athletics, cricket, football, soccer, baseball helmet, american football helmet, sports jersey, scoreboard, crowd cheering, referee, match, ball, bat, pads, wickets, "
         elif domain == "sports":
-            domain_neg = "baseball helmet, american football helmet, cartoon, anime, manga, comic, caricature, "
+            domain_neg = "cartoon, anime, manga, comic, caricature, "
         else:
-            domain_neg = "baseball helmet, american football helmet, cartoon, anime, "
+            domain_neg = "cartoon, anime, "
 
         neg_prompt = (
+            f"{bible_neg}"
             f"{domain_neg}"
             "text, letters, words, writing, numbers, labels, typography, logos, watermark, title, signature, "
             "blurry, low resolution, bad anatomy, deformed, distorted, cartoon, anime, plastic, 3d render"
@@ -556,10 +552,13 @@ async def main():
     with open(script_path, "r", encoding="utf-8") as f:
         script = json.load(f)
     domain = script.get("domain", "general")
+    visual_bible = script.get("visual_bible", {})
     voice = script.get("voice", "hi-IN-Neural2-B" if "hi" in script.get("language", "English").lower() else "en-IN-PrabhatNeural")
     rate = script.get("rate", "+4%" if domain == "sports" else "+0%")
     scenes = script["scenes"]
     print(f"Loaded script: '{script.get('title')}' with {len(scenes)} scenes. Domain: {domain}, Voice: {voice}, Rate: {rate}")
+    if visual_bible:
+        print(f"[Visual Bible] Dynamic grounding loaded: {len(visual_bible.get('latentTrapsToBan', []))} traps banned, {len(visual_bible.get('organicSettings', []))} organic settings.")
 
     # Check if all scenes already have pre-packaged audio
     audio_dir = os.path.join(os.path.dirname(script_path), "audio")
@@ -636,7 +635,7 @@ async def main():
         current_time_offset += d
 
         # 3. Generate non-repeating continuous video montage on GPU
-        diffusion.generate_scene_montage(sc["visual_prompt"], d, v_path, scene_idx=i, domain=domain)
+        diffusion.generate_scene_montage(sc["visual_prompt"], d, v_path, scene_idx=i, domain=domain, visual_bible=visual_bible)
 
         # Synchronize audio and video precisely:
         # Avoid artificial silence delays between sentences while preventing sub-frame audio drift
@@ -775,35 +774,57 @@ async def main():
         if ok_bgm and os.path.exists(ambient_mp3) and os.path.getsize(ambient_mp3) > 1000:
             has_ambient = True
     else:
-        print(f"[Audio] Synthesizing domain-calibrated cinematic ambient drone for domain '{domain}'...")
-        if domain in ["science", "space", "technology"]:
-            # Deep cosmic/cleanroom sub-bass drone: 55Hz + 110Hz + 165Hz subtle harmonics + binaural beat (54.5Hz)
+        soundscape = visual_bible.get("soundscapeProfile", {})
+        dom_freqs = soundscape.get("dominantFrequencies", [])
+        ambient_style = soundscape.get("ambientBedStyle", "")
+        energy = soundscape.get("energyLevel", "measured")
+
+        if dom_freqs and len(dom_freqs) >= 2:
+            f0 = float(dom_freqs[0])
+            f1 = float(dom_freqs[1])
+            f2 = float(dom_freqs[2]) if len(dom_freqs) > 2 else f0 * 2.0
+            fb = f0 - 0.5
+            print(f"[Audio] Synthesizing dynamic audio soundscape for '{domain}': style='{ambient_style}', energy='{energy}', freqs={dom_freqs}...")
             aeval = (
-                "sin(55*2*PI*t)*0.16 + sin(110*2*PI*t)*0.09 + "
-                "sin(165*2*PI*t)*0.04 + sin(54.5*2*PI*t)*0.10"
+                f"sin({f0}*2*PI*t)*0.16 + sin({f1}*2*PI*t)*0.08 + "
+                f"sin({f2}*2*PI*t)*0.04 + sin({fb}*2*PI*t)*0.09"
             )
-            bg_filter = "lowpass=f=320,volume=0.14,afade=t=in:st=0:d=2.0"
-        elif domain == "sports":
-            # Dynamic rhythmic pulse drone: 65Hz fundamental with subtle low-end resonance
-            aeval = (
-                "sin(65*2*PI*t)*0.18 + sin(130*2*PI*t)*0.08 + "
-                "sin(195*2*PI*t)*0.03 + sin(64.5*2*PI*t)*0.09"
-            )
-            bg_filter = "lowpass=f=450,volume=0.16,afade=t=in:st=0:d=1.0"
-        elif domain == "nature":
-            # Natural oceanic/atmospheric texture: low-frequency rolling swell + wind resonance
-            aeval = (
-                "sin(45*2*PI*t)*0.14 + sin(90*2*PI*t)*(0.07+0.04*sin(0.2*2*PI*t)) + "
-                "sin(135*2*PI*t)*0.03 + sin(44.5*2*PI*t)*0.08"
-            )
-            bg_filter = "lowpass=f=300,volume=0.15,afade=t=in:st=0:d=2.0"
+            if energy == "high" or ambient_style == "stadium":
+                bg_filter = "lowpass=f=480,volume=0.17,afade=t=in:st=0:d=1.0"
+            elif energy == "contemplative" or ambient_style == "nature":
+                bg_filter = "lowpass=f=300,volume=0.14,afade=t=in:st=0:d=2.0"
+            else:
+                bg_filter = "lowpass=f=350,volume=0.15,afade=t=in:st=0:d=1.5"
         else:
-            # Warm documentary pad drone: rich ambient bed masking synthetic gaps
-            aeval = (
-                "sin(58*2*PI*t)*0.15 + sin(116*2*PI*t)*0.08 + "
-                "sin(174*2*PI*t)*0.04 + sin(57.5*2*PI*t)*0.09"
-            )
-            bg_filter = "lowpass=f=350,volume=0.14,afade=t=in:st=0:d=1.5"
+            print(f"[Audio] Synthesizing domain-calibrated cinematic ambient drone for domain '{domain}'...")
+            if domain in ["science", "space", "technology"]:
+                # Deep cosmic/cleanroom sub-bass drone: 55Hz + 110Hz + 165Hz subtle harmonics + binaural beat (54.5Hz)
+                aeval = (
+                    "sin(55*2*PI*t)*0.16 + sin(110*2*PI*t)*0.09 + "
+                    "sin(165*2*PI*t)*0.04 + sin(54.5*2*PI*t)*0.10"
+                )
+                bg_filter = "lowpass=f=320,volume=0.14,afade=t=in:st=0:d=2.0"
+            elif domain == "sports":
+                # Dynamic rhythmic pulse drone: 65Hz fundamental with subtle low-end resonance
+                aeval = (
+                    "sin(65*2*PI*t)*0.18 + sin(130*2*PI*t)*0.08 + "
+                    "sin(195*2*PI*t)*0.03 + sin(64.5*2*PI*t)*0.09"
+                )
+                bg_filter = "lowpass=f=450,volume=0.16,afade=t=in:st=0:d=1.0"
+            elif domain == "nature":
+                # Natural oceanic/atmospheric texture: low-frequency rolling swell + wind resonance
+                aeval = (
+                    "sin(45*2*PI*t)*0.14 + sin(90*2*PI*t)*(0.07+0.04*sin(0.2*2*PI*t)) + "
+                    "sin(135*2*PI*t)*0.03 + sin(44.5*2*PI*t)*0.08"
+                )
+                bg_filter = "lowpass=f=300,volume=0.15,afade=t=in:st=0:d=2.0"
+            else:
+                # Warm documentary pad drone: rich ambient bed masking synthetic gaps
+                aeval = (
+                    "sin(58*2*PI*t)*0.15 + sin(116*2*PI*t)*0.08 + "
+                    "sin(174*2*PI*t)*0.04 + sin(57.5*2*PI*t)*0.09"
+                )
+                bg_filter = "lowpass=f=350,volume=0.14,afade=t=in:st=0:d=1.5"
 
         ok_amb = run([
             "ffmpeg", "-y", "-f", "lavfi",
@@ -882,7 +903,7 @@ async def main():
 
         # Attempt Option A: Dedicated GPU diffusion pass
         try:
-            generated_diffusion = diffusion.generate_hero_thumbnail_diffusion(custom_prompt, concept_img_path, domain=domain)
+            generated_diffusion = diffusion.generate_hero_thumbnail_diffusion(custom_prompt, concept_img_path, domain=domain, visual_bible=visual_bible)
         except Exception as diff_e:
             print(f"Diffusion thumbnail attempt note: {diff_e}")
 
