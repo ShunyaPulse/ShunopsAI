@@ -408,7 +408,7 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]', isGue
           }
           setTimeout(() => {
             closeGitHubModal();
-            appendMessageBubble('assistant', '🔗 **Connected GitHub Repository:** \`' + data.repo + '\` (' + data.branch + ')\n\n' + data.indexedFilesCount + ' files have been chunked and indexed into Neon Lakebase pgvector with ' + data.engine + ' embeddings. You can now ask questions about the repository architecture, code, and documentation.');
+            appendMessageBubble('assistant', '🔗 **Connected GitHub Repository:** ' + data.repo + ' (' + data.branch + ')\\n\\n' + data.indexedFilesCount + ' files have been chunked and indexed into Neon Lakebase pgvector with ' + data.engine + ' embeddings. You can now ask questions about the repository architecture, code, and documentation.');
           }, 1200);
         } else {
           if (statusEl) {
@@ -611,7 +611,12 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]', isGue
     }
 
     function escapeHtmlAttr(str) {
-      return String(str || '').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+      return String(str === null || str === undefined ? '' : str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
     }
 
     function escapeHtmlText(str) {
@@ -1106,7 +1111,7 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]', isGue
       } else if (!msg && currentAttachedDoc) {
         msg = 'Please analyze and summarize the attached document "' + currentAttachedDoc.fileName + '".';
       } else if (currentAttachedDoc) {
-        msg = msg + '\n\n[Refer to uploaded document: "' + currentAttachedDoc.fileName + '" indexed in pgvector]';
+        msg = msg + '\\n\\n[Refer to uploaded document: "' + currentAttachedDoc.fileName + '" indexed in pgvector]';
       }
 
       if (input) input.value = '';
@@ -1588,17 +1593,7 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]', isGue
       renderPlatformSelect();
     }
 
-    // Attribute-safe escaping: escapeHtmlText runs through innerHTML, which
-    // leaves quotes intact and would let a value break out of an attribute.
-    function escapeHtmlAttr(str) {
-      return String(str === null || str === undefined ? '' : str)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;');
-    }
-
+    // Attribute-safe escaping already provided by escapeHtmlAttr above.
     function platformIsConnected(platformId) {
       return platformConnected.some(function (item) { return item.platform === platformId; });
     }
