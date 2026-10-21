@@ -8,9 +8,11 @@
  * variables and return an environment object that exposes it as both
  * `GH_TOKEN` and `GITHUB_TOKEN` (what the `gh` CLI expects).
  */
-export function getGitHubAuthEnv(): NodeJS.ProcessEnv {
+export function getGitHubAuthEnv(customToken?: string): NodeJS.ProcessEnv {
   const token =
+    customToken ||
     process.env.GH_TOKEN ||
+
     process.env.GH_PAT ||
     process.env.GITHUB_PAT ||
     process.env.GITHUB_TOKEN ||

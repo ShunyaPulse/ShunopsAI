@@ -66,12 +66,12 @@ interface SecurityPatchAudit {
 /**
  * Fetch all open code scanning alerts from GitHub
  */
-export async function fetchOpenCodeScanningAlerts(repo = "ShunyaPulse/ShunopsAI"): Promise<CodeAlert[]> {
+export async function fetchOpenCodeScanningAlerts(repo = "ShunyaPulse/ShunopsAI", token?: string): Promise<CodeAlert[]> {
   try {
     // execFileSync (argv form) avoids shell interpolation of the repo name.
     const raw = execFileSync("gh", ["api", `repos/${repo}/code-scanning/alerts`, "--paginate"], {
       encoding: "utf-8",
-      env: getGitHubAuthEnv(),
+      env: getGitHubAuthEnv(token),
     });
     const parsed: CodeAlert[] = JSON.parse(raw || "[]");
     return parsed.filter((a) => a.state === "open");
@@ -145,6 +145,12 @@ RULES FOR SECURITY FIX:
    - Sanitize or escape any user parameter before returning it in HTML.
 5. For "unsafe-formatstring":
    - Ensure the first argument of console.error/console.log is a constant string literal without variable interpolations, or use string concatenation.
+6. For "js/request-forgery" (SSRF):
+   - Validate URL parameters with strict alphanumeric regex (/^[a-zA-Z0-9_.-]+$/) and encode URI components.
+7. For "js/polynomial-redos" (ReDoS):
+   - Simplify repeating/nested regexes or replace with linear string methods (indexOf, while, slice, split).
+8. EXACT WHITESPACE & INDENTATION REQUIREMENT:
+   - "search" MUST match character-for-character including exact leading indentation whitespace from the snippet.
 
 OUTPUT FORMAT:
 Output ONLY a JSON object:
@@ -252,7 +258,8 @@ Do NOT include any text outside the JSON.`;
  */
 export async function runAutoAlertResolver(
   limit = 10,
-  repo = "ShunyaPulse/ShunopsAI"
+  repo = "ShunyaPulse/ShunopsAI",
+  token?: string
 ): Promise<{ resolved: number; total: number }> {
   if (await isAutonomyPaused()) {
     console.log(`${colors.yellow}⏸️ [Code Scanner] Skipped: Autonomy & AI operations are currently PAUSED by user killswitch.${colors.reset}`);
@@ -263,7 +270,7 @@ export async function runAutoAlertResolver(
   console.log(`${colors.cyan}${colors.bold}🤖 ShunopsAI Autonomous Code Scanning Alert Resolver (${repo})${colors.reset}`);
   console.log(`${colors.cyan}${colors.bold}====================================================${colors.reset}\n`);
 
-  const alerts = await fetchOpenCodeScanningAlerts(repo);
+  const alerts = await fetchOpenCodeScanningAlerts(repo, token);
   console.log(`Found ${alerts.length} open security & quality alerts in ${repo}.`);
 
   if (alerts.length === 0) {
@@ -293,14 +300,14 @@ export async function runAutoAlertResolver(
   if (resolvedCount > 0) {
     console.log(`\n${colors.green}Pushing ${resolvedCount} auto-resolved security patches to main...${colors.reset}`);
     try {
-      const authEnv = getGitHubAuthEnv();
+      const authEnv = getGitHubAuthEnv(token);
       execFileSync("git", ["add", "-A"], { env: authEnv });
       execFileSync("git", [
         "commit",
         "-m",
         `fix(security): auto-resolved ${resolvedCount} code scanning alerts by ShunopsAI`,
       ], { env: authEnv });
-      const pat = process.env.GH_PAT || process.env.GITHUB_PAT;
+      const pat = token || process.env.GH_PAT || process.env.GITHUB_PAT || process.env.GH_TOKEN || process.env.GITHUB_TOKEN;
       if (pat) {
         const basicAuth = Buffer.from(`x-access-token:${pat}`).toString("base64");
         execFileSync(

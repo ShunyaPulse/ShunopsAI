@@ -4,10 +4,11 @@ import {
   type ProviderKeyOverrides,
 } from "./models.js";
 import type { ToolScope } from "./scope.js";
-import { resolveWebSearch } from "./scope.js";
+import { resolveWebSearch, resolveGitHub } from "./scope.js";
 import { withSpan } from "../telemetry/otel.js";
 import { executeWebSearch, inspectWebsite } from "../tools/cloud.js";
 import { executeInSandbox } from "./sandbox/runner.js";
+import { runAutoAlertResolver } from "../tools/code-scanner-resolver.js";
 import {
   executeManageWorkspaceFiles,
   executeManageAgentTasks,
@@ -181,6 +182,28 @@ async function runSubAgent(
             });
             toolVerified = !toolOutput.startsWith("No live web search results");
           }
+        } else if (
+          spec.role === "coder" &&
+          (objective.toLowerCase().includes("code scanning") ||
+            objective.toLowerCase().includes("code alert") ||
+            objective.toLowerCase().includes("scan alert") ||
+            spec.task.toLowerCase().includes("code scanning") ||
+            spec.task.toLowerCase().includes("code alert"))
+        ) {
+          toolExecuted = "resolve_code_scanning_alerts";
+          const ghCred = resolveGitHub(scope);
+          const userPat = ghCred.ok && ghCred.source === "user" ? ghCred.value : undefined;
+          const matchLimit = (objective + " " + spec.task).match(/(\d+)\s*(?:code\s*scanning\s*)?alerts?/i);
+          const limit = (matchLimit && matchLimit[1]) ? parseInt(matchLimit[1], 10) : 5;
+          const alertRes = await runAutoAlertResolver(limit, "ShunyaPulse/ShunopsAI", userPat);
+          toolVerified = alertRes.resolved > 0;
+          toolOutput = [
+            `ShunopsAI Autonomous Alert Resolver Executed with GitHub privileges.`,
+            `Resolved & Pushed to Git: ${alertRes.resolved}/${alertRes.total} alerts.`,
+            alertRes.resolved > 0
+              ? `Committed & pushed directly to GitHub repository with Dual-Model Consensus.`
+              : "Consensus evaluation completed.",
+          ].join("\n");
         } else if (spec.role === "coder" && spec.code) {
           toolExecuted = "execute_sandboxed_code";
           const workspaceFiles = getTenantFilesMap(tenantKey);
