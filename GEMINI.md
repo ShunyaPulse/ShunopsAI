@@ -119,6 +119,15 @@
     `fade_start = speech_end_time + 2.0s` with a 1.0s fade duration.
   - The final scene visual and background music must hold at 100% brightness and full volume for a full 2.0 seconds AFTER the last spoken word ends before executing a 1.0s cinematic fade-out to black.
 
+## 13. Principle of Semantic Intelligence over Brittle Hardcoding (No Hardcoded Topic Checks)
+- **Zero Narrow Regex/Switch-Case Hardcoding:**
+  - NEVER solve generative AI domain/topic defects with narrow, brittle hardcoded conditions (e.g. `if (topic.includes("cricket")) ... else if (topic.includes("airport"))`).
+  - Hardcoded checks fail on the very next unseen topic (Formula 1, Deep Sea, Robotics, Ancient Rome, Space Telescopes).
+- **Two-Phase Intelligent Synthesis Protocol:**
+  - Always design systems to be fundamentally semantic, dynamically adaptive, and universally generalized.
+  - Prior to generation or rendering, use LLM reasoning (Active Gemini Flash key pool with multi-provider fallbacks) to dynamically synthesize a bespoke domain/topic schema (such as `VisualBible` with `realWorldGrounding`, `organicSettings`, `latentTrapsToBan`, `characterGrammar`, `zeroTextRules`, and `soundscapeProfile`).
+  - Downstream execution runners (Python GPU kernels, renderers, agents) must consume and apply this dynamically synthesized metadata directly, guaranteeing unbroken high-fidelity execution across any arbitrary real-world subject.
+
 
 
 
