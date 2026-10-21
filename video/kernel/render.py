@@ -504,9 +504,10 @@ class WanT4OptimizedEngine:
         bible_neg = ", ".join(latent_traps[:15]) + ", " if latent_traps else ""
 
         clean_prompt = (
-            f"{grounding_prefix}{visual_prompt[:280]}, hyper-cinematic documentary poster art, award-winning photography, "
-            f"masterpiece composition, dramatic volumetric rim lighting, deep contrast, vibrant authentic colors, "
-            f"hyper-detailed textures, sharp focus, 8k resolution, completely clean composition with lower negative space, "
+            f"{grounding_prefix}{visual_prompt[:280]}, dramatic cinematic YouTube hero poster, "
+            f"prominent foreground hero subject in sharp focus, extreme dynamic lighting, intense volumetric rim lights, "
+            f"rich contrast, deep shadows, atmospheric cinematic haze, shallow depth of field, award-winning photography, "
+            f"8k resolution, masterpiece composition, dark atmospheric left background for typography, "
             f"zero text, zero words, zero letters, zero watermarks"
         )
         if domain in ["science", "space", "technology", "nature", "history"]:
@@ -583,6 +584,67 @@ class WanT4OptimizedEngine:
             return True
         return False
 
+
+
+def get_robust_bold_font(target_size):
+    """
+    Finds and loads the highest-impact bold TrueType font available on Linux/Windows,
+    with automatic recursive directory lookup and Pillow 10+ scalable fallback.
+    """
+    candidates = [
+        # Linux standard paths (Kaggle/Debian/Ubuntu)
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+        "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
+        "/usr/share/fonts/truetype/ubuntu/Ubuntu-B.ttf",
+        "/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf",
+        # Windows standard paths
+        "C:/Windows/Fonts/impact.ttf",
+        "C:/Windows/Fonts/arialbd.ttf",
+        "C:/Windows/Fonts/segoeuib.ttf",
+    ]
+    for p in candidates:
+        if os.path.exists(p):
+            try:
+                from PIL import ImageFont
+                return ImageFont.truetype(p, target_size)
+            except Exception:
+                pass
+
+    # Recursive search in system font directories
+    search_dirs = ["/usr/share/fonts", "/usr/local/share/fonts", os.path.expanduser("~/.fonts")]
+    for s_dir in search_dirs:
+        if os.path.exists(s_dir):
+            for match in glob.glob(f"{s_dir}/**/*.ttf", recursive=True):
+                m_lower = match.lower()
+                if any(b in m_lower for b in ["bold", "black", "heavy", "b.ttf"]):
+                    try:
+                        from PIL import ImageFont
+                        return ImageFont.truetype(match, target_size)
+                    except Exception:
+                        pass
+
+    # Pillow 10+ load_default with size argument
+    try:
+        from PIL import ImageFont
+        return ImageFont.load_default(size=target_size)
+    except Exception:
+        pass
+
+    from PIL import ImageFont
+    return ImageFont.load_default()
+
+
+def fit_font(draw, text, max_w, start_size=96, min_size=48):
+    for sz in range(start_size, min_size - 1, -4):
+        f = get_robust_bold_font(sz)
+        try:
+            bbox = draw.textbbox((0, 0), text, font=f)
+            if (bbox[2] - bbox[0]) <= max_w:
+                return f, sz
+        except Exception:
+            return f, sz
+    return get_robust_bold_font(min_size), min_size
 
 
 # ==========================================
@@ -980,14 +1042,20 @@ async def main():
         if img is not None:
             img = img.resize((1280, 720), Image.Resampling.LANCZOS)
 
-            # Gradient overlay for maximum text contrast
+            # 1. Left-Side Cinematic Contrast Shadow (covers left 65% with smooth falloff)
+            # Guarantees typography pops with 100% razor-sharp contrast on any background
             overlay = Image.new("RGBA", (1280, 720), (0, 0, 0, 0))
             odraw = ImageDraw.Draw(overlay)
-            for y in range(460, 720):
-                alpha = int((y - 460) / 260 * 195)
+            for x in range(0, 820):
+                alpha = int(230 * ((820 - x) / 820) ** 1.35)
+                odraw.line([(x, 0), (x, 720)], fill=(0, 0, 0, alpha))
+
+            # Subtle top and bottom letterbox vignettes for cinematic framing
+            for y in range(0, 150):
+                alpha = int(140 * ((150 - y) / 150))
                 odraw.line([(0, y), (1280, y)], fill=(0, 0, 0, alpha))
-            for y in range(0, 160):
-                alpha = int((160 - y) / 160 * 140)
+            for y in range(570, 720):
+                alpha = int(170 * ((y - 570) / 150))
                 odraw.line([(0, y), (1280, y)], fill=(0, 0, 0, alpha))
 
             img = Image.alpha_composite(img.convert("RGBA"), overlay).convert("RGB")
@@ -998,33 +1066,37 @@ async def main():
             title_parts = raw_title.split(":")
 
             main_h = thumb_data.get("headline") or title_parts[0].strip()
-            main_h = main_h.upper()[:32]
+            main_h = main_h.upper()[:30].strip()
 
-            sub_h = thumb_data.get("subheadline") or (title_parts[1].strip() if len(title_parts) > 1 else script.get("description", ""))
-            sub_h = sub_h.upper()[:44]
+            sub_h = thumb_data.get("subheadline") or (title_parts[1].strip() if len(title_parts) > 1 else "")
+            sub_h = sub_h.upper()[:38].strip()
 
-            try:
-                font_main = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 54)
-                font_sub = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 34)
-            except Exception:
-                try:
-                    font_main = ImageFont.truetype("arialbd.ttf", 54)
-                    font_sub = ImageFont.truetype("arialbd.ttf", 34)
-                except Exception:
-                    font_main = ImageFont.load_default()
-                    font_sub = ImageFont.load_default()
+            # Dynamic font fitting for maximum impact without overflow
+            max_text_width = 750
+            font_main, main_sz = fit_font(draw, main_h, max_text_width, start_size=96, min_size=52)
+            font_sub, sub_sz = fit_font(draw, sub_h, max_text_width, start_size=int(main_sz * 0.74), min_size=40) if sub_h else (None, 0)
 
-            # Render bold drop shadow and high-visibility yellow/cyan text
-            draw.text((64, 524), main_h, font=font_main, fill=(0, 0, 0))
-            draw.text((60, 520), main_h, font=font_main, fill=(255, 225, 0))  # High-impact Yellow
+            x_pos = 64
+            y_pos = 65
 
-            if sub_h:
-                draw.text((64, 604), sub_h, font=font_sub, fill=(0, 0, 0))
-                draw.text((60, 600), sub_h, font=font_sub, fill=(0, 240, 255))  # Electric Cyan
+            # Multi-directional 3D Drop Shadow + Thick Stroke for Line 1 (High-Impact Yellow #FFE600)
+            for dx, dy in [(-6, -6), (6, -6), (-6, 6), (6, 6), (0, 8), (0, -8), (8, 0), (-8, 0), (0, 10)]:
+                draw.text((x_pos + dx, y_pos + dy), main_h, font=font_main, fill=(0, 0, 0))
+            draw.text((x_pos, y_pos), main_h, font=font_main, fill=(255, 230, 0), stroke_width=5, stroke_fill=(0, 0, 0))
+
+            bbox1 = draw.textbbox((x_pos, y_pos), main_h, font=font_main)
+            h1_height = bbox1[3] - bbox1[1]
+
+            # Line 2 (Subheadline): Razor Crisp Diamond White (#FFFFFF)
+            if sub_h and font_sub:
+                y_pos2 = y_pos + h1_height + 24
+                for dx, dy in [(-6, -6), (6, -6), (-6, 6), (6, 6), (0, 8), (0, -8), (8, 0), (-8, 0), (0, 10)]:
+                    draw.text((x_pos + dx, y_pos2 + dy), sub_h, font=font_sub, fill=(0, 0, 0))
+                draw.text((x_pos, y_pos2), sub_h, font=font_sub, fill=(255, 255, 255), stroke_width=5, stroke_fill=(0, 0, 0))
 
             img.save(f"{OUT}/thumbnail.jpg", quality=95)
             img.save(f"{OUT}/frame_30s.jpg", quality=95)
-            print("Successfully saved Option A thumbnail.jpg and frame_30s.jpg!")
+            print(f"Successfully saved modern high-CTR Option A thumbnail.jpg (headline='{main_h}' [size={main_sz}], sub='{sub_h}' [size={sub_sz}])!")
         else:
             print("Warning: Could not produce image for thumbnail.")
     except Exception as th_err:
