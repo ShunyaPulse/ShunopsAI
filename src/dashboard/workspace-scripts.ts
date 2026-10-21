@@ -129,11 +129,11 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]', isGue
           var mean = function(arr){ return !arr||!arr.length ? 0 : sum(arr)/arr.length; };
           var median = function(arr){ if(!arr||!arr.length) return 0; var s = arr.slice().sort(function(a,b){return a-b;}); var m = Math.floor(s.length/2); return s.length%2!==0 ? s[m] : (s[m-1]+s[m])/2; };
           var stdDev = function(arr){ if(!arr||arr.length<2) return 0; var avg = mean(arr); var sq = arr.map(function(x){return Math.pow(x-avg, 2);}); return Math.sqrt(sum(sq)/(arr.length-1)); };
-          var csvParse = function(txt){ var l = (txt||'').trim().split('\n'); if(!l.length) return []; var h = l[0].split(',').map(function(s){return s.trim();}); return l.slice(1).map(function(row){ var c = row.split(','); var obj = {}; h.forEach(function(col, i){ obj[col] = (c[i]||'').trim(); }); return obj; }); };
+          var csvParse = function(txt){ var l = (txt||'').trim().split('\\n'); if(!l.length) return []; var h = l[0].split(',').map(function(s){return s.trim();}); return l.slice(1).map(function(row){ var c = row.split(','); var obj = {}; h.forEach(function(col, i){ obj[col] = (c[i]||'').trim(); }); return obj; }); };
           var groupBy = function(arr, key){ return (arr||[]).reduce(function(acc, item){ var k = item[key]; (acc[k] = acc[k] || []).push(item); return acc; }, {}); };
-          var formatMarkdownTable = function(rows){ if(!rows||!rows.length) return ''; var h = Object.keys(rows[0]); var out = '| ' + h.join(' | ') + ' |\n| ' + h.map(function(){return '---';}).join(' | ') + ' |\n'; rows.forEach(function(r){ out += '| ' + h.map(function(k){return r[k]!==undefined?r[k]:'';}).join(' | ') + ' |\n'; }); return out; };
-          var writeWorkspaceFile = function(name, content){ var c = String(name||'').trim().replace(/^\/+/,''); writtenFiles[c] = String(content||''); return true; };
-          var appendWorkspaceFile = function(name, content){ var c = String(name||'').trim().replace(/^\/+/,''); writtenFiles[c] = (writtenFiles[c]||'') + String(content||''); return true; };
+          var formatMarkdownTable = function(rows){ if(!rows||!rows.length) return ''; var h = Object.keys(rows[0]); var out = '| ' + h.join(' | ') + ' |\\n| ' + h.map(function(){return '---';}).join(' | ') + ' |\\n'; rows.forEach(function(r){ out += '| ' + h.map(function(k){return r[k]!==undefined?r[k]:'';}).join(' | ') + ' |\\n'; }); return out; };
+          var writeWorkspaceFile = function(name, content){ var c = String(name||'').trim().replace(/^\\/+/,''); writtenFiles[c] = String(content||''); return true; };
+          var appendWorkspaceFile = function(name, content){ var c = String(name||'').trim().replace(/^\\/+/,''); writtenFiles[c] = (writtenFiles[c]||'') + String(content||''); return true; };
           var listWorkspaceFiles = function(){ return Object.keys(writtenFiles); };
 
           try {
