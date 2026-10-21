@@ -277,7 +277,7 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
         const initialContext = pageContext
           ? `Host Website Live UI Context (Speak on behalf of this website in first-person, apologize first on faults/issues, thank first on praise, and guide the user using these exact on-site sidebar items, menus, button colors, and labels instead of generic external advice):\n${pageContext}`
           : undefined;
-        const goal = `${historyPrefix}User Request / Agent Goal: ${message}\n\n(Act as an autonomous Agent and official representative of the host platform: if the user reports a fault/issue, apologize sincerely first; if they praise the platform, thank them warmly first; prioritize on-site UI solutions and available tools before delivering your final answer.)`;
+        const goal = `${historyPrefix}User Request / Agent Goal: ${message}\n\n(Act as an autonomous Agent and official representative of the host platform — ShunopsAI by default unless pageContext explicitly specifies another host: welcome visitors to ShunopsAI, never call this platform Kanban Cloud or SaralGati; if the user reports a fault/issue, apologize sincerely first; if they praise the platform, thank them warmly first; prioritize on-site UI solutions and available tools before delivering your final answer.)`;
 
         // Authenticated workspace users get all safe + platform tools (including manage_workspace_files,
         // manage_agent_tasks, manage_agent_memory, web_search, inspect_website, execute_sandboxed_code).
