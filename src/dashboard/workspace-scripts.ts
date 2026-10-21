@@ -515,6 +515,23 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]', isGue
           badge.innerHTML = '<span style="width:6px; height:6px; border-radius:50%; background:#a855f7; display:inline-block;"></span><span style="color:#a855f7;">Individual Model Locked</span>';
         }
       }
+
+      try {
+        localStorage.setItem('shunops_preferred_model', val);
+      } catch (e) {}
+
+      const navSelect = document.getElementById('navbar-model-select');
+      if (navSelect && navSelect.value !== val) {
+        navSelect.value = val;
+      }
+    }
+
+    function onNavbarModelChange(navVal) {
+      const chatSelect = document.getElementById('chat-model-select');
+      if (chatSelect && chatSelect.value !== navVal) {
+        chatSelect.value = navVal;
+        onModelPreferenceChange();
+      }
     }
 
     async function fetchModelStatus() {
@@ -739,7 +756,22 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]', isGue
       renderConversationsList();
     }
 
-    function startNewConversation() {
+    async function startNewConversation() {
+      if (conversationHistory.length > 0 && currentConversationId) {
+        const firstUser = conversationHistory.find(function(m) { return m.role === 'user'; });
+        const autoTitle = firstUser ? (firstUser.content || '').slice(0, 36) : 'Chat ' + currentConversationId.slice(-4);
+        if (!isGuest) {
+          try {
+            await fetch('/api/workspace/conversations', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              credentials: 'same-origin',
+              body: JSON.stringify({ id: currentConversationId, title: autoTitle })
+            });
+          } catch (e) {}
+        }
+      }
+
       currentConversationId = 'conv_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7);
       localStorage.setItem('shunops_current_conv_id', currentConversationId);
       conversationHistory = [];
@@ -1242,6 +1274,15 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]', isGue
           try {
             localStorage.setItem('shunops_guest_msgs_' + currentConversationId, JSON.stringify(conversationHistory));
             localStorage.setItem('shunops_guest_conversations', JSON.stringify(cachedConversations));
+          } catch (e) {}
+        } else {
+          try {
+            fetch('/api/workspace/conversations', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              credentials: 'same-origin',
+              body: JSON.stringify({ id: currentConversationId, title: titleSnippet })
+            }).catch(() => {});
           } catch (e) {}
         }
         renderConversationsList();
@@ -3466,6 +3507,18 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]', isGue
     }
 
     window.addEventListener('DOMContentLoaded', () => {
+      // Restore user preferred model
+      try {
+        const savedModel = localStorage.getItem('shunops_preferred_model');
+        const chatSelect = document.getElementById('chat-model-select');
+        const navSelect = document.getElementById('navbar-model-select');
+        if (savedModel) {
+          if (chatSelect) chatSelect.value = savedModel;
+          if (navSelect) navSelect.value = savedModel;
+          onModelPreferenceChange();
+        }
+      } catch (e) {}
+
       restoreLocalAgenticCache();
       renderAgenticWorkspaceState();
       loadSavedChatHistory();
