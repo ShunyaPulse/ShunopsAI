@@ -91,18 +91,22 @@ ${WORKSPACE_STYLES}
         </div>
 
         <!-- Global Model Selection Widget (Always Visible) -->
-        <div class="topbar-model-selector" style="display:inline-flex; align-items:center; gap:6px; background:#070d19; border:1px solid #1e293b; border-radius:8px; padding:3px 10px;">
-          <span style="font-size:11px; color:#94a3b8; font-weight:600; display:inline-flex; align-items:center; gap:4px;">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" stroke-width="2.2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+        <div class="topbar-model-selector">
+          <span style="font-size:11px; color:#38bdf8; font-weight:600; display:inline-flex; align-items:center; gap:5px;">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="4" y="4" width="16" height="16" rx="2"></rect>
+              <rect x="9" y="9" width="6" height="6"></rect>
+              <path d="M9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 14h3M1 9h3M1 14h3"></path>
+            </svg>
             Model:
           </span>
-          <select id="navbar-model-select" onchange="onNavbarModelChange(this.value)" style="background:transparent; border:none; color:#f8fafc; font-size:11.5px; font-weight:600; outline:none; cursor:pointer;">
+          <select id="navbar-model-select" onchange="onNavbarModelChange(this.value)">
             <optgroup label="─── Smart Modes (Auto-Failover) ───">
-              <option value="auto">⚡ Auto: Smart Adaptive (Auto-Routes & Self-Heals)</option>
-              <option value="gemini-flash">🚀 Fast & Responsive (Low Quota 🟢)</option>
-              <option value="groq-120b">🧠 Deep Reasoning & Math (120B AST ⚠️)</option>
-              <option value="code-dev">💻 Code Architect & Debugging (GPT-4o & AST)</option>
-              <option value="research-context">📚 Long Context & Research (1M Window)</option>
+              <option value="auto">⚡ Auto: Smart Adaptive (Auto-Routes &amp; Self-Heals)</option>
+              <option value="gemini-flash">🚀 Fast &amp; Responsive (Low Quota 🟢)</option>
+              <option value="groq-120b">🧠 Deep Reasoning &amp; Math (120B AST ⚠️)</option>
+              <option value="code-dev">💻 Code Architect &amp; Debugging (GPT-4o &amp; AST)</option>
+              <option value="research-context">📚 Long Context &amp; Research (1M Window)</option>
             </optgroup>
             <optgroup label="─── Direct Multi-Provider Fallbacks ───">
               <option value="gemini-active">✨ Gemini Flash (3.8 Flash / Active Pool)</option>

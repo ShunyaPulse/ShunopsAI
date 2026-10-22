@@ -804,6 +804,66 @@ export const WORKSPACE_STYLES = `    :root {
       flex-wrap: wrap;
     }
 
+    .topbar-model-selector {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: #090e1a;
+      border: 1px solid #1e293b;
+      border-radius: 8px;
+      padding: 3px 10px;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+    .topbar-model-selector:hover {
+      border-color: rgba(56, 189, 248, 0.4);
+      box-shadow: 0 0 12px rgba(56, 189, 248, 0.08);
+    }
+    #navbar-model-select,
+    #chat-model-select {
+      background-color: #090e1a !important;
+      color: #f8fafc !important;
+      font-size: 11.5px;
+      font-weight: 600;
+      border: none;
+      outline: none;
+      cursor: pointer;
+    }
+
+    /* Force dark background and high-contrast text on all dropdown popups */
+    select,
+    select option,
+    select optgroup,
+    #navbar-model-select option,
+    #navbar-model-select optgroup,
+    #chat-model-select option,
+    #chat-model-select optgroup {
+      background-color: #0b1120 !important;
+      color: #f1f5f9 !important;
+    }
+    select optgroup,
+    #navbar-model-select optgroup,
+    #chat-model-select optgroup {
+      color: #94a3b8 !important;
+      font-weight: 700 !important;
+      font-size: 11px !important;
+      background-color: #060913 !important;
+      padding: 6px 6px !important;
+    }
+    select option,
+    #navbar-model-select option,
+    #chat-model-select option {
+      padding: 8px 10px !important;
+      font-size: 12px !important;
+      background-color: #0b1120 !important;
+      color: #f8fafc !important;
+    }
+    select option:checked,
+    #navbar-model-select option:checked,
+    #chat-model-select option:checked {
+      background-color: #2563eb !important;
+      color: #ffffff !important;
+    }
+
     /* Mobile & Tablet Responsiveness */
     @media (max-width: 900px) {
       .mcp-presets-grid {
