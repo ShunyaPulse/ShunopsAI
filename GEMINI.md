@@ -128,6 +128,17 @@
   - Prior to generation or rendering, use LLM reasoning (Active Gemini Flash key pool with multi-provider fallbacks) to dynamically synthesize a bespoke domain/topic schema (such as `VisualBible` with `realWorldGrounding`, `organicSettings`, `latentTrapsToBan`, `characterGrammar`, `zeroTextRules`, and `soundscapeProfile`).
   - Downstream execution runners (Python GPU kernels, renderers, agents) must consume and apply this dynamically synthesized metadata directly, guaranteeing unbroken high-fidelity execution across any arbitrary real-world subject.
 
+## 14. Real-Time Event Grounding & Pre-Generation Web Research Invariant
+- **Mandatory Live Search on Real-World Entity Prompts:**
+  - Whenever a topic relates to live/ongoing domains (Sports matchups, Tournaments, Breaking News, Tech Announcements, Geopolitics, or Entity battles like "Team A vs Team B"):
+  - The pipeline must **NEVER** generate a script purely from LLM parametric memory.
+  - It must strictly execute a real-time web search (e.g., via `executeWebSearch` grounded against the current system date) prior to script synthesis to discover breaking match results, real-world scores, tournament standings, and verified milestones.
+- **Explicit Disambiguation between History vs Breaking Events:**
+  - If a recent event (within the last 7–14 days) exists for the topic, the generator MUST center the script and Visual Bible on the fresh real-world event (with exact scores, venues, key players, and record milestones) rather than generic historical retrospectives, unless the prompt explicitly specifies "History of..." or "All-time retrospective".
+- **Zero Late Search Anti-Pattern:**
+  - Never search for event details after generation or rendering is complete. All grounding facts must be injected into the script context *before* the first scene or narration line is drafted.
+
+
 
 
 

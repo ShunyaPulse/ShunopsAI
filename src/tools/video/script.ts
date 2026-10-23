@@ -1,6 +1,7 @@
 import { geminiGenerate } from "./gemini.js";
 import { detectVideoDomain, getDomainPromptDirectives } from "./domain.js";
 import { synthesizeTopicVisualBible } from "./visualBible.js";
+import { executeWebSearch } from "../cloud/webSearch.js";
 import type { VideoDomain, VideoScript, VisualBible } from "./types.js";
 
 /** Strip search-volume noise from the trend context before prompting. */
@@ -33,8 +34,9 @@ function buildScriptPrompt(params: {
   sceneCount: number;
   trendReason: string | undefined;
   visualBible: VisualBible;
+  liveSearchFacts?: string;
 }): string {
-  const { topic, minutes, language, domain, voice, targetWords, sceneCount, trendReason, visualBible } = params;
+  const { topic, minutes, language, domain, voice, targetWords, sceneCount, trendReason, visualBible, liveSearchFacts } = params;
   const domainDirectives = getDomainPromptDirectives(domain);
 
   return `You are an elite investigative documentary filmmaker and YouTube director (Vox, Johnny Harris, Think School style).
@@ -42,6 +44,7 @@ Write a gripping, 100% factual, highly engaging video script with hard synchroni
 
 Topic: ${topic}
 ${trendReason ? `BREAKING REAL-WORLD EVENT CONTEXT: "${trendReason}"` : ""}
+${liveSearchFacts ? `REAL-TIME VERIFIED GROUNDING INTEL (SEARCHED LIVE TODAY):\n${liveSearchFacts}\n` : ""}
 Domain: ${domain.toUpperCase()}
 Language: ${language}
 Target Length: about ${targetWords} spoken words (${minutes} minutes) divided into about ${sceneCount} tightly-paced scenes (12-20 words each).
@@ -158,6 +161,25 @@ export async function generateScript(
   const sceneCount = Math.round(targetWords / 16);
 
   const domain = detectVideoDomain(topic, trendReason);
+
+  // Rule 14: Real-Time Event Grounding & Pre-Generation Web Research Invariant
+  let liveSearchFacts = "";
+  const isMatchOrSports = domain === "sports" || /\b(vs|versus|match|series|tournament|cup|trophy|race|derby|final|game)\b/i.test(topic);
+  if (isMatchOrSports || trendReason) {
+    try {
+      const currentYear = new Date().getFullYear();
+      const searchQuery = isMatchOrSports
+        ? `${topic} latest match result scorecard ${currentYear}`
+        : `${topic} breaking news facts ${currentYear}`;
+      const searchRes = await executeWebSearch(searchQuery, { maxResults: 4 });
+      if (searchRes && !searchRes.includes("No results found")) {
+        liveSearchFacts = searchRes.slice(0, 2500);
+        console.log(`[Video] Rule 14 Pre-generation search grounded topic: "${topic}"`);
+      }
+    } catch (err: any) {
+      console.warn(`[Video] Rule 14 Pre-generation search non-fatal fallback: ${err?.message || err}`);
+    }
+  }
   const visualBible = await synthesizeTopicVisualBible(topic, trendReason, domain);
   const voice = selectVoice(language, domain);
   const rate = domain === "sports" ? "+4%" : "+0%";
@@ -173,6 +195,7 @@ export async function generateScript(
     sceneCount,
     trendReason: sanitizedTrendReason,
     visualBible,
+    liveSearchFacts,
   });
 
   const { text, modelUsed } = await geminiGenerate(prompt, preferredModel);
