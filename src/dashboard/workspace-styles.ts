@@ -818,6 +818,12 @@ export const WORKSPACE_STYLES = `    :root {
       border-color: rgba(56, 189, 248, 0.4);
       box-shadow: 0 0 12px rgba(56, 189, 248, 0.08);
     }
+    .task-del-btn {
+      transition: color 0.15s ease;
+    }
+    .task-del-btn:hover {
+      color: #f87171 !important;
+    }
     #navbar-model-select,
     #chat-model-select {
       background-color: #090e1a !important;

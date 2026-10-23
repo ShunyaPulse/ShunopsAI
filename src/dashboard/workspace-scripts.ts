@@ -2648,7 +2648,7 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]', isGue
               + '</div>'
               + '<div style="display:flex; align-items:center; gap:6px; flex-shrink:0;">'
               + '<span style="font-size:9.5px; color:#64748b; font-family:monospace;">#' + t.id + '</span>'
-              + '<button type="button" data-task-id="' + t.id + '" onclick="event.stopPropagation(); deleteAgentTask(Number(this.dataset.taskId))" style="background:transparent; border:none; color:#64748b; font-size:11px; cursor:pointer; padding:0 3px; line-height:1; transition:color 0.15s;" onmouseover="this.style.color=\'#f87171\'" onmouseout="this.style.color=\'#64748b\'" title="Delete task">✕</button>'
+              + '<button type="button" data-task-id="' + t.id + '" onclick="event.stopPropagation(); deleteAgentTask(Number(this.dataset.taskId))" class="task-del-btn" style="background:transparent; border:none; color:#64748b; font-size:11px; cursor:pointer; padding:0 3px; line-height:1;" title="Delete task">✕</button>'
               + '</div>'
               + '</div>';
           }).join('');
