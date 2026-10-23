@@ -1,11 +1,15 @@
 /**
- * ShunopsAI Gemini TTS Engine — 136-Channel Quota-Resilient Speech Synthesis
+ * ShunopsAI Gemini TTS Engine — 136-Channel Indian-Steered Speech Synthesis
  *
  * Models:
- * 1. gemini-3.8-flash-tts         (Tier 1: SOTA quality, expressive prosody)
+ * 1. gemini-3.8-flash-tts         (Tier 1: SOTA quality, expressive Indian prosody)
  * 2. gemini-3.8-flash-lite-tts    (Tier 2: High throughput, separate quota bucket)
  * 3. gemini-3.1-flash-tts-preview (Tier 3: Battle-tested preview fallback)
  * 4. gemini-2.5-flash-preview-tts (Tier 4: Deep legacy fallback)
+ *
+ * Voice Persona Architecture (Tested & User Verified):
+ * - Documentary / Science / Space / History / General -> Aoede (Authentic Indian documentary anchor)
+ * - Sports / Action / High-Energy -> Fenrir (Indian sports commentator with breathless excitement)
  *
  * Quota Guardrails (Rule 6 & Rule 1):
  * - 34 keys in GEMINI_KEYS pool.
@@ -54,20 +58,23 @@ function nextKey(pool: string[]): string {
 }
 
 // ---------------------------------------------------------------------------
-// Tone -> Prompt-Prefix Mapping (Rule 13: Semantic intelligence)
+// Indian Persona & Cadence Steering (Tested & User-Verified)
 // ---------------------------------------------------------------------------
+
+const INDIAN_PERSONA_BASE =
+  "You are an authentic Indian documentary narrator and commentator with a natural, crisp Indian accent and pronunciation. Speak with natural Indian cadence and rhythm, without any foreign or American accent.";
 
 const TONE_PROMPT_PREFIX: Record<string, string> = {
   excited:
-    "Say this in an energetic, breathless, rising-excitement documentary style:",
+    `${INDIAN_PERSONA_BASE} Speak with intense rising excitement, breathless energy, and celebratory Indian sports commentary style:`,
   suspense:
-    "Say this with slow, measured delivery — building tension with deliberate dramatic pauses:",
+    `${INDIAN_PERSONA_BASE} Deliver this mystery with slow, suspenseful pacing, deliberate dramatic pauses, and deep investigative gravitas:`,
   dramatic:
-    "Say this with deep gravitas, cinematic weight, and powerful emotional resonance:",
+    `${INDIAN_PERSONA_BASE} Deliver this historic turning point with deep gravitas, cinematic weight, and powerful emotional resonance:`,
   somber:
-    "Say this softly and solemnly, with a reflective, respectful documentary tone:",
+    `${INDIAN_PERSONA_BASE} Speak softly, solemnly, and respectfully with a reflective Indian documentary tone:`,
   neutral:
-    "Say this as a clear, authoritative documentary narrator:",
+    `${INDIAN_PERSONA_BASE} Deliver this as an articulate, clear, and engaging Indian documentary anchor:`,
 };
 
 // ---------------------------------------------------------------------------
@@ -82,7 +89,7 @@ function sanitizeForTTS(text: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// Voice Selection
+// Voice Selection (Aoede = Documentary / Fenrir = Sports)
 // ---------------------------------------------------------------------------
 
 function resolveGeminiVoice(
@@ -90,15 +97,14 @@ function resolveGeminiVoice(
   domain: string | undefined
 ): string {
   if (scriptVoice) {
-    if (/^(Fenrir|Alnilam|Aoede|Puck|Despina|Charon)$/i.test(scriptVoice)) {
+    if (/^(Aoede|Fenrir|Puck|Alnilam|Despina|Charon)$/i.test(scriptVoice)) {
       return scriptVoice;
     }
-    if (/Fenrir/i.test(scriptVoice)) return "Fenrir";
-    if (/Alnilam/i.test(scriptVoice)) return "Alnilam";
-    if (/Aoede/i.test(scriptVoice)) return "Aoede";
+    if (/aoede/i.test(scriptVoice)) return "Aoede";
+    if (/fenrir/i.test(scriptVoice)) return "Fenrir";
   }
-  // High-energy sports/action -> Fenrir; Authoritative documentary -> Alnilam
-  return domain === "sports" || domain === "general" ? "Fenrir" : "Alnilam";
+  // User verified: Aoede is the superior documentary/general anchor; Fenrir for sports action
+  return domain === "sports" ? "Fenrir" : "Aoede";
 }
 
 // ---------------------------------------------------------------------------
@@ -107,12 +113,7 @@ function resolveGeminiVoice(
 
 /**
  * Synthesizes speech using the 4-tier Gemini TTS model cascade across 34 keys.
- *
- * Guarantees zero RPM/TPM/RPD blocks:
- * 1. O(1) round-robin key rotation advances key on EVERY call.
- * 2. On 429 rate-limit, advances to next key immediately (max 2 keys per model).
- * 3. On model quota exhaustion, cascades to next model tier automatically:
- *    3.8-flash-tts -> 3.8-flash-lite-tts -> 3.1-flash-tts-preview -> 2.5-flash-preview-tts
+ * Enforces Indian persona & cadence steering on all outputs.
  */
 export async function synthesizeGeminiTTS(
   text: string,
@@ -175,13 +176,11 @@ export async function synthesizeGeminiTTS(
         }
 
         if (res.status === 404) {
-          // Model not found on this endpoint version -> break to next model in cascade
           console.warn(`[Gemini TTS] Model ${model} returned 404. Cascading to next model tier.`);
           break;
         }
 
         if (!res.ok) {
-          const errText = await res.text().catch(() => "");
           console.warn(
             `[Gemini TTS] ${model} HTTP ${res.status} [REDACTED]. Attempting next key/model.`
           );

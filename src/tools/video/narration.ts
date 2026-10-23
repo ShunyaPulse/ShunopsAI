@@ -103,66 +103,24 @@ function sceneAudioPath(audioDir: string, index: number): string {
  */
 
 export function resolveTTSPriorityChain(opts: {
-
   hasGCP: boolean;
-
   isHindi: boolean;
-
-  isAutoMode: boolean;
-
-  isFactHeavyDoc: boolean;
-
+  isAutoMode?: boolean;
+  isFactHeavyDoc?: boolean;
 }): TTSEngine[] {
+  const { hasGCP, isHindi } = opts;
 
-  const { hasGCP, isHindi, isAutoMode, isFactHeavyDoc } = opts;
-
-
-
+  // Gemini Indian-Steered (Aoede/Fenrir) is Tier 1 across all cases for superior emotion & accent
   if (hasGCP) {
-
-    if (isAutoMode && isFactHeavyDoc) {
-
-      // Cases 1 & 3 (Fact-heavy documentary: consistent pacing & verbatim clarity take Tier 1)
-
-      return isHindi
-
-        ? ["chirp", "gemini", "edge"]
-
-        : ["chirp", "gemini", "kokoro", "edge"];
-
-    } else {
-
-      // Cases 1 & 3 (dynamic/sports) + Cases 2 & 4 (User-prompted emotion/tone steering takes Tier 1)
-
-      return isHindi
-
-        ? ["gemini", "chirp", "edge"]
-
-        : ["gemini", "chirp", "kokoro", "edge"];
-
-    }
-
+    return isHindi
+      ? ["gemini", "chirp", "edge"]
+      : ["gemini", "chirp", "kokoro", "edge"];
   } else {
-
-    // No GCP credentials: Chirp 3 HD excluded
-
-    if (isHindi) {
-
-      // Cases 5 & 6
-
-      return ["gemini", "edge"];
-
-    }
-
-    // Cases 7 & 8
-
-    return ["gemini", "kokoro", "edge"];
-
+    return isHindi
+      ? ["gemini", "edge"]
+      : ["gemini", "kokoro", "edge"];
   }
-
 }
-
-
 
 /** Gemini 3.1 Flash TTS with emotion/tone steering (34-key pool). */
 
