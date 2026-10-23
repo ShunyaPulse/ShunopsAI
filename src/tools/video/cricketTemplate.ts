@@ -50,3 +50,4 @@ export function isCricketTopic(topic: string, trendReason?: string): boolean {
   const text = `${topic} ${trendReason || ""}`.toLowerCase();
   return /\b(cricket|ipl|bcci|icc|test match|odi|t20|t20i|wicket|stumps|pitch|batsman|bowler|century|scorecard|kohli|rohit sharma|babar|bumrah|malinga|jayasuriya|harry brook|joe root|ben stokes|shubman gill|dhoni|sachin|hardik pandya|shaheen|rashid khan|cummins|starc|rawalpindi|lords|headingley|wankhede|eden gardens|melbourne|mcg|scg|galle|colombo|tri-series|tri-nation|champions trophy|world cup cricket|cricketer)\b/i.test(text);
 }
+
