@@ -155,11 +155,14 @@ export async function knowledgeRoutes(
       tjIdx = closeP + 1;
     }
 
-    const arrayTjRegex = /\[([^\]]*)\]\s*TJ/g;
-    let match;
-    while ((match = arrayTjRegex.exec(str)) !== null) {
-      if (match[1]) {
-        const content = match[1];
+    let searchIdx = 0;
+    while ((searchIdx = str.indexOf('[', searchIdx)) !== -1) {
+      const closeIdx = str.indexOf(']', searchIdx);
+      if (closeIdx === -1) break;
+      const afterBracket = str.slice(closeIdx + 1);
+      const afterTrim = afterBracket.trimStart();
+      if (afterTrim.startsWith('TJ')) {
+        const content = str.slice(searchIdx + 1, closeIdx);
         let idx = 0;
         while (idx < content.length) {
           const start = content.indexOf('(', idx);
@@ -170,6 +173,7 @@ export async function knowledgeRoutes(
           idx = end + 1;
         }
       }
+      searchIdx = closeIdx + 1;
     }
     const extracted = textChunks.join(" ").replace(/\s+/g, " ").trim();
     if (extracted.length < 50) {

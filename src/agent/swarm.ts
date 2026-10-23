@@ -106,7 +106,23 @@ const ROLE_SYSTEM_PROMPTS: Record<SwarmAgentRole, string> = {
  */
 export function extractRunnableJsFromText(text: string): string | null {
   if (!text || typeof text !== "string") return null;
-  const match = text.match(/```(?:javascript|js)\s*\r?\n([\s\S]*?)```/i);
+  // Linear extraction of the first ```javascript or ```js block
+  const startIdx = (() => {
+    const lower = text.toLowerCase();
+    const idxJs = lower.indexOf("```javascript");
+    const idxJ = lower.indexOf("```js");
+    if (idxJs === -1 && idxJ === -1) return -1;
+    if (idxJs === -1) return idxJ;
+    if (idxJ === -1) return idxJs;
+    return Math.min(idxJs, idxJ);
+  })();
+  if (startIdx === -1) return null;
+  const headerEnd = text.indexOf("\n", startIdx);
+  if (headerEnd === -1) return null;
+  const codeStart = headerEnd + 1;
+  const endIdx = text.indexOf("```", codeStart);
+  if (endIdx === -1) return null;
+  const match = [null, text.substring(codeStart, endIdx)];
   if (!match || !match[1]) return null;
   const candidate = match[1].trim();
   if (!candidate || candidate.length > 20000) return null;

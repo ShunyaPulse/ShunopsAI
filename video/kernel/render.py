@@ -186,6 +186,10 @@ def synthesize_gcp_neural2(text, out_mp3, api_key, voice_name="hi-IN-Neural2-C",
     try:
         if not url.startswith("https://"):
             raise ValueError("Only HTTPS URLs are allowed for TTS requests")
+        # Ensure URL is a trusted TTS endpoint
+        trusted_prefix = "https://texttospeech.googleapis.com"
+        if not url.startswith(trusted_prefix):
+            raise ValueError(f"URL must start with trusted prefix {trusted_prefix}")
         req = urllib.request.Request(
             url,
             data=json.dumps(payload).encode("utf-8"),
