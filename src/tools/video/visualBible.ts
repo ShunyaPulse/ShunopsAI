@@ -1,5 +1,6 @@
 import { geminiGenerate } from "./gemini.js";
 import type { VideoDomain, VisualBible } from "./types.js";
+import { CRICKET_PRODUCTION_TEMPLATE, isCricketTopic } from "./cricketTemplate.js";
 
 /**
  * Provides an intelligent domain-level fallback Visual Bible if LLM synthesis is temporarily unavailable.
@@ -161,6 +162,11 @@ export async function synthesizeTopicVisualBible(
   trendReason?: string,
   domain: VideoDomain = "general"
 ): Promise<VisualBible> {
+  // Deterministic Cricket Fast-Path: Bypass LLM synthesis to conserve tokens and eliminate unpredictability
+  if (isCricketTopic(topic, trendReason)) {
+    console.log(`[Video] 🏏 Using hardcoded Cricket Production Template for "${topic}" (zero tokens consumed, 100% predictable stadium grounding).`);
+    return CRICKET_PRODUCTION_TEMPLATE;
+  }
   const preferredModel = process.env.GEMINI_MODEL;
   const prompt = VISUAL_BIBLE_PROMPT(topic, trendReason, domain);
 
