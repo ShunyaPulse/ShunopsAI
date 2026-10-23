@@ -330,17 +330,30 @@ export async function curateBestTrendTopic(items: TrendingItem[]): Promise<Curat
     return await generateEvergreenConceptTopic();
   }
 
-  // 2. Quantitative Trend Strength Check:
-  // If top clean candidate trends on the leaderboard have search traffic < 20K (e.g. 5K-10K),
-  // trend strength is too weak to justify breaking coverage. Pivot to Evergreen Concept Video!
-  const candidatePool = cleanItems.slice(0, 15);
-  const maxTraffic = Math.max(...candidatePool.map((it) => parseApproxTrafficNumber(it.approx_traffic)));
-  if (maxTraffic > 0 && maxTraffic < MIN_TREND_TRAFFIC_THRESHOLD) {
+  // 2. Strict Traffic-Weighted Ranking & Threshold Enforcement:
+  // Google Trends Web UI returns 300+ items that are NOT sorted purely by search traffic.
+  // We strictly sort all clean trends by search traffic descending so only high-volume viral events qualify!
+  const trafficSortedItems = [...cleanItems].sort(
+    (a, b) => parseApproxTrafficNumber(b.approx_traffic) - parseApproxTrafficNumber(a.approx_traffic)
+  );
+
+  // Filter out any micro-trends (< MIN_TREND_TRAFFIC_THRESHOLD e.g. 20K/1K searches)
+  const highVolumeTrends = trafficSortedItems.filter(
+    (it) => parseApproxTrafficNumber(it.approx_traffic) >= MIN_TREND_TRAFFIC_THRESHOLD
+  );
+
+  if (highVolumeTrends.length === 0) {
     console.log(
-      `[Trends] ⚠️ Top trends have low strength (max traffic ${maxTraffic.toLocaleString("en-IN")} < ${MIN_TREND_TRAFFIC_THRESHOLD.toLocaleString("en-IN")} threshold). Automatically pivoting to Evergreen Combinatorial Matrix + Evol-Instruct...`
+      `[Trends] ⚠️ Zero trends meet the ${MIN_TREND_TRAFFIC_THRESHOLD.toLocaleString("en-IN")}+ search traffic threshold. Automatically pivoting to Evergreen Combinatorial Matrix + Evol-Instruct...`
     );
     return await generateEvergreenConceptTopic();
   }
+
+  // Strictly select candidate pool from the TOP 10-15 highest search volume trends in India
+  const candidatePool = highVolumeTrends.slice(0, 15);
+  const topTraffic = candidatePool[0]?.approx_traffic || "20,000+";
+  const bottomTraffic = candidatePool[candidatePool.length - 1]?.approx_traffic || "20,000+";
+  console.log(`[Trends] 📊 Curating from Top ${candidatePool.length} High-Volume Trends (${topTraffic} down to ${bottomTraffic}).`);
 
   const itemsListFormatted = candidatePool
     .map(
