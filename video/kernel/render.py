@@ -184,6 +184,8 @@ def synthesize_gcp_neural2(text, out_mp3, api_key, voice_name="hi-IN-Neural2-C",
         }
     }
     try:
+        if not url.startswith("https://"):
+            raise ValueError("Only HTTPS URLs are allowed for TTS requests")
         req = urllib.request.Request(
             url,
             data=json.dumps(payload).encode("utf-8"),

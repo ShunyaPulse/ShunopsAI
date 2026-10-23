@@ -167,7 +167,7 @@ export function hasProviderCredentials(
 }
 
 // Fast failover timeout for automated consensus inference (15s max)
-const CONSENSUS_TIMEOUT_MS = 15000;
+const CONSENSUS_TIMEOUT_MS = 8000;
 
 export function createClient(target: ModelEndpoint, overrides?: ProviderKeyOverrides): OpenAI {
   if (target.provider === "groq") {

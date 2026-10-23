@@ -636,7 +636,7 @@ Return ONLY a valid JSON object matching this schema without any markdown format
       return parsed;
     }
   } catch (err: any) {
-    console.warn(`[Video] Notice: Dynamic Bible synthesis fallback used: ${err.message}`);
+    console.warn(`[Video] Notice: Dynamic Bible synthesis fallback used: [REDACTED]`);
   }
 
   return getFallbackVisualBible(topic, domain);

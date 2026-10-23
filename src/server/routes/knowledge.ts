@@ -149,15 +149,21 @@ export async function knowledgeRoutes(
     const arrayTjRegex = /\[([^\]]*)\]\s*TJ/g;
     while ((match = arrayTjRegex.exec(str)) !== null) {
       if (match[1]) {
-        const parts = match[1].match(/\(([^)]+)\)/g);
-        if (parts) {
-          for (const p of parts) textChunks.push(p.slice(1, -1));
+        const content = match[1];
+        let idx = 0;
+        while (idx < content.length) {
+          const start = content.indexOf('(', idx);
+          if (start === -1) break;
+          const end = content.indexOf(')', start + 1);
+          if (end === -1) break;
+          textChunks.push(content.slice(start + 1, end));
+          idx = end + 1;
         }
       }
     }
     const extracted = textChunks.join(" ").replace(/\s+/g, " ").trim();
     if (extracted.length < 50) {
-      const rawAscii = str.replace(/[^\x20-\x7E\n\r\t]/g, " ").replace(/\s{2,}/g, " ").trim();
+      const rawAscii = str.replace(/[^\x20-\x7E\n\r\t]/g, " ").replace(/\s+/g, " ").trim();
       const words = rawAscii.split(" ").filter((w) => w.length >= 3 && !w.startsWith("/") && !w.includes("Obj") && !w.includes("endobj"));
       if (words.length > 20) return words.slice(0, 3000).join(" ");
     }
@@ -239,11 +245,16 @@ export async function knowledgeRoutes(
       return { success: false, error: "GitHub repository URL or 'owner/repo' is required." };
     }
 
-    const cleanRepo = repoUrl
-      .replace(/^https?:\/\/github\.com\//i, "")
-      .replace(/\.git$/i, "")
-      .replace(/\/+$/, "")
-      .trim();
+    let cleanRepo = repoUrl.trim();
+    if (cleanRepo.startsWith("https://github.com/") || cleanRepo.startsWith("http://github.com/")) {
+      cleanRepo = cleanRepo.replace(/^https?:\/\/github\.com\//i, "");
+    }
+    if (cleanRepo.endsWith(".git")) {
+      cleanRepo = cleanRepo.slice(0, -4);
+    }
+    while (cleanRepo.endsWith("/")) {
+      cleanRepo = cleanRepo.slice(0, -1);
+    }
     const parts = cleanRepo.split("/");
     if (parts.length < 2) {
       reply.status(400);
