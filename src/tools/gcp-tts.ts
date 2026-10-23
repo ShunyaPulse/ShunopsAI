@@ -60,20 +60,27 @@ export function isGoogleCloudTTSAvailable(customKey?: string): boolean {
  * Curated Google Cloud Text-to-Speech Neural2 voices (Always Free Tier: 1M chars/mo).
  */
 export const GCP_TTS_VOICES = {
-  hindi_male: "hi-IN-Neural2-B",      // Deep, human, non-AI reel sound
-  hindi_male_doc: "hi-IN-Neural2-C",  // Authoritative documentary tone
-  hindi_female: "hi-IN-Neural2-A",    // Articulate television documentary anchor
-  hindi_female_soft: "hi-IN-Neural2-D",
-  english_in_male: "en-IN-Neural2-B", // Natural intellectual Indian English
-  english_in_female: "en-IN-Neural2-A",
-  english_us_male: "en-US-Neural2-J", // Classic US documentary narrator
-  english_us_female: "en-US-Neural2-F",
+  // Google Cloud Chirp 3 HD Generative Foundation Voices (Always Free Tier: 1M chars/mo)
+  hindi_male: "hi-IN-Chirp3-HD-Fenrir",        // Dynamic, high-energy male narrator (Sports/Action)
+  hindi_male_doc: "hi-IN-Chirp3-HD-Alnilam",    // Deep, authoritative documentary anchor (Science/Space/History)
+  hindi_female: "hi-IN-Chirp3-HD-Aoede",        // Articulate television documentary anchor
+  hindi_female_soft: "hi-IN-Chirp3-HD-Despina", // Measured, warm narrative voice
+  english_in_male: "en-IN-Chirp3-HD-Fenrir",    // Natural Indian English documentary narrator
+  english_in_female: "en-IN-Chirp3-HD-Aoede",   // Natural Indian English documentary anchor
+  english_us_male: "en-US-Chirp3-HD-Fenrir",    // Classic US documentary narrator
+  english_us_female: "en-US-Chirp3-HD-Aoede",   // Modern US journalistic anchor
+  // Legacy Neural2 Fallbacks
+  legacy_hindi_male: "hi-IN-Neural2-B",
+  legacy_hindi_doc: "hi-IN-Neural2-C",
 };
 
 /**
  * Maps a generic voice name or language to a top-tier Google Cloud Neural2 voice.
  */
 export function resolveGCPVoice(requestedVoice?: string, language = "Hindi"): { name: string; languageCode: string } {
+  if (requestedVoice && (requestedVoice.startsWith("hi-IN-Chirp3-HD-") || requestedVoice.startsWith("en-IN-Chirp3-HD-") || requestedVoice.startsWith("en-US-Chirp3-HD-"))) {
+    return { name: requestedVoice, languageCode: requestedVoice.slice(0, 5) };
+  }
   if (requestedVoice && requestedVoice.startsWith("hi-IN-Neural2-")) {
     return { name: requestedVoice, languageCode: "hi-IN" };
   }

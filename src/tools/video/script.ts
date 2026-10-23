@@ -17,11 +17,11 @@ function sanitizeTrendReason(trendReason?: string): string | undefined {
 
 /** Curated documentary voices by language and domain. */
 function selectVoice(language: string, domain: VideoDomain): string {
-  // hi-IN-Neural2-C: Authoritative documentary studio narrator (Science/Space/Tech/History)
-  // hi-IN-Neural2-B: Dynamic, energetic narrator (Sports/General)
-  // en-IN-PrabhatNeural: authentic Indian intellectual documentary narrator
-  if (!/hindi/i.test(language)) return "en-IN-PrabhatNeural";
-  return domain === "sports" ? "hi-IN-Neural2-B" : "hi-IN-Neural2-C";
+  // hi-IN-Chirp3-HD-Fenrir: Dynamic, high-energy foundation model narrator (Sports/Action)
+  // hi-IN-Chirp3-HD-Alnilam: Authoritative, deep documentary studio narrator (Science/Space/Tech/History)
+  // en-IN-Chirp3-HD-Fenrir: Authentic Indian English documentary narrator
+  if (!/hindi/i.test(language)) return "en-IN-Chirp3-HD-Fenrir";
+  return domain === "sports" ? "hi-IN-Chirp3-HD-Fenrir" : "hi-IN-Chirp3-HD-Alnilam";
 }
 
 function buildScriptPrompt(params: {
