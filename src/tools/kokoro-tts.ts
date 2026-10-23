@@ -25,7 +25,32 @@ export const KOKORO_CURATED_VOICES = {
 let cachedKokoroAvailability: boolean | null = null;
 
 /**
- * Checks if Kokoro ONNX or Python package is present in the host/runner environment.
+ * Attempts a one-shot JIT pip install of kokoro + soundfile.
+ * Called only when the cascade reaches the Kokoro tier and it is not yet installed.
+ * Timeout: 120 s — enough for a cold GitHub Actions runner; silently returns false on failure.
+ */
+async function tryInstallKokoro(): Promise<boolean> {
+  try {
+    console.log("[Kokoro-82M TTS] Kokoro not detected — attempting JIT install (pip install kokoro soundfile)...");
+    await execFileAsync("pip", ["install", "--quiet", "kokoro", "soundfile"], { timeout: 120_000 });
+    // Verify the install succeeded
+    const { stdout } = await execFileAsync("python", [
+      "-c",
+      "import kokoro; print('KOKORO_READY')",
+    ], { timeout: 5000 });
+    const ok = stdout.includes("KOKORO_READY");
+    if (ok) console.log("[Kokoro-82M TTS] JIT install succeeded. Kokoro is now available.");
+    return ok;
+  } catch (err: any) {
+    console.warn(`[Kokoro-82M TTS] JIT install failed: ${err.message}. Cascading to next tier.`);
+    return false;
+  }
+}
+
+/**
+ * Checks if Kokoro ONNX or Python package is present.
+ * If not installed, attempts a JIT pip install automatically.
+ * Result is cached for the process lifetime so the probe runs at most once per run.
  */
 export async function isKokoroAvailable(): Promise<boolean> {
   if (cachedKokoroAvailability !== null) {
@@ -38,12 +63,17 @@ export async function isKokoroAvailable(): Promise<boolean> {
       "import kokoro; print('KOKORO_READY')",
     ], { timeout: 3000 });
 
-    cachedKokoroAvailability = stdout.includes("KOKORO_READY");
-    return cachedKokoroAvailability;
+    if (stdout.includes("KOKORO_READY")) {
+      cachedKokoroAvailability = true;
+      return true;
+    }
   } catch {
-    cachedKokoroAvailability = false;
-    return false;
+    // Not installed yet — attempt JIT install below
   }
+
+  // JIT on-demand install
+  cachedKokoroAvailability = await tryInstallKokoro();
+  return cachedKokoroAvailability;
 }
 
 /**

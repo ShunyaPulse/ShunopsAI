@@ -24,7 +24,13 @@ export interface VideoScript {
   domain?: VideoDomain;
   visual_bible?: VisualBible;
   chapters: { title: string; start_scene: number }[];
-  scenes: { narration: string; caption?: string; visual_prompt: string }[];
+  scenes: {
+    narration: string;
+    caption?: string;
+    visual_prompt: string;
+    /** LLM-assigned emotional tone for this scene — drives Gemini TTS prompt & Chirp 3 HD SSML */
+    tone?: "excited" | "suspense" | "dramatic" | "somber" | "neutral";
+  }[];
   thumbnail?: {
     headline: string;
     subheadline?: string;

@@ -57,7 +57,7 @@ export function isGoogleCloudTTSAvailable(customKey?: string): boolean {
 }
 
 /**
- * Curated Google Cloud Text-to-Speech Neural2 voices (Always Free Tier: 1M chars/mo).
+ * Curated Google Cloud Text-to-Speech Neural2 / Chirp 3 HD voices (Always Free Tier: 1M chars/mo).
  */
 export const GCP_TTS_VOICES = {
   // Google Cloud Chirp 3 HD Generative Foundation Voices (Always Free Tier: 1M chars/mo)
@@ -75,7 +75,7 @@ export const GCP_TTS_VOICES = {
 };
 
 /**
- * Maps a generic voice name or language to a top-tier Google Cloud Neural2 voice.
+ * Maps a generic voice name or language to a top-tier Google Cloud Chirp 3 HD voice.
  */
 export function resolveGCPVoice(requestedVoice?: string, language = "Hindi"): { name: string; languageCode: string } {
   if (requestedVoice && (requestedVoice.startsWith("hi-IN-Chirp3-HD-") || requestedVoice.startsWith("en-IN-Chirp3-HD-") || requestedVoice.startsWith("en-US-Chirp3-HD-"))) {
@@ -108,21 +108,61 @@ export function resolveGCPVoice(requestedVoice?: string, language = "Hindi"): { 
   return { name: GCP_TTS_VOICES.english_in_male, languageCode: "en-IN" };
 }
 
+// ---------------------------------------------------------------------------
+// SSML Tone Wrapper for Chirp 3 HD Emotion (confirmed: break + prosody supported)
+// ---------------------------------------------------------------------------
+
 /**
- * Synthesizes speech using Google Cloud Text-to-Speech API with Neural2 voices.
+ * Wraps narration text in SSML prosody tags matching the scene emotional tone.
+ * Returns undefined for neutral tone (plain text, no SSML overhead).
+ * Chirp 3 HD confirmed to support <break> + <prosody rate pitch volume>.
+ */
+export function buildSSMLWithTone(text: string, tone: string): string | undefined {
+  const escaped = text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+
+  switch (tone) {
+    case "excited":
+      return `<speak><prosody rate="112%" pitch="+2st">${escaped}</prosody></speak>`;
+    case "suspense":
+      return `<speak><break time="400ms"/><prosody rate="90%" pitch="-1st">${escaped}</prosody></speak>`;
+    case "dramatic":
+      return `<speak><prosody rate="95%" pitch="-2st" volume="+2dB">${escaped}</prosody></speak>`;
+    case "somber":
+      return `<speak><prosody rate="88%" pitch="-3st" volume="-1dB">${escaped}</prosody></speak>`;
+    default:
+      return undefined; // neutral: plain text, no SSML
+  }
+}
+
+/**
+ * Synthesizes speech using Google Cloud Text-to-Speech API with Chirp 3 HD voices.
  * Always Free Tier gives 1,000,000 characters/month free.
+ * Pass `tone` to enable SSML emotion prosody wrapping via buildSSMLWithTone().
  */
 export async function synthesizeGoogleCloudTTS(
   text: string,
   outPath: string,
-  options?: { voiceName?: string | undefined; language?: string | undefined; speakingRate?: number | undefined; gcpKey?: string | undefined }
+  options?: {
+    voiceName?: string | undefined;
+    language?: string | undefined;
+    speakingRate?: number | undefined;
+    gcpKey?: string | undefined;
+    tone?: string | undefined;
+  }
 ): Promise<boolean> {
   const customKey = options?.gcpKey?.trim() || process.env.GCP_TTS_API_KEY || process.env.GOOGLE_TTS_API_KEY;
   const voiceMeta = resolveGCPVoice(options?.voiceName, options?.language);
   const speakingRate = options?.speakingRate ?? 1.0;
 
+  // SSML emotion wrapping when a tone is provided; plain text otherwise
+  const ssml = options?.tone ? buildSSMLWithTone(text, options.tone) : undefined;
+
   const payload = {
-    input: { text },
+    input: ssml ? { ssml } : { text },
     voice: {
       languageCode: voiceMeta.languageCode,
       name: voiceMeta.name,
@@ -219,5 +259,3 @@ export {
   synthesizeUnifiedSpeech,
   KOKORO_CURATED_VOICES,
 } from "./kokoro-tts.js";
-
-
