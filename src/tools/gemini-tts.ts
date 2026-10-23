@@ -137,8 +137,13 @@ export async function synthesizeGeminiTTS(
   const steeringPrompt = `${prefix}\n\n${cleanText}`;
 
   // Cascade across all 4 models: 3.8-flash -> 3.8-flash-lite -> 3.1-flash -> 2.5-flash
-  for (const model of GEMINI_TTS_MODELS) {
-    const maxKeyAttempts = Math.min(2, pool.length);
+  for (let mIdx = 0; mIdx < GEMINI_TTS_MODELS.length; mIdx++) {
+    const model = GEMINI_TTS_MODELS[mIdx]!;
+    // Allow up to 5 keys per model tier across the 34-key pool to maximize Tier 1 retention
+    const maxKeyAttempts = Math.min(5, pool.length);
+
+    // Legacy 2.5 TTS does not support prompt steering instructions; pass cleanText directly
+    const textPayload = model.includes("2.5") ? cleanText : steeringPrompt;
 
     for (let attempt = 0; attempt < maxKeyAttempts; attempt++) {
       const apiKey = byokKey ?? nextKey(pool);
@@ -146,7 +151,7 @@ export async function synthesizeGeminiTTS(
 
       try {
         const body = {
-          contents: [{ parts: [{ text: steeringPrompt }] }],
+          contents: [{ parts: [{ text: textPayload }] }],
           generationConfig: {
             responseModalities: ["AUDIO"],
             speechConfig: {
@@ -172,11 +177,18 @@ export async function synthesizeGeminiTTS(
           console.warn(
             `[Gemini TTS] 429 on ${model} (key: ${keyId}). Advancing to next key in pool...`
           );
+          // Brief 350ms backoff on 429 to avoid burst concurrency lock
+          await new Promise((resolve) => setTimeout(resolve, 350));
           continue; // advance to next key in O(1) round-robin
         }
 
         if (res.status === 404) {
           console.warn(`[Gemini TTS] Model ${model} returned 404. Cascading to next model tier.`);
+          break;
+        }
+
+        if (res.status === 400) {
+          console.warn(`[Gemini TTS] Model ${model} returned 400 (unsupported prompt format). Cascading to next tier.`);
           break;
         }
 
@@ -210,6 +222,9 @@ export async function synthesizeGeminiTTS(
         console.warn(`[Gemini TTS] Exception on ${model}: ${err.message}`);
       }
     }
+
+    // Advance round-robin pointer by a stride when shifting model tiers to pick a fresh key region
+    _roundRobinIndex = (_roundRobinIndex + 7) % pool.length;
   }
 
   console.warn(
