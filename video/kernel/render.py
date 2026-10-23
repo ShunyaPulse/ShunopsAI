@@ -905,12 +905,21 @@ async def main():
             f2 = float(dom_freqs[2]) if len(dom_freqs) > 2 else f0 * 2.0
             fb = f0 - 0.5
             print(f"[Audio] Synthesizing dynamic audio soundscape for '{domain}': style='{ambient_style}', energy='{energy}', freqs={dom_freqs}...")
-            aeval = (
-                f"sin({f0}*2*PI*t)*0.16 + sin({f1}*2*PI*t)*0.08 + "
-                f"sin({f2}*2*PI*t)*0.04 + sin({fb}*2*PI*t)*0.09"
-            )
+            if ambient_style == "stadium" or energy == "high":
+                # Dynamic stadium roar modulation with rolling wave resonance
+                aeval = (
+                    f"sin({f0}*2*PI*t)*0.15*(1+0.3*sin(0.35*2*PI*t)) + sin({f1}*2*PI*t)*0.08 + "
+                    f"sin({f2}*2*PI*t)*0.04 + sin({fb}*2*PI*t)*0.08 + "
+                    f"(random(0)-0.5)*0.035*(1+0.5*sin(0.2*2*PI*t))"
+                )
+            else:
+                aeval = (
+                    f"sin({f0}*2*PI*t)*0.16 + sin({f1}*2*PI*t)*0.08 + "
+                    f"sin({f2}*2*PI*t)*0.04 + sin({fb}*2*PI*t)*0.09"
+                )
             if energy == "high" or ambient_style == "stadium":
-                bg_filter = "lowpass=f=480,volume=0.17,afade=t=in:st=0:d=1.0"
+                # High-energy stadium / arena: rich atmospheric bed with rhythmic modulation
+                bg_filter = "lowpass=f=520,volume=0.20,afade=t=in:st=0:d=1.0"
             elif energy == "contemplative" or ambient_style == "nature":
                 bg_filter = "lowpass=f=300,volume=0.14,afade=t=in:st=0:d=2.0"
             else:
@@ -925,12 +934,13 @@ async def main():
                 )
                 bg_filter = "lowpass=f=320,volume=0.14,afade=t=in:st=0:d=2.0"
             elif domain == "sports":
-                # Dynamic rhythmic pulse drone: 65Hz fundamental with subtle low-end resonance
+                # Dynamic rhythmic stadium pulse: 65Hz fundamental + undulating crowd energy harmonics
                 aeval = (
-                    "sin(65*2*PI*t)*0.18 + sin(130*2*PI*t)*0.08 + "
-                    "sin(195*2*PI*t)*0.03 + sin(64.5*2*PI*t)*0.09"
+                    "sin(65*2*PI*t)*0.16*(1+0.25*sin(0.4*2*PI*t)) + sin(130*2*PI*t)*0.08 + "
+                    "sin(195*2*PI*t)*0.04 + sin(64.5*2*PI*t)*0.08 + "
+                    "(random(0)-0.5)*0.04*(1+0.4*sin(0.15*2*PI*t))"
                 )
-                bg_filter = "lowpass=f=450,volume=0.16,afade=t=in:st=0:d=1.0"
+                bg_filter = "bandpass=f=280:width_type=h:w=360,volume=0.22,afade=t=in:st=0:d=1.0"
             elif domain == "nature":
                 # Natural oceanic/atmospheric texture: low-frequency rolling swell + wind resonance
                 aeval = (

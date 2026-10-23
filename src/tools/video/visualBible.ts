@@ -112,14 +112,23 @@ TOPIC: "${topic}"
 ${trendReason ? `BREAKING EVENT CONTEXT: "${trendReason}"` : ""}
 PRIMARY DOMAIN: ${domain.toUpperCase()}
 
-Your goal is to eliminate generative AI hallucinations, diffusion biases, distorted faces, gibberish AI text, and acoustic mismatch by specifying strict semantic directives for this EXACT topic.
+Your goal is to eliminate generative AI hallucinations, diffusion biases, distorted faces, anatomical warping, off-topic architectural drifts (e.g. mansions/havelis in sports), gibberish AI text, and acoustic mismatch by specifying strict semantic directives for this EXACT topic.
+
+CRITICAL ARCHITECTURAL & ENVIRONMENT ANCHORING INVARIANT:
+- PRIMARY ARENA LOCK: Every scene must be physically anchored in the authentic, functional competition ground or working stage (e.g. for stadium sports: strictly the field of play, green turf, pitch, technical dugout, floodlights).
+- ANTI-DRIFT INSTRUCTION: Banish all detached residential buildings, colonial palaces, mansions, havelis, luxury resorts, or unrelated hotel grounds. If historic pavilions or venues exist, they must strictly remain a distant blurred stadium background stand, NEVER a residential palace or haveli foreground.
 
 Analyze:
 1. "realWorldGrounding": 1-2 concrete, vivid sentences describing the authentic physical environment, architectural style, real equipment, textures, and lighting for THIS specific topic.
 2. "organicSettings": Array of 4-6 authentic real-world physical locations where this topic naturally takes place (e.g. for cricket: dugout, pavilion, 22-yard turf pitch, practice nets, dressing room; for airport: air traffic control tower, tarmac taxiway, maintenance hangar, terminal boarding lounge; for space: mission control console, satellite integration cleanroom, launchpad gantry). Strictly ban irrelevant default spaces (e.g. generic office cubicles, CCTV rooms, fantasy bridges).
 3. "latentTrapsToBan": Array of 10-18 topic-specific negative prompts and diffusion biases that AI video models frequently hallucinate for this topic (e.g. for cricket: baseball, baseball bat, american football helmet, rugby ball, tennis court, office cubicle, 3d stacked spheres; for airports: suspension bridge runway, runway in water, ocean stilts, fids screen letters; for historical: modern wristwatches, nylon, plastic, modern cars; for space: sports jerseys, fantasy portals).
-4. "characterGrammar": Explicit camera framing and cinematography rules for characters/athletes/figures in this video to prevent face warping, distorted eyes, or melting skin (e.g. medium-to-wide action shots, over-the-shoulder perspectives, floodlit silhouettes; zero macro facial portraits of recognizable celebrities).
-5. "zeroTextRules": Concrete instructions on how all screens, monitors, scoreboards, jerseys, or documents in this topic must be rendered as clean, text-free visual metaphors (e.g. "unlabeled glowing abstract telemetry displays, solid color athletic jerseys, illuminated status indicators with zero letters, zero numbers, zero pseudocode").
+4. "characterGrammar": Explicit camera framing, biomechanical kinematics, and cinematography rules to prevent face warping, twisted limbs, or unnatural action drifts.
+   - For high-velocity actions (swings, strikes, deliveries, sprints, maneuvers): Strictly ban full-body side-profile swing animations (which cause melting shoulders, floating equipment, or cross-sport confusion like baseball slides).
+   - Enforce kinematic decoupling: break rapid actions into (a) macro close-ups on equipment in flight/release (seam, ball, gear, sparks, turf impact), (b) over-the-shoulder tracking shots, and (c) silhouetted or rear-angle celebrations.
+   - Strictly zero macro facial portraits of real celebrities or athletes to avoid AI deepfake distortion.
+5. "zeroTextRules": Concrete directives on how to completely eliminate AI text glitches.
+   - STRICT ZERO SCOREBOARDS, DIGITAL TIMERS, OR TICKERS: Diffusion models cannot render numbers or letters. Ban all scoreboard close-ups, digital clock displays, and leaderboards. Depict player reactions, cheering crowds, referee signals, or physical equipment instead.
+   - Jerseys, equipment, banners, screens: must be solid color blocks, natural cloth textures, or soft ambient gradient glows with strictly zero alphanumeric characters, zero faux-letters, zero gibberish symbols.
 6. "soundscapeProfile":
    - "energyLevel": One of "high", "measured", "contemplative", "dramatic".
    - "ambientBedStyle": One of "drone", "stadium", "nature", "industrial", "orchestral".

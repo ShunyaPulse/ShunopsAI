@@ -90,10 +90,16 @@ CRITICAL DIRECTIVES:
    - CAPTIONS (On-Screen Subtitles): Must be in 100% PURE ENGLISH (both English letters AND English language words). For every single scene, provide the exact English translation in "caption" to be displayed on-screen.
 4. Visual Prompt Engineering for True Continuous Video & Flaw-Free Execution:
    - For EVERY scene, write a "visual_prompt" that describes a real, continuous cinematic video shot — NOT a static photo or generic concept.
-   - ZERO AI UI / TEXT HALLUCINATIONS (CRITICAL):
-     * NEVER instruct the AI model to render legible text, words, labels, graphs, line charts, or alphanumeric dashboards inside the shot.
-     * When screens, monitors, or control rooms are depicted, explicitly specify: "unlabeled glowing telemetry monitors, abstract clean data visualization, ambient blue HUD glow with zero text, zero letters, zero numbers, zero pseudocode".
-     * Any data charts or maps will be composited as clean motion graphics templates in post-production.
+   - ZERO AI TEXT & ABSOLUTE ZERO SCOREBOARDS/TICKERS (CRITICAL):
+     * NEVER instruct the AI model to render legible text, words, numbers, scores, labels, graphs, or line charts inside the shot.
+     * STRICTLY FORBIDDEN: NEVER prompt stadium scoreboards, digital timers, leaderboards, or score tickers (which cause garbled gibberish text like "34AAST").
+     * When screens, monitors, or stadiums are depicted: depict glowing floodlights, blurred spectators, player emotions, or abstract color gradations with strictly zero text, zero letters, zero numbers.
+   - FUNCTIONAL ARENA GROUNDING (ZERO UNRELATED RESIDENTIAL MANSIONS/PALACES):
+     * Every scene must be physically set inside the authentic arena or domain stage (e.g. green playing turf, dugout, launchpad, lab cleanroom).
+     * STRICTLY BANNED: Residential buildings, colonial palaces, mansions, havelis, luxury resort gardens, or random hotel rooms in sports or technical documentaries.
+   - BIOMECHANICAL KINEMATICS & ANTI-WARPING STANDARD:
+     * For athletic or high-speed maneuvers: NEVER prompt full-body side-profile complex swings or high-speed human limb contortions (which trigger shoulder melting, floating equipment, or cross-sport confusion like baseball sliding).
+     * Use macro equipment cinematography (e.g. ball seam spinning, equipment impact, turf explosion under spikes), dynamic tracking of trajectory, over-the-shoulder perspectives, or backlit silhouetted celebrations.
    - RIGID BACKGROUND GEOMETRY & LOW-MOTION STABILITY (PREVENT BREATHING/SURFACE WARPING):
      * For indoor, laboratory, server room, and character shots: Specify steady camera control: "Subtle character breathing and gentle eye movement, locked solid background geometry, rigid non-morphing walls, stable monitor frames in 3D space".
      * Ban rapid boiling, shifting surfaces, and inconsistent morphing.
