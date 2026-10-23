@@ -134,19 +134,29 @@ export async function knowledgeRoutes(
   function extractPdfText(buf: Buffer): string {
     const str = buf.toString("latin1");
     const textChunks: string[] = [];
-    const tjRegex = /\(([^)]+)\)\s*(?:Tj|'|")/g;
-    let match;
-    while ((match = tjRegex.exec(str)) !== null) {
-      if (match[1]) {
-        const unescaped = match[1]
+    
+    // Safe linear scanner for literal strings in ( ... ) Tj / ' / " without ReDoS
+    let tjIdx = 0;
+    while (tjIdx < str.length) {
+      const openP = str.indexOf("(", tjIdx);
+      if (openP === -1) break;
+      const closeP = str.indexOf(")", openP + 1);
+      if (closeP === -1) break;
+      const after = str.slice(closeP + 1, closeP + 10).trimStart();
+      if (after.startsWith("Tj") || after.startsWith("'") || after.startsWith('"')) {
+        const unescaped = str
+          .slice(openP + 1, closeP)
           .replace(/\\([()\\])/g, "$1")
           .replace(/\\n/g, "\n")
           .replace(/\\r/g, "\r")
           .replace(/\\t/g, "\t");
         textChunks.push(unescaped);
       }
+      tjIdx = closeP + 1;
     }
+
     const arrayTjRegex = /\[([^\]]*)\]\s*TJ/g;
+    let match;
     while ((match = arrayTjRegex.exec(str)) !== null) {
       if (match[1]) {
         const content = match[1];
@@ -264,6 +274,20 @@ export async function knowledgeRoutes(
     const resolvedBranch = branch?.trim() || "main";
     const ghToken = token?.trim() || process.env.GH_PAT || process.env.GITHUB_TOKEN;
 
+    const GITHUB_SEGMENT_REGEX = /^[a-zA-Z0-9_.-]+$/;
+    if (!owner || !repo || !GITHUB_SEGMENT_REGEX.test(owner) || !GITHUB_SEGMENT_REGEX.test(repo)) {
+      reply.status(400);
+      return { success: false, error: "Invalid repository format. Owner and repo must be alphanumeric." };
+    }
+    if (!GITHUB_SEGMENT_REGEX.test(resolvedBranch)) {
+      reply.status(400);
+      return { success: false, error: "Invalid branch name format." };
+    }
+
+    const safeOwner = encodeURIComponent(owner);
+    const safeRepo = encodeURIComponent(repo);
+    const safeBranch = encodeURIComponent(resolvedBranch);
+
     const headers: Record<string, string> = {
       "User-Agent": "ShunopsAI-Agent/3.0",
       Accept: "application/vnd.github.v3+json",
@@ -273,13 +297,13 @@ export async function knowledgeRoutes(
     }
 
     let treeRes = await fetch(
-      `https://api.github.com/repos/${owner}/${repo}/git/trees/${resolvedBranch}?recursive=1`,
+      `https://api.github.com/repos/${safeOwner}/${safeRepo}/git/trees/${safeBranch}?recursive=1`,
       { headers }
     );
 
     if (!treeRes.ok && resolvedBranch === "main") {
       treeRes = await fetch(
-        `https://api.github.com/repos/${owner}/${repo}/git/trees/master?recursive=1`,
+        `https://api.github.com/repos/${safeOwner}/${safeRepo}/git/trees/master?recursive=1`,
         { headers }
       );
     }
@@ -321,7 +345,11 @@ export async function knowledgeRoutes(
     const indexedFiles: string[] = [];
     for (const file of priorityFiles) {
       try {
-        const rawUrl = `https://raw.githubusercontent.com/${owner}/${repo}/${resolvedBranch}/${file.path}`;
+        if (typeof file.path !== "string" || file.path.includes("..") || !/^[a-zA-Z0-9_./-]+$/.test(file.path)) {
+          continue;
+        }
+        const safePath = encodeURI(file.path);
+        const rawUrl = `https://raw.githubusercontent.com/${safeOwner}/${safeRepo}/${safeBranch}/${safePath}`;
         const rawRes = await fetch(rawUrl, { headers });
         if (rawRes.ok) {
           const content = await rawRes.text();
