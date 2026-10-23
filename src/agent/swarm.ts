@@ -8,7 +8,7 @@ import { resolveWebSearch, resolveGitHub } from "./scope.js";
 import { withSpan } from "../telemetry/otel.js";
 import { executeWebSearch, inspectWebsite } from "../tools/cloud.js";
 import { executeInSandbox } from "./sandbox/runner.js";
-import { runAutoAlertResolver } from "../tools/code-scanner-resolver.js";
+import { runAutoAlertResolver, fetchOpenCodeScanningAlerts } from "../tools/code-scanner-resolver.js";
 import {
   executeManageWorkspaceFiles,
   executeManageAgentTasks,
@@ -167,7 +167,27 @@ async function runSubAgent(
 
       // 1. Deterministic Domain Tool Pre-Execution
       try {
-        if (spec.role === "researcher") {
+        const isAlertsObjective =
+          objective.toLowerCase().includes("code scanning") ||
+          objective.toLowerCase().includes("code alert") ||
+          objective.toLowerCase().includes("scan alert") ||
+          spec.task.toLowerCase().includes("code scanning") ||
+          spec.task.toLowerCase().includes("code alert");
+
+        if (spec.role === "researcher" && isAlertsObjective) {
+          toolExecuted = "fetch_code_scanning_alerts";
+          const ghCred = resolveGitHub(scope);
+          const userPat = ghCred.ok && ghCred.source === "user" ? ghCred.value : undefined;
+          const openAlerts = await fetchOpenCodeScanningAlerts("ShunyaPulse/ShunopsAI", userPat);
+          toolVerified = openAlerts.length > 0;
+          toolOutput = [
+            `Live GitHub Code Scanning Alerts for ShunyaPulse/ShunopsAI (${openAlerts.length} open):`,
+            ...openAlerts.map(
+              (a) =>
+                `- Alert #${a.number}: [${a.rule?.id || "unknown"}] in ${a.most_recent_instance?.location?.path}:${a.most_recent_instance?.location?.start_line} (${a.rule?.description || a.most_recent_instance?.message?.text || ""})`
+            ),
+          ].join("\n");
+        } else if (spec.role === "researcher") {
           if (spec.targetUrl) {
             toolExecuted = `inspect_website(${spec.targetUrl})`;
             toolOutput = await inspectWebsite(spec.targetUrl, spec.searchQuery || spec.task);
@@ -182,26 +202,29 @@ async function runSubAgent(
             });
             toolVerified = !toolOutput.startsWith("No live web search results");
           }
-        } else if (
-          spec.role === "coder" &&
-          (objective.toLowerCase().includes("code scanning") ||
-            objective.toLowerCase().includes("code alert") ||
-            objective.toLowerCase().includes("scan alert") ||
-            spec.task.toLowerCase().includes("code scanning") ||
-            spec.task.toLowerCase().includes("code alert"))
-        ) {
+        } else if (spec.role === "coder" && isAlertsObjective) {
           toolExecuted = "resolve_code_scanning_alerts";
           const ghCred = resolveGitHub(scope);
           const userPat = ghCred.ok && ghCred.source === "user" ? ghCred.value : undefined;
-          const matchLimit = (objective + " " + spec.task).match(/(\d+)\s*(?:code\s*scanning\s*)?alerts?/i);
-          const limit = (matchLimit && matchLimit[1]) ? parseInt(matchLimit[1], 10) : 5;
+          const matchLimit = (() => {
+            const combined = `${objective} ${spec.task}`;
+            const numMatch = combined.match(/\b(\d{1,3})\b/);
+            if (!numMatch) return null;
+            const afterNum = combined.slice(numMatch.index! + numMatch[0].length);
+            if (/^(?:\s+code\s+scanning|\s+scan)?\s+alerts?\b/i.test(afterNum)) {
+              return [numMatch[0], numMatch[1]];
+            }
+            return null;
+          })();
+          const limit = (matchLimit && matchLimit[1]) ? parseInt(matchLimit[1], 10) : 20;
           const alertRes = await runAutoAlertResolver(limit, "ShunyaPulse/ShunopsAI", userPat);
           toolVerified = alertRes.resolved > 0;
           toolOutput = [
             `ShunopsAI Autonomous Alert Resolver Executed with GitHub privileges.`,
-            `Resolved & Pushed to Git: ${alertRes.resolved}/${alertRes.total} alerts.`,
+            `Total Open Alerts: ${alertRes.total}`,
+            `Resolved & Verified with Dual-Model Consensus: ${alertRes.resolved}`,
             alertRes.resolved > 0
-              ? `Committed & pushed directly to GitHub repository with Dual-Model Consensus.`
+              ? `Committed & pushed directly to GitHub repository origin/main.`
               : "Consensus evaluation completed.",
           ].join("\n");
         } else if (spec.role === "coder" && spec.code) {
@@ -248,7 +271,9 @@ async function runSubAgent(
         `Your Assigned Sub-Task (${spec.role.toUpperCase()} • Wave ${wave}): ${spec.task}`,
         blackboardContext,
         toolOutput ? `=== Grounded Tool Output (${toolExecuted}) ===\n${toolOutput.slice(0, 3500)}` : "",
-        "Provide your specialized findings, verified metrics, runnable code, or security audit clearly and concisely for the Shared Blackboard.",
+        toolExecuted === "resolve_code_scanning_alerts"
+          ? "Report the exact status of code scanning alerts, patches applied via Dual-Model Consensus, typecheck verification, and git push results clearly and factually."
+          : "Provide your specialized findings, verified metrics, runnable code, or security audit clearly and concisely for the Shared Blackboard.",
       ]
         .filter(Boolean)
         .join("\n\n");
@@ -277,7 +302,7 @@ async function runSubAgent(
       }
 
       // 3. Auto-Sandbox Verification for `coder` sub-agent when it generated a ```js block
-      if (spec.role === "coder" && !spec.code) {
+      if (spec.role === "coder" && !spec.code && toolExecuted !== "resolve_code_scanning_alerts") {
         const autoExtractedJs = extractRunnableJsFromText(findings);
         if (autoExtractedJs) {
           const workspaceFiles = getTenantFilesMap(tenantKey);
