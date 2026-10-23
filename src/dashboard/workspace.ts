@@ -91,7 +91,7 @@ ${WORKSPACE_STYLES}
         </div>
 
         <!-- Global Model Selection Widget (Always Visible) -->
-        <div class="topbar-model-selector">
+        <div class="topbar-model-selector" style="display:inline-flex; align-items:center; gap:8px;">
           <span style="font-size:11px; color:#38bdf8; font-weight:600; display:inline-flex; align-items:center; gap:5px;">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
               <rect x="4" y="4" width="16" height="16" rx="2"></rect>
@@ -101,20 +101,46 @@ ${WORKSPACE_STYLES}
             Model:
           </span>
           <select id="navbar-model-select" onchange="onNavbarModelChange(this.value)">
-            <optgroup label="─── Smart Modes (Auto-Failover) ───">
+            <optgroup label="─── Smart Modes (Auto-Failover by Need) ───">
               <option value="auto">⚡ Auto: Smart Adaptive (Auto-Routes &amp; Self-Heals)</option>
               <option value="gemini-flash">🚀 Fast &amp; Responsive (Low Quota 🟢)</option>
               <option value="groq-120b">🧠 Deep Reasoning &amp; Math (120B AST ⚠️)</option>
               <option value="code-dev">💻 Code Architect &amp; Debugging (GPT-4o &amp; AST)</option>
               <option value="research-context">📚 Long Context &amp; Research (1M Window)</option>
+              <option value="openrouter-heavy">👑 Frontier Flagship (550B &amp; GPT-4o ⚠️)</option>
             </optgroup>
-            <optgroup label="─── Direct Multi-Provider Fallbacks ───">
-              <option value="gemini-active">✨ Gemini Flash (3.8 Flash / Active Pool)</option>
-              <option value="groq:openai/gpt-oss-120b">⚡ Groq LPU (GPT-OSS 120B AST)</option>
-              <option value="groq:qwen/qwen3.8-27b">⚡ Groq LPU (Qwen 3.8 27B)</option>
-              <option value="openrouter-heavy">🌐 OpenRouter (Nemotron 550B / Llama 70B)</option>
+            <optgroup label="─── Google Gemini (Active Pool) ───">
+              <option value="gemini:gemini-3.8-flash">Gemini 3.8 Flash (Active 1/5 🟢)</option>
+              <option value="gemini:gemini-3-flash-preview">Gemini 3 Flash Preview (🟢)</option>
+            </optgroup>
+            <optgroup label="─── Groq Ultra-Fast LPUs ───">
+              <option value="groq:openai/gpt-oss-120b">Groq GPT-OSS 120B (High Reasoning ⚠️)</option>
+              <option value="groq:qwen/qwen3.8-27b">Groq Qwen 3.8 27B (Fast Tool Calling 🟢)</option>
+            </optgroup>
+            <optgroup label="─── GitHub Models (OpenAI Frontier via PAT) ───">
+              <option value="github:gpt-4o">OpenAI GPT-4o (Frontier Omni ⚠️)</option>
+              <option value="github:gpt-4o-mini">OpenAI GPT-4o Mini (Fast Q&amp;A 🟢)</option>
+              <option value="github:o1-mini">OpenAI o1-mini Reasoning (⚠️)</option>
+              <option value="github:meta-llama-3.3-70b-instruct">Meta Llama 3.3 70B (GitHub)</option>
+            </optgroup>
+            <optgroup label="─── Cloudflare Workers AI (Serverless Edge) ───">
+              <option value="cloudflare:@cf/meta/llama-3.3-70b-instruct-fp8-fast">Llama 3.3 70B Fast (Edge)</option>
+              <option value="cloudflare:@cf/meta/llama-3.1-8b-instruct">Llama 3.1 8B (Edge Low Quota 🟢)</option>
+              <option value="cloudflare:@cf/qwen/qwen1.5-7b-chat-awq">Qwen 1.5 7B Chat (Edge)</option>
+            </optgroup>
+            <optgroup label="─── Open Models (OpenRouter Pool) ───">
+              <option value="openrouter:nvidia/nemotron-3-ultra-550b-a55b:free">Nemotron 3 Ultra 550B (Giant ⚠️)</option>
+              <option value="openrouter:nvidia/nemotron-3.5-lightning:free">Nemotron 3.5 Lightning (1M Context)</option>
+              <option value="openrouter:google/gemma-4-31b-it:free">Google Gemma 4 31B IT</option>
+              <option value="openrouter:cohere/north-mini-code:free">Cohere North Mini Code</option>
+              <option value="openrouter:nvidia/nemotron-3-super-120b-a12b:free">Nemotron 3 Super 120B</option>
+              <option value="openrouter:openrouter/free">OpenRouter Free Router Fallback</option>
             </optgroup>
           </select>
+          <div id="model-status-badge" style="font-size:11px; color:#10b981; display:inline-flex; align-items:center; gap:5px; margin-left:4px;">
+            <span style="width:6px; height:6px; border-radius:50%; background:#10b981; display:inline-block;"></span>
+            <span>Healthy</span>
+          </div>
         </div>
       </div>
       <div style="display:flex; gap:10px; flex-wrap:wrap;">
@@ -179,8 +205,8 @@ ${WORKSPACE_STYLES}
 
           <!-- Main Interactive Chat Area -->
           <div style="flex:1; min-width:0; display:flex; flex-direction:column;">
-        <!-- Model Selection Bar -->
-        <div class="model-bar-row">
+        <!-- Model Selection Bar (Hidden in favor of Unified Global Topbar Selector) -->
+        <div class="model-bar-row" style="display:none !important;">
           <div style="display:flex; align-items:center; gap:8px;">
             <label for="chat-model-select" style="font-size:12px; font-weight:500; color:#94a3b8; cursor:pointer;">Model:</label>
             <select id="chat-model-select" onchange="onModelPreferenceChange()" style="background:#090d16; color:#fff; border:1px solid #1e293b; border-radius:6px; padding:4px 8px; font-size:12px; font-weight:500; outline:none; cursor:pointer;">
@@ -474,9 +500,13 @@ ${WORKSPACE_STYLES}
             <!-- Tab 1: Live Agent Task Checklist -->
             <div id="agentic-panel-tasks">
               <div id="agentic-tasks-progress" style="display:none; margin-bottom:8px;">
-                <div style="display:flex; justify-content:space-between; font-size:10.5px; color:#94a3b8; margin-bottom:4px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; font-size:10.5px; color:#94a3b8; margin-bottom:4px;">
                   <span id="agentic-tasks-progress-label">0/0 completed</span>
-                  <button type="button" onclick="clearCompletedAgentTasks()" style="background:transparent; border:none; color:#38bdf8; font-size:10.5px; cursor:pointer; padding:0;">Clear Done</button>
+                  <div style="display:flex; align-items:center; gap:8px;">
+                    <button type="button" onclick="clearCompletedAgentTasks()" style="background:transparent; border:none; color:#38bdf8; font-size:10.5px; cursor:pointer; padding:0;" title="Remove finished tasks">Clear Done</button>
+                    <span style="color:#334155;">•</span>
+                    <button type="button" onclick="clearAllAgentTasks()" style="background:transparent; border:none; color:#f87171; font-size:10.5px; cursor:pointer; padding:0;" title="Remove all tasks from this workspace">Clear All</button>
+                  </div>
                 </div>
                 <div style="background:#1e293b; border-radius:5px; height:5px; overflow:hidden;">
                   <div id="agentic-tasks-progress-bar" style="background:#10b981; height:100%; width:0%; transition:width 0.3s;"></div>

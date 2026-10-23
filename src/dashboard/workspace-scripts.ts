@@ -540,58 +540,64 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]', isGue
         const data = await res.json();
         if (!data.success || !Array.isArray(data.tiers)) return;
 
-        const select = document.getElementById('chat-model-select');
+        const selects = [
+          document.getElementById('chat-model-select'),
+          document.getElementById('navbar-model-select'),
+        ].filter(Boolean);
         const badge = document.getElementById('model-status-badge');
-        if (!select) return;
+        if (selects.length === 0) return;
 
         let degradedCount = 0;
 
-        if (Array.isArray(data.tiers)) {
-          data.tiers.forEach(tier => {
-            const opt = select.querySelector('option[value="' + tier.tierId + '"]');
-            if (!opt) return;
+        selects.forEach(select => {
+          if (Array.isArray(data.tiers)) {
+            data.tiers.forEach(tier => {
+              const opt = select.querySelector('option[value="' + tier.tierId + '"]');
+              if (!opt) return;
 
-            if (tier.degraded) {
-              degradedCount++;
-              opt.disabled = true;
-              const remaining = tier.cooldownRemainingSeconds ? (' (' + tier.cooldownRemainingSeconds + 's cooldown)') : '';
-              opt.textContent = '⚠️ [Degraded] ' + tier.name + remaining;
-              if (select.value === tier.tierId) {
-                select.value = 'auto';
+              if (tier.degraded) {
+                degradedCount++;
+                opt.disabled = true;
+                const remaining = tier.cooldownRemainingSeconds ? (' (' + tier.cooldownRemainingSeconds + 's cooldown)') : '';
+                opt.textContent = '⚠️ [Degraded] ' + tier.name + remaining;
+                if (select.value === tier.tierId) {
+                  select.value = 'auto';
+                }
+              } else {
+                opt.disabled = false;
+                if (tier.tierId === 'auto') opt.textContent = '⚡ Auto: Smart Adaptive (Auto-Routes & Self-Heals)';
+                if (tier.tierId === 'gemini-flash') opt.textContent = '🚀 Fast & Responsive (Quick Q&A • Low Quota 🟢)';
+                if (tier.tierId === 'groq-120b') opt.textContent = '🧠 Deep Reasoning & Math (120B AST • Heavy Quota ⚠️)';
+                if (tier.tierId === 'code-dev') opt.textContent = '💻 Code Architect & Debugging (GPT-4o & AST • Balanced)';
+                if (tier.tierId === 'research-context') opt.textContent = '📚 Long Context & Research (1M Window • Balanced)';
+                if (tier.tierId === 'openrouter-heavy') opt.textContent = '👑 Frontier Flagship (550B & GPT-4o • Heavy Quota ⚠️)';
               }
-            } else {
-              opt.disabled = false;
-              if (tier.tierId === 'auto') opt.textContent = '⚡ Auto: Smart Adaptive (Auto-Routes & Self-Heals)';
-              if (tier.tierId === 'gemini-flash') opt.textContent = '🚀 Fast & Responsive (Quick Q&A • Low Quota 🟢)';
-              if (tier.tierId === 'groq-120b') opt.textContent = '🧠 Deep Reasoning & Math (120B AST • Heavy Quota ⚠️)';
-              if (tier.tierId === 'code-dev') opt.textContent = '💻 Code Architect & Debugging (GPT-4o & AST • Balanced)';
-              if (tier.tierId === 'research-context') opt.textContent = '📚 Long Context & Research (1M Window • Balanced)';
-              if (tier.tierId === 'openrouter-heavy') opt.textContent = '👑 Frontier Flagship (550B & GPT-4o • Heavy Quota ⚠️)';
-            }
-          });
-        }
+            });
+          }
 
-        if (Array.isArray(data.models)) {
-          data.models.forEach(m => {
-            const opt = select.querySelector('option[value="' + m.id + '"]');
-            if (!opt) return;
+          if (Array.isArray(data.models)) {
+            data.models.forEach(m => {
+              const opt = select.querySelector('option[value="' + m.id + '"]');
+              if (!opt) return;
 
-            if (m.degraded) {
-              degradedCount++;
-              opt.disabled = true;
-              const remaining = m.cooldownRemainingSeconds ? (' (' + m.cooldownRemainingSeconds + 's cooldown)') : '';
-              opt.textContent = '⚠️ [Degraded] ' + m.name + remaining;
-              if (select.value === m.id) {
-                select.value = 'auto';
+              if (m.degraded) {
+                degradedCount++;
+                opt.disabled = true;
+                const remaining = m.cooldownRemainingSeconds ? (' (' + m.cooldownRemainingSeconds + 's cooldown)') : '';
+                opt.textContent = '⚠️ [Degraded] ' + m.name + remaining;
+                if (select.value === m.id) {
+                  select.value = 'auto';
+                }
+              } else {
+                opt.disabled = false;
+                opt.textContent = m.name;
               }
-            } else {
-              opt.disabled = false;
-              opt.textContent = m.name;
-            }
-          });
-        }
+            });
+          }
+        });
 
-        if (badge && select.value !== 'auto') {
+        const activeVal = (selects[0] && selects[0].value) || 'auto';
+        if (badge && activeVal !== 'auto') {
           return;
         }
 
@@ -1208,7 +1214,7 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]', isGue
           }
         } catch (e) {}
 
-        const modelPreference = document.getElementById('chat-model-select')?.value || 'auto';
+        const modelPreference = document.getElementById('navbar-model-select')?.value || document.getElementById('chat-model-select')?.value || 'auto';
 
         const res = await fetch('/api/chat', {
           method: 'POST',
@@ -2640,7 +2646,10 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]', isGue
               + '<span>' + badgeIcon + '</span>'
               + '<span style="font-size:11.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; ' + titleStyle + '">' + escapeHtmlText(t.title) + '</span>'
               + '</div>'
-              + '<span style="font-size:9.5px; color:#64748b; font-family:monospace; flex-shrink:0;">#' + t.id + '</span>'
+              + '<div style="display:flex; align-items:center; gap:6px; flex-shrink:0;">'
+              + '<span style="font-size:9.5px; color:#64748b; font-family:monospace;">#' + t.id + '</span>'
+              + '<button type="button" data-task-id="' + t.id + '" onclick="event.stopPropagation(); deleteAgentTask(Number(this.dataset.taskId))" style="background:transparent; border:none; color:#64748b; font-size:11px; cursor:pointer; padding:0 3px; line-height:1; transition:color 0.15s;" onmouseover="this.style.color=\'#f87171\'" onmouseout="this.style.color=\'#64748b\'" title="Delete task">✕</button>'
+              + '</div>'
               + '</div>';
           }).join('');
         }
@@ -2759,6 +2768,39 @@ export function workspaceScripts(safeUsername: string, presetsJson = '[]', isGue
         const data = await res.json();
         if (data && data.success) {
           cachedAgenticState.tasks = data.tasks || [];
+          renderAgenticWorkspaceState();
+        }
+      } catch (e) {}
+    }
+
+    async function clearAllAgentTasks() {
+      try {
+        const res = await fetch('/api/workspace/agent-tasks', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({ operation: 'clear_all' }),
+        });
+        const data = await res.json();
+        if (data && data.success) {
+          cachedAgenticState.tasks = [];
+          renderAgenticWorkspaceState();
+        }
+      } catch (e) {}
+    }
+
+    async function deleteAgentTask(taskId) {
+      if (!taskId) return;
+      try {
+        const res = await fetch('/api/workspace/agent-tasks', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({ operation: 'delete_task', taskId: taskId }),
+        });
+        const data = await res.json();
+        if (data && data.success) {
+          cachedAgenticState.tasks = (cachedAgenticState.tasks || []).filter(function(t) { return t.id !== taskId; });
           renderAgenticWorkspaceState();
         }
       } catch (e) {}

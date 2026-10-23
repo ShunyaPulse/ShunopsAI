@@ -232,7 +232,7 @@ export async function persistSandboxWrittenFiles(
 
 export async function executeManageAgentTasks(
   args: {
-    operation: "create_plan" | "add_task" | "update_task" | "list_tasks" | "clear_completed";
+    operation: "create_plan" | "add_task" | "update_task" | "list_tasks" | "clear_completed" | "delete_task" | "clear_all";
     tasks?: string[] | undefined;
     title?: string | undefined;
     taskId?: number | undefined;
@@ -347,6 +347,23 @@ export async function executeManageAgentTasks(
     }
     await persistTenantAgenticState(tenantKey);
     return formatTaskBoard(state.tasks, `Cleared ${removed} completed task(s):`);
+  }
+
+  if (op === "delete_task") {
+    const id = Number(args.taskId);
+    const existed = state.tasks.delete(id);
+    if (!existed) {
+      return `Error: Task #${id} not found.`;
+    }
+    await persistTenantAgenticState(tenantKey);
+    return formatTaskBoard(state.tasks, `Deleted task #${id}:`);
+  }
+
+  if (op === "clear_all") {
+    const count = state.tasks.size;
+    state.tasks.clear();
+    await persistTenantAgenticState(tenantKey);
+    return formatTaskBoard(state.tasks, `Cleared all ${count} task(s).`);
   }
 
   return formatTaskBoard(state.tasks, "Current Agent Task Plan:");

@@ -1089,7 +1089,7 @@ export const toolRegistry: Record<ToolName, ToolDefinition> = {
     },
     execute: async (
       args: {
-        operation: "create_plan" | "add_task" | "update_task" | "list_tasks" | "clear_completed";
+        operation: "create_plan" | "add_task" | "update_task" | "list_tasks" | "clear_completed" | "delete_task" | "clear_all";
         tasks?: string[];
         title?: string;
         taskId?: number;
