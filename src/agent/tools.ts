@@ -20,6 +20,7 @@ import { runComprehensiveSentinelScan, formatSentinelReportMarkdown, autoHealSer
 import { runCloudflareAiInference } from "../tools/cloudflare-ai.js";
 import { runDualModelConsensus } from "../ai/consensus.js";
 import { runAutoAlertResolver } from "../tools/code-scanner-resolver.js";
+import { extractTargetRepo } from "../core/repos.js";
 import { resolveInsideProject, listDirectoryTree, assertAccessible } from "./sandbox.js";
 import {
   resolveNeon,
@@ -747,12 +748,18 @@ export const toolRegistry: Record<ToolName, ToolDefinition> = {
               type: "number",
               description: "Maximum number of alerts to fix in this run (default: 5)",
             },
+            repo: {
+              type: "string",
+              description:
+                "Target GitHub repository slug or name (e.g. 'ShunyaPulse/ShunopsAI', 'ShunyaPulse/SaralGati', or 'kanban-cloud'). Defaults to local repo.",
+            },
           },
         },
       },
     },
-    execute: async (args: { limit?: number }) => {
-      const result = await runAutoAlertResolver(args.limit ?? 5);
+    execute: async (args: { limit?: number; repo?: string }) => {
+      const targetRepo = extractTargetRepo(args.repo);
+      const result = await runAutoAlertResolver(args.limit ?? 5, targetRepo);
       return JSON.stringify(result, null, 2);
     },
   },

@@ -9,6 +9,7 @@ import { withSpan } from "../telemetry/otel.js";
 import { executeWebSearch, inspectWebsite } from "../tools/cloud.js";
 import { executeInSandbox } from "./sandbox/runner.js";
 import { runAutoAlertResolver, fetchOpenCodeScanningAlerts } from "../tools/code-scanner-resolver.js";
+import { extractTargetRepo } from "../core/repos.js";
 import {
   executeManageWorkspaceFiles,
   executeManageAgentTasks,
@@ -178,10 +179,11 @@ async function runSubAgent(
           toolExecuted = "fetch_code_scanning_alerts";
           const ghCred = resolveGitHub(scope);
           const userPat = ghCred.ok && ghCred.source === "user" ? ghCred.value : undefined;
-          const openAlerts = await fetchOpenCodeScanningAlerts("ShunyaPulse/ShunopsAI", userPat);
+          const targetRepo = extractTargetRepo(`${objective} ${spec.task}`);
+          const openAlerts = await fetchOpenCodeScanningAlerts(targetRepo, userPat);
           toolVerified = openAlerts.length > 0;
           toolOutput = [
-            `Live GitHub Code Scanning Alerts for ShunyaPulse/ShunopsAI (${openAlerts.length} open):`,
+            `Live GitHub Code Scanning Alerts for ${targetRepo} (${openAlerts.length} open):`,
             ...openAlerts.map(
               (a) =>
                 `- Alert #${a.number}: [${a.rule?.id || "unknown"}] in ${a.most_recent_instance?.location?.path}:${a.most_recent_instance?.location?.start_line} (${a.rule?.description || a.most_recent_instance?.message?.text || ""})`
@@ -206,6 +208,7 @@ async function runSubAgent(
           toolExecuted = "resolve_code_scanning_alerts";
           const ghCred = resolveGitHub(scope);
           const userPat = ghCred.ok && ghCred.source === "user" ? ghCred.value : undefined;
+          const targetRepo = extractTargetRepo(`${objective} ${spec.task}`);
           const matchLimit = (() => {
             const combined = `${objective} ${spec.task}`;
             const numMatch = combined.match(/\b(\d{1,3})\b/);
@@ -217,10 +220,10 @@ async function runSubAgent(
             return null;
           })();
           const limit = (matchLimit && matchLimit[1]) ? parseInt(matchLimit[1], 10) : 20;
-          const alertRes = await runAutoAlertResolver(limit, "ShunyaPulse/ShunopsAI", userPat);
+          const alertRes = await runAutoAlertResolver(limit, targetRepo, userPat);
           toolVerified = alertRes.resolved > 0;
           toolOutput = [
-            `ShunopsAI Autonomous Alert Resolver Executed with GitHub privileges.`,
+            `ShunopsAI Autonomous Alert Resolver Executed for ${targetRepo} with GitHub privileges.`,
             `Total Open Alerts: ${alertRes.total}`,
             `Resolved & Verified with Dual-Model Consensus: ${alertRes.resolved}`,
             alertRes.resolved > 0

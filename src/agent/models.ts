@@ -42,11 +42,9 @@ export const AGENT_MODELS_CHAIN: ModelTarget[] = [
   // 5. OpenRouter High-Capability Heavyweights
   { provider: "openrouter", model: "nvidia/nemotron-3-ultra-550b-a55b:free", name: "Nemotron 3 Ultra 550B (OpenRouter)" },
   { provider: "openrouter", model: "nvidia/nemotron-3.5-lightning:free", name: "Nemotron 3.5 Lightning (1M Context)" },
-  { provider: "openrouter", model: "meta-llama/llama-3.3-70b-instruct:free", name: "Llama 3.3 70B Instruct" },
   { provider: "openrouter", model: "google/gemma-4-31b-it:free", name: "Gemma 4 31B IT" },
   { provider: "openrouter", model: "cohere/north-mini-code:free", name: "Cohere North Mini Code" },
   { provider: "openrouter", model: "nvidia/nemotron-3-super-120b-a12b:free", name: "Nemotron 3 Super 120B" },
-  { provider: "openrouter", model: "qwen/qwen3.8-27b:free", name: "Qwen 3.8 27B (OpenRouter)" },
   { provider: "openrouter", model: "openrouter/free", name: "OpenRouter Free Router Fallback" },
 ];
 
@@ -414,9 +412,9 @@ export async function callChatCompletionWithFailover(
 
     let attempts = 1;
     if (!overrides?.geminiApiKey && target.provider === "gemini") {
-      attempts = Math.min(2, geminiPool.length);
+      attempts = Math.min(3, geminiPool.length);
     } else if (!overrides?.groqApiKey && target.provider === "groq") {
-      attempts = Math.min(2, groqPool.length);
+      attempts = Math.min(3, groqPool.length);
     } else if (!overrides?.openrouterApiKey && target.provider === "openrouter") {
       attempts = Math.min(2, openRouterPool.length);
     }
@@ -524,16 +522,7 @@ export async function callChatCompletionWithFailover(
           String(err?.message || "").toLowerCase().includes("timeout") ||
           String(err?.message || "").toLowerCase().includes("timed out");
         const statusCode = err?.status || err?.statusCode || (isTimeout ? 504 : "Unknown");
-        recordCircuitBreakerFailure(
-          target.provider,
-          target.model,
-          statusCode,
-          err?.message,
-          callLatencyMs
-        ).catch(() => {});
-        console.warn(
-          `${colors.yellow}[Failover Notice]${colors.reset} [${target.provider}] ${target.model} attempt ${att + 1}/${attempts} failed (${statusCode}: ${err.message}). Trying fallback...`
-        );
+        const isLastAttempt = att === attempts - 1;
         if (statusCode === 429) {
           if (target.provider === "gemini") {
             advanceGeminiKeyOnRateLimit();
@@ -543,6 +532,20 @@ export async function callChatCompletionWithFailover(
             advanceOpenRouterKeyOnRateLimit();
           }
         }
+        // Only record circuit breaker failure if ALL attempts for this model target failed,
+        // preventing a single rate-limited key from locking out a 34-key pool.
+        if (isLastAttempt) {
+          recordCircuitBreakerFailure(
+            target.provider,
+            target.model,
+            statusCode,
+            err?.message,
+            callLatencyMs
+          ).catch(() => {});
+        }
+        console.warn(
+          `${colors.yellow}[Failover Notice]${colors.reset} [${target.provider}] ${target.model} attempt ${att + 1}/${attempts} failed (${statusCode}: ${err.message}). Trying fallback...`
+        );
         if (
           statusCode === 503 ||
           String(statusCode).includes("503") ||
