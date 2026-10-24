@@ -59,6 +59,23 @@ function nextKey(pool: string[]): string {
 }
 
 // ---------------------------------------------------------------------------
+// Turn-Level Styling (Official Gemini 3.8 TTS speech_metadata Specification)
+// ---------------------------------------------------------------------------
+
+const TONE_STYLE_MAP: Record<string, string> = {
+  excited:
+    "intense rising excitement, breathless energy, and celebratory Indian sports commentary style with crisp Indian pronunciation",
+  suspense:
+    "slow, suspenseful pacing with deliberate dramatic pauses, deep investigative gravitas, and authentic Indian documentary cadence",
+  dramatic:
+    "deep gravitas, cinematic weight, and powerful emotional resonance in an authentic Indian documentary anchor voice",
+  somber:
+    "soft, solemn, and reflective Indian documentary tone with natural Indian pronunciation",
+  neutral:
+    "articulate, clear, and engaging Indian documentary anchor with natural Indian cadence and crisp pronunciation",
+};
+
+// ---------------------------------------------------------------------------
 // Text Sanitization for High-Fidelity TTS (Anti-Leakage & Indian Phonetics)
 // ---------------------------------------------------------------------------
 
@@ -121,6 +138,7 @@ export async function synthesizeGeminiTTS(
   if (!cleanText) return false;
 
   const voiceName = resolveGeminiVoice(scriptVoice, domain);
+  const styleDirective = TONE_STYLE_MAP[tone] ?? TONE_STYLE_MAP["neutral"]!;
 
   // Cascade across all 4 models: 3.8-flash -> 3.8-flash-lite -> 3.1-flash -> 2.5-flash
   for (let mIdx = 0; mIdx < GEMINI_TTS_MODELS.length; mIdx++) {
@@ -128,13 +146,24 @@ export async function synthesizeGeminiTTS(
     // Allow up to 5 keys per model tier across the 34-key pool to maximize Tier 1 retention
     const maxKeyAttempts = Math.min(5, pool.length);
 
+    // Official Gemini 3.8 TTS specification: attach turn-level styling in speech_metadata
+    const partPayload: any = { text: cleanText };
+    if (!model.includes("2.5")) {
+      partPayload.speech_metadata = { style: styleDirective };
+    }
+
     for (let attempt = 0; attempt < maxKeyAttempts; attempt++) {
       const apiKey = byokKey ?? nextKey(pool);
       const keyId = apiKey.length >= 8 ? `${apiKey.slice(0, 4)}...${apiKey.slice(-4)}` : "[KEY]";
 
       try {
         const body = {
-          contents: [{ parts: [{ text: cleanText }] }],
+          contents: [
+            {
+              role: "user",
+              parts: [partPayload],
+            },
+          ],
           generationConfig: {
             responseModalities: ["AUDIO"],
             speechConfig: {
