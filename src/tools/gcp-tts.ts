@@ -7,9 +7,10 @@ import * as dotenv from "dotenv";
 dotenv.config({ path: path.resolve(process.cwd(), ".env"), override: true });
 
 let cachedAuth: GoogleAuth | null = null;
+let cachedProjectId: string | undefined = undefined;
 
-function getAuthClient(): GoogleAuth | null {
-  if (cachedAuth) return cachedAuth;
+function getAuthClient(): { auth: GoogleAuth; projectId?: string | undefined } | null {
+  if (cachedAuth) return { auth: cachedAuth, projectId: cachedProjectId };
 
   const credsJson = process.env.GCP_CREDENTIALS || process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON;
   const keyPath = process.env.GCP_SA_KEY_PATH || process.env.GOOGLE_APPLICATION_CREDENTIALS;
@@ -19,25 +20,28 @@ function getAuthClient(): GoogleAuth | null {
       const credentials = typeof credsJson === "string" && credsJson.trim().startsWith("{")
         ? JSON.parse(credsJson)
         : JSON.parse(Buffer.from(credsJson, "base64").toString("utf-8"));
+      cachedProjectId = credentials.project_id;
       cachedAuth = new GoogleAuth({
         credentials,
         scopes: ["https://www.googleapis.com/auth/cloud-platform"],
       });
-      return cachedAuth;
+      return { auth: cachedAuth, projectId: cachedProjectId };
     }
 
     if (keyPath && fsSync.existsSync(keyPath)) {
+      const fileData = JSON.parse(fsSync.readFileSync(keyPath, "utf-8"));
+      cachedProjectId = fileData.project_id;
       cachedAuth = new GoogleAuth({
         keyFilename: keyPath,
         scopes: ["https://www.googleapis.com/auth/cloud-platform"],
       });
-      return cachedAuth;
+      return { auth: cachedAuth, projectId: cachedProjectId };
     }
 
     cachedAuth = new GoogleAuth({
       scopes: ["https://www.googleapis.com/auth/cloud-platform"],
     });
-    return cachedAuth;
+    return { auth: cachedAuth, projectId: undefined };
   } catch (err: any) {
     console.warn(`[GCP TTS] Warning: Could not initialize GoogleAuth: ${err.message}`);
     return null;
@@ -154,44 +158,68 @@ export function buildSSMLWithTone(text: string, tone: string): string | undefine
 }
 
 async function callGCPTTS(payload: any, customKey: string | undefined): Promise<Buffer | null> {
-  // Mode A: Direct API Key
-  if (customKey && !customKey.startsWith("{")) {
-    const res = await fetch(`https://texttospeech.googleapis.com/v1/text:synthesize?key=${encodeURIComponent(customKey)}`, {
+  // Mode A: Service Account OAuth Token (Preferred: supports Vertex AI & Google Cloud Gemini-TTS)
+  const authInfo = customKey && customKey.startsWith("{")
+    ? (() => {
+        try {
+          const creds = JSON.parse(customKey);
+          return {
+            auth: new GoogleAuth({ credentials: creds, scopes: ["https://www.googleapis.com/auth/cloud-platform"] }),
+            projectId: creds.project_id as string | undefined,
+          };
+        } catch {
+          return null;
+        }
+      })()
+    : getAuthClient();
+
+  if (authInfo) {
+    try {
+      const client = await authInfo.auth.getClient();
+      const tokenResponse = await client.getAccessToken();
+      const accessToken = tokenResponse?.token;
+      if (accessToken) {
+        const headers: Record<string, string> = {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        };
+        if (authInfo.projectId) {
+          headers["x-goog-user-project"] = authInfo.projectId;
+        }
+
+        const res = await fetch("https://texttospeech.googleapis.com/v1/text:synthesize", {
+          method: "POST",
+          headers,
+          body: JSON.stringify(payload),
+        });
+
+        if (res.ok) {
+          const data: any = await res.json();
+          if (data.audioContent) {
+            return Buffer.from(data.audioContent, "base64");
+          }
+        }
+      }
+    } catch {
+      // Fallback to API Key mode below
+    }
+  }
+
+  // Mode B: Direct API Key
+  const apiKey = (customKey && !customKey.startsWith("{")) ? customKey : (process.env.GCP_TTS_API_KEY || process.env.GOOGLE_TTS_API_KEY);
+  if (apiKey) {
+    const res = await fetch(`https://texttospeech.googleapis.com/v1/text:synthesize?key=${encodeURIComponent(apiKey)}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
-    if (!res.ok) return null;
-    const data: any = await res.json();
-    return data.audioContent ? Buffer.from(data.audioContent, "base64") : null;
+    if (res.ok) {
+      const data: any = await res.json();
+      return data.audioContent ? Buffer.from(data.audioContent, "base64") : null;
+    }
   }
 
-  // Mode B: Service Account OAuth Token
-  const auth = customKey && customKey.startsWith("{")
-    ? new GoogleAuth({
-        credentials: JSON.parse(customKey),
-        scopes: ["https://www.googleapis.com/auth/cloud-platform"],
-      })
-    : getAuthClient();
-
-  if (!auth) return null;
-  const client = await auth.getClient();
-  const tokenResponse = await client.getAccessToken();
-  const accessToken = tokenResponse?.token;
-  if (!accessToken) return null;
-
-  const res = await fetch("https://texttospeech.googleapis.com/v1/text:synthesize", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(payload),
-  });
-
-  if (!res.ok) return null;
-  const data: any = await res.json();
-  return data.audioContent ? Buffer.from(data.audioContent, "base64") : null;
+  return null;
 }
 
 /**
