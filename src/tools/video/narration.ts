@@ -556,9 +556,10 @@ export async function synthesizeNarration(
 
     }
 
-    // Micro-pacing delay between scenes (120ms): eliminates TCP bursts and prevents RPM spikes
+    // Mindful adaptive pacing between scenes (550ms - 850ms with jitter): eliminates burst concurrency and prevents 429 RPM spikes
     if (i < script.scenes.length - 1) {
-      await new Promise((r) => setTimeout(r, 120));
+      const mindfulDelay = 550 + Math.floor(Math.random() * 300);
+      await new Promise((r) => setTimeout(r, mindfulDelay));
     }
 
   }

@@ -9,6 +9,7 @@ dotenv.config({ path: path.resolve(process.cwd(), ".env"), override: true });
 
 let cachedAuth: GoogleAuth | null = null;
 let cachedProjectId: string | undefined = undefined;
+let gcpCloudGeminiCooloffUntil = 0;
 
 /**
  * Attempts to parse a raw JSON string or a base64-encoded JSON string into a Service Account object.
@@ -218,6 +219,11 @@ async function callGCPTTS(payload: any, customKey: string | undefined): Promise<
           body: JSON.stringify(payload),
         });
 
+        if (res.status === 429) {
+          gcpCloudGeminiCooloffUntil = Date.now() + 45_000;
+          console.warn("[GCP TTS] ⚠️ 429 Rate-limit encountered on Google Cloud TTS endpoint. Activating 45s cooloff window.");
+        }
+
         if (res.ok) {
           const data: any = await res.json();
           if (data.audioContent) {
@@ -334,7 +340,13 @@ export async function synthesizeGoogleCloudTTS(
       },
     };
 
-    let buf = await callGCPTTS(gcpGeminiPayload, customKey);
+    let buf: Buffer | null = null;
+    if (Date.now() > gcpCloudGeminiCooloffUntil) {
+      buf = await callGCPTTS(gcpGeminiPayload, customKey);
+    } else {
+      const remainingSec = Math.max(1, Math.round((gcpCloudGeminiCooloffUntil - Date.now()) / 1000));
+      console.log(`[GCP TTS] ⏱️ Cloud Gemini-TTS in rate-limit cooloff (${remainingSec}s remaining). Directly routing to AI Studio Gemini-TTS pool.`);
+    }
     if (buf) {
       await fs.mkdir(path.dirname(outPath), { recursive: true });
       await fs.writeFile(outPath, buf);

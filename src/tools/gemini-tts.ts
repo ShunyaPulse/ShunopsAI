@@ -51,9 +51,22 @@ function getKeyPool(): string[] {
 
 // Rule 6: Initialize randomized startup offset ONCE per process launch
 let _roundRobinIndex = crypto.randomInt(0, 34);
+const _keyCooldownMap = new Map<string, number>();
 
-/** O(1) zero-latency pointer advancement across the key pool */
+/** O(1) zero-latency pointer advancement across the key pool, skipping cooled-off keys */
 function nextKey(pool: string[]): string {
+  if (pool.length === 0) return "";
+  const now = Date.now();
+  for (let i = 0; i < pool.length; i++) {
+    const idx = (_roundRobinIndex + i) % pool.length;
+    const candidate = pool[idx]!;
+    const cooloff = _keyCooldownMap.get(candidate) ?? 0;
+    if (now > cooloff) {
+      _roundRobinIndex = (idx + 1) % pool.length;
+      return candidate;
+    }
+  }
+  // If all keys are currently in cooldown, advance round-robin regardless
   const key = pool[_roundRobinIndex % pool.length]!;
   _roundRobinIndex = (_roundRobinIndex + 1) % pool.length;
   return key;
@@ -186,12 +199,13 @@ export async function synthesizeGeminiTTS(
         );
 
         if (res.status === 429) {
+          _keyCooldownMap.set(apiKey, Date.now() + 60_000);
+          const backoff = Math.min(1500, 350 * Math.pow(1.4, attempt) + Math.floor(Math.random() * 200));
           console.warn(
-            `[Gemini TTS] 429 received. Advancing to next key in pool...`
+            `[Gemini TTS] 429 received on key (indexed cooldown 60s). Backing off ${backoff}ms and advancing to next healthy key...`
           );
-          // Brief 350ms backoff on 429 to avoid burst concurrency lock
-          await new Promise((resolve) => setTimeout(resolve, 350));
-          continue; // advance to next key in O(1) round-robin
+          await new Promise((resolve) => setTimeout(resolve, backoff));
+          continue; // advance to next healthy key in pool
         }
 
         if (res.status === 404) {
