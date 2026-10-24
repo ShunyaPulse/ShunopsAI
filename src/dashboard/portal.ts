@@ -276,16 +276,27 @@ ${PORTAL_STYLES}
               </a>
             </div>
 
-            <!-- Benefits Box in Simple, Short Language -->
-            <div style="background:rgba(56,189,248,0.06); border:1px solid rgba(56,189,248,0.2); border-radius:8px; padding:10px 12px; margin-bottom:10px; font-size:11px; color:#94a3b8; line-height:1.5;">
-              <div style="color:#38bdf8; font-weight:700; margin-bottom:4px; font-size:12px;">
-                ✨ Why Add This? (Benefits)
+            <!-- Benefits & Recommended IAM Role Box -->
+            <div style="background:rgba(56,189,248,0.06); border:1px solid rgba(56,189,248,0.2); border-radius:8px; padding:12px 14px; margin-bottom:12px; font-size:11px; color:#94a3b8; line-height:1.55;">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                <span style="color:#38bdf8; font-weight:700; font-size:12px;">
+                  ✨ Google Cloud Gemini-TTS vs Chirp 3 HD
+                </span>
+                <span style="font-size:10px; background:rgba(16,185,129,0.15); color:#34d399; padding:2px 6px; border-radius:4px; font-weight:600;">Always Free Tier</span>
               </div>
-              <ul style="margin:0; padding-left:16px; color:#cbd5e1;">
-                <li><strong>Studio-Grade Voice:</strong> Unlocks Google Chirp 3 HD (hi-IN-Chirp3-HD-Aoede / Fenrir), studio generative voices with authentic Indian cadence and human breathing.</li>
-                <li><strong>100% Always Free:</strong> Google gives 1,000,000 characters every month for free ($0.00).</li>
-                <li><strong>Zero Risk if Skipped:</strong> If left empty, Video Maker automatically uses free Gemini 3.8 Flash Indian-steered TTS and Microsoft Edge-TTS without needing any Google Cloud account!</li>
+              <ul style="margin:0 0 10px 0; padding-left:16px; color:#cbd5e1;">
+                <li><strong>Why Gemini-TTS over Chirp 3:</strong> Chirp 3 HD offers studio clarity, but <em>Gemini-TTS</em> adds deep semantic intelligence &mdash; emotional prosody, authentic suspense pauses, real-life human breathing (<code style="color:#38bdf8;">[sigh]</code>, <code style="color:#38bdf8;">[laughs]</code>), and acoustic steering matched to each scene.</li>
+                <li><strong>Recommended GCP Role:</strong> In Google Cloud IAM, grant your Service Account the <strong style="color:#f59e0b;">Agent Platform Express User (BETA)</strong> role (or Vertex AI Administrator) to unlock Gemini-TTS endpoints.
+                  <div style="margin-top:4px;">
+                    <a href="https://console.cloud.google.com/iam-admin/iam" target="_blank" rel="noopener noreferrer" style="color:#38bdf8; text-decoration:underline; font-weight:600; margin-right:12px;">🔗 Open GCP IAM Console &rarr;</a>
+                    <a href="https://docs.cloud.google.com/text-to-speech/docs/gemini-tts" target="_blank" rel="noopener noreferrer" style="color:#94a3b8; text-decoration:underline;">📖 Gemini-TTS Docs &rarr;</a>
+                  </div>
+                </li>
+                <li><strong>100% Free Quota:</strong> Google provides 1,000,000 characters every month for free ($0.00).</li>
               </ul>
+              <div style="background:rgba(255,255,255,0.04); border-left:3px solid #10b981; padding:6px 10px; border-radius:4px; font-size:10.5px; color:#a7f3d0;">
+                ℹ️ <strong>Non-Cloud Users:</strong> Feel free to <strong>ignore this completely</strong>! If you don't use Google Cloud, Video Maker automatically uses free Google AI Studio (Gemini 3.8 Flash TTS) and Microsoft Edge-TTS with zero setup.
+              </div>
             </div>
 
             <div class="password-input-wrapper">
