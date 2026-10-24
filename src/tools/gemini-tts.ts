@@ -58,26 +58,6 @@ function nextKey(pool: string[]): string {
 }
 
 // ---------------------------------------------------------------------------
-// Indian Persona & Cadence Steering (Tested & User-Verified)
-// ---------------------------------------------------------------------------
-
-const INDIAN_PERSONA_BASE =
-  "You are an authentic Indian documentary narrator and commentator with a natural, crisp Indian accent and pronunciation. Speak with natural Indian cadence and rhythm, without any foreign or American accent.";
-
-const TONE_PROMPT_PREFIX: Record<string, string> = {
-  excited:
-    `${INDIAN_PERSONA_BASE} Speak with intense rising excitement, breathless energy, and celebratory Indian sports commentary style:`,
-  suspense:
-    `${INDIAN_PERSONA_BASE} Deliver this mystery with slow, suspenseful pacing, deliberate dramatic pauses, and deep investigative gravitas:`,
-  dramatic:
-    `${INDIAN_PERSONA_BASE} Deliver this historic turning point with deep gravitas, cinematic weight, and powerful emotional resonance:`,
-  somber:
-    `${INDIAN_PERSONA_BASE} Speak softly, solemnly, and respectfully with a reflective Indian documentary tone:`,
-  neutral:
-    `${INDIAN_PERSONA_BASE} Deliver this as an articulate, clear, and engaging Indian documentary anchor:`,
-};
-
-// ---------------------------------------------------------------------------
 // Text Sanitization for High-Fidelity TTS
 // ---------------------------------------------------------------------------
 
@@ -108,12 +88,12 @@ function resolveGeminiVoice(
 }
 
 // ---------------------------------------------------------------------------
-// Core 136-Channel Speech Synthesis Engine
+// Core Speech Synthesis Engine (Clean Narration, Zero Prompt Leakage)
 // ---------------------------------------------------------------------------
 
 /**
- * Synthesizes speech using the 4-tier Gemini TTS model cascade across 34 keys.
- * Enforces Indian persona & cadence steering on all outputs.
+ * Synthesizes speech using the Gemini TTS model cascade across 34 keys.
+ * Passes ONLY pure narration text to prevent meta-prompt leakage in video audio.
  */
 export async function synthesizeGeminiTTS(
   text: string,
@@ -133,8 +113,6 @@ export async function synthesizeGeminiTTS(
   if (!cleanText) return false;
 
   const voiceName = resolveGeminiVoice(scriptVoice, domain);
-  const prefix = TONE_PROMPT_PREFIX[tone] ?? TONE_PROMPT_PREFIX["neutral"]!;
-  const steeringPrompt = `${prefix}\n\n${cleanText}`;
 
   // Cascade across all 4 models: 3.8-flash -> 3.8-flash-lite -> 3.1-flash -> 2.5-flash
   for (let mIdx = 0; mIdx < GEMINI_TTS_MODELS.length; mIdx++) {
@@ -142,16 +120,13 @@ export async function synthesizeGeminiTTS(
     // Allow up to 5 keys per model tier across the 34-key pool to maximize Tier 1 retention
     const maxKeyAttempts = Math.min(5, pool.length);
 
-    // Legacy 2.5 TTS does not support prompt steering instructions; pass cleanText directly
-    const textPayload = model.includes("2.5") ? cleanText : steeringPrompt;
-
     for (let attempt = 0; attempt < maxKeyAttempts; attempt++) {
       const apiKey = byokKey ?? nextKey(pool);
       const keyId = apiKey.length >= 8 ? `${apiKey.slice(0, 4)}...${apiKey.slice(-4)}` : "[KEY]";
 
       try {
         const body = {
-          contents: [{ parts: [{ text: textPayload }] }],
+          contents: [{ parts: [{ text: cleanText }] }],
           generationConfig: {
             responseModalities: ["AUDIO"],
             speechConfig: {
