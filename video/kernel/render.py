@@ -666,7 +666,10 @@ async def main():
     voice = script.get("voice", "hi-IN-Neural2-B" if "hi" in script.get("language", "English").lower() else "en-IN-PrabhatNeural")
     rate = script.get("rate", "+4%" if domain == "sports" else "+0%")
     scenes = script["scenes"]
+    audio_summary = script.get("audio_summary", voice)
     print(f"Loaded script: '{script.get('title')}' with {len(scenes)} scenes. Domain: {domain}, Voice: {voice}, Rate: {rate}")
+    if audio_summary and audio_summary != voice:
+        print(f"[Audio Provenance] Actual audio models used: {audio_summary}")
     if visual_bible:
         print(f"[Visual Bible] Dynamic grounding loaded: {len(visual_bible.get('latentTrapsToBan', []))} traps banned, {len(visual_bible.get('organicSettings', []))} organic settings.")
 
@@ -677,7 +680,7 @@ async def main():
         for i in range(len(scenes))
     )
     if all_packaged:
-        print("[TTS] ✅ All scenes have pre-packaged audio in dataset. Bypassing Edge-TTS network probe.")
+        print(f"[TTS] ✅ All {len(scenes)} scenes have pre-packaged audio ({audio_summary}). Using high-fidelity local master tracks.")
     else:
         # Pre-flight probe with up to 3 retries. Fails immediately if Microsoft is unreachable!
         edge_voice = voice

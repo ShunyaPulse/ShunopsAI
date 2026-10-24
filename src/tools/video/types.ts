@@ -21,6 +21,7 @@ export interface VideoScript {
   voice: string;
   rate?: string;
   language?: string;
+  audio_summary?: string;
   domain?: VideoDomain;
   visual_bible?: VisualBible;
   chapters: { title: string; start_scene: number }[];

@@ -720,7 +720,10 @@ async def main():
     rate = script.get("rate", "+10%")
     speaking_rate = parse_rate_multiplier(rate)
     scenes = script["scenes"]
+    audio_summary = script.get("audio_summary", voice)
     print(f"Loaded script: '{script.get('title')}' with {len(scenes)} scenes. Domain: {domain}, Voice: {voice}, Rate: {rate} ({speaking_rate}x)")
+    if audio_summary and audio_summary != voice:
+        print(f"[Audio Provenance] Actual audio models used: {audio_summary}")
 
     # Check if all scenes already have pre-packaged audio
     audio_dir = os.path.join(os.path.dirname(script_path), "audio")
@@ -729,7 +732,7 @@ async def main():
         for i in range(len(scenes))
     )
     if all_packaged:
-        print("[TTS] ✅ All scenes have pre-packaged audio in dataset. Bypassing Edge-TTS network probe.")
+        print(f"[TTS] ✅ All {len(scenes)} scenes have pre-packaged audio ({audio_summary}). Using high-fidelity local master tracks.")
     else:
         await probe_edge_tts(voice, rate=rate)
 

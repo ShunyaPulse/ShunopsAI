@@ -79,9 +79,10 @@ export async function startVideoJob(
   const narration = await synthesizeNarration(script, language, audioDir, options?.gcpKey, trendReason);
 
   const parts: string[] = [];
-  if (narration.geminiSuccessCount > 0) parts.push(`${narration.geminiSuccessCount} via Gemini 3.1 TTS`);
+  const geminiPersona = script.domain === "sports" ? "Fenrir" : "Aoede";
+  if (narration.geminiSuccessCount > 0) parts.push(`${narration.geminiSuccessCount} via Gemini-TTS (${geminiPersona})`);
   if (narration.gcpSuccessCount > 0 && narration.gcpVoiceName) {
-    script.voice = narration.gcpVoiceName;
+
     parts.push(`${narration.gcpSuccessCount} via Chirp 3 HD (${narration.gcpVoiceName})`);
   }
   if (narration.kokoroSuccessCount > 0) parts.push(`${narration.kokoroSuccessCount} via Kokoro-82M`);
@@ -89,7 +90,20 @@ export async function startVideoJob(
     if (!narration.gcpSuccessCount && !narration.geminiSuccessCount) script.voice = narration.edgeVoiceName;
     parts.push(`${narration.edgeSuccessCount} via Edge-TTS`);
   }
-  console.log(`[Video] ✅ Audio synthesis complete (${script.scenes.length} scenes): ${parts.join(", ")}`);
+  const summaryStr = parts.join(", ");
+  script.audio_summary = summaryStr;
+
+  if (narration.geminiSuccessCount > 0 && narration.gcpSuccessCount === 0) {
+    script.voice = `Gemini-TTS (${geminiPersona})`;
+  } else if (narration.geminiSuccessCount > 0 && narration.gcpSuccessCount > 0) {
+    script.voice = `Gemini-TTS (${narration.geminiSuccessCount}) + Chirp 3 HD (${narration.gcpSuccessCount})`;
+  } else if (narration.gcpSuccessCount > 0 && narration.gcpVoiceName) {
+    script.voice = narration.gcpVoiceName;
+  } else if (narration.edgeSuccessCount > 0) {
+    script.voice = narration.edgeVoiceName;
+  }
+
+  console.log(`[Video] ✅ Audio synthesis complete (${script.scenes.length} scenes): ${summaryStr}`);
 
   await writeJsonFile(path.join(dsDir, "script.json"), script);
   await writeJsonFile(path.join(dsDir, "dataset-metadata.json"), datasetMetadata(user, id));
