@@ -21,6 +21,7 @@
 
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
+import { sanitizeNarrationForTTS } from "./video/tts.js";
 
 export const GEMINI_TTS_MODELS = [
   "gemini-3.8-flash-tts",
@@ -58,14 +59,21 @@ function nextKey(pool: string[]): string {
 }
 
 // ---------------------------------------------------------------------------
-// Text Sanitization for High-Fidelity TTS
+// Text Sanitization for High-Fidelity TTS (Anti-Leakage & Indian Phonetics)
 // ---------------------------------------------------------------------------
 
 function sanitizeForTTS(text: string): string {
-  return text
-    .replace(/[*_#`~>\[\]\(\)\{\}\\]/g, " ") // strip markdown formatting symbols
-    .replace(/\s+/g, " ")
-    .trim();
+  let s = text;
+  // 1. Strip stage directions, parentheticals, and bracketed cues (e.g. [excited], (pause))
+  s = s.replace(/\[[^\]]*\]/g, " ");
+  s = s.replace(/\([^)]*\)/g, " ");
+  // 2. Strip speaker prefixes like "Narrator:", "Anchor:", "Voiceover:"
+  s = s.replace(/^(narrator|anchor|voiceover|host|speaker)\s*:\s*/i, "");
+  // 3. Strip markdown symbols but preserve essential emotional punctuation (..., !, ?, —, :)
+  s = s.replace(/[*_#`~>\\{}]/g, " ");
+  // 4. Expand acronyms for natural Indian phonetics (AI -> ए-आई, NASA -> नासा, etc.)
+  s = sanitizeNarrationForTTS(s, "Hindi");
+  return s.replace(/\s+/g, " ").trim();
 }
 
 // ---------------------------------------------------------------------------

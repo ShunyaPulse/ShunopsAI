@@ -174,7 +174,19 @@ CRITICAL DIRECTIVES:
 
    - CHAPTER TITLES & TAGS: Must be strictly in English (Roman) alphabet.
 
-   - NARRATION (Spoken Audio): Natural, engaging Hindi dialogue spoken by studio documentary voice ${voice}.
+   - NARRATION (Spoken Audio & Acoustic Steering):
+     * Natural, engaging conversational Indian Hindi dialogue spoken by studio voice ${voice}.
+     * ACCENT STEERING (ZERO AMERICAN TWANG):
+       - Write with authentic Indian vernacular cadence, vocabulary, and phrasing (e.g. "brahmand", "rahasya", "khoj", "itihas", "pehlu", "turning point").
+       - NEVER write convoluted English sentences inside Hindi narration (which triggers American/Western phoneme shifting in TTS models).
+       - Keep language phonetically grounded so that Gemini TTS (Aoede/Fenrir) and Google Cloud Chirp 3 HD deliver crisp, natural Indian pronunciation without foreign accent distortions.
+     * ACOUSTIC EMOTION & PACING STEERING (NATIVE TTS MODULATION):
+       - Tailor punctuation and rhythm to match each scene's "tone":
+         * suspense: Use dramatic ellipses ("..."), em-dashes ("—"), and pregnant pauses to induce slow investigative tension.
+         * excited: Use punchy exclamations ("!"), rapid cadence, and rising energetic tempo.
+         * dramatic: Use measured clauses, weighty vocabulary, and cinematic pauses.
+         * somber: Use gentle, respectful phrasing and soft reflective rhythm.
+     * STRICT ZERO INSTRUCTION LEAKAGE: Write ONLY the exact spoken narration text. NEVER include narrator stage directions, bracketed cues (like "[whispering]" or "[excited tone]"), or speaker labels ("Narrator:") inside the narration string.
 
    - CAPTIONS (On-Screen Subtitles): Must be in 100% PURE ENGLISH (both English letters AND English language words). For every single scene, provide the exact English translation in "caption" to be displayed on-screen.
 
