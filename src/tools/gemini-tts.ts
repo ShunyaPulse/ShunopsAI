@@ -1,3 +1,4 @@
+import * as crypto from "node:crypto";
 /**
  * ShunopsAI Gemini TTS Engine — 136-Channel Indian-Steered Speech Synthesis
  *
@@ -49,7 +50,7 @@ function getKeyPool(): string[] {
 }
 
 // Rule 6: Initialize randomized startup offset ONCE per process launch
-let _roundRobinIndex = Math.floor(Math.random() * 34);
+let _roundRobinIndex = crypto.randomInt(0, 34);
 
 /** O(1) zero-latency pointer advancement across the key pool */
 function nextKey(pool: string[]): string {
@@ -187,7 +188,7 @@ export async function synthesizeGeminiTTS(
 
         if (res.status === 429) {
           console.warn(
-            `[Gemini TTS] 429 on ${model} (key: ${keyId}). Advancing to next key in pool...`
+            `[Gemini TTS] 429 received. Advancing to next key in pool...`
           );
           // Brief 350ms backoff on 429 to avoid burst concurrency lock
           await new Promise((resolve) => setTimeout(resolve, 350));
@@ -229,7 +230,7 @@ export async function synthesizeGeminiTTS(
         );
         return true;
       } catch (err: any) {
-        console.warn(`[Gemini TTS] Exception on ${model}: ${err.message}`);
+        console.warn(`[Gemini TTS] Exception on ${model}: [REDACTED]`);
       }
     }
 

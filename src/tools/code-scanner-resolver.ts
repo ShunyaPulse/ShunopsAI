@@ -314,7 +314,8 @@ export async function runAutoAlertResolver(
       `${colors.yellow}📦 Detected ${packageAlerts.length} dependency vulnerability alert(s) in package manifest. Running native npm audit fix...${colors.reset}`
     );
     try {
-      execFileSync("npm", ["audit", "fix"], { stdio: "inherit" });
+      const npmCmd = process.platform === "win32" ? "npm.cmd" : "npm";
+      execFileSync(npmCmd, ["audit", "fix"], { stdio: "inherit" });
       const tc = runTypecheck(process.cwd());
       if (tc.ok) {
         console.log(`${colors.green}✓ Dependency audit fix verified with 100% clean typecheck!${colors.reset}`);
