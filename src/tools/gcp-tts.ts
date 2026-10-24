@@ -108,6 +108,23 @@ export function resolveGCPVoice(requestedVoice?: string, language = "Hindi"): { 
 }
 
 // ---------------------------------------------------------------------------
+// Google Cloud Gemini-TTS Style Prompts
+// ---------------------------------------------------------------------------
+
+const GCP_GEMINI_STYLE_PROMPTS: Record<string, string> = {
+  excited:
+    "You are an authentic Indian sports commentator. Speak with intense rising excitement, breathless energy, and natural Indian cadence.",
+  suspense:
+    "You are an authentic Indian documentary narrator. Speak with slow, suspenseful pacing, deliberate dramatic pauses, and deep investigative gravitas.",
+  dramatic:
+    "You are an authentic Indian documentary anchor. Speak with deep gravitas, cinematic weight, and powerful emotional resonance.",
+  somber:
+    "You are an authentic Indian documentary narrator. Speak softly, solemnly, and respectfully with a reflective Indian documentary tone.",
+  neutral:
+    "You are an authentic Indian documentary anchor. Speak with natural Indian cadence, clear articulation, and engaging warmth.",
+};
+
+// ---------------------------------------------------------------------------
 // SSML Tone Wrapper for Chirp 3 HD Emotion (Natural Pitch, Anti-Robotic)
 // ---------------------------------------------------------------------------
 
@@ -136,8 +153,52 @@ export function buildSSMLWithTone(text: string, tone: string): string | undefine
   }
 }
 
+async function callGCPTTS(payload: any, customKey: string | undefined): Promise<Buffer | null> {
+  // Mode A: Direct API Key
+  if (customKey && !customKey.startsWith("{")) {
+    const res = await fetch(`https://texttospeech.googleapis.com/v1/text:synthesize?key=${encodeURIComponent(customKey)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) return null;
+    const data: any = await res.json();
+    return data.audioContent ? Buffer.from(data.audioContent, "base64") : null;
+  }
+
+  // Mode B: Service Account OAuth Token
+  const auth = customKey && customKey.startsWith("{")
+    ? new GoogleAuth({
+        credentials: JSON.parse(customKey),
+        scopes: ["https://www.googleapis.com/auth/cloud-platform"],
+      })
+    : getAuthClient();
+
+  if (!auth) return null;
+  const client = await auth.getClient();
+  const tokenResponse = await client.getAccessToken();
+  const accessToken = tokenResponse?.token;
+  if (!accessToken) return null;
+
+  const res = await fetch("https://texttospeech.googleapis.com/v1/text:synthesize", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) return null;
+  const data: any = await res.json();
+  return data.audioContent ? Buffer.from(data.audioContent, "base64") : null;
+}
+
 /**
- * Synthesizes speech using Google Cloud Text-to-Speech API with Chirp 3 HD voices.
+ * Synthesizes speech using Google Cloud Text-to-Speech API.
+ * Cascade order for Google Cloud users:
+ * 1. Google Cloud Gemini-TTS ("gemini-3.1-flash-tts-preview" with { prompt, text })
+ * 2. Google Cloud Chirp 3 HD ("hi-IN-Chirp3-HD-Aoede" / "Fenrir" with SSML)
  * Always Free Tier gives 1,000,000 characters/month free.
  */
 export async function synthesizeGoogleCloudTTS(
@@ -154,99 +215,63 @@ export async function synthesizeGoogleCloudTTS(
   const customKey = options?.gcpKey?.trim() || process.env.GCP_TTS_API_KEY || process.env.GOOGLE_TTS_API_KEY;
   const voiceMeta = resolveGCPVoice(options?.voiceName, options?.language);
   const speakingRate = options?.speakingRate ?? 1.0;
-
-  // SSML emotion wrapping when a tone is provided; plain text otherwise
-  const ssml = options?.tone ? buildSSMLWithTone(text, options.tone) : undefined;
-
-  const payload = {
-    input: ssml ? { ssml } : { text },
-    voice: {
-      languageCode: voiceMeta.languageCode,
-      name: voiceMeta.name,
-    },
-    audioConfig: {
-      audioEncoding: "MP3",
-      speakingRate,
-      sampleRateHertz: 44100,
-    },
-  };
+  const stylePrompt = GCP_GEMINI_STYLE_PROMPTS[options?.tone ?? "neutral"] ?? GCP_GEMINI_STYLE_PROMPTS["neutral"]!;
+  const geminiVoiceName = /fenrir/i.test(voiceMeta.name) ? "Fenrir" : "Aoede";
 
   try {
-    // Mode A: Direct API Key
-    if (customKey && !customKey.startsWith("{")) {
-      const res = await fetch(`https://texttospeech.googleapis.com/v1/text:synthesize?key=${encodeURIComponent(customKey)}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
+    // Tier 1: Try Google Cloud Gemini-TTS with official { prompt, text } separation
+    const gcpGeminiPayload = {
+      input: {
+        prompt: stylePrompt,
+        text: text,
+      },
+      voice: {
+        languageCode: voiceMeta.languageCode,
+        name: geminiVoiceName,
+        model_name: "gemini-3.1-flash-tts-preview",
+      },
+      audioConfig: {
+        audioEncoding: "MP3",
+        speakingRate,
+        sampleRateHertz: 44100,
+      },
+    };
 
-      if (!res.ok) {
-        const errBody = await res.text();
-        console.warn('[GCP TTS] API Key HTTP ' + res.status + ' Error: [REDACTED]');
-        return false;
-      }
-
-      const data: any = await res.json();
-      if (!data.audioContent) return false;
-      const audioBuffer = Buffer.from(data.audioContent, "base64");
+    let buf = await callGCPTTS(gcpGeminiPayload, customKey);
+    if (buf) {
       await fs.mkdir(path.dirname(outPath), { recursive: true });
-      await fs.writeFile(outPath, audioBuffer);
-      console.log('[GCP TTS] ✅ Synthesized ' + audioBuffer.length + ' bytes');
+      await fs.writeFile(outPath, buf);
+      console.log(`[GCP TTS] ✅ Synthesized ${buf.length} bytes via Google Cloud Gemini-TTS ("gemini-3.1-flash-tts-preview", voice: ${geminiVoiceName})`);
       return true;
     }
 
-    // Mode B: Service Account OAuth Token
-    const auth = customKey && customKey.startsWith("{")
-      ? new GoogleAuth({
-          credentials: JSON.parse(customKey),
-          scopes: ["https://www.googleapis.com/auth/cloud-platform"],
-        })
-      : getAuthClient();
-
-    if (!auth) {
-      console.warn("[GCP TTS] GoogleAuth not configured.");
-      return false;
-    }
-
-    const client = await auth.getClient();
-    const tokenResponse = await client.getAccessToken();
-    const accessToken = tokenResponse?.token;
-
-    if (!accessToken) {
-      console.warn("[GCP TTS] Could not obtain GCP access token.");
-      return false;
-    }
-
-    const res = await fetch("https://texttospeech.googleapis.com/v1/text:synthesize", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/json",
+    // Tier 2: Cascade to Google Cloud Chirp 3 HD with SSML prosody
+    const ssml = options?.tone ? buildSSMLWithTone(text, options.tone) : undefined;
+    const chirpPayload = {
+      input: ssml ? { ssml } : { text },
+      voice: {
+        languageCode: voiceMeta.languageCode,
+        name: voiceMeta.name,
       },
-      body: JSON.stringify(payload),
-    });
+      audioConfig: {
+        audioEncoding: "MP3",
+        speakingRate,
+        sampleRateHertz: 44100,
+      },
+    };
 
-    if (!res.ok) {
-      const errBody = await res.text();
-      console.warn(`[GCP TTS] HTTP ${res.status} Error: ${errBody.slice(0, 300)}`);
-      return false;
+    buf = await callGCPTTS(chirpPayload, customKey);
+    if (buf) {
+      await fs.mkdir(path.dirname(outPath), { recursive: true });
+      await fs.writeFile(outPath, buf);
+      console.log(`[GCP TTS] ✅ Synthesized ${buf.length} bytes via Google Cloud Chirp 3 HD ("${voiceMeta.name}")`);
+      return true;
     }
-
-    const data: any = await res.json();
-    if (!data.audioContent) {
-      console.warn("[GCP TTS] Response lacked audioContent payload.");
-      return false;
-    }
-
-    const audioBuffer = Buffer.from(data.audioContent, "base64");
-    await fs.mkdir(path.dirname(outPath), { recursive: true });
-    await fs.writeFile(outPath, audioBuffer);
-    console.log(`[GCP TTS] ✅ Synthesized ${audioBuffer.length} bytes using "[REDACTED]" -> "[REDACTED]"`);
-    return true;
   } catch (err: any) {
-    console.warn(`[GCP TTS] Synthesis failed: ${err.message}`);
-    return false;
+    console.warn(`[GCP TTS] Synthesis error: ${err.message}`);
   }
+
+  return false;
 }
 
 export {

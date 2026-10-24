@@ -110,11 +110,11 @@ export function resolveTTSPriorityChain(opts: {
 }): TTSEngine[] {
   const { hasGCP, isHindi } = opts;
 
-  // Gemini Indian-Steered (Aoede/Fenrir) is Tier 1 across all cases for superior emotion & accent
+  // When GCP credentials exist: Use Google Cloud (GCP Gemini-TTS -> Chirp 3 HD) FIRST before AI Studio!
   if (hasGCP) {
     return isHindi
-      ? ["gemini", "chirp", "edge"]
-      : ["gemini", "chirp", "kokoro", "edge"];
+      ? ["chirp", "gemini", "edge"]
+      : ["chirp", "gemini", "kokoro", "edge"];
   } else {
     return isHindi
       ? ["gemini", "edge"]
