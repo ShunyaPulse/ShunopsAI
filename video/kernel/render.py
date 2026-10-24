@@ -757,24 +757,25 @@ async def main():
                     "text": sc["narration"].strip()
                 })
             master_cues.extend(cues)
-        current_time_offset += d
-
         # 3. Generate non-repeating continuous video montage on GPU
         diffusion.generate_scene_montage(sc["visual_prompt"], d, v_path, scene_idx=i, domain=domain, visual_bible=visual_bible)
 
-        # Synchronize audio and video precisely:
-        # Avoid artificial silence delays between sentences while preventing sub-frame audio drift
+        # Synchronize audio and video precisely and advance current_time_offset by actual_scene_dur
+        # so cumulative subtitle drift is guaranteed 0.00s across all scenes
         v_dur = duration(v_path)
+        actual_scene_dur = d
         if v_dur > duration(a_path) + 0.03:
             a_padded = f"{TMP}/a_pad_{i:03d}.mp3"
             pad_filter = f"apad=whole_dur={v_dur:.3f}"
             run(["ffmpeg", "-y", "-i", a_path, "-af", pad_filter, "-ar", "44100", "-ac", "2", "-c:a", "libmp3lame", "-b:a", "192k", a_padded])
             if os.path.exists(a_padded) and os.path.getsize(a_padded) > 500:
                 narr_files.append(a_padded)
+                actual_scene_dur = v_dur
             else:
                 narr_files.append(a_path)
         else:
             narr_files.append(a_path)
+        current_time_offset += actual_scene_dur
 
         if os.path.exists(v_path) and os.path.getsize(v_path) > 1000:
             clips.append(v_path)

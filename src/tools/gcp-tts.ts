@@ -9,6 +9,39 @@ dotenv.config({ path: path.resolve(process.cwd(), ".env"), override: true });
 let cachedAuth: GoogleAuth | null = null;
 let cachedProjectId: string | undefined = undefined;
 
+/**
+ * Attempts to parse a raw JSON string or a base64-encoded JSON string into a Service Account object.
+ */
+export function parseServiceAccountCredentials(raw: string): Record<string, any> | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+
+  try {
+    if (trimmed.startsWith("{")) {
+      const parsed = JSON.parse(trimmed);
+      if (parsed && typeof parsed === "object" && parsed.client_email && parsed.private_key) {
+        return parsed;
+      }
+      return null;
+    }
+
+    // Check if base64-encoded JSON service account
+    if (/^[A-Za-z0-9+/=\r\n]+$/.test(trimmed) && trimmed.length > 64) {
+      const decoded = Buffer.from(trimmed, "base64").toString("utf-8").trim();
+      if (decoded.startsWith("{")) {
+        const parsed = JSON.parse(decoded);
+        if (parsed && typeof parsed === "object" && parsed.client_email && parsed.private_key) {
+          return parsed;
+        }
+      }
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+
 function getAuthClient(): { auth: GoogleAuth; projectId?: string | undefined } | null {
   if (cachedAuth) return { auth: cachedAuth, projectId: cachedProjectId };
 
@@ -38,10 +71,7 @@ function getAuthClient(): { auth: GoogleAuth; projectId?: string | undefined } |
       return { auth: cachedAuth, projectId: cachedProjectId };
     }
 
-    cachedAuth = new GoogleAuth({
-      scopes: ["https://www.googleapis.com/auth/cloud-platform"],
-    });
-    return { auth: cachedAuth, projectId: undefined };
+    return null;
   } catch (err: any) {
     console.warn(`[GCP TTS] Warning: Could not initialize GoogleAuth: ${err.message}`);
     return null;
@@ -159,18 +189,12 @@ export function buildSSMLWithTone(text: string, tone: string): string | undefine
 
 async function callGCPTTS(payload: any, customKey: string | undefined): Promise<Buffer | null> {
   // Mode A: Service Account OAuth Token (Preferred: supports Vertex AI & Google Cloud Gemini-TTS)
-  const authInfo = customKey && customKey.startsWith("{")
-    ? (() => {
-        try {
-          const creds = JSON.parse(customKey);
-          return {
-            auth: new GoogleAuth({ credentials: creds, scopes: ["https://www.googleapis.com/auth/cloud-platform"] }),
-            projectId: creds.project_id as string | undefined,
-          };
-        } catch {
-          return null;
-        }
-      })()
+  const customSa = customKey ? parseServiceAccountCredentials(customKey) : null;
+  const authInfo = customSa
+    ? {
+        auth: new GoogleAuth({ credentials: customSa, scopes: ["https://www.googleapis.com/auth/cloud-platform"] }),
+        projectId: customSa.project_id as string | undefined,
+      }
     : getAuthClient();
 
   if (authInfo) {
@@ -229,6 +253,50 @@ async function callGCPTTS(payload: any, customKey: string | undefined): Promise<
  * 2. Google Cloud Chirp 3 HD ("hi-IN-Chirp3-HD-Aoede" / "Fenrir" with SSML)
  * Always Free Tier gives 1,000,000 characters/month free.
  */
+
+/**
+ * Splits long text into chunks under Google Cloud TTS's 5000-byte UTF-8 input limit.
+ */
+export function chunkTextByByteLimit(text: string, maxBytes = 4200): string[] {
+  const cleaned = text.trim();
+  if (!cleaned) return [];
+  if (Buffer.byteLength(cleaned, "utf-8") <= maxBytes) {
+    return [cleaned];
+  }
+
+  const sentences = cleaned.split(/(?<=[।.!?;\n])\s+/);
+  const chunks: string[] = [];
+  let current = "";
+
+  for (const sentence of sentences) {
+    const candidate = current ? `${current} ${sentence}` : sentence;
+    if (Buffer.byteLength(candidate, "utf-8") <= maxBytes) {
+      current = candidate;
+    } else {
+      if (current) chunks.push(current);
+      if (Buffer.byteLength(sentence, "utf-8") <= maxBytes) {
+        current = sentence;
+      } else {
+        // Hard split by words if a single sentence exceeds maxBytes
+        const words = sentence.split(/\s+/);
+        let wordChunk = "";
+        for (const w of words) {
+          const nextW = wordChunk ? `${wordChunk} ${w}` : w;
+          if (Buffer.byteLength(nextW, "utf-8") <= maxBytes) {
+            wordChunk = nextW;
+          } else {
+            if (wordChunk) chunks.push(wordChunk);
+            wordChunk = w;
+          }
+        }
+        current = wordChunk;
+      }
+    }
+  }
+  if (current) chunks.push(current);
+  return chunks;
+}
+
 export async function synthesizeGoogleCloudTTS(
   text: string,
   outPath: string,

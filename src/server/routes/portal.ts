@@ -1,6 +1,8 @@
 import type { FastifyInstance } from "fastify";
+import { GoogleAuth } from "google-auth-library";
 import { findUserBySessionToken } from "../db.js";
 import { getClientIp, getClientSubnet, checkDistributedSubnetQuota } from "../middleware/ratelimit.js";
+import { parseServiceAccountCredentials } from "../../tools/gcp-tts.js";
 
 /**
  * Route plugin for the Public BYOK Self-Service Portal.
@@ -133,25 +135,53 @@ export async function portalRoutes(app: FastifyInstance): Promise<void> {
       }
     }
 
-    // 5. Verify Google Cloud TTS (Service Account JSON or API Key)
+    // 5. Verify Google Cloud TTS (Service Account JSON, base64 Service Account JSON, or API Key)
     if (gcp) {
       try {
-        if (gcp.startsWith("{") && gcp.includes("private_key")) {
-          try {
-            const parsed = JSON.parse(gcp);
-            if (parsed.client_email && parsed.private_key) {
-              results.gcp = {
-                valid: true,
-                message: `Connected (Service Account: ${parsed.client_email})`,
-              };
-            } else {
+        const saCreds = parseServiceAccountCredentials(gcp);
+        if (saCreds || gcp.startsWith("{")) {
+          if (!saCreds) {
+            results.gcp = {
+              valid: false,
+              message: "Invalid Service Account JSON (missing client_email or private_key)",
+            };
+          } else {
+            try {
+              const auth = new GoogleAuth({
+                credentials: saCreds,
+                scopes: ["https://www.googleapis.com/auth/cloud-platform"],
+              });
+              const client = await auth.getClient();
+              const tokenRes = await client.getAccessToken();
+              if (!tokenRes?.token) {
+                results.gcp = {
+                  valid: false,
+                  message: "Service Account key rejected during OAuth token exchange",
+                };
+              } else {
+                const res = await fetch("https://texttospeech.googleapis.com/v1/voices", {
+                  redirect: "error",
+                  headers: { Authorization: `Bearer ${tokenRes.token}` },
+                  signal: AbortSignal.timeout(6000),
+                });
+                if (res.ok) {
+                  results.gcp = {
+                    valid: true,
+                    message: `Connected (Service Account: ${saCreds.client_email})`,
+                  };
+                } else {
+                  results.gcp = {
+                    valid: false,
+                    message: `Service Account authenticated, but Cloud TTS API returned HTTP ${res.status}`,
+                  };
+                }
+              }
+            } catch (saErr: any) {
               results.gcp = {
                 valid: false,
-                message: "Invalid Service Account JSON (missing client_email or private_key)",
+                message: `Service Account OAuth verification failed: ${saErr?.message?.slice(0, 80) || "Invalid key"}`,
               };
             }
-          } catch {
-            results.gcp = { valid: false, message: "Invalid JSON format for Service Account" };
           }
         } else {
           const res = await fetch(

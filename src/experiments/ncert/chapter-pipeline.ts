@@ -1,9 +1,22 @@
 import "dotenv/config";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import { geminiGenerate, kaggle } from "../../tools/video.js";
-import { synthesizeGoogleCloudTTS } from "../../tools/gcp-tts.js";
-import { synthesizeKokoroTTS, synthesizeEdgeTTS } from "../../tools/kokoro-tts.js";
+import {
+  geminiGenerate,
+  kaggle,
+  resolveEdgeVoice,
+  synthesizeLocalEdgeTTS,
+} from "../../tools/video.js";
+import {
+  isGoogleCloudTTSAvailable,
+  synthesizeGoogleCloudTTS,
+  resolveGCPVoice,
+} from "../../tools/gcp-tts.js";
+import {
+  isKokoroAvailable,
+  synthesizeKokoroTTS,
+  resolveKokoroVoice,
+} from "../../tools/kokoro-tts.js";
 
 export interface CharacterVisualDNA {
   name: string;
@@ -61,6 +74,7 @@ export interface ChapterScript {
   language: string;
   voice: string;
   rate?: string;
+  domain?: string;
   scenes: ChapterScene[];
 }
 
@@ -71,10 +85,22 @@ export interface PipelineOptions {
   language?: string | undefined;
   scenesCount?: number | undefined;
   dryRun?: boolean | undefined;
+  gcpKey?: string | undefined;
 }
 
 const EXPERIMENT_RENDER_SRC = path.resolve(process.cwd(), "src", "experiments", "ncert", "render-ncert.py");
 const JOBS_DIR = path.resolve(process.cwd(), "jobs");
+
+/**
+ * Converts a percentage rate string (e.g. "+10%", "-5%") to a numeric multiplier (e.g. 1.10, 0.95).
+ */
+function parseRateMultiplier(rateStr?: string): number {
+  if (!rateStr) return 1.0;
+  const m = rateStr.trim().match(/^([+-]?\d+(?:\.\d+)?)%$/);
+  if (!m || !m[1]) return 1.0;
+  const pct = parseFloat(m[1]);
+  return Math.max(0.5, Math.min(2.0, Number((1 + pct / 100).toFixed(2))));
+}
 
 /**
  * Phase 1: AI Autonomous Research & Brainstorming
@@ -165,8 +191,8 @@ Respond strictly in valid JSON matching this schema:
 /**
  * Phase 2: Dual-Voice Cinematic Script Generation
  * Converts the researched factual knowledge into a production-ready script with:
- * - Hindi Narrator ("hi-IN-MadhurNeural")
- * - English Character Voices ("en-IN-PrabhatNeural" / "en-US-AndrewNeural") for verbatim quotes
+ * - Hindi Narrator ("hi-IN-Neural2-B" / "hi-IN-MadhurNeural")
+ * - English Character Voices (Kokoro-82M "am_adam"/"bm_george"/"af_heart" -> GCP Neural2 -> Edge-TTS)
  * - Pure English Subtitle captions
  * - Photorealistic Wan2.1 DiT visual prompts
  * - YouTube SEO metadata
@@ -299,6 +325,7 @@ Respond strictly in valid JSON matching this schema:
 /**
  * Phase 3: Launch Chapter Video Job to Kaggle GPU
  * Dispatches the script and Wan2.1 rendering pipeline to a remote Kaggle GPU runner.
+ * Uses the unified multi-tier audio fallback cascade (Kokoro-82M ➔ Google Cloud Neural2 ➔ Calibrated Edge-TTS).
  */
 export async function launchChapterJob(
   input: string | ChapterScript,
@@ -324,46 +351,146 @@ export async function launchChapterJob(
   await fs.mkdir(dsDir, { recursive: true });
   await fs.mkdir(kDir, { recursive: true });
 
-  // Synthesize Hindi narration via Google Cloud TTS Neural2 locally before dispatching to Kaggle
+  // Pre-synthesize all scenes locally with the unified multi-tier cascade before dispatching to Kaggle
   const audioDir = path.join(dsDir, "audio");
   await fs.mkdir(audioDir, { recursive: true });
 
-  console.log(`\n🎙️ [Audio Pre-Synthesis] Synthesizing 100% of scenes locally before dispatch...`);
+  const rateStr = script.rate || "+10%";
+  const speakingRate = parseRateMultiplier(rateStr);
+  const gcpAvailable = isGoogleCloudTTSAvailable(options.gcpKey);
+  const kokoroReady = await isKokoroAvailable();
+
+  console.log(
+    `\n🎙️ [Audio Pre-Synthesis] Synthesizing ${script.scenes.length} scenes locally (rate=${rateStr}, speed=${speakingRate}x, GCP=${gcpAvailable ? "Ready" : "Off"}, Kokoro=${kokoroReady ? "Ready" : "Off"})...`
+  );
+
+  let gcpCount = 0;
+  let kokoroCount = 0;
+  let edgeCount = 0;
+
   for (let i = 0; i < script.scenes.length; i++) {
     const sc = script.scenes[i];
     if (!sc) continue;
     const outAudio = path.join(audioDir, `a${String(i).padStart(3, "0")}.mp3`);
-    const isHindi = !sc.speaker || sc.speaker === "Narrator" || sc.speaker === "Exam Booster" || (sc as any).language === "Hindi" || /[\u0900-\u097F]/.test(sc.narration);
+    const isHindi =
+      !sc.speaker ||
+      sc.speaker === "Narrator" ||
+      sc.speaker === "Exam Booster" ||
+      (sc as any).language === "Hindi" ||
+      /[\u0900-\u097F]/.test(sc.narration);
 
     let audioReady = false;
+
     if (isHindi) {
-      const voiceName = sc.voice && sc.voice.startsWith("hi-IN-") ? sc.voice : "hi-IN-Neural2-B";
-      try {
-        audioReady = await synthesizeGoogleCloudTTS(sc.narration, outAudio, {
-          voiceName,
-          language: "Hindi",
-        });
-      } catch {}
+      const gcpVoice = resolveGCPVoice(sc.voice || script.voice, "Hindi");
+      const edgeVoice = resolveEdgeVoice(sc.voice || script.voice, "Hindi", "history");
+
+      // Tier 1 for Hindi: Google Cloud Neural2 with up to 2 attempts
+      if (gcpAvailable) {
+        for (let attempt = 1; attempt <= 2; attempt++) {
+          try {
+            audioReady = await synthesizeGoogleCloudTTS(sc.narration, outAudio, {
+              voiceName: gcpVoice.name,
+              language: "Hindi",
+              speakingRate,
+              gcpKey: options.gcpKey,
+            });
+            if (audioReady) {
+              gcpCount++;
+              break;
+            }
+          } catch (err: any) {
+            console.warn(`   ⚠️ Scene ${i + 1} GCP TTS attempt ${attempt}/2 failed: ${err.message}`);
+          }
+          if (attempt < 2) await new Promise((r) => setTimeout(r, 1000));
+        }
+      }
+
+      // Tier 2 for Hindi: Calibrated Local Edge-TTS with up to 3 attempts
       if (!audioReady) {
-        audioReady = await synthesizeEdgeTTS(sc.narration, outAudio, "hi-IN-MadhurNeural");
+        for (let attempt = 1; attempt <= 3; attempt++) {
+          audioReady = await synthesizeLocalEdgeTTS(
+            sc.narration,
+            outAudio,
+            edgeVoice.name,
+            edgeVoice.pitch,
+            rateStr
+          );
+          if (audioReady) {
+            edgeCount++;
+            break;
+          }
+          console.warn(`   ⚠️ Scene ${i + 1} Edge-TTS attempt ${attempt}/3 failed.`);
+          if (attempt < 3) await new Promise((r) => setTimeout(r, 1500 * attempt));
+        }
       }
     } else {
-      const isPhotographer = /photographer/i.test(sc.speaker || "");
-      const engVoice = isPhotographer ? "en-GB-RyanNeural" : "en-US-GuyNeural";
-      try {
-        audioReady = await synthesizeKokoroTTS(sc.narration, outAudio, {
-          voice: isPhotographer ? "bm_george" : "am_adam",
-        });
-      } catch {}
+      // English Character Dialogue Cascade: Tier 1 Kokoro-82M ➔ Tier 2 Google Cloud Neural2 ➔ Tier 3 Edge-TTS
+      const speakerLower = (sc.speaker || "").toLowerCase();
+      const voiceLower = (sc.voice || "").toLowerCase();
+      const isPhotographerOrBrit = /photographer|british|george|bm_|bf_/.test(`${speakerLower} ${voiceLower}`);
+      const isFemale = /female|woman|girl|wife|mother|sister|af_|bf_|swara|neerja/.test(`${speakerLower} ${voiceLower}`);
+
+      const kokoroVoice = isPhotographerOrBrit
+        ? (isFemale ? "bf_emma" : "bm_george")
+        : resolveKokoroVoice(sc.voice || (isFemale ? "af_heart" : "am_adam"), "English");
+
+      // Tier 1: Kokoro-82M
+      if (kokoroReady) {
+        try {
+          audioReady = await synthesizeKokoroTTS(sc.narration, outAudio, {
+            voice: kokoroVoice,
+            language: "English",
+            speed: speakingRate,
+          });
+          if (audioReady) kokoroCount++;
+        } catch {}
+      }
+
+      // Tier 2: Google Cloud Neural2 English
+      if (!audioReady && gcpAvailable) {
+        const gcpEngVoice = isPhotographerOrBrit
+          ? (isFemale ? "en-GB-Neural2-A" : "en-GB-Neural2-B")
+          : (isFemale ? "en-US-Neural2-F" : "en-US-Neural2-J");
+        for (let attempt = 1; attempt <= 2; attempt++) {
+          try {
+            audioReady = await synthesizeGoogleCloudTTS(sc.narration, outAudio, {
+              voiceName: gcpEngVoice,
+              language: "English",
+              speakingRate,
+              gcpKey: options.gcpKey,
+            });
+            if (audioReady) {
+              gcpCount++;
+              break;
+            }
+          } catch {}
+          if (attempt < 2) await new Promise((r) => setTimeout(r, 1000));
+        }
+      }
+
+      // Tier 3: Calibrated Edge-TTS English with up to 3 attempts
       if (!audioReady) {
-        audioReady = await synthesizeEdgeTTS(sc.narration, outAudio, engVoice);
+        const engEdgeVoice = isPhotographerOrBrit
+          ? "en-GB-RyanNeural"
+          : isFemale
+            ? "en-IN-NeerjaExpressiveNeural"
+            : "en-US-GuyNeural";
+        for (let attempt = 1; attempt <= 3; attempt++) {
+          audioReady = await synthesizeLocalEdgeTTS(sc.narration, outAudio, engEdgeVoice, "+0Hz", rateStr);
+          if (audioReady) {
+            edgeCount++;
+            break;
+          }
+          if (attempt < 3) await new Promise((r) => setTimeout(r, 1500 * attempt));
+        }
       }
     }
 
     if (audioReady) {
-      console.log(`   ✅ Scene ${i + 1}/${script.scenes.length} synthesized (${isHindi ? "Hindi" : "English dialogue"})`);
+      console.log(`   ✅ Scene ${i + 1}/${script.scenes.length} synthesized (${isHindi ? "Hindi narration" : `English dialogue [${sc.speaker}]`})`);
     } else {
-      console.warn(`   ⚠️ Warning: Scene ${i + 1} synthesis failed.`);
+      console.warn(`   ⚠️ Warning: Scene ${i + 1} synthesis failed across all tiers.`);
     }
   }
 
@@ -379,7 +506,9 @@ export async function launchChapterJob(
       throw new Error(`[Pre-Flight Abort] Scene ${i + 1} audio missing in dataset/audio. Refusing to dispatch broken job to Kaggle GPU.`);
     }
   }
-  console.log(`   🛡️ [Pre-Flight Verification] All ${script.scenes.length} audio files 100% verified and pre-packaged.`);
+  console.log(
+    `   🛡️ [Pre-Flight Verification] All ${script.scenes.length} audio files 100% verified (GCP=${gcpCount}, Kokoro=${kokoroCount}, Edge-TTS=${edgeCount}).`
+  );
 
   await fs.writeFile(path.join(dsDir, "script.json"), JSON.stringify(script, null, 2));
   await fs.writeFile(
@@ -391,7 +520,17 @@ export async function launchChapterJob(
       is_private: true,
     }, null, 2)
   );
-  await fs.writeFile(path.join(dsDir, "config.json"), JSON.stringify({ hf_token: process.env.KAGGLE_BUNDLE_HF_TOKEN === "true" ? (process.env.HF_TOKEN || "") : "" }, null, 2), { mode: 0o600 });
+  await fs.writeFile(
+    path.join(dsDir, "config.json"),
+    JSON.stringify({
+      hf_token: process.env.KAGGLE_BUNDLE_HF_TOKEN === "true" ? (process.env.HF_TOKEN || "") : "",
+      gcp_tts_api_key:
+        process.env.KAGGLE_BUNDLE_GCP_KEY === "true"
+          ? (options.gcpKey || process.env.GCP_TTS_API_KEY || process.env.GOOGLE_TTS_API_KEY || "")
+          : "",
+    }, null, 2),
+    { mode: 0o600 }
+  );
 
   // Copy Wan2.1 DiT + Edge-TTS GPU runner
   await fs.copyFile(EXPERIMENT_RENDER_SRC, path.join(kDir, "render.py"));
@@ -423,6 +562,8 @@ export async function launchChapterJob(
 
   console.log(`\n🚀 [Kaggle Dispatch] Uploading dataset with all pre-packaged audio (--dir-mode zip) & kernel for "${script.title}"...`);
   await kaggle(["datasets", "create", "-p", dsDir, "--dir-mode", "zip"]);
+  // Wait 20 seconds for Kaggle dataset mount propagation before pushing kernel
+  await new Promise((r) => setTimeout(r, 20000));
   await kaggle(["kernels", "push", "-p", kDir]);
 
   const kaggleUrl = `https://www.kaggle.com/code/${user}/video-render-${id}`;
@@ -488,7 +629,7 @@ Options:
   };
 
   launchChapterJob(chapterArg, options).catch((err) => {
-    console.error("❌ Pipeline failed: [REDACTED]");
+    console.error("❌ Pipeline failed: [REDACTED]", err?.message || "");
     process.exit(1);
   });
 }

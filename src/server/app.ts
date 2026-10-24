@@ -187,7 +187,8 @@ export async function createApp(config: AppConfig = loadAppConfig()): Promise<Fa
     // Disable legacy XSS auditor
     reply.header("X-XSS-Protection", "0");
     // Restrict powerful browser features
-    reply.header("Permissions-Policy", "camera=(), microphone=(), geolocation=(), browsing-topics=()");
+    // Allow same-origin microphone for voice input while blocking cross-origin iframes
+    reply.header("Permissions-Policy", "camera=(), microphone=(self), geolocation=(), browsing-topics=()");
     // Allow Google Sign-In OAuth popup (`window.opener` communication) while isolating cross-origin tabs
     reply.header("Cross-Origin-Opener-Policy", "same-origin-allow-popups");
     // Cross-Origin-Resource-Policy: Allow cross-origin for public widget.js while keeping same-origin for others

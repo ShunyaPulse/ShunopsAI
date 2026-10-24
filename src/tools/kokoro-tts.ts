@@ -3,7 +3,8 @@ import { promisify } from "node:util";
 import * as fs from "node:fs/promises";
 import * as fsSync from "node:fs";
 import * as path from "node:path";
-import { isGoogleCloudTTSAvailable, synthesizeGoogleCloudTTS, resolveGCPVoice } from "./gcp-tts.js";
+import * as os from "node:os";
+import { isGoogleCloudTTSAvailable, synthesizeGoogleCloudTTS } from "./gcp-tts.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -22,35 +23,30 @@ export const KOKORO_CURATED_VOICES = {
   hindi_male: "hm_omega",
 };
 
+let cachedPythonBin: string | null = null;
 let cachedKokoroAvailability: boolean | null = null;
 
 /**
- * Attempts a one-shot JIT pip install of kokoro + soundfile.
- * Called only when the cascade reaches the Kokoro tier and it is not yet installed.
- * Timeout: 120 s — enough for a cold GitHub Actions runner; silently returns false on failure.
+ * Resolves the available Python executable (`python3` or `python`) across Linux/macOS/Windows.
  */
-async function tryInstallKokoro(): Promise<boolean> {
-  try {
-    console.log("[Kokoro-82M TTS] Kokoro not detected — attempting JIT install (pip install kokoro soundfile)...");
-    await execFileAsync("pip", ["install", "--quiet", "kokoro", "soundfile"], { timeout: 120_000 });
-    // Verify the install succeeded
-    const { stdout } = await execFileAsync("python", [
-      "-c",
-      "import kokoro; print('KOKORO_READY')",
-    ], { timeout: 5000 });
-    const ok = stdout.includes("KOKORO_READY");
-    if (ok) console.log("[Kokoro-82M TTS] JIT install succeeded. Kokoro is now available.");
-    return ok;
-  } catch (err: any) {
-    console.warn(`[Kokoro-82M TTS] JIT install failed: ${err.message}. Cascading to next tier.`);
-    return false;
+export async function resolvePythonBin(): Promise<string> {
+  if (cachedPythonBin) return cachedPythonBin;
+  const candidates = os.platform() === "win32" ? ["python", "python3"] : ["python3", "python"];
+  for (const bin of candidates) {
+    try {
+      await execFileAsync(bin, ["--version"], { timeout: 3000 });
+      cachedPythonBin = bin;
+      return bin;
+    } catch {
+      // try next candidate
+    }
   }
+  cachedPythonBin = "python3";
+  return cachedPythonBin;
 }
 
 /**
- * Checks if Kokoro ONNX or Python package is present.
- * If not installed, attempts a JIT pip install automatically.
- * Result is cached for the process lifetime so the probe runs at most once per run.
+ * Checks if Kokoro ONNX or Python package is present in the host/runner environment.
  */
 export async function isKokoroAvailable(): Promise<boolean> {
   if (cachedKokoroAvailability !== null) {
@@ -58,22 +54,18 @@ export async function isKokoroAvailable(): Promise<boolean> {
   }
 
   try {
-    const { stdout } = await execFileAsync("python", [
+    const pyBin = await resolvePythonBin();
+    const { stdout } = await execFileAsync(pyBin, [
       "-c",
       "import kokoro; print('KOKORO_READY')",
-    ], { timeout: 3000 });
+    ], { timeout: 5000 });
 
-    if (stdout.includes("KOKORO_READY")) {
-      cachedKokoroAvailability = true;
-      return true;
-    }
+    cachedKokoroAvailability = stdout.includes("KOKORO_READY");
+    return cachedKokoroAvailability;
   } catch {
-    // Not installed yet — attempt JIT install below
+    cachedKokoroAvailability = false;
+    return false;
   }
-
-  // JIT on-demand install
-  cachedKokoroAvailability = await tryInstallKokoro();
-  return cachedKokoroAvailability;
 }
 
 /**
@@ -83,49 +75,87 @@ export function resolveKokoroVoice(requestedVoice?: string, language = "English"
   if (requestedVoice && Object.values(KOKORO_CURATED_VOICES).includes(requestedVoice as any)) {
     return requestedVoice;
   }
-  const isHindi = /hindi/i.test(language) || (requestedVoice && requestedVoice.toLowerCase().includes("hindi"));
+  const reqLower = (requestedVoice || "").toLowerCase();
+  const isHindi = /hindi/i.test(language) || reqLower.includes("hindi") || reqLower.startsWith("hi-");
   if (isHindi) {
-    return requestedVoice && requestedVoice.toLowerCase().includes("female")
+    return reqLower.includes("female") || reqLower.includes("swara")
       ? KOKORO_CURATED_VOICES.hindi_female
       : KOKORO_CURATED_VOICES.hindi_male;
   }
-  return requestedVoice && requestedVoice.toLowerCase().includes("female")
+  if (reqLower.includes("ryan") || reqLower.includes("en-gb") || reqLower.includes("british") || reqLower.includes("george")) {
+    return reqLower.includes("female") ? KOKORO_CURATED_VOICES.uk_female : KOKORO_CURATED_VOICES.uk_male;
+  }
+  return reqLower.includes("female") || reqLower.includes("neerja") || reqLower.includes("aria")
     ? KOKORO_CURATED_VOICES.us_female
     : KOKORO_CURATED_VOICES.us_male;
 }
 
 /**
  * Synthesizes audio using Kokoro-82M runner.
+ * Concatenates all multi-sentence generator chunks and transcodes WAV -> 44.1kHz MP3 via ffmpeg.
  */
 export async function synthesizeKokoroTTS(
   text: string,
   outPath: string,
-  options?: { voice?: string; language?: string; speed?: number }
+  options?: { voice?: string | undefined; language?: string | undefined; speed?: number | undefined }
 ): Promise<boolean> {
   const isReady = await isKokoroAvailable();
   if (!isReady) return false;
 
   const voice = resolveKokoroVoice(options?.voice, options?.language);
+  const langCode = voice.startsWith("b") ? "b" : (voice.startsWith("h") ? "h" : "a");
   const speed = options?.speed ?? 1.0;
+  const tmpWav = path.join(os.tmpdir(), `kokoro_${Date.now()}_${Math.random().toString(36).slice(2)}.wav`);
 
   try {
     await fs.mkdir(path.dirname(outPath), { recursive: true });
+    const pyBin = await resolvePythonBin();
 
-    // Execute Kokoro synthesis script via Python runner safely escaped
+    // Execute Kokoro synthesis script via Python runner safely escaped, joining all chunks
     const safeText = JSON.stringify(text);
-    const safeOut = JSON.stringify(outPath.replace(/\\/g, "/"));
+    const safeWav = JSON.stringify(tmpWav.replace(/\\/g, "/"));
     const safeVoice = JSON.stringify(voice);
+    const safeLang = JSON.stringify(langCode);
     const script = `
 import kokoro
+import numpy as np
 import soundfile as sf
-pipeline = kokoro.KPipeline(lang_code='a')
+pipeline = kokoro.KPipeline(lang_code=${safeLang})
 generator = pipeline(${safeText}, voice=${safeVoice}, speed=${speed})
+chunks = []
 for _, _, audio in generator:
-    sf.write(${safeOut}, audio, 24000)
-    break
+    if audio is not None and len(audio) > 0:
+        chunks.append(audio)
+if chunks:
+    full_audio = np.concatenate(chunks)
+    sf.write(${safeWav}, full_audio, 24000)
 `;
 
-    await execFileAsync("python", ["-c", script], { timeout: 15000 });
+    await execFileAsync(pyBin, ["-c", script], { timeout: 25000 });
+
+    if (!fsSync.existsSync(tmpWav) || (await fs.stat(tmpWav)).size <= 300) {
+      return false;
+    }
+
+    if (outPath.toLowerCase().endsWith(".wav")) {
+      await fs.copyFile(tmpWav, outPath);
+    } else {
+      // Transcode 24kHz WAV to standardized 44.1kHz stereo MP3 so concat demuxer never drifts
+      await execFileAsync("ffmpeg", [
+        "-y",
+        "-i",
+        tmpWav,
+        "-ar",
+        "44100",
+        "-ac",
+        "2",
+        "-c:a",
+        "libmp3lame",
+        "-b:a",
+        "192k",
+        outPath,
+      ], { timeout: 15000 });
+    }
 
     if (fsSync.existsSync(outPath) && (await fs.stat(outPath)).size > 500) {
       console.log(`[Kokoro-82M TTS] ✅ Synthesized using "${voice}" -> ${path.basename(outPath)}`);
@@ -135,30 +165,85 @@ for _, _, audio in generator:
   } catch (err: any) {
     console.warn(`[Kokoro-82M TTS] Notice: Kokoro execution failed (${err.message}). Cascading to fallback...`);
     return false;
+  } finally {
+    await fs.unlink(tmpWav).catch(() => {});
   }
 }
 
 /**
- * Edge-TTS fallback synthesis (uses edge-tts CLI tool).
+ * Edge-TTS fallback synthesis using a temp file (`-f`) to prevent CLI flag-injection on leading hyphens/quotes,
+ * followed by 44.1kHz MP3 standardization if ffmpeg is available.
  */
 export async function synthesizeEdgeTTS(
   text: string,
   outPath: string,
   voice = "en-IN-PrabhatNeural",
-  rate = "+0%"
+  rate = "+0%",
+  pitch = "+0Hz"
 ): Promise<boolean> {
+  const tmpTxt = path.join(os.tmpdir(), `edge_tts_${Date.now()}_${Math.random().toString(36).slice(2)}.txt`);
+  const tmpRawMp3 = path.join(os.tmpdir(), `edge_raw_${Date.now()}_${Math.random().toString(36).slice(2)}.mp3`);
   try {
     await fs.mkdir(path.dirname(outPath), { recursive: true });
-    await execFileAsync("edge-tts", [
-      "--text",
-      text,
-      "--write-media",
-      outPath,
-      "--voice",
-      voice,
-      "--rate",
-      rate,
-    ], { timeout: 15000 });
+    await fs.writeFile(tmpTxt, text, "utf-8");
+
+    const pyBin = await resolvePythonBin();
+    let generated = false;
+
+    try {
+      await execFileAsync(pyBin, [
+        "-m",
+        "edge_tts",
+        "-f",
+        tmpTxt,
+        "-v",
+        voice,
+        "--rate",
+        rate,
+        "--pitch",
+        pitch,
+        "--write-media",
+        tmpRawMp3,
+      ], { timeout: 25000 });
+      generated = fsSync.existsSync(tmpRawMp3) && (await fs.stat(tmpRawMp3)).size > 500;
+    } catch {
+      // Fallback to direct edge-tts CLI binary with -f
+      await execFileAsync("edge-tts", [
+        "-f",
+        tmpTxt,
+        "--write-media",
+        tmpRawMp3,
+        "--voice",
+        voice,
+        "--rate",
+        rate,
+        "--pitch",
+        pitch,
+      ], { timeout: 25000 });
+      generated = fsSync.existsSync(tmpRawMp3) && (await fs.stat(tmpRawMp3)).size > 500;
+    }
+
+    if (!generated) return false;
+
+    // Normalize sample rate to 44.1kHz if ffmpeg is available so mixed GCP + Edge-TTS concat never drifts
+    try {
+      await execFileAsync("ffmpeg", [
+        "-y",
+        "-i",
+        tmpRawMp3,
+        "-ar",
+        "44100",
+        "-ac",
+        "2",
+        "-c:a",
+        "libmp3lame",
+        "-b:a",
+        "192k",
+        outPath,
+      ], { timeout: 15000 });
+    } catch {
+      await fs.copyFile(tmpRawMp3, outPath);
+    }
 
     if (fsSync.existsSync(outPath) && (await fs.stat(outPath)).size > 500) {
       console.log(`[Edge-TTS] ✅ Synthesized audio using "${voice}" -> ${path.basename(outPath)}`);
@@ -167,6 +252,9 @@ export async function synthesizeEdgeTTS(
     return false;
   } catch {
     return false;
+  } finally {
+    await fs.unlink(tmpTxt).catch(() => {});
+    await fs.unlink(tmpRawMp3).catch(() => {});
   }
 }
 
@@ -179,21 +267,30 @@ export async function synthesizeUnifiedSpeech(
   text: string,
   outPath: string,
   options?: {
-    voice?: string;
-    language?: string;
-    gcpKey?: string;
-    speed?: number;
+    voice?: string | undefined;
+    language?: string | undefined;
+    gcpKey?: string | undefined;
+    speed?: number | undefined;
+    rate?: string | undefined;
+    pitch?: string | undefined;
   }
 ): Promise<{ success: boolean; tierUsed: "kokoro" | "gcp" | "edge" | "none" }> {
-  const isHindi = /hindi/i.test(options?.language || "") || (options?.voice && /hindi|madhur|swara/i.test(options.voice));
+  const isHindi =
+    /hindi/i.test(options?.language || "") ||
+    Boolean(options?.voice && /hindi|madhur|swara|hi-in/i.test(options.voice)) ||
+    /[\u0900-\u097F]/.test(text);
 
-  // 1. For Hindi Content: Kokoro lacks native Hindi datasets.
-  // Directly prioritize Google Cloud Neural2 -> Microsoft Edge-TTS
+  const speed = options?.speed ?? 1.0;
+  const rate = options?.rate ?? (speed !== 1.0 ? `${speed >= 1 ? "+" : ""}${Math.round((speed - 1) * 100)}%` : "+0%");
+  const pitch = options?.pitch ?? "+0Hz";
+
+  // 1. For Hindi Content: Directly prioritize Google Cloud Neural2 -> Microsoft Edge-TTS
   if (isHindi) {
     if (isGoogleCloudTTSAvailable(options?.gcpKey)) {
       const gcpSuccess = await synthesizeGoogleCloudTTS(text, outPath, {
         voiceName: options?.voice,
         language: "Hindi",
+        speakingRate: speed,
         gcpKey: options?.gcpKey,
       });
       if (gcpSuccess) {
@@ -202,7 +299,7 @@ export async function synthesizeUnifiedSpeech(
     }
 
     const edgeVoice = options?.voice && /swara|female/i.test(options.voice) ? "hi-IN-SwaraNeural" : "hi-IN-MadhurNeural";
-    const edgeSuccess = await synthesizeEdgeTTS(text, outPath, edgeVoice);
+    const edgeSuccess = await synthesizeEdgeTTS(text, outPath, edgeVoice, rate, pitch);
     if (edgeSuccess) {
       return { success: true, tierUsed: "edge" };
     }
@@ -211,7 +308,11 @@ export async function synthesizeUnifiedSpeech(
   }
 
   // 2. For English Content: Prioritize Kokoro-82M (Option A: Kaggle GPU / ONNX)
-  const kokoroSuccess = await synthesizeKokoroTTS(text, outPath, options);
+  const kokoroSuccess = await synthesizeKokoroTTS(text, outPath, {
+    voice: options?.voice,
+    language: options?.language,
+    speed,
+  });
   if (kokoroSuccess) {
     return { success: true, tierUsed: "kokoro" };
   }
@@ -220,7 +321,8 @@ export async function synthesizeUnifiedSpeech(
   if (isGoogleCloudTTSAvailable(options?.gcpKey)) {
     const gcpSuccess = await synthesizeGoogleCloudTTS(text, outPath, {
       voiceName: options?.voice,
-      language: options?.language,
+      language: options?.language || "English",
+      speakingRate: speed,
       gcpKey: options?.gcpKey,
     });
     if (gcpSuccess) {
@@ -229,11 +331,19 @@ export async function synthesizeUnifiedSpeech(
   }
 
   // Fallback 2 for English: Edge-TTS
-  const edgeSuccess = await synthesizeEdgeTTS(text, outPath, "en-IN-PrabhatNeural");
+  const reqV = (options?.voice || "").toLowerCase();
+  const edgeEngVoice = reqV.includes("ryan") || reqV.includes("bm_")
+    ? "en-GB-RyanNeural"
+    : reqV.includes("guy") || reqV.includes("am_")
+      ? "en-US-GuyNeural"
+      : reqV.includes("female") || reqV.includes("af_") || reqV.includes("neerja")
+        ? "en-IN-NeerjaExpressiveNeural"
+        : "en-IN-PrabhatNeural";
+
+  const edgeSuccess = await synthesizeEdgeTTS(text, outPath, edgeEngVoice, rate, pitch);
   if (edgeSuccess) {
     return { success: true, tierUsed: "edge" };
   }
 
   return { success: false, tierUsed: "none" };
 }
-
