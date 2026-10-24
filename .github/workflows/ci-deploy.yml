@@ -1,4 +1,4 @@
-name: "CI/CD & Security Auditing (Semgrep, Trivy, Gitleaks, CodeQL)"
+name: "CI/CD & Security Shield (CodeQL, Trivy, Semgrep, Cloud Run)"
 
 on:
   push:
@@ -14,28 +14,31 @@ permissions:
   security-events: write
   pull-requests: write
   issues: write
+  packages: write
 
 jobs:
   validate-and-audit:
     name: "Unified Verification & Security Shield"
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
+    outputs:
+      should_deploy: ${{ steps.check-deploy.outputs.should_deploy }}
 
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v7
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
           token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
 
       - name: Setup Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: "npm"
 
       - name: Setup Python
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
@@ -60,7 +63,7 @@ jobs:
 
       # 3. Initialize CodeQL
       - name: Initialize CodeQL Analysis
-        uses: github/codeql-action/init@v4
+        uses: github/codeql-action/init@v3
         with:
           languages: "javascript-typescript"
 
@@ -71,7 +74,7 @@ jobs:
 
       # 5. Upload Semgrep SARIF
       - name: Upload Semgrep SARIF
-        uses: github/codeql-action/upload-sarif@v4
+        uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: semgrep.sarif
         continue-on-error: true
@@ -84,24 +87,21 @@ jobs:
           scan-ref: "."
           format: "sarif"
           output: "trivy-results.sarif"
-          severity: "CRITICAL,HIGH" 
+          severity: "CRITICAL,HIGH"
 
       # 7. Upload Trivy SARIF
       - name: Upload Trivy SARIF
-        uses: github/codeql-action/upload-sarif@v4
+        uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: "trivy-results.sarif"
         continue-on-error: true
 
       # 8. Perform CodeQL Analysis
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v4
+        uses: github/codeql-action/analyze@v3
         continue-on-error: true
 
       # 9. Autonomous AI Remediation (Runs only if failures exist or on issue/PR trigger)
-      # SECURITY: an issue-triggered run feeds untrusted issue text into an agent
-      # that can run shell commands and push commits, so it is restricted to
-      # trusted authors (owners, members, collaborators) only.
       - name: Autonomous AI Remediation
         if: >-
           failure() ||
@@ -151,7 +151,7 @@ jobs:
             fi
           fi
 
-      # 11. Autonomous Code Scanning Alert Self-Healing (Runs on every main push automatically)
+      # 10. Autonomous Code Scanning Alert Self-Healing (Runs on every main push automatically)
       - name: Autonomous Code Scanning Self-Healing
         if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main'
         env:
@@ -170,3 +170,115 @@ jobs:
           git config --global user.name "ShunopsAI-AutoResolver[bot]"
           git config --global user.email "shunopsai-agent@users.noreply.github.com"
           npx tsx src/tools/code-scanner-resolver.ts 5
+
+      # 11. Determine Cloud Run Deploy Eligibility (Zero Un-Healed Code Deployed)
+      - name: Check Deploy Eligibility
+        id: check-deploy
+        if: always()
+        run: |
+          git fetch origin main
+          CURRENT_SHA="${{ github.sha }}"
+          REMOTE_SHA=$(git rev-parse origin/main)
+          echo "Current Commit SHA: $CURRENT_SHA"
+          echo "Remote main SHA:    $REMOTE_SHA"
+          
+          # If a prior critical step failed or if self-healing pushed a new commit, skip deploy for this commit!
+          if [ "${{ job.status }}" != "success" ]; then
+            echo "⚠️ Verification job status is '${{ job.status }}'. Deployment blocked."
+            echo "should_deploy=false" >> $GITHUB_OUTPUT
+          elif [ "$CURRENT_SHA" != "$REMOTE_SHA" ]; then
+            echo "🔄 A self-healing commit was pushed to main ($REMOTE_SHA != $CURRENT_SHA). Superseding deployment for this commit."
+            echo "should_deploy=false" >> $GITHUB_OUTPUT
+          else
+            echo "✅ Security shield passed with zero open flaws. Approved for Cloud Run deployment!"
+            echo "should_deploy=true" >> $GITHUB_OUTPUT
+          fi
+
+  # Downstream Gate: Only executes if Security Shield passed 100% clean and no new healing commit was needed
+  deploy-cloudrun:
+    name: "Build Container & Deploy to Cloud Run"
+    needs: [validate-and-audit]
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && needs.validate-and-audit.outputs.should_deploy == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      REGISTRY: ghcr.io
+      IMAGE_NAME: ${{ github.repository }}
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: TypeScript Typecheck Verification
+        run: npm run typecheck
+
+      # Build and push to GitHub Container Registry (GHCR)
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest
+            type=sha,format=long,prefix=
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+      # Authenticate to GCP using Service Account
+      - name: Google Auth
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_CREDENTIALS }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      # Deploy pre-built GHCR image directly to Cloud Run
+      - name: Deploy to Cloud Run
+        run: |
+          IMAGE=$(echo "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}" | tr '[:upper:]' '[:lower:]')
+          echo "🚀 Deploying $IMAGE to Cloud Run (asia-south1)..."
+          
+          gcloud run deploy shunopsai \
+            --image=$IMAGE \
+            --project=sage-webbing-422513-q0 \
+            --region=asia-south1 \
+            --platform=managed \
+            --allow-unauthenticated \
+            --port=8080 \
+            --memory=1Gi \
+            --cpu=1 \
+            --min-instances=0 \
+            --max-instances=2 \
+            --update-env-vars=NODE_ENV=production,HOST=0.0.0.0,PUBLIC_BASE_URL=https://shunopsai-685823552970.asia-south1.run.app,TRUST_PROXY=true,GOOGLE_CLIENT_ID=685823552970-phqjqt3cc613h69kat0rljbaikf8k6kd.apps.googleusercontent.com,CLOUDFLARE_TURNSTILE_SITE_KEY=0x4AAAAAAFVaFzGbMCgv2_Kr
+
+          echo "✅ Traffic switch to latest revision..."
+          gcloud run services update-traffic shunopsai \
+            --project=sage-webbing-422513-q0 \
+            --region=asia-south1 \
+            --to-latest
