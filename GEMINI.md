@@ -138,6 +138,16 @@
 - **Zero Late Search Anti-Pattern:**
   - Never search for event details after generation or rendering is complete. All grounding facts must be injected into the script context *before* the first scene or narration line is drafted.
 
+## 15. Gemini TTS Engine API Routing Invariant (Cloud TTS vs Gemini Enterprise API)
+- **Strict Endpoint Separation:**
+  - `gemini-3.8-flash-tts` and `gemini-3.8-flash-lite-tts` (including voice design and voice replication) are available in Preview **ONLY through the Gemini Enterprise / Developer API** (`generativelanguage.googleapis.com` using `responseModalities: ["AUDIO"]`).
+  - They are **NOT available through the Cloud Text-to-Speech API** (`texttospeech.googleapis.com`).
+  - NEVER pass `gemini-3.8-flash-tts` to `texttospeech.googleapis.com` payloads (doing so results in immediate 400/404 errors).
+- **Canonical API Routing Architecture:**
+  - **Cloud Text-to-Speech API (`src/tools/gcp-tts.ts`):** Synthesizes via `gemini-3.1-flash-tts-preview` (with `{ prompt, text }` parameter separation), Google Cloud Chirp 3 HD (`hi-IN-Chirp3-HD-Aoede` / `Fenrir`), and Neural2.
+  - **Gemini Enterprise / Developer API (`src/tools/gemini-tts.ts`):** Synthesizes via `gemini-3.8-flash-tts` and `gemini-3.8-flash-lite-tts` across the 34-key `GEMINI_KEYS` pool with $O(1)$ round-robin pointer advancement and 60-second key cooldown maps.
+
+
 
 
 
