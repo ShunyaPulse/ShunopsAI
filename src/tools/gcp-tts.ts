@@ -3,6 +3,7 @@ import * as fsSync from "node:fs";
 import * as path from "node:path";
 import { GoogleAuth } from "google-auth-library";
 import * as dotenv from "dotenv";
+import { synthesizeGeminiTTS } from "./gemini-tts.js";
 
 dotenv.config({ path: path.resolve(process.cwd(), ".env"), override: true });
 
@@ -339,6 +340,23 @@ export async function synthesizeGoogleCloudTTS(
       await fs.writeFile(outPath, buf);
       console.log(`[GCP TTS] ✅ Synthesized ${buf.length} bytes via Google Cloud Gemini-TTS ("gemini-3.1-flash-tts-preview", voice: ${geminiVoiceName})`);
       return true;
+    }
+
+    // Tier 1.5: If Cloud Gemini-TTS is rate-limited (429) or unavailable, cascade to AI Studio Gemini-TTS (34-key pool)
+    // to preserve unbroken Gemini voice persona (Aoede/Fenrir) across the video before degrading to Chirp 3 HD
+    try {
+      const aiStudioOk = await synthesizeGeminiTTS(
+        text,
+        outPath,
+        options?.tone || "neutral",
+        geminiVoiceName,
+        undefined
+      );
+      if (aiStudioOk) {
+        return true;
+      }
+    } catch {
+      // Fall through to Chirp 3 HD
     }
 
     // Tier 2: Cascade to Google Cloud Chirp 3 HD with SSML prosody

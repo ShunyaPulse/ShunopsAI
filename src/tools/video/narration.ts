@@ -113,8 +113,8 @@ export function resolveTTSPriorityChain(opts: {
   // When GCP credentials exist: Use Google Cloud (GCP Gemini-TTS -> Chirp 3 HD) FIRST before AI Studio!
   if (hasGCP) {
     return isHindi
-      ? ["chirp", "gemini", "edge"]
-      : ["chirp", "gemini", "kokoro", "edge"];
+      ? ["gemini", "chirp", "edge"]
+      : ["gemini", "chirp", "kokoro", "edge"];
   } else {
     return isHindi
       ? ["gemini", "edge"]
