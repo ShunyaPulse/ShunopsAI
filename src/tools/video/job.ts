@@ -49,7 +49,7 @@ function kernelMetadata(user: string, id: string) {
 
 function runtimeConfig(gcpKey?: string) {
   return {
-    hf_token: process.env.KAGGLE_BUNDLE_HF_TOKEN === "true" ? (process.env.HF_TOKEN || "") : "",
+    hf_token: process.env.HF_TOKEN || process.env.HUGGINGFACE_TOKEN || (process.env.KAGGLE_BUNDLE_HF_TOKEN === "true" ? (process.env.HF_TOKEN || "") : ""),
     gcp_tts_key: process.env.GCP_TTS_API_KEY || process.env.GOOGLE_TTS_API_KEY || gcpKey || "",
   };
 }

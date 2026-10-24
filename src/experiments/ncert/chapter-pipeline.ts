@@ -523,7 +523,7 @@ export async function launchChapterJob(
   await fs.writeFile(
     path.join(dsDir, "config.json"),
     JSON.stringify({
-      hf_token: process.env.KAGGLE_BUNDLE_HF_TOKEN === "true" ? (process.env.HF_TOKEN || "") : "",
+      hf_token: process.env.HF_TOKEN || process.env.HUGGINGFACE_TOKEN || (process.env.KAGGLE_BUNDLE_HF_TOKEN === "true" ? (process.env.HF_TOKEN || "") : ""),
       gcp_tts_api_key:
         process.env.KAGGLE_BUNDLE_GCP_KEY === "true"
           ? (options.gcpKey || process.env.GCP_TTS_API_KEY || process.env.GOOGLE_TTS_API_KEY || "")
