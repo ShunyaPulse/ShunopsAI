@@ -703,8 +703,12 @@ async def main():
         # Check if pre-packaged audio exists in dataset
         dataset_audio = os.path.join(os.path.dirname(script_path), "audio", f"a{i:03d}.mp3")
         if os.path.exists(dataset_audio) and os.path.getsize(dataset_audio) > 500:
-            shutil.copyfile(dataset_audio, a_path)
-            print(f"[TTS] Using pre-packaged audio ({os.path.getsize(a_path)} bytes).")
+            # Normalize every audio file to standard 44.1kHz stereo MP3
+            # (Fixes silent video / truncated audio caused by WAV/MP3 container mismatches between Gemini TTS and Chirp 3 HD)
+            ok_norm = run(["ffmpeg", "-y", "-i", dataset_audio, "-ar", "44100", "-ac", "2", "-c:a", "libmp3lame", "-b:a", "192k", a_path])
+            if not (ok_norm and os.path.exists(a_path) and os.path.getsize(a_path) > 500):
+                shutil.copyfile(dataset_audio, a_path)
+            print(f"[TTS] Using pre-packaged audio ({os.path.getsize(a_path)} bytes, normalized MP3 44.1kHz).")
             submaker = edge_tts.SubMaker()
         else:
             # Tier 1: Try Google Cloud Neural2 directly on Kaggle if gcp_tts_key is provided
@@ -763,7 +767,7 @@ async def main():
         if v_dur > duration(a_path) + 0.03:
             a_padded = f"{TMP}/a_pad_{i:03d}.mp3"
             pad_filter = f"apad=whole_dur={v_dur:.3f}"
-            run(["ffmpeg", "-y", "-i", a_path, "-af", pad_filter, "-c:a", "libmp3lame", "-b:a", "192k", a_padded])
+            run(["ffmpeg", "-y", "-i", a_path, "-af", pad_filter, "-ar", "44100", "-ac", "2", "-c:a", "libmp3lame", "-b:a", "192k", a_padded])
             if os.path.exists(a_padded) and os.path.getsize(a_padded) > 500:
                 narr_files.append(a_padded)
             else:
@@ -972,7 +976,7 @@ async def main():
             "ffmpeg", "-y",
             "-i", f"{TMP}/narration.mp3",
             "-i", ambient_mp3,
-            "-filter_complex", "[0:a]volume=1.0[a0];[1:a]volume=1.0[a1];[a0][a1]amix=inputs=2:duration=first:dropout_transition=2[aout]",
+            "-filter_complex", "[0:a]volume=1.0[a0];[1:a]volume=1.0[a1];[a0][a1]amix=inputs=2:duration=first:dropout_transition=2:normalize=0[aout]",
             "-map", "[aout]",
             "-c:a", "libmp3lame", "-b:a", "192k", master_audio
         ])
