@@ -43,7 +43,7 @@ function detectInsecureRandomness(
 ): CodeFlawCandidate | null {
   if (!/Math\.random\(\)/.test(line) || isTestFile(filePath)) return null;
   const context = surroundingSnippet(lines, index);
-  if (!/id|token|key|secret|auth|nonce|session|approval|pool|offset/i.test(line) && !/id|token|key|secret|auth|pool/i.test(context)) return null;
+  if (!/id|token|key|secret|auth|nonce|session|approval|pool|offset|roundrobin|index|seed/i.test(line) && !/id|token|key|secret|auth|pool|offset|roundrobin/i.test(context)) return null;
 
   return flaw(
     filePath,
@@ -86,7 +86,7 @@ function detectSensitiveLogging(
   lineNo: number
 ): CodeFlawCandidate | null {
   const logsSensitiveInterpolation =
-    /console\.(?:error|log)\([^)]*(?:\$\{[^}]*(?:token|secret|key|password|apiKey|cred)[^}]*\}|(?:\btoken\b|\bsecret\b|\bapiKey\b|\bpassword\b)\s*[,)])/i.test(
+    /console\.(?:error|log|warn|info)\([^)]*(?:\$\{[^}]*(?:token|secret|key|password|apiKey|keyId|cred)[^}]*\}|(?:\btoken\b|\bsecret\b|\bapiKey\b|\bkeyId\b|\bpassword\b)\s*[,)])/i.test(
       line
     );
   const logsSensitiveErrorMessage =

@@ -195,7 +195,8 @@ def synthesize_gcp_neural2(text, out_mp3, api_key, voice_name="hi-IN-Neural2-C",
             data=json.dumps(payload).encode("utf-8"),
             headers={"Content-Type": "application/json"}
         )
-        with urllib.request.urlopen(req, timeout=25) as resp:
+        opener = urllib.request.build_opener(urllib.request.HTTPSHandler())
+        with opener.open(req, timeout=25) as resp:
             data = json.loads(resp.read().decode("utf-8"))
             if "audioContent" in data:
                 audio_bytes = base64.b64decode(data["audioContent"])

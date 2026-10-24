@@ -225,9 +225,7 @@ export async function synthesizeGeminiTTS(
         await fs.writeFile(outPath, audioBuffer);
 
         console.log(
-          `[Gemini TTS] ✅ Synthesized ${audioBuffer.length} bytes via "${model}" (key: ${keyId}, voice: ${voiceName}, tone: "${tone}") -> ${path.basename(
-            outPath
-          )}`
+          `[Gemini TTS] ✅ Synthesized ${audioBuffer.length} bytes via "${model}" -> ${path.basename(outPath)}`
         );
         return true;
       } catch (err: any) {

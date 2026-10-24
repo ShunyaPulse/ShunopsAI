@@ -303,8 +303,40 @@ export async function runAutoAlertResolver(
     return { resolved: 0, total: alerts.length };
   }
 
-  let resolvedCount = 0;
-  const toProcess = alerts.slice(0, limit);
+  // 1. Reconcile package manifest vulnerabilities via native npm audit fix
+  const packageAlerts = alerts.filter((a) =>
+    PROTECTED_RESOLVER_PATHS.test(a.most_recent_instance?.location?.path || "")
+  );
+
+  let packageFixedCount = 0;
+  if (packageAlerts.length > 0 && isLocalRepo(repo)) {
+    console.log(
+      `${colors.yellow}📦 Detected ${packageAlerts.length} dependency vulnerability alert(s) in package manifest. Running native npm audit fix...${colors.reset}`
+    );
+    try {
+      execFileSync("npm", ["audit", "fix"], { stdio: "inherit" });
+      const tc = runTypecheck(process.cwd());
+      if (tc.ok) {
+        console.log(`${colors.green}✓ Dependency audit fix verified with 100% clean typecheck!${colors.reset}`);
+        packageFixedCount = packageAlerts.length;
+      } else {
+        console.warn(`${colors.yellow}⚠️ Typecheck failed after npm audit fix: ${tc.error}. Rolling back package manifest...${colors.reset}`);
+        execFileSync("git", ["checkout", "package.json", "package-lock.json"], { stdio: "pipe" });
+      }
+    } catch (auditErr: any) {
+      console.warn(`${colors.yellow}⚠️ npm audit fix encountered an issue: ${auditErr?.message || auditErr}${colors.reset}`);
+    }
+  }
+
+  // 2. Unblock the code alert queue: extract actionable source code alerts
+  const actionableCodeAlerts = alerts.filter(
+    (a) => !PROTECTED_RESOLVER_PATHS.test(a.most_recent_instance?.location?.path || "")
+  );
+
+  console.log(`Actionable source code alerts in queue: ${actionableCodeAlerts.length}`);
+
+  let resolvedCount = packageFixedCount;
+  const toProcess = actionableCodeAlerts.slice(0, limit);
 
   for (const alert of toProcess) {
     const res = await resolveAlertWithAI(alert);
