@@ -315,7 +315,7 @@ export async function runAutoAlertResolver(
     );
     try {
       const npmCmd = process.platform === "win32" ? "npm.cmd" : "npm";
-      execFileSync(npmCmd, ["audit", "fix"], { stdio: "inherit" });
+      execFileSync(npmCmd, ["audit", "fix"], { stdio: "inherit", shell: true });
       const tc = runTypecheck(process.cwd());
       if (tc.ok) {
         console.log(`${colors.green}✓ Dependency audit fix verified with 100% clean typecheck!${colors.reset}`);

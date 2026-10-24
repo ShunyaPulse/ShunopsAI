@@ -155,7 +155,6 @@ export async function synthesizeGeminiTTS(
 
     for (let attempt = 0; attempt < maxKeyAttempts; attempt++) {
       const apiKey = byokKey ?? nextKey(pool);
-      const keyId = apiKey.length >= 8 ? `${apiKey.slice(0, 4)}...${apiKey.slice(-4)}` : "[KEY]";
 
       try {
         const body = {
