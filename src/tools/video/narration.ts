@@ -1,4 +1,5 @@
 import * as fs from "node:fs/promises";
+import * as fsSync from "node:fs";
 
 import * as path from "node:path";
 
@@ -456,6 +457,17 @@ export async function synthesizeNarration(
 
     const outMp3 = sceneAudioPath(audioDir, i);
 
+    // Flywheel Cache: If scene audio already exists from prior run/retry, reuse immediately (0 tokens, 0 latency)
+    try {
+      if (fsSync.existsSync(outMp3) && fsSync.statSync(outMp3).size >= MIN_AUDIO_BYTES) {
+        console.log(`[Video] ⚡ Scene ${i + 1} audio cache hit (${fsSync.statSync(outMp3).size} bytes). Reusing without re-synthesis.`);
+        geminiSuccessCount++;
+        continue;
+      }
+    } catch {}
+
+
+
 
 
     let synthesized = false;
@@ -655,10 +667,22 @@ export async function healMissingNarration(
 
 
   let anySynthesized = false;
+  let geminiSuccessCount = 0;
 
   for (let i = 0; i < script.scenes.length; i++) {
 
     const outMp3 = sceneAudioPath(audioDir, i);
+
+    // Flywheel Cache: If scene audio already exists from prior run/retry, reuse immediately (0 tokens, 0 latency)
+    try {
+      if (fsSync.existsSync(outMp3) && fsSync.statSync(outMp3).size >= MIN_AUDIO_BYTES) {
+        console.log(`[Video] ⚡ Scene ${i + 1} audio cache hit (${fsSync.statSync(outMp3).size} bytes). Reusing without re-synthesis.`);
+        geminiSuccessCount++;
+        continue;
+      }
+    } catch {}
+
+
 
     const stat = await fs.stat(outMp3).catch(() => null);
 

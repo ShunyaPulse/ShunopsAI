@@ -195,6 +195,7 @@ export async function synthesizeGeminiTTS(
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(body),
+            signal: AbortSignal.timeout(25000),
           }
         );
 

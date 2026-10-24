@@ -217,6 +217,7 @@ async function callGCPTTS(payload: any, customKey: string | undefined): Promise<
           method: "POST",
           headers,
           body: JSON.stringify(payload),
+          signal: AbortSignal.timeout(25000),
         });
 
         if (res.status === 429) {
@@ -243,6 +244,7 @@ async function callGCPTTS(payload: any, customKey: string | undefined): Promise<
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(25000),
     });
     if (res.ok) {
       const data: any = await res.json();
