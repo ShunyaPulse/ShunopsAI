@@ -400,7 +400,7 @@ export async function launchChapterJob(
               break;
             }
           } catch (err: any) {
-            console.warn(`   ⚠️ Scene ${i + 1} GCP TTS attempt ${attempt}/2 failed: ${err.message}`);
+            console.warn(`   ⚠️ Scene ${i + 1} GCP TTS attempt ${attempt}/2 failed: [REDACTED]`);
           }
           if (attempt < 2) await new Promise((r) => setTimeout(r, 1000));
         }
@@ -629,7 +629,7 @@ Options:
   };
 
   launchChapterJob(chapterArg, options).catch((err) => {
-    console.error("❌ Pipeline failed: [REDACTED]", err?.message || "");
+    console.error("❌ Pipeline failed: [REDACTED]");
     process.exit(1);
   });
 }
