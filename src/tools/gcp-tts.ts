@@ -246,6 +246,10 @@ async function callGCPTTS(payload: any, customKey: string | undefined): Promise<
       body: JSON.stringify(payload),
       signal: AbortSignal.timeout(25000),
     });
+    if (res.status === 429) {
+      gcpCloudGeminiCooloffUntil = Date.now() + 45_000;
+      console.warn("[GCP TTS] ⚠️ 429 Rate-limit encountered on Google Cloud TTS endpoint (API Key mode). Activating 45s cooloff window.");
+    }
     if (res.ok) {
       const data: any = await res.json();
       return data.audioContent ? Buffer.from(data.audioContent, "base64") : null;
@@ -356,8 +360,8 @@ export async function synthesizeGoogleCloudTTS(
       return true;
     }
 
-    // Tier 1.5: If Cloud Gemini-TTS is rate-limited (429) or unavailable, cascade to AI Studio Gemini-TTS (34-key pool)
-    // to preserve unbroken Gemini voice persona (Aoede/Fenrir) across the video before degrading to Chirp 3 HD
+    // Tier 1.5: If Cloud Gemini-TTS is rate-limited (429) or in cooloff, try AI Studio Gemini-TTS (34-key pool) first
+    // to preserve unbroken Gemini voice persona (Aoede/Fenrir) across the video with zero wait time.
     try {
       const aiStudioOk = await synthesizeGeminiTTS(
         text,
@@ -370,10 +374,43 @@ export async function synthesizeGoogleCloudTTS(
         return true;
       }
     } catch {
-      // Fall through to Chirp 3 HD
+      // AI Studio didn't succeed, proceed to wait/refill check
     }
 
-    // Tier 2: Cascade to Google Cloud Chirp 3 HD with SSML prosody
+    // Tier 1.8: Invariant - Wait 45s cooloff window before shifting to Chirp
+    // If Cloud Gemini-TTS is currently in cooloff, wait out the remaining time until the 45s window elapses!
+    const remainingCooldownMs = gcpCloudGeminiCooloffUntil - Date.now();
+    if (remainingCooldownMs > 0) {
+      const waitSec = Math.ceil(remainingCooldownMs / 1000);
+      console.log(`[GCP TTS] ⏱️ Cloud Gemini-TTS in rate-limit cooloff. Waiting ${waitSec}s for quota to refill before degrading to Chirp...`);
+      await new Promise((resolve) => setTimeout(resolve, remainingCooldownMs + 1000));
+
+      // Quota refill retry: try Cloud Gemini-TTS again now that the 45s cooloff has elapsed
+      buf = await callGCPTTS(gcpGeminiPayload, customKey);
+      if (buf) {
+        await fs.mkdir(path.dirname(outPath), { recursive: true });
+        await fs.writeFile(outPath, buf);
+        console.log(`[GCP TTS] ✅ Synthesized ${buf.length} bytes via Google Cloud Gemini-TTS after cooloff refill! ("gemini-3.1-flash-tts-preview", voice: ${geminiVoiceName})`);
+        return true;
+      }
+
+      // Also retry AI Studio Gemini-TTS pool once after wait
+      try {
+        const aiStudioRetryOk = await synthesizeGeminiTTS(
+          text,
+          outPath,
+          options?.tone || "neutral",
+          geminiVoiceName,
+          undefined
+        );
+        if (aiStudioRetryOk) {
+          return true;
+        }
+      } catch {}
+    }
+
+    // Tier 2: ONLY after 45s cooloff wait has elapsed and Cloud Gemini STILL did not refill, shift to Google Cloud Chirp 3 HD
+    console.warn(`[GCP TTS] ⚠️ Cloud Gemini-TTS quota did not refill after cooloff wait. Shifting to Google Cloud Chirp 3 HD ("${voiceMeta.name}").`);
     const ssml = options?.tone ? buildSSMLWithTone(text, options.tone) : undefined;
     const chirpPayload = {
       input: ssml ? { ssml } : { text },
