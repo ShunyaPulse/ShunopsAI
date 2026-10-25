@@ -41,13 +41,29 @@ for mod in list(sys.modules.keys()):
     if "torchao" in mod:
         del sys.modules[mod]
 
-# Ensure all dependencies are present and upgraded
+# Ensure all dependencies are present and upgraded (isolated installs so one failure never blocks others)
 subprocess.run([
     sys.executable, "-m", "pip", "install", "-q", "-U",
-    "diffusers", "transformers", "accelerate", "safetensors", "huggingface_hub", "edge-tts", "kokoro", "soundfile"
+    "diffusers", "transformers", "accelerate", "safetensors", "huggingface_hub", "soundfile"
 ], check=False)
 
-import edge_tts
+# Edge-TTS (pure Python)
+subprocess.run([
+    sys.executable, "-m", "pip", "install", "-q", "-U", "edge-tts"
+], check=False)
+
+# Optional Kokoro-82M (never crash or block pipeline if C build fails on Python 3.13)
+try:
+    subprocess.run([
+        sys.executable, "-m", "pip", "install", "-q", "kokoro"
+    ], check=False)
+except Exception:
+    pass
+
+try:
+    import edge_tts
+except ImportError:
+    edge_tts = None
 import torch
 
 # Force PyTorch SDPA to use native Turing (SM 7.5) Memory-Efficient attention
@@ -177,6 +193,9 @@ async def probe_edge_tts(voice, rate="+0%", max_retries=3):
     If Microsoft Edge-TTS is blocked or unreachable after 3 attempts, raises RuntimeError immediately.
     Halts the job before expensive GPU models are loaded to avoid wasting GPU quota on a mute video.
     """
+    if edge_tts is None:
+        print("[TTS] ⚠️ edge_tts module not loaded; skipping Edge-TTS probe.")
+        return False
     for attempt in range(1, max_retries + 1):
         try:
             communicate = edge_tts.Communicate("test probe", voice, rate=rate)
@@ -932,7 +951,7 @@ async def main():
             if not (ok_norm and os.path.exists(a_path) and os.path.getsize(a_path) > 500):
                 shutil.copyfile(dataset_audio, a_path)
             print(f"[TTS] Using pre-packaged audio ({os.path.getsize(a_path)} bytes, normalized MP3 44.1kHz).")
-            submaker = edge_tts.SubMaker()
+            submaker = edge_tts.SubMaker() if edge_tts else None
         else:
             # Tier 1: Try Google Cloud Neural2 directly on Kaggle if gcp_tts_key is provided
             synthesized = False
@@ -940,13 +959,13 @@ async def main():
                 target_rate = 1.04 if domain == "sports" else 1.0
                 gcp_voice = voice if "neural2" in voice.lower() else ("hi-IN-Neural2-B" if domain == "sports" else "hi-IN-Neural2-C")
                 synthesized = synthesize_gcp_neural2(sc["narration"], a_path, gcp_tts_key, voice_name=gcp_voice, speaking_rate=target_rate)
-                submaker = edge_tts.SubMaker()
+                submaker = edge_tts.SubMaker() if edge_tts else None
 
             # Tier 2: Try Kokoro-82M offline on Kaggle (for English or offline dialogue)
             if not synthesized and not ("hi" in script.get("language", "English").lower() or any('\u0900' <= char <= '\u097f' for char in sc["narration"])):
                 k_voice = resolve_kokoro_voice(sc.get("speaker", ""), sc.get("voice", ""))
                 synthesized = synthesize_kokoro_audio(sc["narration"], k_voice, a_path, speed=1.0)
-                submaker = edge_tts.SubMaker()
+                submaker = edge_tts.SubMaker() if edge_tts else None
 
             # Tier 3: Edge-TTS Fallback with WordBoundaries
             if not synthesized or not os.path.exists(a_path) or os.path.getsize(a_path) < 500:
