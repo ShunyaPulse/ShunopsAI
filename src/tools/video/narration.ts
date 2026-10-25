@@ -4,11 +4,13 @@ import * as fsSync from "node:fs";
 import * as path from "node:path";
 
 import {
+
   isGoogleCloudTTSAvailable,
+
   synthesizeGoogleCloudTTS,
-  synthesizeCloudGeminiTTS,
-  synthesizeCloudChirpTTS,
+
   resolveGCPVoice,
+
 } from "../gcp-tts.js";
 
 import { synthesizeKokoroTTS } from "../kokoro-tts.js";
@@ -26,17 +28,26 @@ const MIN_AUDIO_BYTES = 500;
 
 
 export interface NarrationSynthesis {
-  gcpGeminiSuccessCount?: number;
+
   geminiSuccessCount: number;
+
   gcpSuccessCount: number;
+
   kokoroSuccessCount: number;
+
   edgeSuccessCount: number;
-  primaryEngine: "gcp-gemini" | "gemini" | "chirp" | "kokoro" | "edge";
+
+  primaryEngine: "gemini" | "chirp" | "kokoro" | "edge";
+
   gcpVoiceName: string | null;
+
   edgeVoiceName: string;
+
 }
 
-export type TTSEngine = "gcp-gemini" | "gemini" | "chirp" | "kokoro" | "edge";
+
+
+export type TTSEngine = "gemini" | "chirp" | "kokoro" | "edge";
 
 
 
@@ -100,15 +111,11 @@ export function resolveTTSPriorityChain(opts: {
 }): TTSEngine[] {
   const { hasGCP, isHindi } = opts;
 
-  // Strict 4-Tier Audio Cascade:
-  // Tier 1: Google Cloud gemini-3.1-flash-tts-preview (via Service Account / Agent Platform Express User)
-  // Tier 2: AI Studio gemini-3.8-flash-tts / 3.8-flash-lite / 3.1-flash-preview (via 34-key pool)
-  // Tier 3: Google Cloud Chirp 3 HD (1M free chars/month)
-  // Tier 4: Edge-TTS (local fallback)
+  // When GCP credentials exist: Use Google Cloud (GCP Gemini-TTS -> Chirp 3 HD) FIRST before AI Studio!
   if (hasGCP) {
     return isHindi
-      ? ["gcp-gemini", "gemini", "chirp", "edge"]
-      : ["gcp-gemini", "gemini", "chirp", "kokoro", "edge"];
+      ? ["gemini", "chirp", "edge"]
+      : ["gemini", "chirp", "kokoro", "edge"];
   } else {
     return isHindi
       ? ["gemini", "edge"]
@@ -155,65 +162,68 @@ async function tryGemini(
 
 
 
-/** Google Cloud Gemini-TTS ("gemini-3.1-flash-tts-preview" via Service Account OAuth / Agent Platform Express User). */
-async function tryGcpGemini(
-  narration: string,
-  outMp3: string,
-  sceneNumber: number,
-  opts: {
-    voiceName?: string | undefined;
-    language?: string | undefined;
-    speakingRate?: number | undefined;
-    gcpKey?: string | undefined;
-    tone?: string | undefined;
-    scriptVoice?: string | undefined;
-  }
-): Promise<boolean> {
-  try {
-    return await synthesizeCloudGeminiTTS(narration, outMp3, {
-      voiceName: opts.scriptVoice || opts.voiceName,
-      language: opts.language,
-      speakingRate: opts.speakingRate,
-      gcpKey: opts.gcpKey,
-      tone: opts.tone,
-    });
-  } catch (err: any) {
-    console.warn(`[Video] ⚠️ Scene ${sceneNumber} Google Cloud Gemini-TTS attempt failed: ${err.message}`);
-    return false;
-  }
-}
-
 /** Google Cloud Chirp 3 HD with SSML emotion prosody wrapper. */
+
 async function tryChirp(
+
   narration: string,
+
   outMp3: string,
+
   sceneNumber: number,
+
   opts: {
+
     voiceName: string;
+
     language: string;
+
     speakingRate: number;
+
     gcpKey?: string | undefined;
+
     tone?: string | undefined;
+
   }
+
 ): Promise<boolean> {
+
   for (let attempt = 1; attempt <= 2; attempt++) {
+
     try {
-      const ok = await synthesizeCloudChirpTTS(narration, outMp3, {
+
+      const ok = await synthesizeGoogleCloudTTS(narration, outMp3, {
+
         voiceName: opts.voiceName,
+
         language: opts.language,
+
         speakingRate: opts.speakingRate,
+
         gcpKey: opts.gcpKey,
+
         tone: opts.tone,
+
       });
+
       if (ok) return true;
+
     } catch (err: any) {
+
       console.warn(`[Video] ⚠️ Scene ${sceneNumber} Chirp 3 HD attempt ${attempt} failed: ${err.message}`);
+
     }
+
     if (attempt < 2) {
+
       await new Promise((r) => setTimeout(r, 1000));
+
     }
+
   }
+
   return false;
+
 }
 
 
@@ -414,10 +424,12 @@ export async function synthesizeNarration(
 
 
 
-  let gcpGeminiSuccessCount = 0;
   let geminiSuccessCount = 0;
+
   let gcpSuccessCount = 0;
+
   let kokoroSuccessCount = 0;
+
   let edgeSuccessCount = 0;
 
 
@@ -448,19 +460,9 @@ export async function synthesizeNarration(
 
 
     for (const engine of priorityChain) {
-      if (engine === "gcp-gemini") {
-        synthesized = await tryGcpGemini(sc.narration, outMp3, i + 1, {
-          tone: sc.tone,
-          scriptVoice: script.voice,
-          language,
-          speakingRate: script.domain === "sports" ? 1.04 : 1.0,
-          gcpKey: resolvedGcpKey,
-        });
-        if (synthesized) {
-          gcpGeminiSuccessCount++;
-          break;
-        }
-      } else if (engine === "gemini") {
+
+      if (engine === "gemini") {
+
         const prevTone = i > 0 ? script.scenes[i - 1]?.tone : undefined;
         synthesized = await tryGemini(sc.narration, outMp3, i + 1, {
           tone: sc.tone,
@@ -472,8 +474,11 @@ export async function synthesizeNarration(
         });
 
         if (synthesized) {
+
           geminiSuccessCount++;
+
           break;
+
         }
 
       } else if (engine === "chirp" && gcpVoice) {
@@ -587,22 +592,33 @@ export async function synthesizeNarration(
 
 
   const primaryEngine: TTSEngine =
-    gcpGeminiSuccessCount > 0
-      ? "gcp-gemini"
-      : geminiSuccessCount > 0
+
+    geminiSuccessCount > 0
+
       ? "gemini"
+
       : gcpSuccessCount > 0
+
       ? "chirp"
+
       : kokoroSuccessCount > 0
+
       ? "kokoro"
+
       : "edge";
 
+
+
   return {
-    gcpGeminiSuccessCount,
+
     geminiSuccessCount,
+
     gcpSuccessCount,
+
     kokoroSuccessCount,
+
     edgeSuccessCount,
+
     primaryEngine,
 
     gcpVoiceName: gcpVoice?.name ?? null,
