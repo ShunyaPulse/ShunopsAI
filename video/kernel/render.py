@@ -44,7 +44,7 @@ for mod in list(sys.modules.keys()):
 # Ensure all dependencies are present and upgraded
 subprocess.run([
     sys.executable, "-m", "pip", "install", "-q", "-U",
-    "diffusers", "transformers", "accelerate", "safetensors", "huggingface_hub", "edge-tts"
+    "diffusers", "transformers", "accelerate", "safetensors", "huggingface_hub", "edge-tts", "kokoro", "soundfile"
 ], check=False)
 
 import edge_tts
@@ -273,7 +273,67 @@ def synthesize_gcp_neural2(text, out_mp3, api_key, voice_name="hi-IN-Neural2-C",
                 print(f"[GCP TTS] ✅ Synthesized scene audio ({len(audio_bytes)} bytes) using {voice_name}.")
                 return True
     except Exception as e:
-        print(f"[GCP TTS Warning] Failed ({e}). Falling back to Edge-TTS...")
+        print(f"[GCP TTS Warning] Failed ({e}). Falling back...")
+    return False
+
+
+kokoro_pipelines = {}
+
+
+def get_kokoro_pipeline(lang_code="a"):
+    global kokoro_pipelines
+    if lang_code in kokoro_pipelines:
+        return kokoro_pipelines[lang_code]
+    try:
+        from kokoro import KPipeline
+        pipe = KPipeline(lang_code=lang_code)
+        kokoro_pipelines[lang_code] = pipe
+        print(f"[Kokoro-82M] ✅ Neural pipeline (lang='{lang_code}') loaded successfully on GPU runner.")
+        return pipe
+    except Exception as e:
+        print(f"[Kokoro-82M] ⚠️ Kokoro init notice: {e}")
+        return None
+
+
+def resolve_kokoro_voice(speaker, voice):
+    sp = (speaker or "").lower()
+    v = (voice or "").lower()
+    if v in ("af_heart", "am_adam", "bf_emma", "bm_george", "hf_alpha", "hm_omega"):
+        return v
+    if "photographer" in sp or "british" in sp or "en-gb" in v or "ryan" in v:
+        return "bf_emma" if ("female" in v or "woman" in sp or "girl" in sp) else "bm_george"
+    if "female" in v or "woman" in sp or "girl" in sp or "neerja" in v:
+        return "af_heart"
+    return "am_adam"
+
+
+def synthesize_kokoro_audio(text, voice_name, out_path, speed=1.0):
+    try:
+        lang_code = "b" if str(voice_name).startswith("b") else ("h" if str(voice_name).startswith("h") else "a")
+        pipeline = get_kokoro_pipeline(lang_code=lang_code)
+        if not pipeline:
+            return False
+        import numpy as np
+        import soundfile as sf
+        clean_text = text.strip("\"' \n\t")
+        if not clean_text:
+            return False
+        generator = pipeline(clean_text, voice=voice_name, speed=speed)
+        wav_tmp = out_path.replace(".mp3", ".wav")
+        chunks = []
+        for _, _, audio in generator:
+            if audio is not None and len(audio) > 0:
+                chunks.append(audio)
+        if chunks:
+            full_audio = np.concatenate(chunks)
+            sf.write(wav_tmp, full_audio, 24000)
+        if os.path.exists(wav_tmp) and os.path.getsize(wav_tmp) > 300:
+            ok_norm = run(["ffmpeg", "-y", "-i", wav_tmp, "-ar", "44100", "-ac", "2", "-c:a", "libmp3lame", "-b:a", "192k", out_path])
+            if os.path.exists(wav_tmp):
+                os.remove(wav_tmp)
+            return ok_norm and os.path.exists(out_path) and os.path.getsize(out_path) > 300
+    except Exception as e:
+        print(f"[Kokoro-82M Warning] Audio synthesis notice: {e}")
     return False
 
 
@@ -875,15 +935,21 @@ async def main():
             submaker = edge_tts.SubMaker()
         else:
             # Tier 1: Try Google Cloud Neural2 directly on Kaggle if gcp_tts_key is provided
-            synthesized_gcp = False
+            synthesized = False
             if gcp_tts_key:
                 target_rate = 1.04 if domain == "sports" else 1.0
                 gcp_voice = voice if "neural2" in voice.lower() else ("hi-IN-Neural2-B" if domain == "sports" else "hi-IN-Neural2-C")
-                synthesized_gcp = synthesize_gcp_neural2(sc["narration"], a_path, gcp_tts_key, voice_name=gcp_voice, speaking_rate=target_rate)
+                synthesized = synthesize_gcp_neural2(sc["narration"], a_path, gcp_tts_key, voice_name=gcp_voice, speaking_rate=target_rate)
                 submaker = edge_tts.SubMaker()
 
-            # Tier 2: Edge-TTS Fallback
-            if not synthesized_gcp or not os.path.exists(a_path) or os.path.getsize(a_path) < 500:
+            # Tier 2: Try Kokoro-82M offline on Kaggle (for English or offline dialogue)
+            if not synthesized and not ("hi" in script.get("language", "English").lower() or any('\u0900' <= char <= '\u097f' for char in sc["narration"])):
+                k_voice = resolve_kokoro_voice(sc.get("speaker", ""), sc.get("voice", ""))
+                synthesized = synthesize_kokoro_audio(sc["narration"], k_voice, a_path, speed=1.0)
+                submaker = edge_tts.SubMaker()
+
+            # Tier 3: Edge-TTS Fallback with WordBoundaries
+            if not synthesized or not os.path.exists(a_path) or os.path.getsize(a_path) < 500:
                 edge_voice = voice
                 if "neural2" in voice.lower():
                     edge_voice = "hi-IN-MadhurNeural" if "hi" in script.get("language", "English").lower() else "en-IN-PrabhatNeural"

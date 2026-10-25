@@ -17,6 +17,8 @@ import {
   synthesizeKokoroTTS,
   resolveKokoroVoice,
 } from "../../tools/kokoro-tts.js";
+import { synthesizeGeminiTTS } from "../../tools/gemini-tts.js";
+import { generateSceneKeyframes } from "../../tools/video/keyframes.js";
 
 export interface CharacterVisualDNA {
   name: string;
@@ -364,6 +366,7 @@ export async function launchChapterJob(
     `\n🎙️ [Audio Pre-Synthesis] Synthesizing ${script.scenes.length} scenes locally (rate=${rateStr}, speed=${speakingRate}x, GCP=${gcpAvailable ? "Ready" : "Off"}, Kokoro=${kokoroReady ? "Ready" : "Off"})...`
   );
 
+  let geminiCount = 0;
   let gcpCount = 0;
   let kokoroCount = 0;
   let edgeCount = 0;
@@ -381,7 +384,28 @@ export async function launchChapterJob(
 
     let audioReady = false;
 
-    if (isHindi) {
+    // Tier 1: Gemini 3.8/3.1 Flash TTS (8B Multimodal Foundation LLM across 34-key pool)
+    try {
+      const speakerLower = (sc.speaker || "").toLowerCase();
+      const voiceLower = (sc.voice || "").toLowerCase();
+      const isFemale = /female|woman|girl|wife|mother|sister|af_|bf_|swara|neerja/.test(`${speakerLower} ${voiceLower}`);
+      const isDeepMale = /postmaster|elder|leader|king|george|father/.test(`${speakerLower} ${voiceLower}`);
+      const isYouth = /lencho|boy|student|son|kid/.test(`${speakerLower} ${voiceLower}`);
+      const geminiVoice = isFemale ? "Aoede" : (isDeepMale ? "Charon" : (isYouth ? "Puck" : "Fenrir"));
+
+      audioReady = await synthesizeGeminiTTS(
+        sc.narration,
+        outAudio,
+        (sc as any).tone || "neutral",
+        geminiVoice,
+        "history"
+      );
+      if (audioReady) {
+        geminiCount++;
+      }
+    } catch {}
+
+    if (!audioReady && isHindi) {
       const gcpVoice = resolveGCPVoice(sc.voice || script.voice, "Hindi");
       const edgeVoice = resolveEdgeVoice(sc.voice || script.voice, "Hindi", "history");
 
@@ -424,7 +448,7 @@ export async function launchChapterJob(
           if (attempt < 3) await new Promise((r) => setTimeout(r, 1500 * attempt));
         }
       }
-    } else {
+    } else if (!audioReady) {
       // English Character Dialogue Cascade: Tier 1 Kokoro-82M ➔ Tier 2 Google Cloud Neural2 ➔ Tier 3 Edge-TTS
       const speakerLower = (sc.speaker || "").toLowerCase();
       const voiceLower = (sc.voice || "").toLowerCase();
@@ -489,7 +513,7 @@ export async function launchChapterJob(
 
     if (audioReady) {
       console.log(`   ✅ Scene ${i + 1}/${script.scenes.length} synthesized (${isHindi ? "Hindi narration" : `English dialogue [${sc.speaker}]`})`);
-    } else {
+    } else if (!audioReady) {
       console.warn(`   ⚠️ Warning: Scene ${i + 1} synthesis failed across all tiers.`);
     }
   }
@@ -507,8 +531,15 @@ export async function launchChapterJob(
     }
   }
   console.log(
-    `   🛡️ [Pre-Flight Verification] All ${script.scenes.length} audio files 100% verified (GCP=${gcpCount}, Kokoro=${kokoroCount}, Edge-TTS=${edgeCount}).`
+    `   🛡️ [Pre-Flight Verification] All ${script.scenes.length} audio files 100% verified (Gemini=${geminiCount}, GCP=${gcpCount}, Kokoro=${kokoroCount}, Edge-TTS=${edgeCount}).`
   );
+
+  // Stage 1 (Tarika 2): Pre-package keyframes via Cloudflare Workers AI FLUX.1-schnell
+  const imagesDir = path.join(dsDir, "images");
+  await fs.mkdir(imagesDir, { recursive: true });
+  const keyframes = await generateSceneKeyframes(script as any, imagesDir);
+  (script as any).keyframes_summary = `${keyframes.successCount}/${keyframes.totalScenes} via ${keyframes.modelUsed}`;
+  console.log(`🎨 [Keyframe Pre-Packaging] Complete: ${(script as any).keyframes_summary}`);
 
   await fs.writeFile(path.join(dsDir, "script.json"), JSON.stringify(script, null, 2));
   await fs.writeFile(
