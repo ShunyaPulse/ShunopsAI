@@ -74,57 +74,61 @@ function nextKey(pool: string[]): string {
 }
 
 // ---------------------------------------------------------------------------
-// Turn-Level Styling (Official Gemini 3.8 TTS speech_metadata Specification)
+// Turn-Level Styling (Acoustic Continuity Layer)
 // ---------------------------------------------------------------------------
+
+interface ToneProfile {
+  descriptor: string;
+  energy: number; // 1 = calm/measured, 2 = cinematic/resonant, 3 = high-energy/action
+}
+
+const SPORTS_TONE_PROFILES: Record<string, ToneProfile> = {
+  excited: { descriptor: "energetic and celebratory with breathless momentum and crisp match excitement", energy: 3 },
+  dramatic: { descriptor: "resonant and powerful with deep cinematic weight on key match milestones", energy: 2 },
+  suspense: { descriptor: "focused with tense tactical anticipation and measured broadcast cadence", energy: 1 },
+  somber: { descriptor: "measured and solemn with respectful gravity and natural pacing", energy: 1 },
+  neutral: { descriptor: "articulate with crisp broadcast cadence and engaging natural flow", energy: 1 },
+};
+
+const DOC_TONE_PROFILES: Record<string, ToneProfile> = {
+  excited: { descriptor: "warm and lively with bright curiosity, vibrant engagement, and crisp pronunciation", energy: 3 },
+  dramatic: { descriptor: "deep and resonant with cinematic weight and impactful storytelling", energy: 2 },
+  suspense: { descriptor: "thoughtful and measured with quiet curiosity and focused investigative cadence", energy: 1 },
+  somber: { descriptor: "reflective and gentle with solemn empathy, respectful warmth, and natural pacing", energy: 1 },
+  neutral: { descriptor: "natural and conversational with balanced narrative flow and clear articulation", energy: 1 },
+};
 
 /**
  * Acoustic Continuity Layer:
- * Prevents extreme tone whiplash between adjacent sentences.
- * Keeps narrator's vocal timbre, presence, and volume grounded and steady,
- * with emotion being a subtle nuance (10-15%) rather than a radical character jump.
+ * Mathematically smoothes emotional transitions between any adjacent tones (prevTone -> currentTone).
+ * Eliminates sudden volume or timbre whiplash by modulating energy direction dynamically without hardcoded pairs.
  */
 export function buildStyleDirective(tone: string, prevTone?: string, domain?: string): string {
   const isSports = domain === "sports";
+  const persona = isSports
+    ? "authoritative male Indian sports commentator"
+    : "articulate Indian documentary anchor";
 
-  if (isSports) {
-    if (prevTone === "suspense" && tone === "excited") {
-      return "confident male Indian sports commentator, smoothly building momentum from tense anticipation into natural celebratory excitement with crisp articulation and steady vocal presence";
+  const profiles = isSports ? SPORTS_TONE_PROFILES : DOC_TONE_PROFILES;
+  const currentKey = (tone || "neutral").toLowerCase();
+  const currentProfile = profiles[currentKey] ?? profiles["neutral"]!;
+
+  let transitionClause = "";
+  if (prevTone) {
+    const prevKey = prevTone.toLowerCase();
+    if (prevKey !== currentKey) {
+      const prevProfile = profiles[prevKey] ?? profiles["neutral"]!;
+      if (prevProfile.energy < currentProfile.energy) {
+        transitionClause = `smoothly building momentum from previous ${prevKey} tension into `;
+      } else if (prevProfile.energy > currentProfile.energy) {
+        transitionClause = `gracefully easing from previous ${prevKey} intensity into `;
+      } else {
+        transitionClause = `smoothly transitioning from previous ${prevKey} mood into `;
+      }
     }
-    if (prevTone === "excited" && tone === "suspense") {
-      return "authoritative male Indian sports commentator, smoothly easing from high energy into focused match tension and tactical anticipation without sudden drop in volume";
-    }
-    if (tone === "excited") {
-      return "energetic male Indian sports commentator, confident and articulate delivery with crisp pronunciation and natural broadcast cadence";
-    }
-    if (tone === "suspense") {
-      return "focused male Indian sports commentator, tense anticipation and measured pacing with steady volume and high engagement";
-    }
-    if (tone === "dramatic") {
-      return "resonant male Indian sports commentator, powerful delivery and impactful weight on key match moments";
-    }
-    return "articulate male Indian sports commentator, crisp broadcast cadence and engaging natural flow";
   }
 
-  // Documentary / General
-  if (prevTone === "suspense" && tone === "excited") {
-    return "engaging Indian documentary narrator, smoothly transitioning from quiet suspense into clear, bright curiosity and wonder with continuous vocal presence";
-  }
-  if (prevTone === "excited" && tone === "suspense") {
-    return "steady Indian documentary narrator, gracefully transitioning from animated enthusiasm into thoughtful, focused mystery without dropping voice level";
-  }
-  if (tone === "excited") {
-    return "warm, lively Indian documentary anchor, articulate curiosity and bright engaging delivery with crisp Indian pronunciation";
-  }
-  if (tone === "suspense") {
-    return "thoughtful, measured Indian documentary anchor, quiet curiosity and focused investigative cadence with steady vocal warmth";
-  }
-  if (tone === "dramatic") {
-    return "deep, resonant Indian documentary anchor, cinematic weight and impactful storytelling with clear articulation";
-  }
-  if (tone === "somber") {
-    return "reflective, gentle Indian documentary anchor, solemn empathy with natural pacing";
-  }
-  return "clear, engaging Indian documentary anchor, natural conversational cadence and crisp pronunciation";
+  return `${persona}, ${transitionClause}${currentProfile.descriptor}, maintaining steady vocal presence, grounded timbre, and consistent volume with zero sudden volume drops.`;
 }
 
 // ---------------------------------------------------------------------------
