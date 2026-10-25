@@ -75,7 +75,7 @@ async function callGeminiModel(model: string, key: string, prompt: string): Prom
           maxOutputTokens: 32768,
         },
       }),
-      signal: AbortSignal.timeout(180000),
+      signal: AbortSignal.timeout(35000),
     }
   );
 
@@ -133,6 +133,11 @@ async function tryGeminiModels(
         if (result.status === 404) {
           console.warn(`[Video] Model "${model}" returned 404. Skipping remaining keys for this model.`);
           break;
+        }
+
+        if (result.status === 503 && kIdx >= 2) {
+          console.warn(`[Video] Model "${model}" returning multiple 503 demand spikes. Fast-failing to next tier.`);
+          break;
         }
 
         await new Promise((r) => setTimeout(r, KEY_RETRY_DELAY_MS));
