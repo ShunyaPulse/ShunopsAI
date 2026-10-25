@@ -69,6 +69,9 @@ const SCIENCE_TECH_DIRECTIVES = (domain: VideoDomain): string => `CRITICAL DOMAI
   * NOT screaming sports commentary or shallow reel hype. Deliver an intellectual thrill with dynamic pitch variation, thoughtful pauses before major revelations, and deep respect for the viewer's intelligence.`;
 
 const SPORTS_DIRECTIVES = `CRITICAL DOMAIN DIRECTIVES (SPORTS DOCUMENTARY):
+- STRICT CONCLUDED MATCH INVARIANT (ZERO LIVE / IN-PROGRESS SPECULATION):
+  * Spoken narration must strictly cover a COMPLETED and CONCLUDED match where the final result, winner, and full scorecard are permanently recorded.
+  * NEVER speculate on a live or currently ongoing match. If the match is in progress, do NOT invent a premature outcome.
 - MANDATORY MATCH NUMBERS & SCORECARD CONTEXT (THE JOURNALISTIC ANCHOR):
   * Spoken narration MUST deliver the concrete real-world match figures, scoreboard situation, and individual statistics:
     1. Opponent's total score or target to chase (e.g. "Pakistan ne pehle batting karte hue 344 runs ka vishal score khada kiya").

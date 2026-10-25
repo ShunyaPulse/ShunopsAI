@@ -225,6 +225,22 @@ export async function fetchGoogleTrendsIndia(): Promise<TrendingItem[]> {
 /**
  * Filters out controversial, negative, or sensationalist trends (scandals, arrests, crimes, political mudslinging).
  */
+/**
+ * Invariant: Sports matches that are currently LIVE or IN PROGRESS must NEVER have videos made on them.
+ * A sports match video is only allowed once the match is 100% completed and the final result is locked.
+ */
+export function isLiveOngoingMatch(item: TrendingItem): boolean {
+  const combined = `${item.title} ${item.news_title} ${item.news_snippet || ""}`.toLowerCase();
+
+  // Explicit completion indicators override live keywords (e.g. "won by", "beat", "post match", "highlights")
+  const isFinished = /\b(won by|defeated|beat|beats|won the match|won trophy|champions|lift trophy|match highlights|post-match|full match summary|all out for)\b/i.test(combined);
+  if (isFinished) return false;
+
+  // Live match search indicators: search spikes happening during the live broadcast
+  const isLive = /\b(live score|live match|live cricket|live streaming|live stream|live telecast|live commentary|scorecard live|toss update|playing 11|playing xi|toss won by|in progress|ongoing match|currently batting|currently bowling|stumps day|innings break)\b/i.test(combined);
+  return isLive;
+}
+
 export function isBannedControversialTrend(item: TrendingItem): boolean {
   const combined = `${item.title} ${item.news_title} ${item.news_snippet || ""}`.toLowerCase();
   const bannedKeywords = [
@@ -324,7 +340,8 @@ export async function curateBestTrendTopic(items: TrendingItem[]): Promise<Curat
   }
 
   // 1. Filter out banned sensationalist & negative controversial items (crimes, violence, arrests, scandal mudslinging)
-  const cleanItems = items.filter((item) => !isBannedControversialTrend(item));
+  // 1. Filter out banned controversial items AND active live/in-progress matches
+  const cleanItems = items.filter((item) => !isBannedControversialTrend(item) && !isLiveOngoingMatch(item));
   if (cleanItems.length === 0) {
     console.log("[Trends] ⚠️ All trends filtered out by controversy rules. Falling back to Evergreen Concept Video...");
     return await generateEvergreenConceptTopic();
@@ -383,8 +400,12 @@ CRITICAL EDITORIAL RULES:
    - If a politician, ministry, party, or government has achieved something genuinely positive, constructive, or beneficial for people/country (e.g., mega infrastructure projects, high-speed rail, expressways, public welfare schemes, healthcare access, clean water initiatives, green energy transitions, semiconductor fabs, space missions), that CAN be chosen and covered.
    - When covering good work: Focus 100% on the positive achievement, engineering marvel, scale of execution, and tangible public benefit—NEVER attack political rivals, critics, or opposition. Maintain a completely objective, uplifting, documentary style.
 
-3. STRONGLY PRIORITIZE High-Value Knowledge, Inspiring Sports Milestones & Progress:
-   - Inspiring Sports Milestones & Major Matches: Asian football (AFC Champions League / East Bengal), historic cricket clashes, athlete records, tactical mastery.
+3. STRONGLY PRIORITIZE High-Value Knowledge, Inspiring Concluded Sports Milestones & Progress:
+   - STRICT INVARIANT - ZERO LIVE / IN-PROGRESS SPORTS MATCHES:
+     * NEVER EVER select a match that is currently LIVE, ONGOING, IN PROGRESS, or UNDECIDED.
+     * The match MUST be 100% FINISHED and CONCLUDED with an official final result, winner, completed scorecard, or finished trophy celebration.
+     * Videos on live matches age terribly and lead to hallucinated or incorrect outcomes. Only completed matches qualify.
+   - Inspiring Sports Milestones & Concluded Clashes: Finished Asian football matches, historic cricket clashes with final scorecards, athlete records, tactical mastery.
    - Science, Space, Nature, Astronomy, and Deep Ocean phenomena.
    - Emerging technology, AI breakthroughs, Energy & Engineering marvels.
    - Historical mysteries, archaeological discoveries, and cultural heritage.

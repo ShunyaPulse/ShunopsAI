@@ -137,6 +137,11 @@
   - If a recent event (within the last 7–14 days) exists for the topic, the generator MUST center the script and Visual Bible on the fresh real-world event (with exact scores, venues, key players, and record milestones) rather than generic historical retrospectives, unless the prompt explicitly specifies "History of..." or "All-time retrospective".
 - **Zero Late Search Anti-Pattern:**
   - Never search for event details after generation or rendering is complete. All grounding facts must be injected into the script context *before* the first scene or narration line is drafted.
+- **Strict Zero Live / In-Progress Match Rule (Mandatory Concluded Milestone Invariant):**
+  - The pipeline must **NEVER** generate a script or video for a sports match that is currently LIVE, ONGOING, or IN PROGRESS.
+  - A sports match MUST be 100% finished, concluded, and officially decided with a final winner, full-time/final scorecard, and permanent result.
+  - If web search or trend context indicates the match is currently underway (e.g. "live score", "in progress", "currently batting", "stumps day 1", "innings break", "toss won"), the pipeline must NEVER draft an unverified or speculative conclusion.
+  - Only completed matches with definitive historical or breaking milestones qualify for video generation.
 
 ## 15. Gemini TTS Engine API Routing Invariant (Cloud TTS vs Gemini Enterprise API)
 - **Strict Endpoint Separation:**
