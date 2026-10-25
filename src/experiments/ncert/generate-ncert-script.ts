@@ -15,7 +15,7 @@ export interface NCERTScene {
 export interface NCERTScript {
   title: string;
   description: string;
-  tags: string[];
+  tags?: string[] | undefined;
   chapters: { title: string; start_scene: number }[];
   thumbnail: {
     headline: string;
@@ -83,14 +83,14 @@ STRICT INVARIANTS:
 8. YOUTUBE METADATA:
    - Title: "A Letter to God Class 10 English First Flight | Full Chapter Explanation & Animation in Hindi"
    - Description: Pure English detailed overview, timestamps, summary of Lencho's faith and the postmaster's kindness, and CBSE/UP Board exam tips.
-   - Tags: ["A Letter to God Class 10", "A Letter to God Full Story", "First Flight Chapter 1", "Class 10 English NCERT", "Lencho Story Animation", "CBSE Class 10 English", "UP Board English Class 10"]
+
    - Thumbnail: High-contrast hero concept prompt of Lencho standing in a devastated white cornfield clutching an envelope addressed "To God".
 
 Respond with pure JSON conforming to this schema:
 {
   "title": string,
   "description": string,
-  "tags": string[],
+
   "chapters": [{ "title": string, "start_scene": number }],
   "thumbnail": {
     "headline": string,
@@ -115,6 +115,7 @@ Respond with pure JSON conforming to this schema:
   try {
     const cleaned = text.replace(/```json/g, "").replace(/```/g, "").trim();
     parsed = JSON.parse(cleaned);
+    if (!parsed.tags) parsed.tags = [];
   } catch (err: any) {
     throw new Error(`Failed to parse NCERT script JSON: ${err.message}\nRaw output: ${text.slice(0, 300)}`);
   }

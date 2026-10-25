@@ -172,7 +172,7 @@ CRITICAL DIRECTIVES:
 
    - DESCRIPTION (PURE ENGLISH): Must be written in 100% PURE ENGLISH (English language & Roman letters). Include detailed SEO overview of the event, key technical keywords, and timestamps/chapters. No Devanagari script.
 
-   - CHAPTER TITLES & TAGS: Must be strictly in English (Roman) alphabet.
+   - CHAPTER TITLES: Must be strictly in English (Roman) alphabet.
 
    - NARRATION (Spoken Audio & Acoustic Steering):
      * Natural, engaging conversational Indian Hindi dialogue spoken by studio voice ${voice}.
@@ -260,7 +260,7 @@ CRITICAL DIRECTIVES:
 
   "description": "<Comprehensive Pure English SEO description of the event, 150-250 words with timestamps & keywords, NO Devanagari>",
 
-  "tags": ["<8-15 high volume relevant tags in English alphabet>"],
+
 
   "chapters": [{"title": "<Chapter Title in English>", "start_scene": 0}],
 
@@ -297,30 +297,21 @@ CRITICAL DIRECTIVES:
 
 
 function parseScriptJson(text: string): VideoScript {
-
+  let parsed: VideoScript;
   try {
-
-    return JSON.parse(text) as VideoScript;
-
+    parsed = JSON.parse(text) as VideoScript;
   } catch {
-
-    // Sometimes the model wraps JSON in a code fence — strip it
-
+    // Sometimes the model wraps JSON in a code fence - strip it
     const match = text.match(/```(?:json)?\s*([\s\S]*?)```/);
-
     if (match && match[1]) {
-
-      return JSON.parse(match[1]) as VideoScript;
-
+      parsed = JSON.parse(match[1]) as VideoScript;
+    } else {
+      throw new Error(`Gemini response is not valid JSON: ${text.slice(0, 200)}`);
     }
-
-    throw new Error(`Gemini response is not valid JSON: ${text.slice(0, 200)}`);
-
   }
-
+  if (!parsed.tags) parsed.tags = [];
+  return parsed;
 }
-
-
 
 /**
 

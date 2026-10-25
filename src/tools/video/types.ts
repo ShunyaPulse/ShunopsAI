@@ -17,7 +17,7 @@ export interface VisualBible {
 export interface VideoScript {
   title: string;
   description: string;
-  tags: string[];
+  tags?: string[] | undefined;
   voice: string;
   rate?: string;
   language?: string;
