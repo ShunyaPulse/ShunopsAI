@@ -16,12 +16,14 @@ export function resolveEdgeVoice(
   domain: VideoDomain = "general"
 ): { name: string; pitch: string; rate: string } {
   const isHindi = /hindi/i.test(language) || (requestedVoice && requestedVoice.toLowerCase().includes("hi"));
+  const isUK = /uk|british|en-gb/i.test(language) || (requestedVoice && requestedVoice.toLowerCase().includes("gb"));
   const defaultRate = domain === "sports" ? "+4%" : "+0%";
   const defaultPitch = domain === "sports" ? "+0Hz" : (domain === "science" || domain === "space" || domain === "technology" || domain === "history" ? "-2Hz" : "+0Hz");
 
   if (domain === "sports") {
     // Invariant: Sports and Cricket must strictly use authoritative MALE commentary
     if (isHindi) return { name: "hi-IN-MadhurNeural", pitch: defaultPitch, rate: defaultRate };
+    if (isUK) return { name: "en-GB-RyanNeural", pitch: defaultPitch, rate: defaultRate };
     return { name: "en-IN-PrabhatNeural", pitch: defaultPitch, rate: defaultRate };
   }
 

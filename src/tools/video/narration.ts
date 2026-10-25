@@ -135,6 +135,7 @@ async function tryGemini(
     scriptVoice?: string | undefined;
     domain?: string | undefined;
     topic?: string | undefined;
+    language?: string | undefined;
     geminiKey?: string | undefined;
   }
 ): Promise<boolean> {
@@ -147,7 +148,8 @@ async function tryGemini(
       opts.domain,
       opts.geminiKey,
       opts.prevTone,
-      opts.topic
+      opts.topic,
+      opts.language
     );
 
   } catch (err: any) {
@@ -470,6 +472,7 @@ export async function synthesizeNarration(
           scriptVoice: script.voice,
           domain: script.domain,
           topic: script.title,
+          language: script.language,
           geminiKey: resolvedGeminiKey,
         });
 
@@ -689,7 +692,8 @@ export async function healMissingNarration(
       script.domain,
       undefined,
       prevTone,
-      script.title
+      script.title,
+      script.language
     );
 
     if (!ok && hasGCP && gcpVoice) {

@@ -83,8 +83,31 @@ function nextKey(pool: string[]): string {
  * Keeps narrator's vocal timbre, presence, and volume grounded and steady,
  * with emotion being a subtle nuance (10-15%) rather than a radical character jump.
  */
-export function buildStyleDirective(tone: string, prevTone?: string, domain?: string): string {
+export function buildStyleDirective(tone: string, prevTone?: string, domain?: string, language?: string): string {
   const isSports = domain === "sports";
+  const isUK = Boolean(language && /uk|british|en-gb/i.test(language));
+
+  if (isUK) {
+    if (isSports) {
+      if (prevTone === "suspense" && tone === "excited") {
+        return "confident male British sports commentator, smoothly building momentum from tense anticipation into natural celebratory excitement with crisp UK BBC broadcast accent";
+      }
+      if (prevTone === "excited" && tone === "suspense") {
+        return "authoritative male British sports commentator, smoothly easing from high energy into tactical match anticipation with steady vocal volume";
+      }
+      if (tone === "excited") {
+        return "energetic male British sports commentator, confident and articulate delivery with authentic UK broadcast accent and crisp pronunciation";
+      }
+      if (tone === "suspense") {
+        return "focused male British sports commentator, tense anticipation and measured pacing with high engagement and authentic UK broadcast cadence";
+      }
+      if (tone === "dramatic") {
+        return "resonant male British sports commentator, powerful delivery and impactful weight on key match moments";
+      }
+      return "articulate male British sports commentator, crisp UK broadcast cadence and engaging natural flow";
+    }
+    return "distinguished male British documentary narrator, authentic BBC broadcaster accent, measured pacing, and clear articulation";
+  }
 
   if (isSports) {
     if (prevTone === "suspense" && tone === "excited") {
@@ -184,7 +207,8 @@ export async function synthesizeGeminiTTS(
   domain?: string | undefined,
   byokKey?: string | undefined,
   prevTone?: string | undefined,
-  topic?: string | undefined
+  topic?: string | undefined,
+  language?: string | undefined
 ): Promise<boolean> {
   const pool = byokKey ? [byokKey] : getKeyPool();
   if (pool.length === 0) {
@@ -196,7 +220,7 @@ export async function synthesizeGeminiTTS(
   if (!cleanText) return false;
 
   const voiceName = resolveGeminiVoice(scriptVoice, domain, topic);
-  const styleDirective = buildStyleDirective(tone, prevTone, domain);
+  const styleDirective = buildStyleDirective(tone, prevTone, domain, language);
 
   // Cascade across all 4 models: 3.8-flash -> 3.8-flash-lite -> 3.1-flash -> 2.5-flash
   for (let mIdx = 0; mIdx < GEMINI_TTS_MODELS.length; mIdx++) {
