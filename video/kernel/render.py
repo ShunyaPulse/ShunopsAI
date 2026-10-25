@@ -44,7 +44,7 @@ for mod in list(sys.modules.keys()):
 # Ensure core ML diffusion dependencies are present and upgraded (Zero audio packages at boot)
 subprocess.run([
     sys.executable, "-m", "pip", "install", "-q", "-U",
-    "diffusers", "transformers", "accelerate", "safetensors", "huggingface_hub"
+    "diffusers", "transformers", "accelerate", "safetensors", "huggingface_hub", "ftfy"
 ], check=False)
 
 edge_tts = None
