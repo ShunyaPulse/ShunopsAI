@@ -37,10 +37,6 @@ function sanitizeTrendReason(trendReason?: string): string | undefined {
 function selectVoice(language: string, domain: VideoDomain, topic?: string): string {
   // Sports and Cricket videos must strictly use authoritative MALE commentary
   const isSports = domain === "sports" || (topic ? isSportsOrCricket(topic) : false);
-  const isUK = /uk|british|en-gb/i.test(language);
-  if (isUK) {
-    return isSports ? "en-GB-Chirp3-HD-Fenrir" : "en-GB-Chirp3-HD-Alnilam";
-  }
   if (!/hindi/i.test(language)) return "en-IN-Chirp3-HD-Fenrir";
   return isSports ? "hi-IN-Chirp3-HD-Fenrir" : "hi-IN-Chirp3-HD-Aoede";
 }
@@ -157,30 +153,26 @@ CRITICAL DIRECTIVES:
 
 3. SCRIPT & SCRIPT-LANGUAGE RULES (MANDATORY - OPTION A HYBRID FORMULA):
 
-   - TITLE: Must be strictly in English (Roman) alphabet (<=70 chars).\n\n   - DESCRIPTION (PURE ENGLISH): Must be written in 100% PURE ENGLISH (English language & Roman letters). Include detailed SEO overview of the event, key technical keywords, and timestamps/chapters. No Devanagari script.
+   - TITLE (THE HYBRID FORMULA): Must be strictly in English (Roman) alphabet. Format: "[English Topic Keyword] : [Hinglish Curiosity Question/Hook about this specific event]".
+
+     Example: "Aadhaar Super-Engine : 140 Crore Logo Ka Data Kaise Safe Rehta Hai?"
+
+     Example: "Cristiano Ronaldo 900 Goals : 40 Ki Umar Mein Aisa Record Kaise Banaya?"
+
+     Example: "Semiconductor Fab : India Mein Microchips Banana Itna Mushkil Kyu Hai?"
+
+     NEVER use Devanagari script. Maximum 70 characters.
+
+   - DESCRIPTION (PURE ENGLISH): Must be written in 100% PURE ENGLISH (English language & Roman letters). Include detailed SEO overview of the event, key technical keywords, and timestamps/chapters. No Devanagari script.
 
    - CHAPTER TITLES: Must be strictly in English (Roman) alphabet.
 
    - NARRATION (Spoken Audio & Acoustic Steering):
-${
-  /uk|british|en-gb/i.test(language)
-    ? `     * PURE UK ENGLISH NARRATION (BRITISH ACCENT & PHRASING):
-       - Spoken by authentic British broadcast voice ${voice}.
-       - MUST be written in 100% PURE BRITISH ENGLISH (UK spelling and phrasing: e.g. "defence", "favour", "metre", "pitch", "clinical finish").
-       - ABSOLUTELY ZERO Hindi, ZERO Hinglish, and ZERO Americanisms.
-       - Masterful BBC / Sky Sports documentary commentary style: articulate, authoritative, dramatic, and emotionally grounded.`
-    : /english/i.test(language)
-    ? `     * PURE ENGLISH NARRATION:
-       - Spoken by studio voice ${voice}.
-       - MUST be written in 100% PURE ENGLISH (English language words and vocabulary).
-       - ABSOLUTELY ZERO Hindi, ZERO Hinglish, and ZERO Devanagari.
-       - Clear, engaging, high-retention global documentary narration style.`
-    : `     * Natural, engaging conversational Indian Hindi dialogue spoken by studio voice ${voice}.
+     * Natural, engaging conversational Indian Hindi dialogue spoken by studio voice ${voice}.
      * ACCENT STEERING (ZERO AMERICAN TWANG):
        - Write with authentic Indian vernacular cadence, vocabulary, and phrasing (e.g. "brahmand", "rahasya", "khoj", "itihas", "pehlu", "turning point").
        - NEVER write convoluted English sentences inside Hindi narration (which triggers American/Western phoneme shifting in TTS models).
-       - Keep language phonetically grounded so that Gemini TTS (Aoede/Fenrir) and Google Cloud Chirp 3 HD deliver crisp, natural Indian pronunciation without foreign accent distortions.`
-}
+       - Keep language phonetically grounded so that Gemini TTS (Aoede/Fenrir) and Google Cloud Chirp 3 HD deliver crisp, natural Indian pronunciation without foreign accent distortions.
      * ACOUSTIC EMOTION & PACING STEERING (NATIVE TTS MODULATION):
        - Tailor punctuation and rhythm to match each scene's "tone":
          * suspense: Use dramatic ellipses ("..."), em-dashes ("—"), and pregnant pauses to induce slow investigative tension.
@@ -298,29 +290,16 @@ ${
 
 
 function parseScriptJson(text: string): VideoScript {
-  let clean = text.trim();
-  const fenceMatch = clean.match(/```(?:json)?\s*([\s\S]*?)```/);
-  if (fenceMatch && fenceMatch[1]) {
-    clean = fenceMatch[1].trim();
-  } else {
-    const firstBrace = clean.indexOf("{");
-    const lastBrace = clean.lastIndexOf("}");
-    if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-      clean = clean.slice(firstBrace, lastBrace + 1);
-    }
-  }
-
   let parsed: VideoScript;
   try {
-    parsed = JSON.parse(clean) as VideoScript;
+    parsed = JSON.parse(text) as VideoScript;
   } catch {
-    const repaired = clean
-      .replace(/,\s*([\]}])/g, "$1")
-      .replace(/[\u0000-\u001F]+/g, (c) => (c === "\n" || c === "\r" || c === "\t" ? c : " "));
-    try {
-      parsed = JSON.parse(repaired) as VideoScript;
-    } catch {
-      throw new Error(`Gemini response is not valid JSON: ${clean.slice(0, 300)}`);
+    // Sometimes the model wraps JSON in a code fence - strip it
+    const match = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if (match && match[1]) {
+      parsed = JSON.parse(match[1]) as VideoScript;
+    } else {
+      throw new Error(`Gemini response is not valid JSON: ${text.slice(0, 200)}`);
     }
   }
   if (!parsed.tags) parsed.tags = [];

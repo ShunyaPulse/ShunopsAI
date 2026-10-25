@@ -24,7 +24,7 @@ export const GEMINI_MODELS_QUALITY_ORDER = [
   "gemini-3-flash-preview",  // Active verified quota (1 / 5)
 ];
 
-const KEYS_PER_MODEL_ATTEMPT = 3;
+const KEYS_PER_MODEL_ATTEMPT = 10;
 const KEY_RETRY_DELAY_MS = 400;
 
 /**
