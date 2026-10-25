@@ -852,6 +852,8 @@ class WanT4OptimizedEngine:
         return False
 
 
+WanVACE13BEngine = WanT4OptimizedEngine
+
 
 def get_robust_bold_font(target_size):
     """
