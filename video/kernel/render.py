@@ -41,29 +41,13 @@ for mod in list(sys.modules.keys()):
     if "torchao" in mod:
         del sys.modules[mod]
 
-# Ensure all dependencies are present and upgraded (isolated installs so one failure never blocks others)
+# Ensure core ML diffusion dependencies are present and upgraded (Zero audio packages at boot)
 subprocess.run([
     sys.executable, "-m", "pip", "install", "-q", "-U",
-    "diffusers", "transformers", "accelerate", "safetensors", "huggingface_hub", "soundfile"
+    "diffusers", "transformers", "accelerate", "safetensors", "huggingface_hub"
 ], check=False)
 
-# Edge-TTS (pure Python)
-subprocess.run([
-    sys.executable, "-m", "pip", "install", "-q", "-U", "edge-tts"
-], check=False)
-
-# Optional Kokoro-82M (never crash or block pipeline if C build fails on Python 3.13)
-try:
-    subprocess.run([
-        sys.executable, "-m", "pip", "install", "-q", "kokoro"
-    ], check=False)
-except Exception:
-    pass
-
-try:
-    import edge_tts
-except ImportError:
-    edge_tts = None
+edge_tts = None
 import torch
 
 # Force PyTorch SDPA to use native Turing (SM 7.5) Memory-Efficient attention
@@ -183,9 +167,28 @@ def duration(path):
 
 
 # ==========================================
-# Edge-TTS Circuit Breaker & Resilient Fallback
+# Edge-TTS Circuit Breaker & Resilient Fallback (On-Demand JIT Installation)
 # ==========================================
 EDGE_TTS_AVAILABLE = True
+
+def ensure_edge_tts_installed():
+    global edge_tts
+    if edge_tts is not None:
+        return True
+    try:
+        import edge_tts as et
+        edge_tts = et
+        return True
+    except ImportError:
+        print("[Edge-TTS] Fallback reached: Installing edge-tts on demand...")
+        subprocess.run([sys.executable, "-m", "pip", "install", "-q", "-U", "edge-tts"], check=False)
+        try:
+            import edge_tts as et
+            edge_tts = et
+            return True
+        except ImportError as e:
+            print(f"[Edge-TTS] ⚠️ Failed to install edge-tts: {e}")
+            return False
 
 async def probe_edge_tts(voice, rate="+0%", max_retries=3):
     """
@@ -193,8 +196,8 @@ async def probe_edge_tts(voice, rate="+0%", max_retries=3):
     If Microsoft Edge-TTS is blocked or unreachable after 3 attempts, raises RuntimeError immediately.
     Halts the job before expensive GPU models are loaded to avoid wasting GPU quota on a mute video.
     """
-    if edge_tts is None:
-        print("[TTS] ⚠️ edge_tts module not loaded; skipping Edge-TTS probe.")
+    if not ensure_edge_tts_installed():
+        print("[TTS] ⚠️ edge_tts module could not be installed; skipping Edge-TTS probe.")
         return False
     for attempt in range(1, max_retries + 1):
         try:
@@ -221,6 +224,8 @@ async def tts_with_boundaries(text, voice, a_path, rate="+0%", max_retries=3):
     Retries up to 3 times with exponential backoff.
     If Microsoft endpoints fail after 3 retries, raises RuntimeError to prevent rendering a mute video.
     """
+    if not ensure_edge_tts_installed():
+        raise RuntimeError("[TTS] Fatal: edge-tts could not be loaded for fallback audio.")
     last_err = None
     for attempt in range(1, max_retries + 1):
         try:
@@ -298,11 +303,28 @@ def synthesize_gcp_neural2(text, out_mp3, api_key, voice_name="hi-IN-Neural2-C",
 
 kokoro_pipelines = {}
 
+def ensure_kokoro_installed():
+    try:
+        import kokoro
+        import soundfile
+        return True
+    except ImportError:
+        print("[Kokoro-82M] Fallback reached: JIT installing kokoro & soundfile on demand...")
+        subprocess.run([sys.executable, "-m", "pip", "install", "-q", "kokoro", "soundfile"], check=False)
+        try:
+            import kokoro
+            import soundfile
+            return True
+        except ImportError as e:
+            print(f"[Kokoro-82M] ⚠️ Kokoro on-demand install unavailable: {e}")
+            return False
 
 def get_kokoro_pipeline(lang_code="a"):
     global kokoro_pipelines
     if lang_code in kokoro_pipelines:
         return kokoro_pipelines[lang_code]
+    if not ensure_kokoro_installed():
+        return None
     try:
         from kokoro import KPipeline
         pipe = KPipeline(lang_code=lang_code)
@@ -995,7 +1017,7 @@ async def main():
                     "text": ch
                 })
         else:
-            scene_srt = submaker.get_srt()
+            scene_srt = submaker.get_srt() if submaker else ""
             cues = parse_srt_cues(scene_srt, current_time_offset)
             if not cues:
                 cues.append({
