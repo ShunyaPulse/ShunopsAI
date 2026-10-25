@@ -2,7 +2,8 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { kaggle } from "./kaggle.js";
 import { generateScript } from "./script.js";
-import { healMissingNarration, synthesizeNarration } from "./narration.js";
+import { healMissingNarration, synthesizeNarration } from "./narration.js";
+import { generateSceneKeyframes } from "./keyframes.js";
 import type { KaggleAction, VideoScript } from "./types.js";
 
 const JOBS_DIR = path.resolve(process.cwd(), "jobs");
@@ -103,7 +104,14 @@ export async function startVideoJob(
     script.voice = narration.edgeVoiceName;
   }
 
-  console.log(`[Video] ✅ Audio synthesis complete (${script.scenes.length} scenes): ${summaryStr}`);
+  console.log(`[Video] ✅ Audio synthesis complete (${script.scenes.length} scenes): ${summaryStr}`);
+
+  // Stage 1 (Tarika 2): Pre-package keyframes via Cloudflare Workers AI FLUX.1-schnell
+  const imagesDir = path.join(dsDir, "images");
+  await fs.mkdir(imagesDir, { recursive: true });
+  const keyframes = await generateSceneKeyframes(script, imagesDir);
+  script.keyframes_summary = `${keyframes.successCount}/${keyframes.totalScenes} via ${keyframes.modelUsed}`;
+  console.log(`[Video] 🎨 Keyframe packaging complete: ${script.keyframes_summary}`);
 
   await writeJsonFile(path.join(dsDir, "script.json"), script);
   await writeJsonFile(path.join(dsDir, "dataset-metadata.json"), datasetMetadata(user, id));
@@ -142,7 +150,19 @@ async function syncJobAudio(dsDir: string): Promise<void> {
     const audioDir = path.join(dsDir, "audio");
     await fs.mkdir(audioDir, { recursive: true });
 
-    if (await healMissingNarration(script, audioDir)) {
+    let dsUpdated = false;
+    if (await healMissingNarration(script, audioDir)) {
+      dsUpdated = true;
+    }
+    const imagesDir = path.join(dsDir, "images");
+    await fs.mkdir(imagesDir, { recursive: true });
+    const keyframes = await generateSceneKeyframes(script, imagesDir);
+    if (keyframes.successCount > 0) {
+      script.keyframes_summary = `${keyframes.successCount}/${keyframes.totalScenes} via ${keyframes.modelUsed}`;
+      await writeJsonFile(scriptFile, script);
+      dsUpdated = true;
+    }
+    if (dsUpdated) {
       await kaggle(["datasets", "version", "-p", dsDir, "-m", "Auto-heal audio sync", "--dir-mode", "zip"]);
     }
   } catch (syncErr: any) {
