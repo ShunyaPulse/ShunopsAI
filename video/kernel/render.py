@@ -92,6 +92,7 @@ def find_keyframe_image(scene_idx):
         f"/kaggle/input/**/scene_{scene_idx}.png",
         f"/kaggle/input/**/images/scene_{scene_idx:03d}.jpg",
         f"/kaggle/input/**/images/scene_{scene_idx}.jpg",
+        f"{TMP}/kf_{scene_idx:03d}.png",
     ]
     for p in patterns:
         matches = glob.glob(p, recursive=True)
@@ -560,15 +561,14 @@ class WanT4OptimizedEngine:
         else:
             domain_neg = "cartoon, anime, "
 
-        # Keyframe Acquisition: Tarika 2 (Pre-packaged Cloudflare FLUX) -> Tarika 1 (Kaggle SDXL-Lightning Fallback)
+        # Keyframe Acquisition: Tarika 2 (Pre-packaged Cloudflare FLUX or Pre-boot SDXL Fallback)
         kf_path = find_keyframe_image(scene_idx)
         if not kf_path or not os.path.exists(kf_path):
-            print(f"[Keyframe Fallback] Scene {scene_idx+1} keyframe not found in dataset. Triggering Tarika 1 SDXL-Lightning...")
             fallback_kf = f"{TMP}/kf_{scene_idx:03d}.png"
-            kf_gen = KaggleKeyframeFallback(hf_token=self.hf_token)
-            kf_prompt = f"{grounding_prefix}{prompt[:220]}, modern documentary cinema, sharp focus, 8k resolution, zero text"
-            kf_path = kf_gen.generate(kf_prompt, fallback_kf)
-            kf_gen.release_vram()
+            if os.path.exists(fallback_kf):
+                kf_path = fallback_kf
+            else:
+                print(f"[Keyframe Notice] Scene {scene_idx+1} keyframe not found. Proceeding with native text-to-video.")
 
         ref_image = None
         if kf_path and os.path.exists(kf_path):
@@ -953,6 +953,33 @@ async def main():
     cfg = find_config()
     hf_token = cfg.get("hf_token", "").strip()
     gcp_tts_key = cfg.get("gcp_tts_key", "").strip()
+
+    # Memory Isolation Invariant: Pre-generate ALL missing keyframes with SDXL-Lightning
+    # and completely evict SDXL from RAM & VRAM before Wan2.1-VACE or AnimateDiff is initialized.
+    # This guarantees SDXL (6GB) and Wan2.1 (12GB) NEVER coexist in memory, eliminating OOM crashes.
+    missing_kf_indices = []
+    for i, sc in enumerate(scenes):
+        kf = find_keyframe_image(i)
+        if not kf or not os.path.exists(kf):
+            missing_kf_indices.append(i)
+
+    if missing_kf_indices:
+        print(f"[Memory Isolation] {len(missing_kf_indices)}/{len(scenes)} keyframes missing from dataset. Pre-generating via SDXL-Lightning before video model boot...")
+        kf_gen = KaggleKeyframeFallback(hf_token=hf_token)
+        real_grounding = visual_bible.get("realWorldGrounding", "")
+        grounding_prefix = f"{real_grounding[:120]}, " if real_grounding else ""
+        for i in missing_kf_indices:
+            sc = scenes[i]
+            target_kf = f"{TMP}/kf_{i:03d}.png"
+            kf_prompt = f"{grounding_prefix}{sc.get('visual_prompt', sc.get('narration', ''))[:220]}, modern documentary cinema, sharp focus, 8k resolution, zero text"
+            kf_gen.generate(kf_prompt, target_kf)
+        kf_gen.release_vram()
+        del kf_gen
+        import gc
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        print("[Memory Isolation] ✅ All missing keyframes generated and SDXL completely evicted from memory.")
 
     # Initialize Wan2.1-VACE (1.3B) Image-to-Video Engine (Character Lock)
     diffusion = WanVACE13BEngine(hf_token=hf_token)
