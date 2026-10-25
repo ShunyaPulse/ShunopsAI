@@ -126,43 +126,28 @@ export function resolveTTSPriorityChain(opts: {
 /** Gemini 3.1 Flash TTS with emotion/tone steering (34-key pool). */
 
 async function tryGemini(
-
   narration: string,
-
   outMp3: string,
-
   sceneNumber: number,
-
   opts: {
-
     tone?: string | undefined;
-
+    prevTone?: string | undefined;
     scriptVoice?: string | undefined;
-
     domain?: string | undefined;
-
+    topic?: string | undefined;
     geminiKey?: string | undefined;
-
   }
-
 ): Promise<boolean> {
-
   try {
-
     return await synthesizeGeminiTTS(
-
       narration,
-
       outMp3,
-
       opts.tone || "neutral",
-
       opts.scriptVoice,
-
       opts.domain,
-
-      opts.geminiKey
-
+      opts.geminiKey,
+      opts.prevTone,
+      opts.topic
     );
 
   } catch (err: any) {
@@ -478,16 +463,14 @@ export async function synthesizeNarration(
 
       if (engine === "gemini") {
 
+        const prevTone = i > 0 ? script.scenes[i - 1]?.tone : undefined;
         synthesized = await tryGemini(sc.narration, outMp3, i + 1, {
-
           tone: sc.tone,
-
+          prevTone,
           scriptVoice: script.voice,
-
           domain: script.domain,
-
+          topic: script.title,
           geminiKey: resolvedGeminiKey,
-
         });
 
         if (synthesized) {
@@ -697,8 +680,17 @@ export async function healMissingNarration(
 
 
     // Fast-path healing: Gemini -> Chirp -> Edge
-
-    let ok = await synthesizeGeminiTTS(sc.narration, outMp3, sc.tone, script.voice, script.domain);
+    const prevTone = i > 0 ? script.scenes[i - 1]?.tone : undefined;
+    let ok = await synthesizeGeminiTTS(
+      sc.narration,
+      outMp3,
+      sc.tone,
+      script.voice,
+      script.domain,
+      undefined,
+      prevTone,
+      script.title
+    );
 
     if (!ok && hasGCP && gcpVoice) {
 

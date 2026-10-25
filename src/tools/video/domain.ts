@@ -5,13 +5,21 @@ import type { VideoDomain } from "./types.js";
  * prevent inappropriate cross-domain tropes (e.g. sports gear in science videos),
  * and calibrate narration tone and pacing.
  */
-export function detectVideoDomain(topic: string, trendReason?: string): VideoDomain {
-  const combined = `${topic} ${trendReason || ""}`.toLowerCase();
+/**
+ * Comprehensive detection for Cricket and Sports matchups, tournaments, teams, and stadiums.
+ * Guaranteed to catch multi-nation series, trophies, finals, and cricket-specific nomenclature.
+ */
+export function isSportsOrCricket(text: string, trendReason?: string): boolean {
+  const combined = `${text} ${trendReason || ""}`.toLowerCase();
+  return /\b(cricket|football|soccer|fifa|ipl|bcci|icc|match|matches|score|scorecard|wicket|wickets|batsman|bowler|bowling|batting|century|sixes|fours|overs|chase|target|innings|pitch|crease|stumps|bails|tri-series|series|tournament|championship|trophy|cup|league|final|finals|semi-final|semifinal|quarter-final|derby|stadium|arena|olympics|athlete|athletics|tennis|badminton|f1|formula 1|formula one|afghanistan|australia|england|pakistan|south africa|new zealand|sri lanka|west indies|bangladesh|zimbabwe|ireland|arsenal|chelsea|spurs|tottenham|everton|liverpool|manchester|real madrid|barcelona|psg|bayern|ronaldo|messi|mbappe|haaland|kohli|rohit|dhoni|bumrah|gill|hardik|pant|babar|rizwan|rashid khan|gurbaz|sharjah|wankhede|eden gardens|lords|mcg|scg)\b/i.test(combined);
+}
 
-  // Sports pattern
-  if (/\b(cricket|football|soccer|fifa|ipl|match|score|wicket|batsman|bowler|century|ronaldo|messi|kusal mendis|virat kohli|babar|rohit sharma|champions trophy|world cup|olympics|tennis|badminton|f1|formula 1|formula one|stadium|championship|tournament|league|athlete)\b/i.test(combined)) {
+export function detectVideoDomain(topic: string, trendReason?: string): VideoDomain {
+  if (isSportsOrCricket(topic, trendReason)) {
     return "sports";
   }
+
+  const combined = `${topic} ${trendReason || ""}`.toLowerCase();
 
   // Space pattern
   if (/\b(space|isro|nasa|jwst|james webb|telescope|black hole|astronomy|galaxy|nebula|pulsar|supernova|exoplanet|mars|moon|chandrayaan|artemis|voyager|spacex|cosmos|orbit|interstellar|asteroid|meteor|comet)\b/i.test(combined)) {

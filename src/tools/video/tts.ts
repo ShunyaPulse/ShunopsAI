@@ -19,6 +19,12 @@ export function resolveEdgeVoice(
   const defaultRate = domain === "sports" ? "+4%" : "+0%";
   const defaultPitch = domain === "sports" ? "+0Hz" : (domain === "science" || domain === "space" || domain === "technology" || domain === "history" ? "-2Hz" : "+0Hz");
 
+  if (domain === "sports") {
+    // Invariant: Sports and Cricket must strictly use authoritative MALE commentary
+    if (isHindi) return { name: "hi-IN-MadhurNeural", pitch: defaultPitch, rate: defaultRate };
+    return { name: "en-IN-PrabhatNeural", pitch: defaultPitch, rate: defaultRate };
+  }
+
   if (isHindi) {
     if (requestedVoice && (requestedVoice.toLowerCase().includes("swara") || requestedVoice.toLowerCase().includes("female"))) {
       return { name: "hi-IN-SwaraNeural", pitch: defaultPitch, rate: defaultRate };

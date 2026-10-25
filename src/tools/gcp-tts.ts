@@ -149,13 +149,13 @@ export function resolveGCPVoice(requestedVoice?: string, language = "Hindi"): { 
 
 const GCP_GEMINI_STYLE_PROMPTS: Record<string, string> = {
   excited:
-    "You are an authentic Indian sports commentator. Speak with intense rising excitement, breathless energy, and natural Indian cadence.",
+    "You are an authentic Indian sports commentator. Speak with confident, energetic momentum, crisp articulation, and natural broadcast cadence without sudden shouting.",
   suspense:
-    "You are an authentic Indian documentary narrator. Speak with slow, suspenseful pacing, deliberate dramatic pauses, and deep investigative gravitas.",
+    "You are an authentic Indian documentary narrator. Speak with focused tension, steady anticipation, and engaging investigative gravitas without dropping vocal volume.",
   dramatic:
-    "You are an authentic Indian documentary anchor. Speak with deep gravitas, cinematic weight, and powerful emotional resonance.",
+    "You are an authentic Indian documentary anchor. Speak with deep gravitas, cinematic weight, and powerful emotional resonance with steady presence.",
   somber:
-    "You are an authentic Indian documentary narrator. Speak softly, solemnly, and respectfully with a reflective Indian documentary tone.",
+    "You are an authentic Indian documentary narrator. Speak with gentle reflection, solemn empathy, and natural Indian cadence.",
   neutral:
     "You are an authentic Indian documentary anchor. Speak with natural Indian cadence, clear articulation, and engaging warmth.",
 };

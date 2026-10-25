@@ -3,7 +3,8 @@ import * as path from "node:path";
 import { kaggle } from "./kaggle.js";
 import { generateScript } from "./script.js";
 import { healMissingNarration, synthesizeNarration } from "./narration.js";
-import { generateSceneKeyframes } from "./keyframes.js";
+import { generateSceneKeyframes } from "./keyframes.js";
+import { isSportsOrCricket } from "./domain.js";
 import type { KaggleAction, VideoScript } from "./types.js";
 
 const JOBS_DIR = path.resolve(process.cwd(), "jobs");
@@ -80,7 +81,8 @@ export async function startVideoJob(
   const narration = await synthesizeNarration(script, language, audioDir, options?.gcpKey, trendReason);
 
   const parts: string[] = [];
-  const geminiPersona = script.domain === "sports" ? "Fenrir" : "Aoede";
+  const isSports = script.domain === "sports" || isSportsOrCricket(script.title);
+  const geminiPersona = isSports ? "Fenrir" : "Aoede";
   if (narration.geminiSuccessCount > 0) parts.push(`${narration.geminiSuccessCount} via Gemini-TTS (${geminiPersona})`);
   if (narration.gcpSuccessCount > 0 && narration.gcpVoiceName) {
 

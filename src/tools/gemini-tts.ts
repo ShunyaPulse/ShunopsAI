@@ -23,6 +23,7 @@ import * as crypto from "node:crypto";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { sanitizeNarrationForTTS } from "./video/tts.js";
+import { isSportsOrCricket } from "./video/domain.js";
 
 export const GEMINI_TTS_MODELS = [
   "gemini-3.8-flash-tts",
@@ -76,18 +77,55 @@ function nextKey(pool: string[]): string {
 // Turn-Level Styling (Official Gemini 3.8 TTS speech_metadata Specification)
 // ---------------------------------------------------------------------------
 
-const TONE_STYLE_MAP: Record<string, string> = {
-  excited:
-    "intense rising excitement, breathless energy, and celebratory Indian sports commentary style with crisp Indian pronunciation",
-  suspense:
-    "slow, suspenseful pacing with deliberate dramatic pauses, deep investigative gravitas, and authentic Indian documentary cadence",
-  dramatic:
-    "deep gravitas, cinematic weight, and powerful emotional resonance in an authentic Indian documentary anchor voice",
-  somber:
-    "soft, solemn, and reflective Indian documentary tone with natural Indian pronunciation",
-  neutral:
-    "articulate, clear, and engaging Indian documentary anchor with natural Indian cadence and crisp pronunciation",
-};
+/**
+ * Acoustic Continuity Layer:
+ * Prevents extreme tone whiplash between adjacent sentences.
+ * Keeps narrator's vocal timbre, presence, and volume grounded and steady,
+ * with emotion being a subtle nuance (10-15%) rather than a radical character jump.
+ */
+export function buildStyleDirective(tone: string, prevTone?: string, domain?: string): string {
+  const isSports = domain === "sports";
+
+  if (isSports) {
+    if (prevTone === "suspense" && tone === "excited") {
+      return "confident male Indian sports commentator, smoothly building momentum from tense anticipation into natural celebratory excitement with crisp articulation and steady vocal presence";
+    }
+    if (prevTone === "excited" && tone === "suspense") {
+      return "authoritative male Indian sports commentator, smoothly easing from high energy into focused match tension and tactical anticipation without sudden drop in volume";
+    }
+    if (tone === "excited") {
+      return "energetic male Indian sports commentator, confident and articulate delivery with crisp pronunciation and natural broadcast cadence";
+    }
+    if (tone === "suspense") {
+      return "focused male Indian sports commentator, tense anticipation and measured pacing with steady volume and high engagement";
+    }
+    if (tone === "dramatic") {
+      return "resonant male Indian sports commentator, powerful delivery and impactful weight on key match moments";
+    }
+    return "articulate male Indian sports commentator, crisp broadcast cadence and engaging natural flow";
+  }
+
+  // Documentary / General
+  if (prevTone === "suspense" && tone === "excited") {
+    return "engaging Indian documentary narrator, smoothly transitioning from quiet suspense into clear, bright curiosity and wonder with continuous vocal presence";
+  }
+  if (prevTone === "excited" && tone === "suspense") {
+    return "steady Indian documentary narrator, gracefully transitioning from animated enthusiasm into thoughtful, focused mystery without dropping voice level";
+  }
+  if (tone === "excited") {
+    return "warm, lively Indian documentary anchor, articulate curiosity and bright engaging delivery with crisp Indian pronunciation";
+  }
+  if (tone === "suspense") {
+    return "thoughtful, measured Indian documentary anchor, quiet curiosity and focused investigative cadence with steady vocal warmth";
+  }
+  if (tone === "dramatic") {
+    return "deep, resonant Indian documentary anchor, cinematic weight and impactful storytelling with clear articulation";
+  }
+  if (tone === "somber") {
+    return "reflective, gentle Indian documentary anchor, solemn empathy with natural pacing";
+  }
+  return "clear, engaging Indian documentary anchor, natural conversational cadence and crisp pronunciation";
+}
 
 // ---------------------------------------------------------------------------
 // Text Sanitization for High-Fidelity TTS (Anti-Leakage & Indian Phonetics)
@@ -113,17 +151,21 @@ function sanitizeForTTS(text: string): string {
 
 function resolveGeminiVoice(
   scriptVoice: string | undefined,
-  domain: string | undefined
+  domain: string | undefined,
+  topic?: string | undefined
 ): string {
+  // Invariant: Sports and Cricket must strictly use authoritative MALE voice (Fenrir)
+  if (domain === "sports" || (topic && isSportsOrCricket(topic))) {
+    return "Fenrir";
+  }
   if (scriptVoice) {
     if (/^(Aoede|Fenrir|Puck|Alnilam|Despina|Charon)$/i.test(scriptVoice)) {
       return scriptVoice;
     }
-    if (/aoede/i.test(scriptVoice)) return "Aoede";
     if (/fenrir/i.test(scriptVoice)) return "Fenrir";
+    if (/aoede/i.test(scriptVoice)) return "Aoede";
   }
-  // User verified: Aoede is the superior documentary/general anchor; Fenrir for sports action
-  return domain === "sports" ? "Fenrir" : "Aoede";
+  return "Aoede";
 }
 
 // ---------------------------------------------------------------------------
@@ -140,7 +182,9 @@ export async function synthesizeGeminiTTS(
   tone: string = "neutral",
   scriptVoice?: string | undefined,
   domain?: string | undefined,
-  byokKey?: string | undefined
+  byokKey?: string | undefined,
+  prevTone?: string | undefined,
+  topic?: string | undefined
 ): Promise<boolean> {
   const pool = byokKey ? [byokKey] : getKeyPool();
   if (pool.length === 0) {
@@ -151,8 +195,8 @@ export async function synthesizeGeminiTTS(
   const cleanText = sanitizeForTTS(text);
   if (!cleanText) return false;
 
-  const voiceName = resolveGeminiVoice(scriptVoice, domain);
-  const styleDirective = TONE_STYLE_MAP[tone] ?? TONE_STYLE_MAP["neutral"]!;
+  const voiceName = resolveGeminiVoice(scriptVoice, domain, topic);
+  const styleDirective = buildStyleDirective(tone, prevTone, domain);
 
   // Cascade across all 4 models: 3.8-flash -> 3.8-flash-lite -> 3.1-flash -> 2.5-flash
   for (let mIdx = 0; mIdx < GEMINI_TTS_MODELS.length; mIdx++) {

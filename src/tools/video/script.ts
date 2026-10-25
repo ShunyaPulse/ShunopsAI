@@ -1,6 +1,6 @@
 import { geminiGenerate } from "./gemini.js";
 
-import { detectVideoDomain, getDomainPromptDirectives } from "./domain.js";
+import { detectVideoDomain, getDomainPromptDirectives, isSportsOrCricket } from "./domain.js";
 
 import { synthesizeTopicVisualBible } from "./visualBible.js";
 
@@ -34,18 +34,11 @@ function sanitizeTrendReason(trendReason?: string): string | undefined {
 
 /** Curated documentary voices by language and domain. */
 
-function selectVoice(language: string, domain: VideoDomain): string {
-
-  // hi-IN-Chirp3-HD-Fenrir: Dynamic, high-energy foundation model narrator (Sports/Action)
-
-  // hi-IN-Chirp3-HD-Alnilam: Authoritative, deep documentary studio narrator (Science/Space/Tech/History)
-
-  // en-IN-Chirp3-HD-Fenrir: Authentic Indian English documentary narrator
-
+function selectVoice(language: string, domain: VideoDomain, topic?: string): string {
+  // Sports and Cricket videos must strictly use authoritative MALE commentary
+  const isSports = domain === "sports" || (topic ? isSportsOrCricket(topic) : false);
   if (!/hindi/i.test(language)) return "en-IN-Chirp3-HD-Fenrir";
-
-  return domain === "sports" ? "hi-IN-Chirp3-HD-Fenrir" : "hi-IN-Chirp3-HD-Aoede";
-
+  return isSports ? "hi-IN-Chirp3-HD-Fenrir" : "hi-IN-Chirp3-HD-Aoede";
 }
 
 
@@ -381,7 +374,7 @@ export async function generateScript(
 
   const visualBible = await synthesizeTopicVisualBible(topic, trendReason, domain);
 
-  const voice = selectVoice(language, domain);
+  const voice = selectVoice(language, domain, topic);
 
   const rate = domain === "sports" ? "+4%" : "+0%";
 
