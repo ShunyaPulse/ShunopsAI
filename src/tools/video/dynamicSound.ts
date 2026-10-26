@@ -1,12 +1,11 @@
 /**
- * ShunopsAI - Dynamic On-Demand Acoustic SFX Search Engine
+ * ShunopsAI - Dynamic On-Demand Acoustic SFX Search Engine with 4-Tier Fallback Cascade
  *
- * Solves the "millions of cases" problem:
- * Instead of relying on a tiny static list of sound effects, this engine
- * dynamically queries Wikimedia Commons' open audio repository (over 500,000+
- * public domain and CC0 recordings) to fetch the exact sound effect on demand
- * (e.g. "falcon heavy rocket launch", "steam train whistle", "cricket bat strike",
- * "crowd cheering", "jet flyby roar", "thunderclap").
+ * Solves the "millions of cases" problem with bulletproof resilience:
+ *   Tier 1: High-precision Semantic Cloud Search (Wikimedia Commons 500k+ CC0 audio archive)
+ *   Tier 2: Broad Keyword Semantic Retry (Simplified core noun search if full prompt returns 0)
+ *   Tier 3: Local Curated Core Sound Bank (Matches offline static assets in src/assets/audio/sfx/)
+ *   Tier 4: Graceful Non-Blocking Pass-Through (Never fails/crashes video rendering on missing sound)
  */
 
 import * as fs from "node:fs/promises";
@@ -45,37 +44,9 @@ async function getAudioDirectUrl(fileTitle: string): Promise<{ url: string; size
   return null;
 }
 
-/**
- * Searches and downloads an authentic public domain SFX for any real-world query.
- * Scales dynamically to millions of arbitrary topics.
- */
-export async function searchAndDownloadSFX(
-  query: string,
-  targetDir: string
-): Promise<string | null> {
-  if (!query || query.trim().length === 0) return null;
-
-  const sfxDir = path.join(targetDir, "sfx");
-  await fs.mkdir(sfxDir, { recursive: true });
-
-  const hash = crypto.createHash("md5").update(query.toLowerCase().trim()).digest("hex").slice(0, 8);
-  const outPath = path.join(sfxDir, `sfx_${hash}.ogg`);
-
-  // Cache hit: return already fetched sound
-  if (fsSync.existsSync(outPath) && fsSync.statSync(outPath).size > 1000) {
-    return outPath;
-  }
-
-  // Check local static SFX asset library first if available
-  const localAsset = path.resolve(process.cwd(), "src", "assets", "audio", "sfx", `${query.toLowerCase().replace(/[^a-z0-9]/g, "_")}.ogg`);
-  if (fsSync.existsSync(localAsset)) {
-    await fs.copyFile(localAsset, outPath);
-    return outPath;
-  }
-
-  // Dynamic Open-Source Cloud Search
+async function queryWikimediaAudio(searchQuery: string): Promise<Buffer | null> {
   try {
-    const searchUrl = `https://commons.wikimedia.org/w/api.php?action=query&format=json&list=search&srnamespace=6&srsearch=${encodeURIComponent(query + " filetype:audio")}&srlimit=4`;
+    const searchUrl = `https://commons.wikimedia.org/w/api.php?action=query&format=json&list=search&srnamespace=6&srsearch=${encodeURIComponent(searchQuery + " filetype:audio")}&srlimit=4`;
     const res = await fetch(searchUrl, {
       headers: { "User-Agent": USER_AGENT },
       signal: AbortSignal.timeout(6000),
@@ -99,15 +70,96 @@ export async function searchAndDownloadSFX(
       if (!audioRes.ok) continue;
 
       const buf = Buffer.from(await audioRes.arrayBuffer());
-      if (buf.length < 5000) continue;
-
-      await fs.writeFile(outPath, buf);
-      console.log(`🔊 [Dynamic SFX Fetched] "${query}" -> ${item.title} (${(buf.length / 1024).toFixed(1)} KB)`);
-      return outPath;
+      if (buf.length >= 5000) {
+        return buf;
+      }
     }
-  } catch (err: any) {
-    console.warn(`[Dynamic SFX] Fetch failed for "${query}":`, err?.message || err);
+  } catch {}
+  return null;
+}
+
+/**
+ * Maps query keywords to local curated core SFX fallbacks (Tier 3)
+ */
+function resolveLocalFallbackSFX(query: string): string | null {
+  const sfxAssetsDir = path.resolve(process.cwd(), "src", "assets", "audio", "sfx");
+  if (!fsSync.existsSync(sfxAssetsDir)) return null;
+
+  const q = query.toLowerCase();
+  let candidate: string | null = null;
+
+  if (q.includes("applause") || q.includes("cheer") || q.includes("clap") || q.includes("crowd")) {
+    candidate = "applause.ogg";
+  } else if (q.includes("thunder") || q.includes("storm") || q.includes("lightning") || q.includes("rain")) {
+    candidate = "thunder.ogg";
+  } else if (q.includes("wind") || q.includes("whoosh") || q.includes("flyby") || q.includes("jet") || q.includes("plane") || q.includes("roar")) {
+    candidate = "wind_whoosh.ogg";
+  } else if (q.includes("bell") || q.includes("chime") || q.includes("ring") || q.includes("gavel") || q.includes("exam")) {
+    candidate = "chime.ogg";
+  }
+
+  if (candidate) {
+    const fullPath = path.join(sfxAssetsDir, candidate);
+    if (fsSync.existsSync(fullPath) && fsSync.statSync(fullPath).size > 1000) {
+      return fullPath;
+    }
   }
 
   return null;
 }
+
+/**
+ * Searches and downloads an authentic public domain SFX with 4-Tier Fallback Cascade.
+ * Scales dynamically to millions of arbitrary topics with zero risk of crashing rendering.
+ */
+export async function searchAndDownloadSFX(
+  query: string,
+  targetDir: string
+): Promise<string | null> {
+  if (!query || query.trim().length === 0) return null;
+
+  const sfxDir = path.join(targetDir, "sfx");
+  await fs.mkdir(sfxDir, { recursive: true });
+
+  const hash = crypto.createHash("md5").update(query.toLowerCase().trim()).digest("hex").slice(0, 8);
+  const outPath = path.join(sfxDir, `sfx_${hash}.ogg`);
+
+  // Cache hit: return already fetched sound
+  if (fsSync.existsSync(outPath) && fsSync.statSync(outPath).size > 1000) {
+    return outPath;
+  }
+
+  // Tier 1: High-Precision Semantic Cloud Search
+  console.log(`🔊 [SFX Tier 1] Searching cloud audio archive for: "${query}"...`);
+  let audioBuffer = await queryWikimediaAudio(query);
+
+  // Tier 2: Broad Keyword Semantic Retry (if full sentence/scene query was too specific)
+  if (!audioBuffer) {
+    const keywords = ["jet", "airplane", "applause", "cheering", "thunder", "wind", "bell", "chime", "rain", "clock", "train", "roar"];
+    const foundKw = keywords.find(kw => query.toLowerCase().includes(kw));
+    if (foundKw && foundKw !== query.toLowerCase().trim()) {
+      console.log(`🔊 [SFX Tier 2] Retrying cloud search with core sound keyword: "${foundKw}"...`);
+      audioBuffer = await queryWikimediaAudio(foundKw);
+    }
+  }
+
+  // If cloud search succeeded in Tier 1 or 2, save and return
+  if (audioBuffer && audioBuffer.length >= 5000) {
+    await fs.writeFile(outPath, audioBuffer);
+    console.log(`✅ [SFX Cloud Resolved] "${query}" -> saved ${(audioBuffer.length / 1024).toFixed(1)} KB`);
+    return outPath;
+  }
+
+  // Tier 3: Local Curated Sound Bank Fallback
+  const localFallback = resolveLocalFallbackSFX(query);
+  if (localFallback) {
+    console.log(`🛡️ [SFX Tier 3 Fallback] Using local acoustic sound bank (${path.basename(localFallback)}) for "${query}"`);
+    await fs.copyFile(localFallback, outPath);
+    return outPath;
+  }
+
+  // Tier 4: Graceful Non-Blocking Pass-Through
+  console.warn(`⚠️ [SFX Tier 4 Fallback] No cloud or local SFX match for "${query}". Proceeding with pure acoustic BGM + voiceover.`);
+  return null;
+}
+
