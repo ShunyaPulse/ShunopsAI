@@ -47,6 +47,14 @@ subprocess.run([
     "diffusers", "transformers", "accelerate", "safetensors", "huggingface_hub", "ftfy"
 ], check=False)
 
+try:
+    import ftfy
+except ImportError:
+    import types
+    ftfy = types.ModuleType("ftfy")
+    ftfy.fix_text = lambda text, *a, **kw: text
+    sys.modules["ftfy"] = ftfy
+
 edge_tts = None
 import torch
 
@@ -1183,16 +1191,21 @@ async def main():
 
     # 4.5. Domain-Adapted Atmospheric Sound Design:
     # Eliminates awkward silence behind spoken dialogue with a subtle, non-intrusive cinematic ambient bed.
-    bgm_path = os.path.join(os.path.dirname(script_path), "audio", "bgm.mp3")
+    bgm_candidates = [
+        os.path.join(os.path.dirname(script_path), "audio", "bgm.ogg"),
+        os.path.join(os.path.dirname(script_path), "audio", "bgm.mp3"),
+        os.path.join(os.path.dirname(script_path), "audio", "bgm.wav"),
+    ]
+    bgm_path = next((p for p in bgm_candidates if os.path.exists(p) and os.path.getsize(p) > 1000), None)
     ambient_mp3 = f"{TMP}/ambient_drone.mp3"
     has_ambient = False
 
-    if os.path.exists(bgm_path) and os.path.getsize(bgm_path) > 1000:
+    if bgm_path:
         print(f"[Audio] Using packaged background audio track from {bgm_path}...")
         ok_bgm = run([
             "ffmpeg", "-y", "-stream_loop", "-1", "-i", bgm_path,
             "-t", f"{target_master_dur:.3f}",
-            "-af", "volume=0.18,afade=t=in:st=0:d=1.5",
+            "-af", "volume=0.10,afade=t=in:st=0:d=2.0",
             "-c:a", "libmp3lame", "-b:a", "192k", ambient_mp3
         ])
         if ok_bgm and os.path.exists(ambient_mp3) and os.path.getsize(ambient_mp3) > 1000:

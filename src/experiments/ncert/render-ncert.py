@@ -43,13 +43,19 @@ for mod in list(sys.modules.keys()):
 # Ensure core video diffusion dependencies are installed first
 subprocess.run([
     sys.executable, "-m", "pip", "install", "-q", "-U",
-    "diffusers", "transformers", "accelerate", "safetensors", "huggingface_hub"
+    "diffusers", "transformers", "accelerate", "safetensors", "huggingface_hub", "ftfy"
 ], check=False)
 
-# Install audio synthesis engines in isolated steps (ensures zero failure cascade)
+# Install audio synthesis engines (Zero kokoro/spacy - all master audio is pre-synthesized locally)
 subprocess.run([sys.executable, "-m", "pip", "install", "-q", "edge-tts"], check=False)
-subprocess.run([sys.executable, "-m", "pip", "install", "-q", "kokoro-onnx", "soundfile"], check=False)
-subprocess.run([sys.executable, "-m", "pip", "install", "-q", "kokoro"], check=False)
+
+try:
+    import ftfy
+except ImportError:
+    import types
+    ftfy = types.ModuleType("ftfy")
+    ftfy.fix_text = lambda text, *a, **kw: text
+    sys.modules["ftfy"] = ftfy
 
 try:
     import edge_tts
@@ -1114,16 +1120,21 @@ async def main():
     open(f"{OUT}/transcript.txt", "w", encoding="utf-8").write(" ".join(txt))
 
     # 4.5. Domain-Adapted Atmospheric Sound Design (Full Broadcast Voice Loudness Preserved):
-    bgm_path = os.path.join(os.path.dirname(script_path), "audio", "bgm.mp3")
+    bgm_candidates = [
+        os.path.join(os.path.dirname(script_path), "audio", "bgm.ogg"),
+        os.path.join(os.path.dirname(script_path), "audio", "bgm.mp3"),
+        os.path.join(os.path.dirname(script_path), "audio", "bgm.wav"),
+    ]
+    bgm_path = next((p for p in bgm_candidates if os.path.exists(p) and os.path.getsize(p) > 1000), None)
     ambient_mp3 = f"{TMP}/ambient_drone.mp3"
     has_ambient = False
 
-    if os.path.exists(bgm_path) and os.path.getsize(bgm_path) > 1000:
+    if bgm_path:
         print(f"[Audio] Using packaged background audio track from {bgm_path}...")
         ok_bgm = run([
             "ffmpeg", "-y", "-stream_loop", "-1", "-i", bgm_path,
             "-t", f"{target_master_dur:.3f}",
-            "-af", "volume=0.14,afade=t=in:st=0:d=1.5",
+            "-af", "volume=0.10,afade=t=in:st=0:d=2.0",
             "-ar", "44100", "-ac", "2", "-c:a", "libmp3lame", "-b:a", "192k", ambient_mp3
         ])
         if ok_bgm and os.path.exists(ambient_mp3) and os.path.getsize(ambient_mp3) > 1000:

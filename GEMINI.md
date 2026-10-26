@@ -152,8 +152,16 @@
   - **Cloud Text-to-Speech API (`src/tools/gcp-tts.ts`):** Synthesizes via `gemini-3.1-flash-tts-preview` (with `{ prompt, text }` parameter separation), Google Cloud Chirp 3 HD (`hi-IN-Chirp3-HD-Aoede` / `Fenrir`), and Neural2.
   - **Gemini Enterprise / Developer API (`src/tools/gemini-tts.ts`):** Synthesizes via `gemini-3.8-flash-tts` and `gemini-3.8-flash-lite-tts` across the 34-key `GEMINI_KEYS` pool with $O(1)$ round-robin pointer advancement and 60-second key cooldown maps.
 
-
-
-
-
+## 16. Principle of Delta Remediation & Surgical Re-Execution (Zero Redundant Upstream Re-Generation)
+- **Zero Full-Pipeline Restarts on Downstream/Kernel Defects:**
+  - When an operational defect, missing library (e.g., `ftfy`), runtime script error, or single-scene defect occurs on an existing job:
+  - NEVER re-trigger the entire generative pipeline from scratch (do NOT re-run chapter/topic research, re-draft scripts, re-synthesize TTS audio, or re-generate all keyframes).
+- **Strict Preservation of Verified Assets:**
+  - All verified upstream artifacts (`jobs/<id>/dataset/audio/*.mp3`, `dataset/images/*.png`, `dataset/script.json`) already produced for that topic MUST remain locked and reused verbatim.
+- **Surgical Delta Execution:**
+  - Remediate ONLY the undesired or defective layer:
+    1. If the defect is in GPU runner execution: patch `render.py` and push a new kernel version via `kaggle kernels push -p jobs/<id>/kernel`.
+    2. If a single scene image is flawed: re-generate exclusively that specific scene's keyframe, leaving the remaining $N-1$ keyframes and all audio untouched.
+- **Quota, Latency & Consistency Guardrail:**
+  - Prevents quota exhaustion across Gemini LLM, Gemini-TTS, and Cloudflare Workers AI pools while ensuring deterministic consistency across identical runs.
 

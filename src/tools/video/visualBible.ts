@@ -1,35 +1,18 @@
 import { geminiGenerate } from "./gemini.js";
 import type { VideoDomain, VisualBible } from "./types.js";
-import { CRICKET_PRODUCTION_TEMPLATE, isCricketTopic } from "./cricketTemplate.js";
+import {
+  CRICKET_PRODUCTION_TEMPLATE,
+  buildCricketVisualBible,
+  isCricketTopic,
+  type DynamicCricketParams,
+} from "./cricketTemplate.js";
 
 /**
  * Provides an intelligent domain-level fallback Visual Bible if LLM synthesis is temporarily unavailable.
  */
 export function getFallbackVisualBible(topic: string, domain: VideoDomain): VisualBible {
   if (domain === "sports") {
-    return {
-      realWorldGrounding: `Authentic professional athletic venue for ${topic}, real sport-specific equipment, authentic pitch or court, dramatic floodlights, crisp natural textures.`,
-      organicSettings: [
-        "Competition playing field or pitch",
-        "Team dugout and technical bench",
-        "Locker room and tactical review board",
-        "Practice nets and training ground",
-        "Press conference media room"
-      ],
-      latentTrapsToBan: [
-        "baseball", "baseball bat", "baseball glove", "american football", "american football helmet",
-        "rugby ball", "tennis court", "basketball hoop", "office cubicle", "corporate boardroom",
-        "cctv control room", "abstract 3d floating objects", "cartoon", "anime"
-      ],
-      characterGrammar: "Frame athletes in dynamic medium-to-wide action shots, over-the-shoulder perspectives, or dramatic floodlit silhouettes. Strictly ban macro facial portrait close-ups of real athletes to prevent face morphing.",
-      zeroTextRules: "Scoreboards, perimeter LED boards, and player jerseys must be clean solid color panels and glowing abstract indicator lights with zero text, zero letters, zero numbers.",
-      soundscapeProfile: {
-        energyLevel: "high",
-        ambientBedStyle: "stadium",
-        dominantFrequencies: [65, 130],
-        foleyCues: ["stadium crowd roar", "ball impact", "referee whistle chime", "athletic footwear turf squeak"]
-      }
-    };
+    return CRICKET_PRODUCTION_TEMPLATE;
   }
 
   if (domain === "science" || domain === "space" || domain === "technology") {
@@ -88,55 +71,45 @@ export function getFallbackVisualBible(topic: string, domain: VideoDomain): Visu
     organicSettings: [
       "Primary assembly or operational venue",
       "Field operational zone",
-      "Executive planning or strategic chamber",
-      "Public archival or historic landmark site"
+      "Control briefing or observation station",
+      "Detailed macro equipment interface",
+      "Atmospheric exterior establishing perspective"
     ],
     latentTrapsToBan: [
-      "suspension bridge runway", "ocean stilts", "scrambled airport display letters", "rubber swords",
-      "floating drums", "office cubicle defaults", "distorted faces", "mutated hands", "cartoon", "anime"
+      "fantasy castles", "futuristic neon grids", "floating text in mid-air", "random crowd extras looking at camera",
+      "unrelated residential bedrooms", "hallucinated brand logos"
     ],
-    characterGrammar: "Cinematic wide-to-medium steadicam tracking, natural posture, locked rigid background geometry, zero facial morphing.",
-    zeroTextRules: "Displays, status boards, and signs must be depicted as unlabeled glowing abstract panels with zero letters, zero numbers, zero pseudocode.",
+    characterGrammar: "Documentary observational camera framing: athletic or professional subjects in authentic field gear, natural non-deformed anatomy, dynamic motion matching the topic. Zero distorted faces.",
+    zeroTextRules: "Zero legible letters, zero hallucinated English words on walls, banners, screens, or uniforms. Clean physical textures only.",
     soundscapeProfile: {
-      energyLevel: "dramatic",
-      ambientBedStyle: "orchestral",
-      dominantFrequencies: [58, 116],
-      foleyCues: ["subtle room tone", "ceremonial resonance", "ambient reverberation"]
+      energyLevel: "high",
+      ambientBedStyle: "industrial",
+      dominantFrequencies: [60, 120, 240],
+      foleyCues: ["subtle room tone", "mechanical click", "movement whoosh", "ambient atmosphere swell"]
     }
   };
 }
 
-const VISUAL_BIBLE_PROMPT = (topic: string, trendReason: string | undefined, domain: VideoDomain): string => `You are an elite Hollywood Production Designer, Director of Photography, and Master Sound Designer.
-Analyze this documentary video topic and synthesize an authoritative, topic-specific Visual & Acoustic Production Bible.
+const VISUAL_BIBLE_PROMPT = (topic: string, trendReason?: string, domain?: VideoDomain) => `You are an elite Hollywood production designer and visual director.
+Analyze this video topic: "${topic}" ${trendReason ? `(Trend Context: ${trendReason})` : ""} (Domain: ${domain || "general"}).
 
-TOPIC: "${topic}"
-${trendReason ? `BREAKING EVENT CONTEXT: "${trendReason}"` : ""}
-PRIMARY DOMAIN: ${domain.toUpperCase()}
+Synthesize an exact, non-hallucinatory Visual & Acoustic Production Bible tailored to this topic.
+Your output will be used to steer image diffusion (FLUX.1-schnell) and video motion models (Wan2.1-VACE).
 
-Your goal is to eliminate generative AI hallucinations, diffusion biases, distorted faces, anatomical warping, off-topic architectural drifts (e.g. mansions/havelis in sports), gibberish AI text, and acoustic mismatch by specifying strict semantic directives for this EXACT topic.
+Return a JSON object with:
+1. "realWorldGrounding": A precise 2-sentence description of the authentic physical venue/stage where this event occurs. Strictly forbid colonial mansions, british palaces, havelis, luxury resort gardens, or domestic rooms for technical, military, space, and sports topics.
+2. "organicSettings": An array of 6-10 authentic scene settings physically native to this topic.
+3. "latentTrapsToBan": An array of 20-30 specific negative prompt strings that generative models frequently hallucinate for this topic (e.g. cross-sport equipment, incorrect period architecture, distorted text, scoreboard traps, malformed anatomy).
+4. "characterGrammar": Strict cinematic rules for human anatomy, camera angles, lighting, motion safety, and authentic uniforms/clothing for this topic.
+5. "zeroTextRules": Explicit rules ensuring zero legible scoreboards, ticker text, digital numbers, or brand logos appear in generated latents.
+6. "soundscapeProfile": {
+  "energyLevel": "high" | "measured" | "contemplative",
+  "ambientBedStyle": "stadium" | "industrial" | "nature" | "orchestral" | "drone",
+  "dominantFrequencies": [number, number],
+  "foleyCues": ["string"]
+}
 
-CRITICAL ARCHITECTURAL & ENVIRONMENT ANCHORING INVARIANT:
-- PRIMARY ARENA LOCK: Every scene must be physically anchored in the authentic, functional competition ground or working stage (e.g. for stadium sports: strictly the field of play, green turf, pitch, technical dugout, floodlights).
-- ANTI-DRIFT INSTRUCTION: Banish all detached residential buildings, colonial palaces, mansions, havelis, luxury resorts, or unrelated hotel grounds. If historic pavilions or venues exist, they must strictly remain a distant blurred stadium background stand, NEVER a residential palace or haveli foreground.
-
-Analyze:
-1. "realWorldGrounding": 1-2 concrete, vivid sentences describing the authentic physical environment, architectural style, real equipment, textures, and lighting for THIS specific topic.
-2. "organicSettings": Array of 4-6 authentic real-world physical locations where this topic naturally takes place (e.g. for cricket: dugout, pavilion, 22-yard turf pitch, practice nets, dressing room; for airport: air traffic control tower, tarmac taxiway, maintenance hangar, terminal boarding lounge; for space: mission control console, satellite integration cleanroom, launchpad gantry). Strictly ban irrelevant default spaces (e.g. generic office cubicles, CCTV rooms, fantasy bridges).
-3. "latentTrapsToBan": Array of 10-18 topic-specific negative prompts and diffusion biases that AI video models frequently hallucinate for this topic (e.g. for cricket: baseball, baseball bat, american football helmet, rugby ball, tennis court, office cubicle, 3d stacked spheres; for airports: suspension bridge runway, runway in water, ocean stilts, fids screen letters; for historical: modern wristwatches, nylon, plastic, modern cars; for space: sports jerseys, fantasy portals).
-4. "characterGrammar": Explicit camera framing, biomechanical kinematics, and cinematography rules to prevent face warping, twisted limbs, or unnatural action drifts.
-   - For high-velocity actions (swings, strikes, deliveries, sprints, maneuvers): Strictly ban full-body side-profile swing animations (which cause melting shoulders, floating equipment, or cross-sport confusion like baseball slides).
-   - Enforce kinematic decoupling: break rapid actions into (a) macro close-ups on equipment in flight/release (seam, ball, gear, sparks, turf impact), (b) over-the-shoulder tracking shots, and (c) silhouetted or rear-angle celebrations.
-   - Strictly zero macro facial portraits of real celebrities or athletes to avoid AI deepfake distortion.
-5. "zeroTextRules": Concrete directives on how to completely eliminate AI text glitches.
-   - STRICT ZERO SCOREBOARDS, DIGITAL TIMERS, OR TICKERS: Diffusion models cannot render numbers or letters. Ban all scoreboard close-ups, digital clock displays, and leaderboards. Depict player reactions, cheering crowds, referee signals, or physical equipment instead.
-   - Jerseys, equipment, banners, screens: must be solid color blocks, natural cloth textures, or soft ambient gradient glows with strictly zero alphanumeric characters, zero faux-letters, zero gibberish symbols.
-6. "soundscapeProfile":
-   - "energyLevel": One of "high", "measured", "contemplative", "dramatic".
-   - "ambientBedStyle": One of "drone", "stadium", "nature", "industrial", "orchestral".
-   - "dominantFrequencies": Array of 2-3 Hz numbers (e.g. [55, 110] for deep sub-bass, [65, 130] for sports pulse, [45, 90] for oceanic nature).
-   - "foleyCues": Array of 3-5 authentic sound effect elements (e.g. ["bat leather impact", "stadium roar", "cleat footstep"] or ["jet engine roar", "atc radio chime", "runway wind"]).
-
-Return ONLY a valid JSON object matching this schema without any markdown formatting or commentary:
+Return ONLY raw JSON in this structure:
 {
   "realWorldGrounding": "string",
   "organicSettings": ["string"],
@@ -146,10 +119,51 @@ Return ONLY a valid JSON object matching this schema without any markdown format
   "soundscapeProfile": {
     "energyLevel": "high",
     "ambientBedStyle": "stadium",
-    "dominantFrequencies": [65, 130],
+    "dominantFrequencies": [60, 120],
     "foleyCues": ["string"]
   }
 }`;
+
+/**
+ * Dynamically extracts notable match players and teams from live research facts.
+ * Adheres strictly to Rule 12 (Actor DNA Lock) and Rule 14 (Real-Time Grounding).
+ * Completely eliminates brittle hardcoding of player names or teams.
+ */
+async function extractCricketMatchContext(
+  topic: string,
+  trendReason?: string,
+  liveSearchFacts?: string
+): Promise<DynamicCricketParams> {
+  const prompt = `You are an expert international sports broadcast director and character visual designer.
+Analyze this cricket match and live research facts:
+Match Topic: "${topic}"
+Context: "${trendReason || ""}"
+Live Research Facts: "${liveSearchFacts ? liveSearchFacts.slice(0, 1800) : "N/A"}"
+
+Extract and return a JSON object with:
+1. "teamsDescription": "Championship cricket match between <Team A> (in solid <KitColor> athletic jersey) and <Team B> (in solid <KitColor> athletic jersey, clean cloth folds, zero text/logos)"
+2. "heroPlayersDNA": "Concrete Character Visual DNA for the notable key players in this match (e.g. Hero Batter <Name>: <exact age/ethnicity, trimmed beard or clean-shaven, hair, athletic build, team kit, batting pads, helmet with steel grille, signature shot and passionate bat-raising celebration>; Hero Partner or Bowler <Name>: <appearance, kit, celebration huddle>). Ensure 100% actor visual consistency across scenes."
+
+Return ONLY valid JSON in this structure:
+{
+  "teamsDescription": "...",
+  "heroPlayersDNA": "..."
+}`;
+
+  try {
+    const { text } = await geminiGenerate(prompt, process.env.GEMINI_MODEL);
+    let cleaned = text.trim();
+    const match = cleaned.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if (match && match[1]) cleaned = match[1].trim();
+    const parsed = JSON.parse(cleaned) as DynamicCricketParams;
+    if (parsed.teamsDescription || parsed.heroPlayersDNA) {
+      return parsed;
+    }
+  } catch (err: any) {
+    console.warn(`[Video] Cricket dynamic match extraction non-fatal fallback: ${err?.message || err}`);
+  }
+  return {};
+}
 
 /**
  * Intelligent Director's Visual & Acoustic Bible Synthesizer.
@@ -160,13 +174,18 @@ Return ONLY a valid JSON object matching this schema without any markdown format
 export async function synthesizeTopicVisualBible(
   topic: string,
   trendReason?: string,
-  domain: VideoDomain = "general"
+  domain: VideoDomain = "general",
+  liveSearchFacts?: string
 ): Promise<VisualBible> {
-  // Deterministic Cricket Fast-Path: Bypass LLM synthesis to conserve tokens and eliminate unpredictability
+  // Cricket Domain: Merge Live Research Facts & Notable Player DNA with Strict Geometry Invariants
   if (isCricketTopic(topic, trendReason)) {
-    console.log(`[Video] 🏏 Using hardcoded Cricket Production Template for "${topic}" (zero tokens consumed, 100% predictable stadium grounding).`);
-    return CRICKET_PRODUCTION_TEMPLATE;
+    console.log(`[Video] 🏏 Extracting real-world notable players & venue for "${topic}" from research phase...`);
+    const cricketParams = await extractCricketMatchContext(topic, trendReason, liveSearchFacts);
+    const bible = buildCricketVisualBible(cricketParams);
+    console.log(`[Video] 🏏 Synthesized dynamic Cricket Visual Bible with locked Actor DNA and 60,000+ packed crowd.`);
+    return bible;
   }
+
   const preferredModel = process.env.GEMINI_MODEL;
   const prompt = VISUAL_BIBLE_PROMPT(topic, trendReason, domain);
 

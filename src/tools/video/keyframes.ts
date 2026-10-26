@@ -44,9 +44,9 @@ function buildKeyframePrompt(
   // 2. Scene specific visual prompt
   parts.push(scPrompt);
 
-  // 3. Cinematic documentary styling & zero text invariant
+  // 3. Cinematic 3D aesthetic & anti-2D cartoon invariant
   parts.push(
-    "Cinematic documentary photography, 35mm anamorphic lens, photorealistic, sharp focus, 8k resolution, volumetric natural lighting, zero text, zero logos, zero watermarks"
+    "Cinematic photography, 35mm lens, photorealistic, sharp focus, 8k resolution, volumetric dramatic lighting, detailed textures, zero text, zero logos, zero watermarks. STRICTLY BANNED: 2D cartoon, flat vector art, anime, comic book, pencil sketch, line drawing, 2D flat animation, floating cartoon hearts, disembodied floating heads, uncanny surrealism"
   );
 
   return parts.join(". ").replace(/\s+/g, " ").trim();
@@ -55,55 +55,74 @@ function buildKeyframePrompt(
 /**
  * Synthesizes a single keyframe image via Cloudflare Workers AI FLUX.1-schnell
  */
-async function callCloudflareFlux(
+export async function callCloudflareFlux(
   prompt: string,
   outPng: string,
-  accountId: string,
-  apiToken: string
+  accountId?: string,
+  apiToken?: string
 ): Promise<boolean> {
-  const url = `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(accountId)}/ai/run/${FLUX_MODEL}`;
-
-  try {
-    const res = await fetch(url, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiToken}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        prompt,
-        steps: 4,
-      }),
-      signal: AbortSignal.timeout(25000),
-    });
-
-    if (!res.ok) {
-      const errText = await res.text().catch(() => "");
-      console.warn(`[Keyframes] Cloudflare FLUX returned HTTP ${res.status}: [REDACTED]`);
-      return false;
-    }
-
-    const data: any = await res.json();
-    const base64Data = data?.result?.image;
-
-    if (!base64Data || typeof base64Data !== "string") {
-      console.warn("[Keyframes] Cloudflare FLUX returned no image data.");
-      return false;
-    }
-
-    const buffer = Buffer.from(base64Data, "base64");
-    if (buffer.length < MIN_IMAGE_BYTES) {
-      console.warn(`[Keyframes] Generated image too small (${buffer.length} bytes).`);
-      return false;
-    }
-
-    await fs.mkdir(path.dirname(outPng), { recursive: true });
-    await fs.writeFile(outPng, buffer);
-    return true;
-  } catch (err: any) {
-    console.warn(`[Keyframes] FLUX request exception: [REDACTED]`);
-    return false;
+  const accountsToTry: Array<{ id: string; token: string }> = [];
+  if (accountId && apiToken) {
+    accountsToTry.push({ id: accountId, token: apiToken });
   }
+  if (process.env.CLOUDFLARE_ACCOUNT_ID && process.env.CLOUDFLARE_API_TOKEN) {
+    if (!accountsToTry.some(a => a.id === process.env.CLOUDFLARE_ACCOUNT_ID)) {
+      accountsToTry.push({ id: process.env.CLOUDFLARE_ACCOUNT_ID, token: process.env.CLOUDFLARE_API_TOKEN });
+    }
+  }
+  if (process.env.SARALGATI_CLOUDFLARE_ACCOUNT_ID && process.env.SARALGATI_CLOUDFLARE_API_TOKEN) {
+    if (!accountsToTry.some(a => a.id === process.env.SARALGATI_CLOUDFLARE_ACCOUNT_ID)) {
+      accountsToTry.push({ id: process.env.SARALGATI_CLOUDFLARE_ACCOUNT_ID, token: process.env.SARALGATI_CLOUDFLARE_API_TOKEN });
+    }
+  }
+
+  for (const acc of accountsToTry) {
+    const url = `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(acc.id)}/ai/run/${FLUX_MODEL}`;
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${acc.token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          prompt,
+          steps: 4,
+        }),
+        signal: AbortSignal.timeout(25000),
+      });
+
+      if (!res.ok) {
+        console.warn(`[Keyframes] Cloudflare FLUX account ${acc.id.slice(0, 6)} returned HTTP ${res.status}: [REDACTED]`);
+        if (res.status === 429 || res.status === 503) {
+          continue; // cascade to next account
+        }
+        return false;
+      }
+
+      const data: any = await res.json();
+      const base64Data = data?.result?.image;
+
+      if (!base64Data || typeof base64Data !== "string") {
+        console.warn("[Keyframes] Cloudflare FLUX returned no image data.");
+        continue;
+      }
+
+      const buffer = Buffer.from(base64Data, "base64");
+      if (buffer.length < MIN_IMAGE_BYTES) {
+        console.warn(`[Keyframes] Generated image too small (${buffer.length} bytes).`);
+        continue;
+      }
+
+      await fs.mkdir(path.dirname(outPng), { recursive: true });
+      await fs.writeFile(outPng, buffer);
+      return true;
+    } catch (err: any) {
+      console.warn(`[Keyframes] FLUX request exception on account ${acc.id.slice(0, 6)}: [REDACTED]`);
+      continue;
+    }
+  }
+  return false;
 }
 
 /**

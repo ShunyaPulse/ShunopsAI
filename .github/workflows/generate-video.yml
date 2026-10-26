@@ -1,0 +1,101 @@
+name: "Cloud Video Pipeline (Zero-Laptop Storage)"
+
+on:
+  schedule:
+    # 22:00 UTC = 3:30 AM IST (Daily Autonomous Video Generation & Dispatch)
+    - cron: "0 22 * * *"
+  workflow_dispatch:
+    inputs:
+      topic:
+        description: "Target Topic / Chapter Title (leave empty for autonomous trending topic)"
+        required: false
+        default: ""
+      video_type:
+        description: "Video Architecture"
+        required: true
+        type: choice
+        default: "chapter"
+        options:
+          - "chapter"
+          - "general"
+          - "trend"
+      language:
+        description: "Narration Language"
+        required: false
+        default: "Hindi"
+      minutes:
+        description: "Target Duration (minutes)"
+        required: false
+        default: "5"
+  repository_dispatch:
+    types: [generate-video, video-job]
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  cloud-video-generation:
+    name: "Generate & Dispatch Video to Kaggle GPU"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v7
+        with:
+          token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 20
+          cache: "npm"
+
+      - name: Setup Python & Kaggle CLI
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install Python CLI tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install kaggle
+
+      - name: Install Node Dependencies
+        run: npm ci
+
+      - name: Run Cloud Video Generation & Dispatch
+        env:
+          TOPIC: ${{ github.event.client_payload.topic || github.event.inputs.topic || '' }}
+          VIDEO_TYPE: ${{ github.event.client_payload.video_type || github.event.inputs.video_type || 'chapter' }}
+          LANGUAGE: ${{ github.event.client_payload.language || github.event.inputs.language || 'Hindi' }}
+          MINUTES: ${{ github.event.client_payload.minutes || github.event.inputs.minutes || '5' }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_KEYS || secrets.GEMINI_API_KEYS || secrets.GEMINI_API_KEY }}
+          GEMINI_KEYS: ${{ secrets.GEMINI_KEYS || secrets.GEMINI_API_KEYS || secrets.GEMINI_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_KEYS || secrets.OPENROUTER_API_KEYS || secrets.OPENROUTER_API_KEY }}
+          OPENROUTER_KEYS: ${{ secrets.OPENROUTER_KEYS || secrets.OPENROUTER_API_KEYS || secrets.OPENROUTER_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_KEYS || secrets.GROQ_API_KEYS || secrets.GROQ_API_KEY }}
+          GROQ_KEYS: ${{ secrets.GROQ_KEYS || secrets.GROQ_API_KEYS || secrets.GROQ_API_KEY }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          SARALGATI_CLOUDFLARE_ACCOUNT_ID: ${{ secrets.SARALGATI_CLOUDFLARE_ACCOUNT_ID }}
+          SARALGATI_CLOUDFLARE_API_TOKEN: ${{ secrets.SARALGATI_CLOUDFLARE_API_TOKEN }}
+          KAGGLE_USERNAME: ${{ secrets.KAGGLE_USERNAME }}
+          KAGGLE_KEY: ${{ secrets.KAGGLE_KEY }}
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+          GCP_TTS_API_KEY: ${{ secrets.GCP_TTS_API_KEY || secrets.GOOGLE_TTS_API_KEY }}
+          GOOGLE_TTS_API_KEY: ${{ secrets.GOOGLE_TTS_API_KEY || secrets.GCP_TTS_API_KEY }}
+          REDIS_URL: ${{ secrets.REDIS_URL }}
+          REDIS_HOST: ${{ secrets.REDIS_HOST }}
+          REDIS_PORT: ${{ secrets.REDIS_PORT }}
+          REDIS_PASSWORD: ${{ secrets.REDIS_PASSWORD }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          GH_PAT: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+        run: |
+          npx tsx scripts/cloud_generate_video.ts
+

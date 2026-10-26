@@ -1,5 +1,6 @@
 import "dotenv/config";
 import * as fs from "node:fs/promises";
+import * as fsSync from "node:fs";
 import * as path from "node:path";
 import {
   geminiGenerate,
@@ -39,6 +40,12 @@ export interface ToneCalibrationResearch {
   strictlyBannedDepictions?: string[];
 }
 
+export interface SoundscapeProfileResearch {
+  bgmGenre: string;
+  mood: string;
+  keySFXMoments?: Array<{ sceneHint: string; sfx: string }>;
+}
+
 export interface ChapterResearch {
   title: string;
   author: string;
@@ -49,10 +56,13 @@ export interface ChapterResearch {
   characterVisualBible?: CharacterVisualDNA[];
   periodAndSetting?: PeriodSettingResearch;
   toneCalibration?: ToneCalibrationResearch;
+  unifiedArtStyle?: string;
+  latentTrapsToBan?: string[];
+  soundscapeProfile?: SoundscapeProfileResearch;
   factualPlotPoints: string[];
   verbatimQuotes: string[];
   themesAndIrony: string[];
-  examFlashcards: Array<{ question: string; answer: string }>;
+  examFlashcards: Array<{ question: string; answer: string; boardTip?: string }>;
 }
 
 export interface ChapterScene {
@@ -145,6 +155,21 @@ CRITICAL INVARIANTS:
    - Define appropriate emotional body language and facial expressions (e.g. gentlemanly awkwardness, rustic reverence, quiet grief).
    - List strictly banned depictions (e.g. zero horror/violence/choking in comedies, zero modern cynicism in earnest literature).
 
+8. UNIFIED GLOBAL ART STYLE (ZERO ART-STYLE DRIFT):
+   - Formulate a single, explicit visual medium descriptor to maintain the cinematic 3D aesthetic consistently across all shots:
+     e.g., "Cinematic 3D render, volumetric dramatic lighting, photorealistic textures, 8k resolution, cinematic atmosphere. STRICTLY BANNED: 2D cartoon, anime, flat vector art, comic book, pencil sketch, line drawing, 2D animation."
+9. STRICT LATENT TRAPS TO BAN (NO STRANGE VISUAL LOGIC):
+   - Identify latent traps prone to diffusion artifacts for this story:
+     e.g., "Floating cartoon hearts, emoji icons on faces/clothing, disembodied severed heads/limbs, heads emerging from objects or chains, surreal dreamlike art collages, grotesque uncanny anatomy, bizarre metaphysical distortions."
+10. SOUNDSCAPE & BGM PROFILE (ATMOSPHERIC ACOUSTIC DEPTH):
+   - "bgmGenre": "inspirational_cello" (for solemn, dignified, inspiring historical/patriotic drama) | "dramatic_strings" | "ambient_piano" | "epic_orchestral"
+   - "mood": e.g. "Solemn, deeply inspiring, dignified acoustic cello and warm strings"
+   - "keySFXMoments": Key acoustic moments (e.g. military jet flypast rumble, distant anthem chorus)
+11. EXAM BOOSTER (100% INDIAN ENGLISH Q&A FORMAT):
+   - Provide 3-4 high-yield Board Exam Question & Answer pairs formulated in pristine, academic Indian English curriculum style:
+     * Question: e.g. "What does Mandela mean by 'an extraordinary human disaster'?"
+     * Answer: e.g. "It refers to the brutal policy of racial Apartheid where people were stripped of their basic human rights and dignity."
+
 Respond strictly in valid JSON matching this schema:
 {
   "title": string,
@@ -169,11 +194,18 @@ Respond strictly in valid JSON matching this schema:
     "allowedEmotions": [string],
     "strictlyBannedDepictions": [string]
   },
+  "unifiedArtStyle": string,
+  "latentTrapsToBan": [string],
+  "soundscapeProfile": {
+    "bgmGenre": string,
+    "mood": string,
+    "keySFXMoments": [{ "sceneHint": string, "sfx": string }]
+  },
   "factualPlotPoints": [string],
   "verbatimQuotes": [string],
   "themesAndIrony": [string],
   "examFlashcards": [
-    { "question": string, "answer": string }
+    { "question": string, "answer": string, "boardTip": string }
   ]
 }`;
 
@@ -244,36 +276,47 @@ STRICT FILMMAKING DIRECTIVES:
      * Set "voice" to a Kokoro-82M voice: "am_adam" (for natural sincere male voice), "bm_george" (for cold/intellectual male technician), or "af_heart" (for female characters)
      * In "narration", write the verbatim English line from the textbook!
    - Exam Booster scenes (final 2-3 scenes):
-     * Set "speaker" to "Exam Booster"
-     * Summarize high-yield board exam takeaways and questions.
+      * Set "speaker" to "Exam Booster"
+      * Set "voice" to an Indian English voice: "en-IN-PrabhatNeural" (or "en-IN-NeerjaExpressiveNeural")
+      * In "narration", write the Board Exam Question & Answer in crystal-clear, academic Indian English curriculum format:
+        "Question: [CBSE/ICSE Board Question]? Answer: [Precise Model Answer]."
+      * In "caption", summarize the Question and Answer in clean English words.
 3. SUBTITLES ("caption"):
-   - Every single scene MUST have "caption" written in 100% pure, clean ENGLISH words.
+    - Every single scene MUST have "caption" written in 100% pure, clean ENGLISH words.
 4. CHARACTER VISUAL BIBLE & 100% ACTOR CONSISTENCY:
-   - Establish and maintain a strict Character Visual DNA across every shot:
+    - Establish and maintain a strict Character Visual DNA across every shot:
 ${characterBibleText}
-   - MANDATORY: Whenever a character appears in a scene, their visual prompt MUST start with their exact DNA descriptor verbatim.
-   - NEVER introduce random unscripted people, unexpected ethnicities, or unrelated extras unless explicitly in the textbook story. In focused scenes, the featured character remains the sole subject.
+    - MANDATORY: Whenever a character appears in a scene, their visual prompt MUST start with their exact DNA descriptor verbatim.
+    - NEVER introduce random unscripted people, unexpected ethnicities, or unrelated extras unless explicitly in the textbook story. In focused scenes, the featured character remains the sole subject.
 
 5. TONE & EMOTION CALIBRATION:
-   ${toneText}
+    ${toneText}
 
 6. AUTHENTIC PERIOD SETTING:
-   ${settingText}
+    ${settingText}
 
 7. ZERO-DIFFUSION TEXT RULE (NO GIBBERISH RUNES):
-   - Diffusion models CANNOT spell words or render typography.
-   - In all "visual_prompt" fields: STRICTLY ZERO text, ZERO bullet points, ZERO charts, ZERO written words.
-   - For reading scenes: describe characters holding authentic period-appropriate books, letters, or newspapers with faint artistic illustrations, NO readable text.
-   - For Exam Booster / summary scenes: describe cinematic symbolic study metaphors authentic to the story's world (e.g. vintage study desk, open leather-bound book, reading lamp, thematic props with warm atmospheric lighting, clean text-free composition).
+    - Diffusion models CANNOT spell words or render typography.
+    - In all "visual_prompt" fields: STRICTLY ZERO text, ZERO bullet points, ZERO charts, ZERO written words.
+    - For reading scenes: describe characters holding authentic period-appropriate books, letters, or newspapers with faint artistic illustrations, NO readable text.
+    - For Exam Booster / summary scenes: describe cinematic symbolic study metaphors authentic to the story's world (e.g. vintage study desk, open leather-bound book, reading lamp, thematic props with warm atmospheric lighting, clean text-free composition).
 
 8. ANTI-MORPHING & CAMERA RIGIDITY:
-   - For all dialogue and close-up scenes, use: "Locked static tripod shot, eye-level framing, subtle natural breathing, still hands resting on lap, zero hand-to-face touching, crisp facial stability".
-   - Avoid complex multi-hand interactions or close-up finger movements that cause AI morphing.
+    - For all dialogue and close-up scenes, use: "Locked static tripod shot, eye-level framing, subtle natural breathing, still hands resting on lap, zero hand-to-face touching, crisp facial stability".
+    - Avoid complex multi-hand interactions or close-up finger movements that cause AI morphing.
 
-9. LENGTH:
-   - Generate approximately ${targetScenes} scenes total (runtime 3.5 to 4.5 minutes).
+9. UNIFIED GLOBAL ART STYLE (ZERO ART-STYLE DRIFT):
+    - MANDATORY: Every single "visual_prompt" MUST start with this exact art style descriptor:
+      "${research.unifiedArtStyle || 'Cinematic 35mm film photograph, highly detailed photorealistic live-action, 8k resolution, authentic natural directional lighting, rich tactile textures, film grain, hyper-realistic cinematography. STRICTLY BANNED: 2D cartoon, anime, illustration, pencil sketch, flat vector art, CGI render, 3D claymation.'}"
 
-10. YOUTUBE METADATA:
+10. STRICT LATENT TRAPS BAN (NO STRANGE VISUAL LOGIC):
+    - STRICTLY BANNED: ${research.latentTrapsToBan?.join(", ") || 'Floating cartoon hearts, emojis on faces/clothes, disembodied severed heads/limbs, heads emerging from objects or chains, surreal dreamlike art collages, grotesque uncanny anatomy.'}
+    - All scenes must be physically grounded, realistic live-action setups.
+
+11. LENGTH:
+    - Generate approximately ${targetScenes} scenes total (runtime 3.5 to 4.5 minutes).
+
+12. YOUTUBE METADATA:
    - High-CTR click-worthy educational Title including Chapter name, Class, Board, and "Full Explanation in Hindi".
    - High-ranking SEO Tags, structured Description, and a high-contrast Thumbnail concept prompt.
 
@@ -313,8 +356,57 @@ Respond strictly in valid JSON matching this schema:
   script.voice = script.voice || "hi-IN-Neural2-B";
   script.rate = script.rate || "+10%";
 
-  // Safety sanitation for scene voices
-  for (const sc of script.scenes) {
+  // Autonomous Pipeline Invariant Enforcement (Zero Art Style Drift, 100% Actor Lock, Indian English Q&A)
+  const globalArtPrefix = research.unifiedArtStyle || "Cinematic 3D aesthetic, volumetric dramatic lighting, photorealistic textures, 8k resolution, cinematic depth.";
+  const anti2dGuards = ["2D cartoon", "anime", "flat vector art", "comic book illustration", "pencil sketch", "line drawing", "2D animation"];
+  const latentTrapsBanned = Array.from(new Set([...anti2dGuards, ...(research.latentTrapsToBan || [])])).join(", ");
+
+  for (let i = 0; i < script.scenes.length; i++) {
+    const sc = script.scenes[i]!;
+
+    // A. Enforce Exam Booster in Indian English Q&A format
+    const isExamScene = sc.speaker === "Exam Booster" || i >= script.scenes.length - 3 || /exam tip|board exam|exam booster/i.test(sc.narration);
+    if (isExamScene && i >= script.scenes.length - 4) {
+      sc.speaker = "Exam Booster";
+      sc.voice = "en-IN-PrabhatNeural";
+      (sc as any).language = "English";
+      if (!sc.narration.startsWith("Question:") && !sc.narration.startsWith("Q:")) {
+        const matchingCard = research.examFlashcards?.[script.scenes.length - 1 - i] || research.examFlashcards?.[0];
+        if (matchingCard && (!sc.narration.includes("?") || sc.narration.includes("परीक्षा"))) {
+          sc.narration = `Question: ${matchingCard.question} Answer: ${matchingCard.answer}`;
+          sc.caption = `Q: ${matchingCard.question} | A: ${matchingCard.answer}`;
+        } else {
+          sc.narration = `Question: ${sc.caption || "Key Board Exam Concept"}? Answer: ${sc.narration}`;
+        }
+      }
+    }
+
+    // B. Enforce 100% Actor DNA lock if character appears
+    if (research.characterVisualBible?.length) {
+      for (const char of research.characterVisualBible) {
+        const charNameRegex = new RegExp(`\\b${char.name}\\b`, "i");
+        const isSpeaker = sc.speaker && charNameRegex.test(sc.speaker);
+        const inPrompt = charNameRegex.test(sc.visual_prompt);
+        if (isSpeaker || inPrompt) {
+          const dnaCore = char.actorDnaPrompt.slice(0, 35);
+          if (!sc.visual_prompt.includes(dnaCore)) {
+            sc.visual_prompt = `${char.actorDnaPrompt}. ${sc.visual_prompt}`;
+          }
+        }
+      }
+    }
+
+    // C. Enforce Unified Art Style Prefix (Zero Art-Style Drift, Cinematic 3D aesthetic)
+    const promptLower = sc.visual_prompt.toLowerCase();
+    if (!promptLower.includes("cinematic") && !promptLower.includes("3d")) {
+      sc.visual_prompt = `${globalArtPrefix} ${sc.visual_prompt}`;
+    }
+
+    // D. Append Negative Latent Trap Guard to Visual Prompt
+    if (!sc.visual_prompt.toLowerCase().includes("strictly banned")) {
+      sc.visual_prompt += ` (STRICTLY BANNED: ${latentTrapsBanned})`;
+    }
+
     if (!sc.voice) {
       sc.voice = sc.speaker && sc.speaker !== "Narrator" && sc.speaker !== "Exam Booster" ? "am_adam" : script.voice;
     }
@@ -329,6 +421,37 @@ Respond strictly in valid JSON matching this schema:
  * Dispatches the script and Wan2.1 rendering pipeline to a remote Kaggle GPU runner.
  * Uses the unified multi-tier audio fallback cascade (Kokoro-82M ➔ Google Cloud Neural2 ➔ Calibrated Edge-TTS).
  */
+/**
+ * Dynamically resolves an authentic acoustic BGM asset based on the LLM-inferred soundscape profile.
+ * Zero hardcoded filenames — scans available audio assets and matches genre/mood semantically.
+ */
+function resolveSoundscapeBgmAsset(bgmGenre?: string): { filePath: string; format: string } | null {
+  const bgmDir = path.resolve(process.cwd(), "src", "assets", "audio", "bgm");
+  if (!fsSync.existsSync(bgmDir)) return null;
+
+  const files = fsSync.readdirSync(bgmDir).filter(f => /\.(ogg|mp3|wav)$/i.test(f));
+  if (files.length === 0) return null;
+
+  if (bgmGenre) {
+    const normalized = bgmGenre.toLowerCase().replace(/[^a-z0-9]/g, "_");
+    // 1. Direct match
+    const exact = files.find(f => path.parse(f).name.toLowerCase() === normalized);
+    if (exact) {
+      return { filePath: path.join(bgmDir, exact), format: path.extname(exact).slice(1).toLowerCase() };
+    }
+    // 2. Keyword match (e.g. "cello", "orchestral", "strings", "piano")
+    const keywords = normalized.split("_").filter(Boolean);
+    const partial = files.find(f => keywords.some(kw => f.toLowerCase().includes(kw)));
+    if (partial) {
+      return { filePath: path.join(bgmDir, partial), format: path.extname(partial).slice(1).toLowerCase() };
+    }
+  }
+
+  // 3. Graceful fallback to primary available acoustic track
+  const fallback = files[0]!;
+  return { filePath: path.join(bgmDir, fallback), format: path.extname(fallback).slice(1).toLowerCase() };
+}
+
 export async function launchChapterJob(
   input: string | ChapterScript,
   options: PipelineOptions = {}
@@ -533,6 +656,23 @@ export async function launchChapterJob(
   console.log(
     `   🛡️ [Pre-Flight Verification] All ${script.scenes.length} audio files 100% verified (Gemini=${geminiCount}, GCP=${gcpCount}, Kokoro=${kokoroCount}, Edge-TTS=${edgeCount}).`
   );
+
+  (script as any).audio_summary = `${geminiCount}/${script.scenes.length} via Gemini-3.8-Flash-TTS` +
+    (gcpCount ? `, ${gcpCount} GCP` : "") +
+    (kokoroCount ? `, ${kokoroCount} Kokoro` : "") +
+    (edgeCount ? `, ${edgeCount} Edge-TTS` : "");
+  if (geminiCount === script.scenes.length) {
+    (script as any).voice = "gemini-3.8-flash-tts";
+  }
+
+  // Stage 0.5: Dynamically package domain BGM (e.g. solo cello / acoustic orchestral)
+  const requestedGenre = (script as any).soundscape_profile?.bgmGenre || (script as any).soundscapeProfile?.bgmGenre;
+  const resolvedBgm = resolveSoundscapeBgmAsset(requestedGenre);
+  if (resolvedBgm && fsSync.existsSync(resolvedBgm.filePath)) {
+    const targetBgm = path.join(audioDir, `bgm.${resolvedBgm.format}`);
+    await fs.copyFile(resolvedBgm.filePath, targetBgm);
+    console.log(`🎵 [Atmospheric Sound Design] Packaged acoustic BGM track (${path.basename(resolvedBgm.filePath)}) for genre '${requestedGenre || "auto"}' -> dataset/audio/bgm.${resolvedBgm.format}`);
+  }
 
   // Stage 1 (Tarika 2): Pre-package keyframes via Cloudflare Workers AI FLUX.1-schnell
   const imagesDir = path.join(dsDir, "images");

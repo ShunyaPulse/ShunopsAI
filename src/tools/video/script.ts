@@ -205,7 +205,25 @@ CRITICAL DIRECTIVES:
 
      * For athletic or high-speed maneuvers: NEVER prompt full-body side-profile complex swings or high-speed human limb contortions (which trigger shoulder melting, floating equipment, or cross-sport confusion like baseball sliding).
 
-     * Use macro equipment cinematography (e.g. ball seam spinning, equipment impact, turf explosion under spikes), dynamic tracking of trajectory, over-the-shoulder perspectives, or backlit silhouetted celebrations.
+     * Use macro equipment cinematography (e.g. ball seam spinning, equipment impact, turf explosion under spikes), dynamic tracking of trajectory, over-the-shoulder perspectives, or athletic player celebrations.
+
+   - SPORTS & CRICKET AUTHENTICITY, PACKED STADIUMS & HERO CRICKETERS:
+
+     * NEVER render empty stadiums, ghost grounds, deserted stands, or silent grass fields when narration describes roaring crowds, tension, or match excitement.
+
+     * Every stadium shot must showcase packed stands with 60,000+ cheering fans under blazing floodlights, waving team flags, and electric match haze.
+
+     * FEATURE ACTIVE HERO CRICKETERS IN MATCH ACTION:
+       - When the script focuses on specific players (e.g. Shadab Khan, Virat Kohli, Rohit Sharma, Ben Stokes) or a match-winning partnership, show the hero cricketer in action:
+         (a) Resolute batsman facing down the pitch wearing protective batting pads, gloves, team-authentic solid athletic jersey, and helmet with steel face grille,
+         (b) Dynamic action stances: executing crisp cricket strokes (pull shot, cover drive, lofted straight hit, or diving into the crease),
+         (c) Passionate roaring celebrations: batsman raising English willow bat high to the packed cheering crowd, emotional fist pump, or joyous partner embrace mid-pitch!
+       - Balance equipment close-ups with genuine human athlete drama, expressions, and celebrations.
+
+     * STRICT CRICKET GEOMETRY:
+       - Pitch: strictly 22 yards of clay-turf with a single crisp white popping crease. NEVER depict tennis court lines, badminton boxes, or multiple parallel white lines.
+       - Wickets: strictly three vertical wooden Ash stumps with two wooden bails on top. NEVER depict bowling pins, carrom pawns, or wooden frames.
+       - Ball: four-piece raised-seam leather cricket ball with visible white hand-stitched seam.
 
    - RIGID BACKGROUND GEOMETRY & LOW-MOTION STABILITY (PREVENT BREATHING/SURFACE WARPING):
 
@@ -372,7 +390,7 @@ export async function generateScript(
 
   }
 
-  const visualBible = await synthesizeTopicVisualBible(topic, trendReason, domain);
+  const visualBible = await synthesizeTopicVisualBible(topic, trendReason, domain, liveSearchFacts);
 
   const voice = selectVoice(language, domain, topic);
 
