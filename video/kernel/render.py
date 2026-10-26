@@ -1210,6 +1210,26 @@ async def main():
         ])
         if ok_bgm and os.path.exists(ambient_mp3) and os.path.getsize(ambient_mp3) > 1000:
             has_ambient = True
+
+    # Dynamic Acoustic SFX Moments Overlay (Scales to millions of topics)
+    sfx_dir = os.path.join(os.path.dirname(script_path), "audio", "sfx")
+    if os.path.exists(sfx_dir) and has_ambient:
+        sfx_files = [os.path.join(sfx_dir, f) for f in os.listdir(sfx_dir) if f.endswith((".ogg", ".mp3", ".wav"))]
+        if sfx_files:
+            print(f"[Audio] Blending {len(sfx_files)} dynamic acoustic SFX track(s) into atmospheric soundscape...")
+            for idx, sfx_p in enumerate(sfx_files):
+                if os.path.getsize(sfx_p) > 2000:
+                    mixed_sfx = f"{TMP}/ambient_sfx_{idx}.mp3"
+                    ok_sfx = run([
+                        "ffmpeg", "-y",
+                        "-i", ambient_mp3,
+                        "-i", sfx_p,
+                        "-filter_complex", "[0:a]volume=1.0[a0];[1:a]volume=0.30[a1];[a0][a1]amix=inputs=2:duration=first:dropout_transition=2:normalize=0[aout]",
+                        "-map", "[aout]",
+                        "-c:a", "libmp3lame", "-b:a", "192k", mixed_sfx
+                    ])
+                    if ok_sfx and os.path.exists(mixed_sfx) and os.path.getsize(mixed_sfx) > 1000:
+                        ambient_mp3 = mixed_sfx
     else:
         soundscape = visual_bible.get("soundscapeProfile", {})
         dom_freqs = soundscape.get("dominantFrequencies", [])

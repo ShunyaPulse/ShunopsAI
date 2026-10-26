@@ -20,6 +20,7 @@ import {
 } from "../../tools/kokoro-tts.js";
 import { synthesizeGeminiTTS } from "../../tools/gemini-tts.js";
 import { generateSceneKeyframes } from "../../tools/video/keyframes.js";
+import { searchAndDownloadSFX } from "../../tools/video/dynamicSound.js";
 
 export interface CharacterVisualDNA {
   name: string;
@@ -672,6 +673,20 @@ export async function launchChapterJob(
     const targetBgm = path.join(audioDir, `bgm.${resolvedBgm.format}`);
     await fs.copyFile(resolvedBgm.filePath, targetBgm);
     console.log(`🎵 [Atmospheric Sound Design] Packaged acoustic BGM track (${path.basename(resolvedBgm.filePath)}) for genre '${requestedGenre || "auto"}' -> dataset/audio/bgm.${resolvedBgm.format}`);
+  }
+
+  // Stage 0.6: Dynamically search and package on-demand acoustic SFX moments (Scales to millions of topics)
+  const sfxMoments: Array<{ sceneHint?: string; sfx?: string; sfxQuery?: string }> =
+    (script as any).soundscape_profile?.keySFXMoments ||
+    (script as any).soundscapeProfile?.keySFXMoments ||
+    [];
+  if (Array.isArray(sfxMoments) && sfxMoments.length > 0) {
+    for (const moment of sfxMoments) {
+      const q = moment.sfx || moment.sfxQuery;
+      if (q) {
+        await searchAndDownloadSFX(q, audioDir);
+      }
+    }
   }
 
   // Stage 1 (Tarika 2): Pre-package keyframes via Cloudflare Workers AI FLUX.1-schnell
