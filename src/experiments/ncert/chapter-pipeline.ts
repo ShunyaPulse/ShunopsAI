@@ -423,34 +423,76 @@ Respond strictly in valid JSON matching this schema:
  * Uses the unified multi-tier audio fallback cascade (Kokoro-82M ➔ Google Cloud Neural2 ➔ Calibrated Edge-TTS).
  */
 /**
- * Dynamically resolves an authentic acoustic BGM asset based on the LLM-inferred soundscape profile.
- * Zero hardcoded filenames — scans available audio assets and matches genre/mood semantically.
+ * 100% Cloud-Streamed BGM Catalog (Zero Laptop Storage)
+ * Streams authentic public domain master tracks on-demand during cloud execution.
+ * Zero audio files stored in the repository or on the local laptop.
  */
-function resolveSoundscapeBgmAsset(bgmGenre?: string): { filePath: string; format: string } | null {
-  const bgmDir = path.resolve(process.cwd(), "src", "assets", "audio", "bgm");
-  if (!fsSync.existsSync(bgmDir)) return null;
+const BGM_CLOUD_CATALOG: Record<string, { title: string; url: string }> = {
+  inspirational_cello: {
+    title: "Bach Cello Suite - John Michel",
+    url: "https://upload.wikimedia.org/wikipedia/commons/e/ec/John_Michel_-_Cello_Suite_No._1_in_G_Major_-_1._Pr%C3%A9lude.ogg",
+  },
+  ambient_piano: {
+    title: "Satie Gymnopedie No 1",
+    url: "https://upload.wikimedia.org/wikipedia/commons/2/29/Debussy_Gymnopedie_1%2C_arrangement_of_Satie%E2%80%99s_Gymnopedie_3.wav",
+  },
+  dramatic_strings: {
+    title: "Beethoven Symphony 5",
+    url: "https://upload.wikimedia.org/wikipedia/commons/5/52/Ludwig_van_Beethoven_-_Symphonie_5_c-moll_-_1._Allegro_con_brio.ogg",
+  },
+  gentle_acoustic: {
+    title: "Tarrega Recuerdos de la Alhambra",
+    url: "https://upload.wikimedia.org/wikipedia/commons/0/05/Recuerdos_de_la_Alhambra.ogg",
+  },
+  epic_orchestral: {
+    title: "Dvorak New World Symphony",
+    url: "https://upload.wikimedia.org/wikipedia/commons/5/57/Antonin_Dvorak_-_symphony_no._9_in_e_minor_%27from_the_new_world%27%2C_op._95_-_iv._allegro_con_fuoco.ogg",
+  },
+  melancholy_violin: {
+    title: "Massenet Meditation Thais",
+    url: "https://upload.wikimedia.org/wikipedia/commons/3/3d/Meditation_from_Thais_-_Bomsori_Kim.opus",
+  },
+  mysterious_ambient: {
+    title: "Debussy Clair de Lune",
+    url: "https://upload.wikimedia.org/wikipedia/commons/e/e2/Moonlight_-_Clair_de_Lune_%28As_the_rememberance_of_Sir_Debussy.ogg",
+  },
+  triumphant_brass: {
+    title: "Holst Planets Jupiter",
+    url: "https://upload.wikimedia.org/wikipedia/commons/5/57/Gustav_Holst_-_the_planets%2C_op._32_-_iv._jupiter%2C_the_bringer_of_jollity.ogg",
+  },
+  uplifting_documentary: {
+    title: "Vivaldi Spring",
+    url: "https://upload.wikimedia.org/wikipedia/commons/3/3c/Vivaldi_-_Four_Seasons_1_Spring_mvt_1_Allegro_-_John_Harrison_violin.oga",
+  },
+  warm_serenade: {
+    title: "Mozart Romanze",
+    url: "https://upload.wikimedia.org/wikipedia/commons/1/14/Mozart_-_Serenade_No._13_for_strings_in_G_major%2C_K._525_-_Romanze.ogg",
+  },
+};
 
-  const files = fsSync.readdirSync(bgmDir).filter(f => /\.(ogg|mp3|wav)$/i.test(f));
-  if (files.length === 0) return null;
+async function resolveAndDownloadCloudBgm(bgmGenre: string | undefined, outAudioDir: string): Promise<boolean> {
+  const norm = (bgmGenre || "inspirational_cello").toLowerCase().replace(/[^a-z0-9]/g, "_");
+  const key = Object.keys(BGM_CLOUD_CATALOG).find(k => k === norm || norm.includes(k) || k.includes(norm)) || "inspirational_cello";
+  const track = BGM_CLOUD_CATALOG[key] || BGM_CLOUD_CATALOG["inspirational_cello"]!;
+  const targetBgm = path.join(outAudioDir, "bgm.ogg");
 
-  if (bgmGenre) {
-    const normalized = bgmGenre.toLowerCase().replace(/[^a-z0-9]/g, "_");
-    // 1. Direct match
-    const exact = files.find(f => path.parse(f).name.toLowerCase() === normalized);
-    if (exact) {
-      return { filePath: path.join(bgmDir, exact), format: path.extname(exact).slice(1).toLowerCase() };
+  try {
+    const res = await fetch(track.url, {
+      headers: { "User-Agent": "ShunopsAI/1.0 (https://github.com/ShunyaPulse/ShunopsAI; shunyapulse42@gmail.com)" },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (res.ok) {
+      const buf = Buffer.from(await res.arrayBuffer());
+      if (buf.length > 5000) {
+        await fs.writeFile(targetBgm, buf);
+        console.log(`🎵 [Cloud BGM Streamed] Downloaded "${track.title}" (${(buf.length / 1024 / 1024).toFixed(2)} MB) directly into dataset.`);
+        return true;
+      }
     }
-    // 2. Keyword match (e.g. "cello", "orchestral", "strings", "piano")
-    const keywords = normalized.split("_").filter(Boolean);
-    const partial = files.find(f => keywords.some(kw => f.toLowerCase().includes(kw)));
-    if (partial) {
-      return { filePath: path.join(bgmDir, partial), format: path.extname(partial).slice(1).toLowerCase() };
-    }
+  } catch (err: any) {
+    console.warn(`[Cloud BGM] Failed to stream ${track.title}:`, err?.message || err);
   }
-
-  // 3. Graceful fallback to primary available acoustic track
-  const fallback = files[0]!;
-  return { filePath: path.join(bgmDir, fallback), format: path.extname(fallback).slice(1).toLowerCase() };
+  return false;
 }
 
 export async function launchChapterJob(
@@ -666,14 +708,9 @@ export async function launchChapterJob(
     (script as any).voice = "gemini-3.8-flash-tts";
   }
 
-  // Stage 0.5: Dynamically package domain BGM (e.g. solo cello / acoustic orchestral)
+  // Stage 0.5: Dynamically stream domain BGM from cloud catalog (Zero Laptop Storage)
   const requestedGenre = (script as any).soundscape_profile?.bgmGenre || (script as any).soundscapeProfile?.bgmGenre;
-  const resolvedBgm = resolveSoundscapeBgmAsset(requestedGenre);
-  if (resolvedBgm && fsSync.existsSync(resolvedBgm.filePath)) {
-    const targetBgm = path.join(audioDir, `bgm.${resolvedBgm.format}`);
-    await fs.copyFile(resolvedBgm.filePath, targetBgm);
-    console.log(`🎵 [Atmospheric Sound Design] Packaged acoustic BGM track (${path.basename(resolvedBgm.filePath)}) for genre '${requestedGenre || "auto"}' -> dataset/audio/bgm.${resolvedBgm.format}`);
-  }
+  await resolveAndDownloadCloudBgm(requestedGenre, audioDir);
 
   // Stage 0.6: Dynamically search and package on-demand acoustic SFX moments (Scales to millions of topics)
   const sfxMoments: Array<{ sceneHint?: string; sfx?: string; sfxQuery?: string }> =

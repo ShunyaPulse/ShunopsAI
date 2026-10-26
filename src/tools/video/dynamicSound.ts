@@ -78,33 +78,38 @@ async function queryWikimediaAudio(searchQuery: string): Promise<Buffer | null> 
   return null;
 }
 
+const CORE_SFX_CLOUD_URLS: Record<string, string> = {
+  applause: "https://upload.wikimedia.org/wikipedia/commons/6/6d/277021_sandermotions_applause-2.wav",
+  thunder: "https://upload.wikimedia.org/wikipedia/commons/f/fa/Thunder_01.ogg",
+  wind_whoosh: "https://upload.wikimedia.org/wikipedia/commons/3/30/Wind_sound_effect.ogg",
+  chime: "https://upload.wikimedia.org/wikipedia/commons/a/ae/Church_bell_sound.ogg",
+};
+
 /**
- * Maps query keywords to local curated core SFX fallbacks (Tier 3)
+ * Cloud-Streamed Core SFX Fallback (Tier 3) - Zero Laptop Storage
  */
-function resolveLocalFallbackSFX(query: string): string | null {
-  const sfxAssetsDir = path.resolve(process.cwd(), "src", "assets", "audio", "sfx");
-  if (!fsSync.existsSync(sfxAssetsDir)) return null;
-
+async function streamCloudFallbackSFX(query: string): Promise<Buffer | null> {
   const q = query.toLowerCase();
-  let candidate: string | null = null;
-
+  let url: string | null = null;
   if (q.includes("applause") || q.includes("cheer") || q.includes("clap") || q.includes("crowd")) {
-    candidate = "applause.ogg";
+    url = CORE_SFX_CLOUD_URLS.applause ?? null;
   } else if (q.includes("thunder") || q.includes("storm") || q.includes("lightning") || q.includes("rain")) {
-    candidate = "thunder.ogg";
+    url = CORE_SFX_CLOUD_URLS.thunder ?? null;
   } else if (q.includes("wind") || q.includes("whoosh") || q.includes("flyby") || q.includes("jet") || q.includes("plane") || q.includes("roar")) {
-    candidate = "wind_whoosh.ogg";
+    url = CORE_SFX_CLOUD_URLS.wind_whoosh ?? null;
   } else if (q.includes("bell") || q.includes("chime") || q.includes("ring") || q.includes("gavel") || q.includes("exam")) {
-    candidate = "chime.ogg";
+    url = CORE_SFX_CLOUD_URLS.chime ?? null;
   }
 
-  if (candidate) {
-    const fullPath = path.join(sfxAssetsDir, candidate);
-    if (fsSync.existsSync(fullPath) && fsSync.statSync(fullPath).size > 1000) {
-      return fullPath;
-    }
+  if (url) {
+    try {
+      const res = await fetch(url, { headers: { "User-Agent": USER_AGENT }, signal: AbortSignal.timeout(8000) });
+      if (res.ok) {
+        const buf = Buffer.from(await res.arrayBuffer());
+        if (buf.length > 2000) return buf;
+      }
+    } catch {}
   }
-
   return null;
 }
 
@@ -143,23 +148,21 @@ export async function searchAndDownloadSFX(
     }
   }
 
-  // If cloud search succeeded in Tier 1 or 2, save and return
-  if (audioBuffer && audioBuffer.length >= 5000) {
-    await fs.writeFile(outPath, audioBuffer);
-    console.log(`✅ [SFX Cloud Resolved] "${query}" -> saved ${(audioBuffer.length / 1024).toFixed(1)} KB`);
-    return outPath;
+  // Tier 3: Cloud-Streamed Core Sound Bank Fallback
+  if (!audioBuffer) {
+    console.log(`🛡️ [SFX Tier 3 Fallback] Streaming core cloud sound fallback for "${query}"...`);
+    audioBuffer = await streamCloudFallbackSFX(query);
   }
 
-  // Tier 3: Local Curated Sound Bank Fallback
-  const localFallback = resolveLocalFallbackSFX(query);
-  if (localFallback) {
-    console.log(`🛡️ [SFX Tier 3 Fallback] Using local acoustic sound bank (${path.basename(localFallback)}) for "${query}"`);
-    await fs.copyFile(localFallback, outPath);
+  // If cloud search succeeded in Tier 1, 2, or 3, save and return
+  if (audioBuffer && audioBuffer.length >= 2000) {
+    await fs.writeFile(outPath, audioBuffer);
+    console.log(`✅ [SFX Resolved] "${query}" -> saved ${(audioBuffer.length / 1024).toFixed(1)} KB into dataset`);
     return outPath;
   }
 
   // Tier 4: Graceful Non-Blocking Pass-Through
-  console.warn(`⚠️ [SFX Tier 4 Fallback] No cloud or local SFX match for "${query}". Proceeding with pure acoustic BGM + voiceover.`);
+  console.warn(`⚠️ [SFX Tier 4 Fallback] No cloud SFX match for "${query}". Proceeding with pure acoustic BGM + voiceover.`);
   return null;
 }
 
