@@ -482,10 +482,11 @@ def parse_srt_cues(srt_text, time_offset_sec):
 # Wan2.1 (1.3B DiT) T4-Optimized Diffusion Engine
 # ==========================================
 class WanT4OptimizedEngine:
-    def __init__(self, hf_token=None):
+    def __init__(self, hf_token=None, device="cuda"):
         self.pipe = None
         self.fallback_pipe = None
         self.hf_token = hf_token
+        self.device = device
         self.engine_name = "Wan2.1-VACE-1.3B"
         self._init_model()
 
@@ -493,9 +494,14 @@ class WanT4OptimizedEngine:
         if not torch.cuda.is_available():
             raise RuntimeError("CRITICAL ERROR: CUDA is not available! Kaggle kernel must have GPU enabled.")
 
-        gpu_name = torch.cuda.get_device_name(0)
-        vram_gb = torch.cuda.get_device_properties(0).total_memory / (1024 ** 3)
-        print(f"[Wan2.1] Initializing on GPU: {gpu_name} ({vram_gb:.1f} GB VRAM)")
+        dev_idx = 0
+        if ":" in str(self.device):
+            try: dev_idx = int(str(self.device).split(":")[1])
+            except Exception: dev_idx = 0
+
+        gpu_name = torch.cuda.get_device_name(dev_idx)
+        vram_gb = torch.cuda.get_device_properties(dev_idx).total_memory / (1024 ** 3)
+        print(f"[Wan2.1] Initializing on GPU ({self.device}): {gpu_name} ({vram_gb:.1f} GB VRAM)")
 
         if self.hf_token:
             os.environ["HF_TOKEN"] = self.hf_token
@@ -533,10 +539,13 @@ class WanT4OptimizedEngine:
 
             # 3. Model CPU offload: swaps modules to host RAM to keep active VRAM under 9 GB on T4
             if hasattr(self.pipe, "enable_model_cpu_offload"):
-                print("[Wan2.1-VACE] Enabling model CPU offload...")
-                self.pipe.enable_model_cpu_offload()
+                print(f"[Wan2.1-VACE] Enabling model CPU offload on {self.device}...")
+                try:
+                    self.pipe.enable_model_cpu_offload(gpu_id=dev_idx)
+                except Exception:
+                    self.pipe.enable_model_cpu_offload()
             else:
-                self.pipe = self.pipe.to("cuda")
+                self.pipe = self.pipe.to(self.device)
 
             self.engine_name = "Wan2.1-VACE-1.3B"
             print("[Wan2.1-VACE] Wan2.1-VACE-1.3B online with FP16 Cutlass + Attention Slicing + Character Lock!")
@@ -555,9 +564,12 @@ class WanT4OptimizedEngine:
                 if hasattr(self.pipe, "vae") and hasattr(self.pipe.vae, "enable_tiling"):
                     self.pipe.vae.enable_tiling()
                 if hasattr(self.pipe, "enable_model_cpu_offload"):
-                    self.pipe.enable_model_cpu_offload()
+                    try:
+                        self.pipe.enable_model_cpu_offload(gpu_id=dev_idx)
+                    except Exception:
+                        self.pipe.enable_model_cpu_offload()
                 else:
-                    self.pipe = self.pipe.to("cuda")
+                    self.pipe = self.pipe.to(self.device)
                 self.engine_name = "Wan2.1-T2V-1.3B"
                 print("[Wan2.1] Wan2.1-T2V-1.3B fallback initialized.")
                 return
@@ -578,7 +590,7 @@ class WanT4OptimizedEngine:
         from safetensors.torch import load_file
 
         self.engine_name = "AnimateDiff-Lightning"
-        device = "cuda"
+        device = self.device
         dtype = torch.float16
 
         print("[Fallback] Loading AnimateDiff-Lightning + epiCRealism...")
@@ -684,8 +696,8 @@ class WanT4OptimizedEngine:
                 "cartoon, anime, 3d render, cgi, plastic skin, distorted, blurry, bad anatomy, deformed"
             )
 
-            print(f"[{self.engine_name}] Scene {scene_idx+1} [Shot {s_idx+1}/{num_shots}]: Generating motion...")
-            generator = torch.Generator("cuda").manual_seed(seed)
+            print(f"[{self.engine_name}] Scene {scene_idx+1} [Shot {s_idx+1}/{num_shots}]: Generating motion on {self.device}...")
+            generator = torch.Generator(self.device).manual_seed(seed)
             frames = None
             fps_base = 16
 
@@ -870,7 +882,7 @@ class WanT4OptimizedEngine:
             "blurry, low resolution, bad anatomy, deformed, distorted, cartoon, anime, plastic, 3d render"
         )
 
-        generator = torch.Generator("cuda").manual_seed(42)
+        generator = torch.Generator(self.device).manual_seed(42)
         hero_img = None
 
         if self.engine_name in ["Wan2.1-VACE-1.3B", "Wan2.1-T2V-1.3B"] and self.pipe is not None:
@@ -1060,22 +1072,18 @@ async def main():
             torch.cuda.empty_cache()
         print("[Memory Isolation] ✅ All missing keyframes generated and SDXL completely evicted from memory.")
 
-    # Initialize Wan2.1-VACE (1.3B) Image-to-Video Engine (Character Lock)
-    diffusion = WanVACE13BEngine(hf_token=hf_token)
-
-    clips, narr_files = [], []
-    master_cues = []
-    current_time_offset = 0.0
+    # Phase 1: Audio preparation & timing calculation for all scenes
+    print("\n[Phase 1/3] Preparing audio & metadata for all scenes...")
+    scene_items = []
+    raw_submakers = []
 
     for i, sc in enumerate(scenes):
         a_path = f"{TMP}/a{i:03d}.mp3"
         v_path = f"{TMP}/v{i:03d}.mp4"
 
-        print(f"\n--- [Scene {i+1}/{len(scenes)}] ---")
-        # Check if pre-packaged audio exists in dataset
+        print(f"--- [Scene {i+1}/{len(scenes)}] Audio Preparation ---")
         dataset_audio = os.path.join(os.path.dirname(script_path), "audio", f"a{i:03d}.mp3")
         if os.path.exists(dataset_audio) and os.path.getsize(dataset_audio) > 500:
-            # Pre-packaged audio is already standard 44.1kHz stereo MP3: instant zero-transcode reuse
             shutil.copyfile(dataset_audio, a_path)
             print(f"[TTS] Using pre-packaged audio ({os.path.getsize(a_path)} bytes, instant zero-transcode reuse).")
             submaker = edge_tts.SubMaker() if edge_tts else None
@@ -1085,7 +1093,6 @@ async def main():
                 or sc.get("speaker") in ("Narrator", "Exam Booster")
                 or any("\u0900" <= c <= "\u097F" for c in sc.get("narration", ""))
             )
-            # Tier 1: Try Google Cloud Neural2 directly on Kaggle if gcp_tts_key is provided
             synthesized = False
             if gcp_tts_key:
                 target_rate = 1.04 if domain == "sports" else 1.0
@@ -1093,13 +1100,11 @@ async def main():
                 synthesized = synthesize_gcp_neural2(sc["narration"], a_path, gcp_tts_key, voice_name=gcp_voice, speaking_rate=target_rate)
                 submaker = edge_tts.SubMaker() if edge_tts else None
 
-            # Tier 2: Try Kokoro-82M offline on Kaggle (for English or offline dialogue)
             if not synthesized and not is_hindi:
                 k_voice = resolve_kokoro_voice(sc.get("speaker", ""), sc.get("voice", ""))
                 synthesized = synthesize_kokoro_audio(sc["narration"], k_voice, a_path, speed=1.0)
                 submaker = edge_tts.SubMaker() if edge_tts else None
 
-            # Tier 3: Edge-TTS Fallback with WordBoundaries
             if not synthesized or not os.path.exists(a_path) or os.path.getsize(a_path) < 500:
                 edge_voice = voice
                 if "neural2" in voice.lower():
@@ -1110,8 +1115,82 @@ async def main():
             raise RuntimeError(f"[TTS] Critical: Audio missing for scene {i+1}. Halting pipeline to prevent rendering a mute video.")
 
         d = round(duration(a_path), 3)
+        scene_items.append({
+            "idx": i,
+            "scene": sc,
+            "a_path": a_path,
+            "v_path": v_path,
+            "dur": d,
+        })
+        raw_submakers.append(submaker)
 
-        # 2. Extract Subtitle cues for this scene (Pure English captions)
+    # Phase 2: Video Diffusion on GPU(s) (Dual-T4 Parallel Execution when 2 GPUs available)
+    num_gpus = torch.cuda.device_count() if torch.cuda.is_available() else 0
+    print(f"\n[Phase 2/3] Rendering Video Clips across {max(1, num_gpus)} GPU(s)...")
+
+    if num_gpus >= 2:
+        print(f"[Dual-GPU] 🚀 Dual NVIDIA T4 detected! Launching parallel scene synthesis on cuda:0 and cuda:1...")
+        import queue
+        from concurrent.futures import ThreadPoolExecutor
+
+        engine_0 = WanVACE13BEngine(hf_token=hf_token, device="cuda:0")
+        engine_1 = WanVACE13BEngine(hf_token=hf_token, device="cuda:1")
+
+        engine_q = queue.Queue()
+        engine_q.put(engine_0)
+        engine_q.put(engine_1)
+
+        def _render_worker(item):
+            eng = engine_q.get()
+            try:
+                print(f"[Dual-GPU] Scene {item['idx']+1}/{len(scenes)} generating on {eng.device}...")
+                with torch.cuda.device(eng.device):
+                    eng.generate_scene_montage(
+                        item["scene"]["visual_prompt"],
+                        item["dur"],
+                        item["v_path"],
+                        scene_idx=item["idx"],
+                        domain=domain,
+                        visual_bible=visual_bible
+                    )
+                print(f"[Dual-GPU] ✅ Scene {item['idx']+1}/{len(scenes)} completed on {eng.device}.")
+            finally:
+                engine_q.put(eng)
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            list(executor.map(_render_worker, scene_items))
+
+    else:
+        target_device = "cuda:0" if num_gpus > 0 else "cpu"
+        diffusion = WanVACE13BEngine(hf_token=hf_token, device=target_device)
+        for item in scene_items:
+            print(f"\n--- [Scene {item['idx']+1}/{len(scenes)}] Rendering on {target_device} ---")
+            diffusion.generate_scene_montage(
+                item["scene"]["visual_prompt"],
+                item["dur"],
+                item["v_path"],
+                scene_idx=item["idx"],
+                domain=domain,
+                visual_bible=visual_bible
+            )
+
+    # Phase 3: Alignment, Audio-Video Duration Sync & Subtitle Cues Assembly
+    print("\n[Phase 3/3] Synchronizing audio-video timing & assembling subtitles...")
+    clips, narr_files = [], []
+    master_cues = []
+    current_time_offset = 0.0
+
+    for item, submaker in zip(scene_items, raw_submakers):
+        i = item["idx"]
+        sc = item["scene"]
+        a_path = item["a_path"]
+        v_path = item["v_path"]
+        d = item["dur"]
+
+        if not (os.path.exists(v_path) and os.path.getsize(v_path) > 1000):
+            raise RuntimeError(f"Scene {i+1} failed to render video clip: {v_path}")
+
+        # Extract Subtitle cues for this scene
         eng_caption = sc.get("caption", "").strip()
         if eng_caption:
             words = eng_caption.split()
@@ -1136,11 +1215,8 @@ async def main():
                     "text": sc["narration"].strip()
                 })
             master_cues.extend(cues)
-        # 3. Generate non-repeating continuous video montage on GPU
-        diffusion.generate_scene_montage(sc["visual_prompt"], d, v_path, scene_idx=i, domain=domain, visual_bible=visual_bible)
 
-        # Synchronize audio and video precisely and advance current_time_offset by actual_scene_dur
-        # so cumulative subtitle drift is guaranteed 0.00s across all scenes
+        # Precise A/V synchronization
         v_dur = duration(v_path)
         actual_scene_dur = d
         if v_dur > duration(a_path) + 0.03:
@@ -1154,13 +1230,10 @@ async def main():
                 narr_files.append(a_path)
         else:
             narr_files.append(a_path)
-        current_time_offset += actual_scene_dur
 
-        if os.path.exists(v_path) and os.path.getsize(v_path) > 1000:
-            clips.append(v_path)
-            print(f"[Scene {i+1}] Rendered successfully ({d:.2f}s).")
-        else:
-            raise RuntimeError(f"Scene {i+1} failed to render video clip.")
+        current_time_offset += actual_scene_dur
+        clips.append(v_path)
+        print(f"[Scene {i+1}] Verified & synchronized ({actual_scene_dur:.2f}s).")
 
     if not clips:
         raise RuntimeError("No scenes were rendered!")

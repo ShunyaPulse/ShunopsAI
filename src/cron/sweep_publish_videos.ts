@@ -45,19 +45,84 @@ function getRedis(): Redis | null {
   }
 }
 
-async function isJobAlreadyPublished(jobId: string): Promise<boolean> {
-  const redis = getRedis();
-  if (redis) {
+let sharedRedis: Redis | null = null;
+
+async function getConnectedRedis(): Promise<Redis | null> {
+  if (sharedRedis) {
+    if (sharedRedis.status === "ready" || sharedRedis.status === "connect" || sharedRedis.status === "connecting") {
+      return sharedRedis;
+    }
+  }
+  const client = getRedis();
+  if (!client) return null;
+  try {
+    await client.connect();
+    sharedRedis = client;
+    return sharedRedis;
+  } catch {
+    return null;
+  }
+}
+
+async function closeSharedRedis(): Promise<void> {
+  if (sharedRedis) {
     try {
-      await redis.connect();
-      const val = await redis.get(`shunops:video:published:${jobId}`);
-      await redis.quit();
-      if (val) return true;
+      await sharedRedis.quit();
     } catch {
       try {
-        redis.disconnect();
+        sharedRedis.disconnect();
       } catch {}
     }
+    sharedRedis = null;
+  }
+}
+
+/**
+ * Proposal #8: MGET Batch Published Check across all scraped jobs in a single round-trip.
+ */
+async function batchCheckPublished(jobIds: string[]): Promise<Map<string, boolean>> {
+  const result = new Map<string, boolean>();
+  if (jobIds.length === 0) return result;
+
+  const redis = await getConnectedRedis();
+  if (redis) {
+    try {
+      const keys = jobIds.map((id) => `shunops:video:published:${id}`);
+      const values = await redis.mget(...keys);
+      jobIds.forEach((id, idx) => {
+        if (values[idx]) result.set(id, true);
+      });
+    } catch (err: any) {
+      console.warn("[Redis] MGET batch published check failed, falling back to local state:", err?.message || err);
+    }
+  }
+
+  // Local fallback state check for any missing
+  try {
+    if (fsSync.existsSync(STATE_FILE)) {
+      const data = JSON.parse(await fs.readFile(STATE_FILE, "utf-8"));
+      jobIds.forEach((id) => {
+        if (!result.has(id) && data?.publishedVideos?.[id]) {
+          result.set(id, true);
+        }
+      });
+    }
+  } catch {}
+
+  jobIds.forEach((id) => {
+    if (!result.has(id)) result.set(id, false);
+  });
+
+  return result;
+}
+
+async function isJobAlreadyPublished(jobId: string): Promise<boolean> {
+  const redis = await getConnectedRedis();
+  if (redis) {
+    try {
+      const val = await redis.get(`shunops:video:published:${jobId}`);
+      if (val) return true;
+    } catch {}
   }
 
   // Local fallback state check
@@ -79,17 +144,11 @@ async function markJobAsPublished(jobId: string, videoId: string, videoUrl: stri
     publishedAt: new Date().toISOString(),
   };
 
-  const redis = getRedis();
+  const redis = await getConnectedRedis();
   if (redis) {
     try {
-      await redis.connect();
       await redis.set(`shunops:video:published:${jobId}`, JSON.stringify(record));
-      await redis.quit();
-    } catch {
-      try {
-        redis.disconnect();
-      } catch {}
-    }
+    } catch {}
   }
 
   try {
@@ -104,18 +163,12 @@ async function markJobAsPublished(jobId: string, videoId: string, videoUrl: stri
 }
 
 async function getJobRetryCount(jobId: string): Promise<number> {
-  const redis = getRedis();
+  const redis = await getConnectedRedis();
   if (redis) {
     try {
-      await redis.connect();
       const val = await redis.get(`shunops:video:retries:${jobId}`);
-      await redis.quit();
       if (val) return parseInt(val, 10) || 0;
-    } catch {
-      try {
-        redis.disconnect();
-      } catch {}
-    }
+    } catch {}
   }
 
   try {
@@ -129,17 +182,11 @@ async function getJobRetryCount(jobId: string): Promise<number> {
 }
 
 async function markJobRetried(jobId: string, count: number): Promise<void> {
-  const redis = getRedis();
+  const redis = await getConnectedRedis();
   if (redis) {
     try {
-      await redis.connect();
       await redis.set(`shunops:video:retries:${jobId}`, String(count));
-      await redis.quit();
-    } catch {
-      try {
-        redis.disconnect();
-      } catch {}
-    }
+    } catch {}
   }
 
   try {
@@ -183,16 +230,20 @@ export async function sweepAndPublishVideos(): Promise<{ checked: number; publis
 
   let publishedCount = 0;
 
-  for (const kernelRef of videoKernels) {
-    const jobId = kernelRef.replace(new RegExp(`^${USER}/video-render-`), "");
-    console.log(`\n[Cloud Sweeper] Inspecting job: ${jobId}...`);
+  try {
+    const jobIds = videoKernels.map((k) => k.replace(new RegExp(`^${USER}/video-render-`), ""));
+    const publishedMap = await batchCheckPublished(jobIds);
 
-    // 1. Check deduplication state
-    const alreadyPublished = await isJobAlreadyPublished(jobId);
-    if (alreadyPublished) {
-      console.log(`[Cloud Sweeper] ⏩ Job "${jobId}" is already published to YouTube. Skipping.`);
-      continue;
-    }
+    for (const kernelRef of videoKernels) {
+      const jobId = kernelRef.replace(new RegExp(`^${USER}/video-render-`), "");
+      console.log(`\n[Cloud Sweeper] Inspecting job: ${jobId}...`);
+
+      // 1. Check deduplication state via fast batch map lookup
+      const alreadyPublished = publishedMap.get(jobId) ?? (await isJobAlreadyPublished(jobId));
+      if (alreadyPublished) {
+        console.log(`[Cloud Sweeper] ⏩ Job "${jobId}" is already published to YouTube. Skipping.`);
+        continue;
+      }
 
     // 2. Query status (cheap, 2 seconds)
     let status = "";
@@ -309,6 +360,9 @@ export async function sweepAndPublishVideos(): Promise<{ checked: number; publis
         details: `Upload failed: ${publishErr?.message || String(publishErr)}. Token refresh or OAuth consent status requires attention.`,
       }).catch(() => {});
     }
+    }
+  } finally {
+    await closeSharedRedis();
   }
 
   console.log(`\n=======================================================`);
