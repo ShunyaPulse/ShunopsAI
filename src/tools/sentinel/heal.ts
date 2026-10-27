@@ -13,7 +13,7 @@ import type { HealReport } from "./types.js";
  * sweep the dashboard Auto-Heal button triggers.
  */
 
-const KAGGLE_KERNEL_RE = /([a-z0-9_-]{3,50}\/video-render-[a-z0-9]{4,32})/;
+const KAGGLE_KERNEL_RE = /([a-z0-9_-]{3,50}\/video-render-[a-z0-9_-]{4,64})/;
 
 async function healRedis(): Promise<HealReport> {
   try {

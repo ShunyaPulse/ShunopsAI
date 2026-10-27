@@ -220,8 +220,8 @@ export async function sweepAndPublishVideos(): Promise<{ checked: number; publis
 
   for (const line of lines) {
     const trimmed = line.trim();
-    const match = trimmed.match(new RegExp(`${USER}/video-render-[a-z0-9]+`, "i"));
-    if (match) {
+    const match = trimmed.match(new RegExp(`${USER}/video-render-[a-z0-9_-]+`, "i"));
+    if (match && !videoKernels.includes(match[0])) {
       videoKernels.push(match[0]);
     }
   }

@@ -242,7 +242,7 @@ export async function checkKaggleHealth(): Promise<ServiceHealthReport> {
     // Deep kernel inspection: check whether the latest video-render kernel failed.
     let latestFailedKernel: string | null = null;
     let latestFailedStatus = "";
-    const topKernelMatch = listResult.match(/([a-z0-9_-]{3,50}\/video-render-[a-z0-9]{4,32})/);
+    const topKernelMatch = listResult.match(/([a-z0-9_-]{3,50}\/video-render-[a-z0-9_-]{4,64})/);
     if (topKernelMatch && topKernelMatch[1]) {
       const topKernel = topKernelMatch[1];
       try {
