@@ -5,6 +5,8 @@ import { generateScript } from "./script.js";
 import { healMissingNarration, synthesizeNarration } from "./narration.js";
 import { generateSceneKeyframes } from "./keyframes.js";
 import { isSportsOrCricket } from "./domain.js";
+import { resolveAndDownloadCloudBgm, searchAndDownloadSFX } from "./dynamicSound.js";
+import { verifyPreFlightDataset } from "./preflight.js";
 import type { KaggleAction, VideoScript } from "./types.js";
 
 const JOBS_DIR = path.resolve(process.cwd(), "jobs");
@@ -129,6 +131,50 @@ export async function startVideoJob(
   const keyframes = await generateSceneKeyframes(script, imagesDir);
   script.keyframes_summary = `${keyframes.successCount}/${keyframes.totalScenes} via ${keyframes.modelUsed}`;
   console.log(`[Video] 🎨 Keyframe packaging complete: ${script.keyframes_summary}`);
+
+  // Stage 1.5: Stream domain BGM directly into dataset/audio (Zero Laptop Storage)
+  const requestedBgm =
+    (script as any).soundscape_profile?.bgmGenre ||
+    (script as any).soundscapeProfile?.bgmGenre ||
+    (isSports ? "epic_orchestral" : "uplifting_documentary");
+  await resolveAndDownloadCloudBgm(requestedBgm, audioDir);
+
+  // Stage 1.6: Stream dynamic SFX moments directly into dataset/audio
+  const sfxMoments: Array<{ sceneHint?: string; sfx?: string; sfxQuery?: string }> =
+    (script as any).soundscape_profile?.keySFXMoments ||
+    (script as any).soundscapeProfile?.keySFXMoments ||
+    [];
+  if (Array.isArray(sfxMoments) && sfxMoments.length > 0) {
+    for (const moment of sfxMoments) {
+      const q = moment.sfx || moment.sfxQuery;
+      if (q) {
+        await searchAndDownloadSFX(q, audioDir);
+      }
+    }
+  }
+
+  // Stage 2: Enforce Non-Bypassable Pre-Flight Verification Gate
+  console.log(`[Video] 🛡️ [Pre-Flight Gate] Validating all dataset assets before Kaggle dispatch...`);
+  const preflight = await verifyPreFlightDataset(dsDir, script.scenes.length, {
+    requireAudio: true,
+    requireKeyframes: true,
+    requireBgm: true,
+    minAudioBytes: 500,
+    minImageBytes: 5000,
+  });
+
+  if (!preflight.ok) {
+    const errorDetails = preflight.errors.slice(0, 10).join("\n - ");
+    console.error(`❌ [Pre-Flight Gate Abort] ${preflight.errors.length} assets failed verification:\n - ${errorDetails}`);
+    throw new Error(
+      `[Pre-Flight Verification Gate Abort] Dataset validation failed: ` +
+      `${preflight.audioCount}/${script.scenes.length} audio, ` +
+      `${preflight.keyframeCount}/${script.scenes.length} keyframes, ` +
+      `BGM: ${preflight.hasBgm ? "OK" : "MISSING"}. ` +
+      `Refusing to dispatch broken/empty dataset to Kaggle GPU.\n - ${errorDetails}`
+    );
+  }
+  console.log(`[Video] 🛡️ [Pre-Flight Verified] 100% assets verified: ${preflight.audioCount} audio, ${preflight.keyframeCount} keyframes, BGM: OK.`);
 
   const slug = `${id}${sanitizeTitleForSlug(script.title)}`;
   await writeJsonFile(path.join(dsDir, "script.json"), script);

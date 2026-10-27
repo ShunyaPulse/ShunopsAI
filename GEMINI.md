@@ -187,5 +187,19 @@
 - **Data & GPU Quota Respect:**
   - Running and queued GPU jobs represent valuable compute time and quota. Premature cancellation without user consent is strictly forbidden.
 
+## 19. Dual-Pipeline Synchronization & Mandatory Pre-Flight Verification Lock
+- **Strict Pipeline Parity (`chapter-pipeline.ts` <-> `job.ts` <-> `cricketTemplate.ts`):**
+  - Any update to video asset generation, audio synthesis cascade, keyframe packaging, BGM streaming, SFX moments, or metadata contracts in `job.ts` MUST simultaneously be applied to `chapter-pipeline.ts` (and `cricketTemplate.ts` when sports/cricket domain is touched), and vice versa.
+  - Never leave one pipeline with legacy, unbundled, or divergent behavior while upgrading the other.
+- **Mandatory Pre-Flight Verification Lock:**
+  - Prior to creating Kaggle datasets (`kaggle datasets create`) and dispatching kernels (`kaggle kernels push`), both pipelines must enforce an uncompromising pre-flight verification gate (`verifyPreFlightDataset`):
+    1. 100% of scene audio tracks (`a000.mp3`, `a001.mp3`, ...) must exist on disk and meet size criteria (`>= 500` bytes).
+    2. 100% of scene keyframe images (`scene_000.png`, `scene_001.png`, ...) must exist on disk and meet size criteria (`>= 5000` bytes).
+    3. Background score (`bgm.ogg`) must be present in `audio/`.
+  - If ANY asset is missing or corrupted, the pipeline MUST immediately abort with `[Pre-Flight Verification Gate Abort]` and throw an error. It is strictly forbidden to dispatch an empty, partial, or unverified dataset to Kaggle GPU.
+- **Preservation of Kernel-Level T2V Fallback:**
+  - The Kaggle GPU renderer (`render.py` / `render-ncert.py`) retains its Wan2.1 T2V / AnimateDiff fallback as a last-resort safety net if runtime tensor decoding fails, but upstream runners must never rely on this as normal operation.
+
+
 
 
