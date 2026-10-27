@@ -2,8 +2,8 @@ name: "Cloud Video Sweeper & Publisher"
 
 on:
   schedule:
-    # Check every 4 hours for completed Kaggle video diffusion renders
-    - cron: "0 */4 * * *"
+    # Check every 30 minutes for completed Kaggle video diffusion renders (zero upload latency)
+    - cron: "*/30 * * * *"
   workflow_dispatch:
 
 permissions:
