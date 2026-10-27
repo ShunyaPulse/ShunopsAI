@@ -592,7 +592,7 @@ class WanT4OptimizedEngine:
             sub_clip = f"{TMP}/sub_{scene_idx}_{s_idx}.mp4"
 
             clean_prompt = (
-                f"{grounding_prefix}{prompt[:220]}, {var_text}, modern digital cinema, 4k ultra-high definition, "
+                f"{grounding_prefix}{prompt[:220]}, {var_text}, modern digital cinema, sharp high-definition focus, "
                 f"sharp crystal clear focus, vivid natural colors, documentary broadcast quality, "
                 f"subtle natural character breathing, stable non-morphing walls, rigid background structures, "
                 f"unlabeled telemetry displays, zero text, zero letters, zero numbers"
@@ -782,7 +782,7 @@ class WanT4OptimizedEngine:
             f"{grounding_prefix}{visual_prompt[:280]}, dramatic cinematic YouTube hero poster, "
             f"prominent foreground hero subject in sharp focus, extreme dynamic lighting, intense volumetric rim lights, "
             f"rich contrast, deep shadows, atmospheric cinematic haze, shallow depth of field, award-winning photography, "
-            f"8k resolution, masterpiece composition, dark atmospheric left background for typography, "
+            f"sharp cinematic focus, atmospheric composition, dark atmospheric left background for typography, "
             f"zero text, zero words, zero letters, zero watermarks"
         )
         if domain in ["science", "space", "technology", "nature", "history"]:
@@ -979,7 +979,7 @@ async def main():
         for i in missing_kf_indices:
             sc = scenes[i]
             target_kf = f"{TMP}/kf_{i:03d}.png"
-            kf_prompt = f"{grounding_prefix}{sc.get('visual_prompt', sc.get('narration', ''))[:220]}, modern documentary cinema, sharp focus, 8k resolution, zero text"
+            kf_prompt = f"{grounding_prefix}{sc.get('visual_prompt', sc.get('narration', ''))[:220]}, modern documentary cinema, sharp focus, zero text"
             kf_gen.generate(kf_prompt, target_kf)
         kf_gen.release_vram()
         del kf_gen

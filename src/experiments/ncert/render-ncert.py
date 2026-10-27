@@ -586,7 +586,7 @@ class WanT4OptimizedEngine:
             print(f"[Keyframe Fallback] Scene {scene_idx+1} keyframe not found in dataset. Triggering Tarika 1 SDXL-Lightning...")
             fallback_kf = f"{TMP}/kf_{scene_idx:03d}.png"
             kf_gen = KaggleKeyframeFallback(hf_token=self.hf_token)
-            kf_prompt = f"{prompt[:240]}, modern documentary cinema, sharp focus, 8k resolution, zero text"
+            kf_prompt = f"{prompt[:240]}, modern documentary cinema, sharp focus, zero text"
             kf_path = kf_gen.generate(kf_prompt, fallback_kf)
             kf_gen.release_vram()
 
@@ -604,7 +604,7 @@ class WanT4OptimizedEngine:
             sub_clip = f"{TMP}/sub_{scene_idx}_{s_idx}.mp4"
 
             clean_prompt = (
-                f"{prompt[:240]}, {var_text}, modern digital cinema, 4k ultra-high definition, "
+                f"{prompt[:240]}, {var_text}, modern digital cinema, sharp high-definition focus, "
                 f"sharp crystal clear focus, vivid natural colors, documentary broadcast quality, "
                 f"subtle natural character breathing, stable non-morphing walls, rigid background structures, "
                 f"unlabeled telemetry displays, zero text, zero letters, zero numbers"
@@ -781,7 +781,7 @@ class WanT4OptimizedEngine:
         clean_prompt = (
             f"{visual_prompt[:320]}, hyper-cinematic documentary poster art, award-winning photography, "
             f"masterpiece composition, dramatic volumetric rim lighting, deep contrast, vibrant authentic colors, "
-            f"hyper-detailed textures, sharp focus, 8k resolution, completely clean composition with lower negative space, "
+            f"hyper-detailed textures, sharp focus, completely clean composition with lower negative space, "
             f"zero text, zero words, zero letters, zero watermarks"
         )
         if domain in ["science", "space", "technology", "nature", "history"]:

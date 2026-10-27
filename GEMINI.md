@@ -165,3 +165,17 @@
 - **Quota, Latency & Consistency Guardrail:**
   - Prevents quota exhaustion across Gemini LLM, Gemini-TTS, and Cloudflare Workers AI pools while ensuring deterministic consistency across identical runs.
 
+## 17. Prohibition of Placebo Buzzwords & Imaginary Model Claims (Zero-Hype Prompting)
+- **Strict Elimination of Fake Resolution Tokens:**
+  - Diffusion models (FLUX.1-schnell, SDXL, Wan2.1 DiT) possess fixed mathematical latent spaces. FLUX.1-schnell operates natively at $1024 \times 1024$ pixels (~1 MP, up to $2048 \times 2048$), and Wan2.1 renders at 480p/720p.
+  - Adding imaginary buzzwords like `"8K"`, `"8K resolution"`, `"4K"`, `"masterpiece"`, or `"photorealistic 8k"` does NOT upscale latent resolution. It is prompt slop that burns token context, induces hallucination, and makes false technical claims.
+  - STRICTLY FORBIDDEN: Writing `"8K"`, `"4K"`, `"8k resolution"`, or `"4k ultra-high definition"` in prompts, system instructions, or technical documentation.
+- **Physical & Optical Descriptors Only:**
+  - Visual quality must strictly be guided by grounded optical and lighting descriptors:
+    - *Camera & Lens:* `35mm lens`, `shallow depth of field`, `locked static tripod framing`, `sharp focal point`.
+    - *Lighting & Atmosphere:* `volumetric directional lighting`, `natural ambient light`, `subtle atmospheric haze`, `balanced dynamic contrast`.
+    - *Surfaces & Materials:* `detailed photorealistic textures`, `authentic tactile materials`, `natural skin pores and wrinkles`.
+- **Zero Imaginary Capabilities in Architectural Documentation:**
+  - Never describe or market the system with exaggerated, scientifically false claims (e.g. claiming FLUX generates 8K images when its native tensor capacity is $1024 \times 1024$). Technical documentation and developer communications must strictly reflect true tensor limits and model capabilities.
+
+

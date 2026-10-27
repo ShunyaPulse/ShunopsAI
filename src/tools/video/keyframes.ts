@@ -46,7 +46,7 @@ function buildKeyframePrompt(
 
   // 3. Cinematic 3D aesthetic & anti-2D cartoon invariant
   parts.push(
-    "Cinematic photography, 35mm lens, photorealistic, sharp focus, 8k resolution, volumetric dramatic lighting, detailed textures, zero text, zero logos, zero watermarks. STRICTLY BANNED: 2D cartoon, flat vector art, anime, comic book, pencil sketch, line drawing, 2D flat animation, floating cartoon hearts, disembodied floating heads, uncanny surrealism"
+    "Cinematic photography, 35mm lens, photorealistic, sharp focus, volumetric dramatic lighting, detailed textures, zero text, zero logos, zero watermarks. STRICTLY BANNED: 2D cartoon, flat vector art, anime, comic book, pencil sketch, line drawing, 2D flat animation, floating cartoon hearts, disembodied floating heads, uncanny surrealism"
   );
 
   return parts.join(". ").replace(/\s+/g, " ").trim();

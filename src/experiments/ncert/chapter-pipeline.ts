@@ -158,7 +158,7 @@ CRITICAL INVARIANTS:
 
 8. UNIFIED GLOBAL ART STYLE (ZERO ART-STYLE DRIFT):
    - Formulate a single, explicit visual medium descriptor to maintain the cinematic 3D aesthetic consistently across all shots:
-     e.g., "Cinematic 3D render, volumetric dramatic lighting, photorealistic textures, 8k resolution, cinematic atmosphere. STRICTLY BANNED: 2D cartoon, anime, flat vector art, comic book, pencil sketch, line drawing, 2D animation."
+     e.g., "Cinematic 3D render, volumetric dramatic lighting, photorealistic textures, cinematic atmosphere. STRICTLY BANNED: 2D cartoon, anime, flat vector art, comic book, pencil sketch, line drawing, 2D animation."
 9. STRICT LATENT TRAPS TO BAN (NO STRANGE VISUAL LOGIC):
    - Identify latent traps prone to diffusion artifacts for this story:
      e.g., "Floating cartoon hearts, emoji icons on faces/clothing, disembodied severed heads/limbs, heads emerging from objects or chains, surreal dreamlike art collages, grotesque uncanny anatomy, bizarre metaphysical distortions."
@@ -308,7 +308,7 @@ ${characterBibleText}
 
 9. UNIFIED GLOBAL ART STYLE (ZERO ART-STYLE DRIFT):
     - MANDATORY: Every single "visual_prompt" MUST start with this exact art style descriptor:
-      "${research.unifiedArtStyle || 'Cinematic 35mm film photograph, highly detailed photorealistic live-action, 8k resolution, authentic natural directional lighting, rich tactile textures, film grain, hyper-realistic cinematography. STRICTLY BANNED: 2D cartoon, anime, illustration, pencil sketch, flat vector art, CGI render, 3D claymation.'}"
+      "${research.unifiedArtStyle || 'Cinematic 3D render, volumetric dramatic lighting, photorealistic textures, authentic directional lighting, rich tactile depth. STRICTLY BANNED: 2D cartoon, anime, illustration, pencil sketch, flat vector art, 2D animation.'}"
 
 10. STRICT LATENT TRAPS BAN (NO STRANGE VISUAL LOGIC):
     - STRICTLY BANNED: ${research.latentTrapsToBan?.join(", ") || 'Floating cartoon hearts, emojis on faces/clothes, disembodied severed heads/limbs, heads emerging from objects or chains, surreal dreamlike art collages, grotesque uncanny anatomy.'}
@@ -358,7 +358,7 @@ Respond strictly in valid JSON matching this schema:
   script.rate = script.rate || "+10%";
 
   // Autonomous Pipeline Invariant Enforcement (Zero Art Style Drift, 100% Actor Lock, Indian English Q&A)
-  const globalArtPrefix = research.unifiedArtStyle || "Cinematic 3D aesthetic, volumetric dramatic lighting, photorealistic textures, 8k resolution, cinematic depth.";
+  const globalArtPrefix = research.unifiedArtStyle || "Cinematic 3D aesthetic, volumetric dramatic lighting, photorealistic textures, cinematic depth.";
   const anti2dGuards = ["2D cartoon", "anime", "flat vector art", "comic book illustration", "pencil sketch", "line drawing", "2D animation"];
   const latentTrapsBanned = Array.from(new Set([...anti2dGuards, ...(research.latentTrapsToBan || [])])).join(", ");
 

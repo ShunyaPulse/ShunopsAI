@@ -239,7 +239,7 @@ CRITICAL DIRECTIVES:
 
    - Modern Digital Lighting & Clarity:
 
-     * "Crisp natural 4K digital cinematography, modern high-end documentary lighting, balanced realistic color grade, sharp clean focus, absolutely NO vintage/retro/sepia/8mm/grainy aesthetics."
+     * "Crisp natural digital cinematography, modern high-end documentary lighting, balanced realistic color grade, sharp clean focus, absolutely NO vintage/retro/sepia/8mm/grainy aesthetics."
 
    - Realism enforcement: Clean, authentic physical textures (modern architectural glass, polished materials, real skin, crisp telemetry). Avoid retro filters, heavy grain, sepia tones, plastic CGI, or still-photo aesthetics.
 
@@ -281,7 +281,7 @@ CRITICAL DIRECTIVES:
 
     "subheadline": "<2-4 words in ALL CAPS: Shocking consequence or twist, e.g. 'WHY JETS STOPPED', 'HAS A SECRET', 'WHO REPLACES ROHIT?'>",
 
-    "visual_prompt": "<Ultra-vivid cinematic hero visual prompt in pure English: dramatic macro/medium foreground subject occupying center-right of frame, intense volumetric rim lighting, cinematic mist/haze, deep contrast, shallow depth of field, dark atmospheric left side for text, 8k masterpiece, zero text in image>"
+    "visual_prompt": "<Ultra-vivid cinematic hero visual prompt in pure English: dramatic macro/medium foreground subject occupying center-right of frame, intense volumetric rim lighting, cinematic mist/haze, deep contrast, shallow depth of field, dark atmospheric left side for text, sharp cinematic focus, zero text in image>"
 
   },
 
