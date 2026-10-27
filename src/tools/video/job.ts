@@ -50,13 +50,13 @@ export async function waitForDatasetReady(
   pollIntervalMs = 2000
 ): Promise<boolean> {
   const start = Date.now();
-  console.log(`[Video] ⏳ Smart polling Kaggle dataset readiness for "${datasetRef}"...`);
+  console.log(`[Video] ⏳ Smart polling Kaggle dataset readiness for "[REDACTED]"...`);
   while (Date.now() - start < maxWaitMs) {
     try {
       const statusRes = await kaggle(["datasets", "status", datasetRef]);
       if (statusRes.toLowerCase().includes("ready")) {
         const elapsed = ((Date.now() - start) / 1000).toFixed(1);
-        console.log(`[Video] ⚡ Dataset "${datasetRef}" ready in ${elapsed}s (saved ~${Math.max(0, 20 - Number(elapsed))}s)!`);
+        console.log(`[Video] ⚡ Dataset "[REDACTED]" ready in ${elapsed}s (saved ~${Math.max(0, 20 - Number(elapsed))}s)!`);
         return true;
       }
     } catch {
