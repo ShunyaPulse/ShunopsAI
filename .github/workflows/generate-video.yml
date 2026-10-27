@@ -2,23 +2,23 @@ name: "Cloud Video Pipeline (Zero-Laptop Storage)"
 
 on:
   schedule:
-    # 22:00 UTC = 3:30 AM IST (Daily Autonomous Video Generation & Dispatch)
-    - cron: "0 22 * * *"
+    # 10:00 UTC = 3:30 PM IST (Daily Autonomous Google Trends Video Generation & Dispatch)
+    - cron: "0 10 * * *"
   workflow_dispatch:
     inputs:
       topic:
-        description: "Target Topic / Chapter Title (leave empty for autonomous trending topic)"
+        description: "Target Topic / Chapter Title (leave empty for daily Google Trends)"
         required: false
         default: ""
       video_type:
         description: "Video Architecture"
         required: true
         type: choice
-        default: "chapter"
+        default: "trend"
         options:
+          - "trend"
           - "chapter"
           - "general"
-          - "trend"
       language:
         description: "Narration Language"
         required: false
@@ -68,7 +68,7 @@ jobs:
       - name: Run Cloud Video Generation & Dispatch
         env:
           TOPIC: ${{ github.event.client_payload.topic || github.event.inputs.topic || '' }}
-          VIDEO_TYPE: ${{ github.event.client_payload.video_type || github.event.inputs.video_type || 'chapter' }}
+          VIDEO_TYPE: ${{ github.event.client_payload.video_type || github.event.inputs.video_type || 'trend' }}
           LANGUAGE: ${{ github.event.client_payload.language || github.event.inputs.language || 'Hindi' }}
           MINUTES: ${{ github.event.client_payload.minutes || github.event.inputs.minutes || '5' }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_KEYS || secrets.GEMINI_API_KEYS || secrets.GEMINI_API_KEY }}

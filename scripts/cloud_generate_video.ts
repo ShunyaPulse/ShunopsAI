@@ -21,24 +21,21 @@ async function main() {
   console.log("==================================================================");
 
   const topicArg = process.env.TOPIC || process.argv.slice(2).join(" ").trim();
-  const videoType = (process.env.VIDEO_TYPE || "chapter").toLowerCase();
+  const videoType = (process.env.VIDEO_TYPE || (topicArg ? "chapter" : "trend")).toLowerCase();
   const language = process.env.LANGUAGE || "Hindi";
   const minutes = Number(process.env.MINUTES) || 5;
 
-  console.log(`📋 Parameters: Type='${videoType}', Language='${language}', Duration=${minutes}m`);
-  if (topicArg) {
-    console.log(`🎯 Target Topic: "${topicArg}"`);
-  } else {
-    console.log(`🌐 No specific topic provided. Autonomously curating from Google Trends India...`);
+  if (!topicArg && videoType !== "trend") {
+    console.error("❌ [Error] No topic provided for chapter video. Aborting video generation to prevent unconfirmed runs.");
+    process.exit(0);
   }
+
+  console.log(`📋 Parameters: Type='${videoType}', Language='${language}', Duration=${minutes}m`);
+  console.log(`🎯 Target Topic: "${topicArg || '[Auto-Fetch Google Trends India]'}"`);
 
   try {
     if (videoType === "chapter") {
-      let chapterTopic = topicArg;
-      if (!chapterTopic) {
-        chapterTopic = "Nelson Mandela: Long Walk to Freedom | CBSE Class 10 English";
-        console.log(`ℹ️ Defaulting to landmark chapter: "${chapterTopic}"`);
-      }
+      const chapterTopic = topicArg;
 
       console.log(`\n📚 Phase 1: Grounded Research on "${chapterTopic}"...`);
       const research = await researchChapter(chapterTopic);
