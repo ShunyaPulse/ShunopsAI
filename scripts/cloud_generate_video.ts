@@ -77,7 +77,7 @@ async function main() {
     console.error("❌ [Cloud Video Dispatch Error]: Dispatch execution failed.");
     await sendIncidentAlert(
       "Cloud Video Pipeline Failure",
-      `Failed to dispatch cloud video for topic: "${topicArg || "autonomous"}"\n\nError: ${err?.message ? String(err.message).slice(0, 100) : "Internal error"}`
+      `Failed to dispatch cloud video for topic: "${topicArg || "autonomous"}"\n\nError: [REDACTED]`
     ).catch(() => {});
     process.exit(1);
   }
