@@ -204,6 +204,9 @@
   - If ANY asset is missing or corrupted, the pipeline MUST immediately abort with `[Pre-Flight Verification Gate Abort]` and throw an error. It is strictly forbidden to dispatch an empty, partial, or unverified dataset to Kaggle GPU.
 - **Preservation of Kernel-Level T2V Fallback:**
   - The Kaggle GPU renderer retains its Wan2.1 T2V / AnimateDiff fallback as a last-resort safety net if runtime tensor decoding fails, but upstream runners must never rely on this as normal operation.
+- **Mandatory Subdirectory Dataset Packaging (`--dir-mode zip`):**
+  - Kaggle CLI's default directory mode is `skip`, which silences and omits `audio/` and `images/` directories unless `--dir-mode zip` (or `-r zip`) is specified.
+  - In `src/tools/video/kaggle.ts`, `normalizeKaggleArgs` permanently and automatically injects `-r zip` for all `datasets create` and `datasets version` calls if omitted, and resolves folder paths to absolute paths to prevent Windows path-mangling bugs in Kaggle CLI.
 
 
 

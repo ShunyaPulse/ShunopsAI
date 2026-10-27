@@ -23,12 +23,35 @@ function kaggleEnv(): NodeJS.ProcessEnv {
   };
 }
 
+/**
+ * Normalizes Kaggle CLI arguments to guarantee dataset subdirectories are never skipped
+ * and paths are resolved to absolute to prevent Windows upload mangling.
+ */
+function normalizeKaggleArgs(args: string[]): string[] {
+  const normalized = [...args];
+  if (normalized[0] === "datasets" && (normalized[1] === "create" || normalized[1] === "version")) {
+    const hasDirMode = normalized.includes("--dir-mode") || normalized.includes("-r");
+    if (!hasDirMode) {
+      normalized.push("-r", "zip");
+    }
+    const pIdx = normalized.findIndex((a) => a === "-p" || a === "--path");
+    if (pIdx !== -1 && pIdx + 1 < normalized.length) {
+      const targetPath = normalized[pIdx + 1];
+      if (targetPath) {
+        normalized[pIdx + 1] = path.resolve(targetPath);
+      }
+    }
+  }
+  return normalized;
+}
+
 /** Run the Kaggle CLI, falling back to `python -m kaggle` off Windows. */
 export async function kaggle(args: string[], timeout = KAGGLE_TIMEOUT_MS): Promise<string> {
   const env = kaggleEnv();
+  const safeArgs = normalizeKaggleArgs(args);
   const isWin = os.platform() === "win32";
   const cmd = isWin ? "python" : "kaggle";
-  const finalArgs = isWin ? ["-X", "utf8", "-m", "kaggle", ...args] : args;
+  const finalArgs = isWin ? ["-X", "utf8", "-m", "kaggle", ...safeArgs] : safeArgs;
 
   try {
     const { stdout, stderr } = await execFileAsync(cmd, finalArgs, {
@@ -40,7 +63,7 @@ export async function kaggle(args: string[], timeout = KAGGLE_TIMEOUT_MS): Promi
   } catch (e: any) {
     if (!isWin) {
       try {
-        const { stdout, stderr } = await execFileAsync("python", ["-X", "utf8", "-m", "kaggle", ...args], {
+        const { stdout, stderr } = await execFileAsync("python", ["-X", "utf8", "-m", "kaggle", ...safeArgs], {
           env,
           timeout,
           maxBuffer: MAX_BUFFER,
