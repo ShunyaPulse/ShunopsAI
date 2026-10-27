@@ -172,7 +172,7 @@ export async function searchAndDownloadSFX(
  */
 const BGM_CLOUD_STORAGE_BASE =
   process.env.BGM_STORAGE_URL ||
-  "https://storage.googleapis.com/shunops-audio-assets/bgm";
+  "https://storage.googleapis.com/shunops-bgm-assets-422513/bgm";
 
 /**
  * 100% Cloud-Streamed 10-Track Master BGM Catalog (Zero Laptop Storage)
