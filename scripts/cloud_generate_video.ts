@@ -71,7 +71,7 @@ async function main() {
       const launchOutput = await startVideoJob(finalTopic, minutes, language, trendReason);
       let parsedJob: any = {};
       try { parsedJob = JSON.parse(launchOutput); } catch {}
-      console.log(`\n🎉 [SUCCESS] General Video Job Output: ${parsedJob.jobId || "Job started"}`);
+      console.log(`\n🎉 [SUCCESS] General Video Job Output: [REDACTED]`);
     }
   } catch (err: any) {
     console.error("❌ [Cloud Video Dispatch Error]: Dispatch execution failed.");
