@@ -178,4 +178,14 @@
 - **Zero Imaginary Capabilities in Architectural Documentation:**
   - Never describe or market the system with exaggerated, scientifically false claims (e.g. claiming FLUX generates 8K images when its native tensor capacity is $1024 \times 1024$). Technical documentation and developer communications must strictly reflect true tensor limits and model capabilities.
 
+## 18. Strict Prohibition on Unconfirmed Cloud Resource Deletion & Job Termination
+- **Zero Unprompted Resource Deletion:**
+  - NEVER delete, cancel, abort, stop, or kill any cloud job, Kaggle kernel, Kaggle dataset, or rendered artifact without explicit, direct user instruction.
+  - Even if a job or dataset appears redundant, unexpected, unprompted, or failed:
+    1. Report the resource ID, status, and details clearly to the user.
+    2. Wait for the user's explicit confirmation or command before issuing any `delete`, `stop`, or cleanup call.
+- **Data & GPU Quota Respect:**
+  - Running and queued GPU jobs represent valuable compute time and quota. Premature cancellation without user consent is strictly forbidden.
+
+
 
