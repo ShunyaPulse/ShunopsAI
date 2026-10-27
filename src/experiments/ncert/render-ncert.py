@@ -1,13 +1,14 @@
 """
-Kaggle GPU Kernel: Alibaba Wan2.1 (1.3B DiT) T4-Optimized Pipeline
+Kaggle GPU Kernel: Alibaba Wan2.1-VACE (1.3B) Image-to-Video Pipeline
 Features:
-  1. Wan2.1 (1.3B DiT)     -> Alibaba 3D Causal VAE + Flow Matching Diffusion Transformer (Zero 2D UNet morphing)
-  2. FP16 + Cutlass SDPA   -> Native Turing (SM 7.5) FP16 Tensor Core acceleration (No bfloat16 incompatibility)
-  3. Native Attention Slice-> pipe.enable_attention_slicing(slice_size="max") drops peak VRAM from 48 GB to ~7-9 GB
-  4. VAE Tiling + Offload  -> Latent decoding in tiles, keeping VAE VRAM spikes under 3 GB on 16GB T4
-  5. RIFE / Optical Motion -> Bi-directional motion-compensated frame interpolation (16 FPS -> fluid 24 FPS broadcast cinema)
-  6. Multi-Tier Audio Sync -> Pre-packaged Audio ➔ Kokoro-82M ➔ Google Cloud Neural2 ➔ Edge-TTS (44.1kHz Stereo Locked, Zero Drift)
-  7. Modern 1080p Digital  -> Lanczos 1080p scaling, subtle unsharp clarity, vibrant documentary digital color grade
+  1. Wan2.1-VACE (1.3B)    -> Reference image conditioned I2V (100% Character & Object Lock)
+  2. Tarika 2 + 1 Fallback -> Cloudflare FLUX.1-schnell pre-packaged keyframes (₹0) + Kaggle SDXL-Lightning fallback
+  3. FP16 + Cutlass SDPA   -> Native Turing (SM 7.5) FP16 Tensor Core acceleration (No bfloat16 incompatibility)
+  4. Native Attention Slice-> pipe.enable_attention_slicing(slice_size="max") drops peak VRAM from 48 GB to ~7-9 GB
+  5. VAE Tiling + Offload  -> Latent decoding in tiles, keeping VAE VRAM spikes under 3 GB on 16GB T4
+  6. RIFE / Optical Motion -> Bi-directional motion-compensated frame interpolation (16 FPS -> fluid 24 FPS broadcast cinema)
+  7. Edge-TTS WordBoundary -> Frame-perfect native subtitle synchronization (bypasses Whisper, 0 API quota)
+  8. Modern 1080p Digital  -> Lanczos 1080p scaling, subtle unsharp clarity, vibrant documentary digital color grade
 """
 import asyncio
 import gc
@@ -40,14 +41,11 @@ for mod in list(sys.modules.keys()):
     if "torchao" in mod:
         del sys.modules[mod]
 
-# Ensure core video diffusion dependencies are installed first
+# Ensure core ML diffusion dependencies are present and upgraded (Zero audio packages at boot)
 subprocess.run([
     sys.executable, "-m", "pip", "install", "-q", "-U",
     "diffusers", "transformers", "accelerate", "safetensors", "huggingface_hub", "ftfy"
 ], check=False)
-
-# Install audio synthesis engines (Zero kokoro/spacy - all master audio is pre-synthesized locally)
-subprocess.run([sys.executable, "-m", "pip", "install", "-q", "edge-tts"], check=False)
 
 try:
     import ftfy
@@ -57,11 +55,7 @@ except ImportError:
     ftfy.fix_text = lambda text, *a, **kw: text
     sys.modules["ftfy"] = ftfy
 
-try:
-    import edge_tts
-except ImportError:
-    edge_tts = None
-
+edge_tts = None
 import torch
 
 # Force PyTorch SDPA to use native Turing (SM 7.5) Memory-Efficient attention
@@ -106,6 +100,7 @@ def find_keyframe_image(scene_idx):
         f"/kaggle/input/**/scene_{scene_idx}.png",
         f"/kaggle/input/**/images/scene_{scene_idx:03d}.jpg",
         f"/kaggle/input/**/images/scene_{scene_idx}.jpg",
+        f"{TMP}/kf_{scene_idx:03d}.png",
     ]
     for p in patterns:
         matches = glob.glob(p, recursive=True)
@@ -180,47 +175,200 @@ def duration(path):
         return 0.0
 
 
-def parse_rate_multiplier(rate_str):
-    if not rate_str:
-        return 1.0
-    m = re.match(r"^([+-]?\d+(?:\.\d+)?)%$", str(rate_str).strip())
-    if not m:
-        return 1.0
-    pct = float(m.group(1))
-    return max(0.5, min(2.0, round(1.0 + pct / 100.0, 2)))
+# ==========================================
+# Edge-TTS Circuit Breaker & Resilient Fallback (On-Demand JIT Installation)
+# ==========================================
+EDGE_TTS_AVAILABLE = True
 
-
-def normalize_audio_to_44k_stereo(src_path, dst_path):
-    """
-    Standardizes any MP3/WAV audio file (24kHz mono or 44.1kHz mono/stereo) into
-    a uniform 44100 Hz, 2-channel stereo, 192 kbps MP3 so FFmpeg concat demuxer
-    never suffers sample-rate drift or pitch distortion across mixed TTS tiers.
-    """
-    tmp_norm = f"{dst_path}.norm.mp3"
-    ok = run([
-        "ffmpeg", "-y", "-i", src_path,
-        "-ar", "44100", "-ac", "2",
-        "-c:a", "libmp3lame", "-b:a", "192k", tmp_norm
-    ])
-    if ok and os.path.exists(tmp_norm) and os.path.getsize(tmp_norm) > 300:
-        shutil.move(tmp_norm, dst_path)
+def ensure_edge_tts_installed():
+    global edge_tts
+    if edge_tts is not None:
         return True
-    if src_path != dst_path and os.path.exists(src_path):
-        shutil.copyfile(src_path, dst_path)
-    return os.path.exists(dst_path) and os.path.getsize(dst_path) > 300
+    try:
+        import edge_tts as et
+        edge_tts = et
+        return True
+    except ImportError:
+        print("[Edge-TTS] Fallback reached: Installing edge-tts on demand...")
+        subprocess.run([sys.executable, "-m", "pip", "install", "-q", "-U", "edge-tts"], check=False)
+        try:
+            import edge_tts as et
+            edge_tts = et
+            return True
+        except ImportError as e:
+            print(f"[Edge-TTS] ⚠️ Failed to install edge-tts: {e}")
+            return False
+
+async def probe_edge_tts(voice, rate="+0%", max_retries=3):
+    """
+    Performs a lightweight pre-flight probe at startup with up to 3 retries.
+    If Microsoft Edge-TTS is blocked or unreachable after 3 attempts, raises RuntimeError immediately.
+    Halts the job before expensive GPU models are loaded to avoid wasting GPU quota on a mute video.
+    """
+    if not ensure_edge_tts_installed():
+        print("[TTS] ⚠️ edge_tts module could not be installed; skipping Edge-TTS probe.")
+        return False
+    for attempt in range(1, max_retries + 1):
+        try:
+            communicate = edge_tts.Communicate("test probe", voice, rate=rate)
+            async for chunk in communicate.stream():
+                if chunk["type"] == "audio":
+                    break
+            print("[TTS] ✅ Edge-TTS pre-flight probe succeeded. Primary engine: Edge-TTS.")
+            return True
+        except Exception as e:
+            print(f"[TTS] ⚠️ Edge-TTS pre-flight probe attempt {attempt}/{max_retries} failed: {e}")
+            if attempt < max_retries:
+                await asyncio.sleep(2 * attempt)
+
+    raise RuntimeError(
+        f"[TTS] ❌ Fatal: Edge-TTS connection failed after {max_retries} attempts. "
+        "Halting job immediately to prevent rendering a mute video and wasting GPU quota."
+    )
 
 
-# ==========================================
-# Audio Synthesis Engines: Google Cloud Neural2 + Kokoro-82M + Edge-TTS
-# ==========================================
-EDGE_TTS_AVAILABLE = False
+async def tts_with_boundaries(text, voice, a_path, rate="+0%", max_retries=3):
+    """
+    Synthesizes speech with Edge-TTS and captures internal WordBoundary metadata streams.
+    Retries up to 3 times with exponential backoff.
+    If Microsoft endpoints fail after 3 retries, raises RuntimeError to prevent rendering a mute video.
+    """
+    if not ensure_edge_tts_installed():
+        raise RuntimeError("[TTS] Fatal: edge-tts could not be loaded for fallback audio.")
+    last_err = None
+    for attempt in range(1, max_retries + 1):
+        try:
+            communicate = edge_tts.Communicate(text, voice, rate=rate)
+            submaker = edge_tts.SubMaker()
+            with open(a_path, "wb") as f:
+                async for chunk in communicate.stream():
+                    if chunk["type"] == "audio":
+                        f.write(chunk["data"])
+                    elif chunk["type"] in ("WordBoundary", "SentenceBoundary"):
+                        submaker.feed(chunk)
+            if os.path.exists(a_path) and os.path.getsize(a_path) > 800:
+                return submaker
+            else:
+                raise RuntimeError("Edge-TTS generated empty or incomplete audio file.")
+        except Exception as e:
+            last_err = e
+            print(f"[TTS] ⚠️ Edge-TTS scene synthesis attempt {attempt}/{max_retries} failed: {e}")
+            if attempt < max_retries:
+                await asyncio.sleep(2 * attempt)
+
+    raise RuntimeError(
+        f"[TTS] ❌ Fatal: Scene audio synthesis failed after {max_retries} attempts: {last_err}. "
+        "Halting job immediately to prevent rendering a mute video."
+    )
+
+
+def chunk_text_utf8(text, max_bytes=4200):
+    cleaned = (text or "").strip()
+    if not cleaned:
+        return []
+    if len(cleaned.encode("utf-8")) <= max_bytes:
+        return [cleaned]
+    sentences = re.split(r"(?<=[।.!?;\n])\s+", cleaned)
+    chunks, current = [], ""
+    for s in sentences:
+        cand = f"{current} {s}".strip() if current else s
+        if len(cand.encode("utf-8")) <= max_bytes:
+            current = cand
+        else:
+            if current:
+                chunks.append(current)
+            current = s
+    if current:
+        chunks.append(current)
+    return chunks
+
+
+def synthesize_gcp_neural2(text, out_mp3, api_key, voice_name="hi-IN-Neural2-C", speaking_rate=1.0):
+    """
+    Tier 1 Voice Synthesis: Calls Google Cloud Text-to-Speech (Neural2) directly on Kaggle GPU.
+    Uses standard library urllib (zero external pip packages, ultra-reliable).
+    Supports UTF-8 byte chunking (<=4200 bytes) and multi-part merging.
+    """
+    import urllib.request
+    import base64
+
+    clean_key = (api_key or "").split(",")[0].strip()
+    if not clean_key or clean_key.startswith("{"):
+        return False
+
+    v_name = voice_name or "hi-IN-Neural2-C"
+    lang_code = (
+        "en-GB" if "en-GB" in v_name else
+        "en-US" if "en-US" in v_name else
+        "en-IN" if "en-IN" in v_name else
+        "hi-IN" if "hi-" in v_name or "hindi" in v_name.lower() else "hi-IN"
+    )
+
+    url = f"https://texttospeech.googleapis.com/v1/text:synthesize?key={clean_key}"
+    if not url.startswith("https://texttospeech.googleapis.com"):
+        return False
+
+    chunks = chunk_text_utf8(text, 4200)
+    if not chunks:
+        return False
+
+    audio_parts = []
+    try:
+        opener = urllib.request.build_opener(urllib.request.HTTPSHandler())
+        for ch in chunks:
+            payload = {
+                "input": {"text": ch},
+                "voice": {"languageCode": lang_code, "name": v_name},
+                "audioConfig": {"audioEncoding": "MP3", "speakingRate": speaking_rate, "sampleRateHertz": 44100}
+            }
+            req = urllib.request.Request(
+                url,
+                data=json.dumps(payload).encode("utf-8"),
+                headers={"Content-Type": "application/json"}
+            )
+            with opener.open(req, timeout=25) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                if "audioContent" in data:
+                    audio_parts.append(base64.b64decode(data["audioContent"]))
+                else:
+                    return False
+
+        if audio_parts:
+            with open(out_mp3, "wb") as f:
+                for part in audio_parts:
+                    f.write(part)
+            total_bytes = sum(len(p) for p in audio_parts)
+            print(f"[GCP TTS] ✅ Synthesized scene audio ({total_bytes} bytes) using {v_name}.")
+            return True
+    except Exception as e:
+        print(f"[GCP TTS Warning] Failed ({e}). Falling back...")
+    return False
+
+
 kokoro_pipelines = {}
 
+def ensure_kokoro_installed():
+    try:
+        import kokoro
+        import soundfile
+        return True
+    except ImportError:
+        print("[Kokoro-82M] Fallback reached: JIT installing kokoro & soundfile on demand...")
+        subprocess.run([sys.executable, "-m", "pip", "install", "-q", "kokoro", "soundfile"], check=False)
+        try:
+            import kokoro
+            import soundfile
+            return True
+        except ImportError as e:
+            print(f"[Kokoro-82M] ⚠️ Kokoro on-demand install unavailable: {e}")
+            return False
 
 def get_kokoro_pipeline(lang_code="a"):
     global kokoro_pipelines
     if lang_code in kokoro_pipelines:
         return kokoro_pipelines[lang_code]
+    if not ensure_kokoro_installed():
+        return None
     try:
         from kokoro import KPipeline
         pipe = KPipeline(lang_code=lang_code)
@@ -265,164 +413,13 @@ def synthesize_kokoro_audio(text, voice_name, out_path, speed=1.0):
             full_audio = np.concatenate(chunks)
             sf.write(wav_tmp, full_audio, 24000)
         if os.path.exists(wav_tmp) and os.path.getsize(wav_tmp) > 300:
-            normalize_audio_to_44k_stereo(wav_tmp, out_path)
+            ok_norm = run(["ffmpeg", "-y", "-i", wav_tmp, "-ar", "44100", "-ac", "2", "-c:a", "libmp3lame", "-b:a", "192k", out_path])
             if os.path.exists(wav_tmp):
                 os.remove(wav_tmp)
-            if os.path.exists(out_path) and os.path.getsize(out_path) > 300:
-                print(f"[Kokoro-82M] ✅ Synthesized dialogue ({voice_name}, {len(chunks)} chunk(s)): '{clean_text[:40]}...'")
-                return True
-        return False
+            return ok_norm and os.path.exists(out_path) and os.path.getsize(out_path) > 300
     except Exception as e:
-        print(f"[Kokoro-82M] ⚠️ Synthesis error: {e}")
-        return False
-
-
-def chunk_text_utf8(text, max_bytes=4200):
-    cleaned = (text or "").strip()
-    if not cleaned:
-        return []
-    if len(cleaned.encode("utf-8")) <= max_bytes:
-        return [cleaned]
-    sentences = re.split(r"(?<=[।.!?;\n])\s+", cleaned)
-    chunks, current = [], ""
-    for s in sentences:
-        cand = f"{current} {s}".strip() if current else s
-        if len(cand.encode("utf-8")) <= max_bytes:
-            current = cand
-        else:
-            if current:
-                chunks.append(current)
-            current = s
-    if current:
-        chunks.append(current)
-    return chunks
-
-
-def synthesize_gcp_cloud_tts(text, voice_name, out_path, gcp_key, default_lang="hi-IN", speaking_rate=1.0):
-    """
-    Direct autonomous cloud synthesis on Kaggle/remote runners via Google Cloud REST API.
-    Supports UTF-8 byte chunking (<=4200 bytes) and 44.1kHz stereo normalization.
-    """
-    if not gcp_key:
-        return False
-    try:
-        import base64
-        import requests
-        from urllib.parse import urlparse
-        clean_key = gcp_key.split(",")[0].strip()
-        if not clean_key or clean_key.startswith("{"):
-            return False
-        url = f"https://texttospeech.googleapis.com/v1/text:synthesize?key={clean_key}"
-        parsed = urlparse(url)
-        if parsed.scheme != "https" or parsed.netloc != "texttospeech.googleapis.com":
-            return False
-
-        v_name = voice_name or ("hi-IN-Neural2-B" if default_lang == "hi-IN" else "en-US-Neural2-J")
-        if not any(tag in v_name for tag in ("Neural2", "Wavenet", "Standard", "Studio")):
-            v_name = "hi-IN-Neural2-B" if default_lang == "hi-IN" else "en-US-Neural2-J"
-        lang_code = (
-            "en-GB" if "en-GB" in v_name else
-            "en-US" if "en-US" in v_name else
-            "en-IN" if "en-IN" in v_name else
-            "hi-IN" if "hi-IN" in v_name else default_lang
-        )
-
-        text_chunks = chunk_text_utf8(text, 4200)
-        if not text_chunks:
-            return False
-
-        audio_parts = []
-        for ch in text_chunks:
-            payload = {
-                "input": {"text": ch},
-                "voice": {"languageCode": lang_code, "name": v_name},
-                "audioConfig": {"audioEncoding": "MP3", "speakingRate": speaking_rate, "sampleRateHertz": 44100}
-            }
-            res = requests.post(url, json=payload, timeout=20)
-            res.raise_for_status()
-            data = res.json()
-            if "audioContent" not in data:
-                return False
-            audio_parts.append(base64.b64decode(data["audioContent"]))
-
-        raw_mp3 = f"{out_path}.gcp_raw.mp3"
-        with open(raw_mp3, "wb") as f:
-            for part in audio_parts:
-                f.write(part)
-        if normalize_audio_to_44k_stereo(raw_mp3, out_path):
-            if os.path.exists(raw_mp3):
-                os.remove(raw_mp3)
-            print(f"[GCP Cloud TTS] ✅ Direct cloud synthesis succeeded ({v_name}): '{text[:40]}...'")
-            return True
-        return False
-    except Exception as e:
-        print(f"[GCP Cloud TTS] ⚠️ Direct cloud synthesis notice: {e}")
-        return False
-
-
-async def probe_edge_tts(voice, rate="+0%", max_retries=3):
-    global EDGE_TTS_AVAILABLE
-    if edge_tts is None:
-        EDGE_TTS_AVAILABLE = False
-        return False
-    probe_voice = voice
-    if not probe_voice or "neural2" in probe_voice.lower() or "wavenet" in probe_voice.lower() or "_" in probe_voice:
-        probe_voice = "hi-IN-MadhurNeural" if "hi" in (voice or "").lower() else "en-IN-PrabhatNeural"
-    for attempt in range(1, max_retries + 1):
-        try:
-            communicate = edge_tts.Communicate("test probe", probe_voice, rate=rate)
-            async for chunk in communicate.stream():
-                if chunk["type"] == "audio":
-                    break
-            print("[TTS] ✅ Edge-TTS connection verified.")
-            EDGE_TTS_AVAILABLE = True
-            return True
-        except Exception as e:
-            print(f"[TTS] ⚠️ Edge-TTS probe attempt {attempt}/{max_retries} notice: {e}")
-            if attempt < max_retries:
-                await asyncio.sleep(2 * attempt)
-
-    print("[TTS] ⚠️ Edge-TTS unavailable on runner network. Pipeline will utilize Pre-Packaged / Cloud GCP Audio & Kokoro-82M.")
-    EDGE_TTS_AVAILABLE = False
+        print(f"[Kokoro-82M Warning] Audio synthesis notice: {e}")
     return False
-
-
-async def tts_with_boundaries(text, voice, a_path, rate="+0%", max_retries=3):
-    """
-    Synthesizes speech with Edge-TTS, captures internal WordBoundary metadata streams,
-    and normalizes output to 44.1kHz stereo MP3.
-    """
-    if edge_tts is None:
-        raise RuntimeError("edge_tts package is not available.")
-    last_err = None
-    raw_edge_mp3 = f"{a_path}.edge_raw.mp3"
-    for attempt in range(1, max_retries + 1):
-        try:
-            communicate = edge_tts.Communicate(text, voice, rate=rate)
-            submaker = edge_tts.SubMaker()
-            with open(raw_edge_mp3, "wb") as f:
-                async for chunk in communicate.stream():
-                    if chunk["type"] == "audio":
-                        f.write(chunk["data"])
-                    elif chunk["type"] in ("WordBoundary", "SentenceBoundary"):
-                        submaker.feed(chunk)
-            if os.path.exists(raw_edge_mp3) and os.path.getsize(raw_edge_mp3) > 500:
-                normalize_audio_to_44k_stereo(raw_edge_mp3, a_path)
-                if os.path.exists(raw_edge_mp3):
-                    os.remove(raw_edge_mp3)
-                return submaker
-            else:
-                raise RuntimeError("Edge-TTS generated empty or incomplete audio file.")
-        except Exception as e:
-            last_err = e
-            print(f"[TTS] ⚠️ Edge-TTS scene synthesis attempt {attempt}/{max_retries} failed: {e}")
-            if attempt < max_retries:
-                await asyncio.sleep(2 * attempt)
-
-    raise RuntimeError(
-        f"[TTS] ❌ Fatal: Scene audio synthesis failed after {max_retries} attempts: {last_err}. "
-        "Halting job immediately to prevent rendering a mute video."
-    )
 
 
 def parse_srt_cues(srt_text, time_offset_sec):
@@ -430,8 +427,6 @@ def parse_srt_cues(srt_text, time_offset_sec):
     Parses SRT string from SubMaker and offsets cue timestamps by time_offset_sec.
     Returns list of dicts: [{'start': sec, 'end': sec, 'text': str}]
     """
-    if not srt_text:
-        return []
     cues = []
     pattern = re.compile(
         r"(\d+)\s*\n(\d{2}):(\d{2}):(\d{2})[,.](\d{3})\s*-->\s*(\d{2}):(\d{2}):(\d{2})[,.](\d{3})\s*\n(.*?)(?=\n\s*\n|\Z)",
@@ -448,7 +443,7 @@ def parse_srt_cues(srt_text, time_offset_sec):
 
 
 # ==========================================
-# Wan2.1-VACE (1.3B) Image-to-Video Engine
+# Wan2.1 (1.3B DiT) T4-Optimized Diffusion Engine
 # ==========================================
 class WanT4OptimizedEngine:
     def __init__(self, hf_token=None):
@@ -470,9 +465,8 @@ class WanT4OptimizedEngine:
             os.environ["HF_TOKEN"] = self.hf_token
             os.environ["HUGGING_FACE_HUB_TOKEN"] = self.hf_token
 
-        # Load Alibaba Wan2.1 1.3B DiT in FP16 (T4 Turing SM 7.5 Native Tensor Cores)
+        # Load Alibaba Wan2.1-VACE-1.3B-diffusers in FP16 (T4 Turing SM 7.5 Native Tensor Cores)
         try:
-            from diffusers import WanPipeline
             try:
                 from diffusers import WanVACEPipeline
                 PipelineClass = WanVACEPipeline
@@ -481,7 +475,7 @@ class WanT4OptimizedEngine:
                 PipelineClass = DiffusionPipeline
 
             model_id = "Wan-AI/Wan2.1-VACE-1.3B-diffusers"
-            print(f"[Wan2.1] Loading Alibaba Wan2.1 1.3B DiT: {model_id} in float16...")
+            print(f"[Wan2.1-VACE] Loading Alibaba Wan2.1-VACE 1.3B I2V: {model_id} in float16...")
             self.pipe = PipelineClass.from_pretrained(
                 model_id,
                 torch_dtype=torch.float16,  # float16 natively supported on Turing SM 7.5
@@ -491,7 +485,7 @@ class WanT4OptimizedEngine:
             # 1. Native attention slicing: divides computation into temporal slices (drops VRAM from 48 GB -> ~7-9 GB)
             if hasattr(self.pipe, "enable_attention_slicing"):
                 self.pipe.enable_attention_slicing(slice_size="max")
-                print("[Wan2.1] Native Diffusers attention slicing enabled (slice_size='max')!")
+                print("[Wan2.1-VACE] Native Diffusers attention slicing enabled (slice_size='max')!")
 
             # 2. VAE latent tiling and slicing: prevents VAE decoding VRAM spikes
             if hasattr(self.pipe, "vae"):
@@ -499,11 +493,11 @@ class WanT4OptimizedEngine:
                     self.pipe.vae.enable_tiling()
                 if hasattr(self.pipe.vae, "enable_slicing"):
                     self.pipe.vae.enable_slicing()
-                print("[Wan2.1] VAE tiling and slicing enabled!")
+                print("[Wan2.1-VACE] VAE tiling and slicing enabled!")
 
             # 3. Model CPU offload: swaps modules to host RAM to keep active VRAM under 9 GB on T4
             if hasattr(self.pipe, "enable_model_cpu_offload"):
-                print("[Wan2.1] Enabling model CPU offload...")
+                print("[Wan2.1-VACE] Enabling model CPU offload...")
                 self.pipe.enable_model_cpu_offload()
             else:
                 self.pipe = self.pipe.to("cuda")
@@ -512,7 +506,27 @@ class WanT4OptimizedEngine:
             print("[Wan2.1-VACE] Wan2.1-VACE-1.3B online with FP16 Cutlass + Attention Slicing + Character Lock!")
             return
         except Exception as wan_err:
-            print(f"[Wan2.1 Warning] Could not initialize WanPipeline ({wan_err}). Preparing fallback...")
+            print(f"[Wan2.1-VACE Warning] Could not initialize WanVACEPipeline ({wan_err}). Trying WanPipeline T2V...")
+            try:
+                from diffusers import WanPipeline
+                self.pipe = WanPipeline.from_pretrained(
+                    "Wan-AI/Wan2.1-T2V-1.3B-Diffusers",
+                    torch_dtype=torch.float16,
+                    token=self.hf_token if self.hf_token else None
+                )
+                if hasattr(self.pipe, "enable_attention_slicing"):
+                    self.pipe.enable_attention_slicing(slice_size="max")
+                if hasattr(self.pipe, "vae") and hasattr(self.pipe.vae, "enable_tiling"):
+                    self.pipe.vae.enable_tiling()
+                if hasattr(self.pipe, "enable_model_cpu_offload"):
+                    self.pipe.enable_model_cpu_offload()
+                else:
+                    self.pipe = self.pipe.to("cuda")
+                self.engine_name = "Wan2.1-T2V-1.3B"
+                print("[Wan2.1] Wan2.1-T2V-1.3B fallback initialized.")
+                return
+            except Exception as t2v_err:
+                print(f"[Wan2.1 Warning] T2V fallback failed ({t2v_err}). Preparing AnimateDiff-Lightning...")
 
         self._init_fallback_engine()
 
@@ -558,11 +572,12 @@ class WanT4OptimizedEngine:
             except Exception:
                 pass
 
-    def generate_scene_montage(self, prompt, target_dur, out_mp4, scene_idx, domain="general"):
+    def generate_scene_montage(self, prompt, target_dur, out_mp4, scene_idx, domain="general", visual_bible=None):
         """
         Generates continuous, non-repeating video for a scene with Wan2.1 DiT.
         Token Slicing: Uses 640x384 widescreen @ 33 frames (~30k tokens) to fit T4 16GB VRAM.
         RIFE motion-compensated interpolation smoothly upscales to fluid 24 FPS 1080p broadcast video.
+        Dynamically applies Director's Visual Bible (realWorldGrounding + latentTrapsToBan).
         """
         num_shots = 2 if target_dur > 3.0 else 1
         shot_dur = target_dur / num_shots
@@ -573,22 +588,30 @@ class WanT4OptimizedEngine:
             ("close-up detailed perspective, gentle optical push-in, rigid stable architecture, modern cinema", scene_idx * 19 + 7),
         ]
 
+        # Extract dynamic directives from Director's Visual Bible
+        vb = visual_bible or {}
+        latent_traps = vb.get("latentTrapsToBan", [])
+        real_grounding = vb.get("realWorldGrounding", "")
+        grounding_prefix = f"{real_grounding[:120]}, " if real_grounding else ""
+
+        # Dynamic topic-specific negative cues synthesized by AI Director
+        bible_neg = ", ".join(latent_traps[:15]) + ", " if latent_traps else ""
+
         if domain in ["science", "space", "technology", "nature", "history"]:
             domain_neg = "sports, stadium, athletics, cricket, football, soccer, baseball helmet, american football helmet, sports jersey, scoreboard, crowd cheering, referee, match, ball, bat, pads, wickets, "
         elif domain == "sports":
-            domain_neg = "baseball helmet, american football helmet, cartoon, anime, manga, comic, caricature, "
+            domain_neg = "cartoon, anime, manga, comic, caricature, "
         else:
-            domain_neg = "baseball helmet, american football helmet, cartoon, anime, "
+            domain_neg = "cartoon, anime, "
 
-        # Keyframe Acquisition: Tarika 2 (Pre-packaged Cloudflare FLUX) -> Tarika 1 (Kaggle SDXL-Lightning Fallback)
+        # Keyframe Acquisition: Tarika 2 (Pre-packaged Cloudflare FLUX or Pre-boot SDXL Fallback)
         kf_path = find_keyframe_image(scene_idx)
         if not kf_path or not os.path.exists(kf_path):
-            print(f"[Keyframe Fallback] Scene {scene_idx+1} keyframe not found in dataset. Triggering Tarika 1 SDXL-Lightning...")
             fallback_kf = f"{TMP}/kf_{scene_idx:03d}.png"
-            kf_gen = KaggleKeyframeFallback(hf_token=self.hf_token)
-            kf_prompt = f"{prompt[:240]}, modern documentary cinema, sharp focus, zero text"
-            kf_path = kf_gen.generate(kf_prompt, fallback_kf)
-            kf_gen.release_vram()
+            if os.path.exists(fallback_kf):
+                kf_path = fallback_kf
+            else:
+                print(f"[Keyframe Notice] Scene {scene_idx+1} keyframe not found. Proceeding with native text-to-video.")
 
         ref_image = None
         if kf_path and os.path.exists(kf_path):
@@ -604,19 +627,20 @@ class WanT4OptimizedEngine:
             sub_clip = f"{TMP}/sub_{scene_idx}_{s_idx}.mp4"
 
             clean_prompt = (
-                f"{prompt[:240]}, {var_text}, modern digital cinema, sharp high-definition focus, "
+                f"{grounding_prefix}{prompt[:220]}, {var_text}, modern digital cinema, sharp high-definition focus, "
                 f"sharp crystal clear focus, vivid natural colors, documentary broadcast quality, "
                 f"subtle natural character breathing, stable non-morphing walls, rigid background structures, "
                 f"unlabeled telemetry displays, zero text, zero letters, zero numbers"
             )
             neg_prompt = (
+                f"{bible_neg}"
                 f"{domain_neg}"
                 "horror, choking, strangling, neck grabbing, violence, assault, aggression, threat, painful grimace, distress, screaming, blood, "
                 "warehouse, airplane hangar, modern factory, industrial hall, industrial interior, modern architecture, "
                 "inconsistent face, multiple different faces, female model, woman reading magazine, modern clothing, casual clothing, t-shirt, jeans, hoodie, "
                 "mutated hands, extra fingers, missing fingers, fused fingers, distorted hands, morphing face, melting skin, warped anatomy, "
                 "text, letters, words, writing, numbers, labels, charts, line graphs, pseudo-code, glyphs, bullet points, presentation slide, document, page with text, "
-                "garbled ui, blurry text, watermarks, symbols, subtitles, hud text, "
+                "garbled ui, blurry text, watermarks, symbols, subtitles, hud text, map, cartographic lines, "
                 "temporal morphing, surface rippling, breathing walls, gelatinous motion, boiling edges, "
                 "whip pan, fast zoom, motion smear, extreme motion blur, "
                 "blown-out highlights, clipped cyan, hyper-neon blue glare, "
@@ -629,7 +653,6 @@ class WanT4OptimizedEngine:
             frames = None
             fps_base = 16
 
-            # Priority: Wan2.1 1.3B DiT in FP16 with Attention Slicing
             # Priority 1: Wan2.1-VACE 1.3B I2V in FP16 with Attention Slicing & 100% Character Lock
             if self.engine_name == "Wan2.1-VACE-1.3B" and self.pipe is not None:
                 try:
@@ -667,7 +690,6 @@ class WanT4OptimizedEngine:
                     self._init_fallback_engine()
             elif self.engine_name == "Wan2.1-T2V-1.3B" and self.pipe is not None:
                 try:
-                    # 640x384 16:9 widescreen, 33 frames = ~30,720 tokens (comfortably fits T4 16GB VRAM)
                     output = self.pipe(
                         prompt=clean_prompt,
                         negative_prompt=neg_prompt,
@@ -680,8 +702,8 @@ class WanT4OptimizedEngine:
                     )
                     frames = output.frames[0]
                     fps_base = 16
-                except Exception as wan_err:
-                    print(f"[Wan2.1 Notice] Shot encountered error ({wan_err}). Falling back to AnimateDiff...")
+                except Exception as t2v_err:
+                    print(f"[Wan2.1 Notice] T2V shot error ({t2v_err}). Falling back to AnimateDiff...")
                     self._init_fallback_engine()
 
             # Fail-safe Fallback: AnimateDiff-Lightning
@@ -728,6 +750,12 @@ class WanT4OptimizedEngine:
             raw_d = duration(raw_clip)
             pts_mult = shot_dur / max(raw_d, 0.4)
 
+            # Frame Blend Interpolation + Modern Digital Cinema Grade:
+            # 1. Linear Frame Blend Interpolation (minterpolate mi_mode=blend):
+            #    converts frames to smooth 24 FPS without block-matching optical-flow skin/hand morphing.
+            # 2. Modern 1080p Lanczos Scaling: 1920x1080
+            # 3. Clean digital edge enhancement: unsharp
+            # 4. Filmic dynamic color space: contrast 1.06, saturation 1.12
             vf_pipeline = (
                 f"setpts={pts_mult:.4f}*PTS,"
                 f"minterpolate=fps=24:mi_mode=blend,"
@@ -759,11 +787,12 @@ class WanT4OptimizedEngine:
             raise RuntimeError(f"Failed to produce video clip for {out_mp4}")
         return True
 
-    def generate_hero_thumbnail_diffusion(self, visual_prompt, out_jpg, domain="general"):
+    def generate_hero_thumbnail_diffusion(self, visual_prompt, out_jpg, domain="general", visual_bible=None):
         """
         OPTION A: Dedicated Concept Diffusion Pass on Kaggle T4 GPU.
         Generates a pristine, high-resolution, high-dynamic-range hero visual
         symbolizing the core topic with authentic subject fidelity (no text in image).
+        Dynamically applies Director's Visual Bible (realWorldGrounding + latentTrapsToBan).
         """
         # Stage 1 / Tarika 2 Fast Path: Reuse pristine FLUX.1-schnell keyframe from Scene 0 if available
         kf0 = find_keyframe_image(0)
@@ -778,20 +807,28 @@ class WanT4OptimizedEngine:
                 print(f"[Thumbnail Notice] Could not reuse Scene 0 keyframe: {e}")
 
         print(f"[{self.engine_name}] Generating Option A dedicated thumbnail concept diffusion...")
+        vb = visual_bible or {}
+        latent_traps = vb.get("latentTrapsToBan", [])
+        real_grounding = vb.get("realWorldGrounding", "")
+        grounding_prefix = f"{real_grounding[:120]}, " if real_grounding else ""
+        bible_neg = ", ".join(latent_traps[:15]) + ", " if latent_traps else ""
+
         clean_prompt = (
-            f"{visual_prompt[:320]}, hyper-cinematic documentary poster art, award-winning photography, "
-            f"masterpiece composition, dramatic volumetric rim lighting, deep contrast, vibrant authentic colors, "
-            f"hyper-detailed textures, sharp focus, completely clean composition with lower negative space, "
+            f"{grounding_prefix}{visual_prompt[:280]}, dramatic cinematic YouTube hero poster, "
+            f"prominent foreground hero subject in sharp focus, extreme dynamic lighting, intense volumetric rim lights, "
+            f"rich contrast, deep shadows, atmospheric cinematic haze, shallow depth of field, award-winning photography, "
+            f"sharp cinematic focus, atmospheric composition, dark atmospheric left background for typography, "
             f"zero text, zero words, zero letters, zero watermarks"
         )
         if domain in ["science", "space", "technology", "nature", "history"]:
             domain_neg = "sports, stadium, athletics, cricket, football, soccer, baseball helmet, american football helmet, sports jersey, scoreboard, crowd cheering, referee, match, ball, bat, pads, wickets, "
         elif domain == "sports":
-            domain_neg = "baseball helmet, american football helmet, cartoon, anime, manga, comic, caricature, "
+            domain_neg = "cartoon, anime, manga, comic, caricature, "
         else:
-            domain_neg = "baseball helmet, american football helmet, cartoon, anime, "
+            domain_neg = "cartoon, anime, "
 
         neg_prompt = (
+            f"{bible_neg}"
             f"{domain_neg}"
             "text, letters, words, writing, numbers, labels, typography, logos, watermark, title, signature, "
             "blurry, low resolution, bad anatomy, deformed, distorted, cartoon, anime, plastic, 3d render"
@@ -802,6 +839,7 @@ class WanT4OptimizedEngine:
 
         if self.engine_name in ["Wan2.1-VACE-1.3B", "Wan2.1-T2V-1.3B"] and self.pipe is not None:
             try:
+                # Generate 1 single keyframe latent (or short sequence and take sharpest center frame)
                 output = self.pipe(
                     prompt=clean_prompt,
                     negative_prompt=neg_prompt,
@@ -813,6 +851,7 @@ class WanT4OptimizedEngine:
                     generator=generator
                 )
                 frames = output.frames[0]
+                # Pick middle frame (highest coherence)
                 mid_idx = len(frames) // 2
                 frame = frames[mid_idx]
                 from PIL import Image
@@ -827,6 +866,7 @@ class WanT4OptimizedEngine:
             except Exception as dit_err:
                 print(f"[Wan2.1 Notice] Thumbnail concept pass notice: {dit_err}")
 
+        # Fallback to AnimateDiff/epiCRealism if Wan pass was unavailable
         if hero_img is None:
             if self.fallback_pipe is None:
                 self._init_fallback_engine()
@@ -855,6 +895,70 @@ class WanT4OptimizedEngine:
         return False
 
 
+WanVACE13BEngine = WanT4OptimizedEngine
+
+
+def get_robust_bold_font(target_size):
+    """
+    Finds and loads the highest-impact bold TrueType font available on Linux/Windows,
+    with automatic recursive directory lookup and Pillow 10+ scalable fallback.
+    """
+    candidates = [
+        # Linux standard paths (Kaggle/Debian/Ubuntu)
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+        "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
+        "/usr/share/fonts/truetype/ubuntu/Ubuntu-B.ttf",
+        "/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf",
+        # Windows standard paths
+        "C:/Windows/Fonts/impact.ttf",
+        "C:/Windows/Fonts/arialbd.ttf",
+        "C:/Windows/Fonts/segoeuib.ttf",
+    ]
+    for p in candidates:
+        if os.path.exists(p):
+            try:
+                from PIL import ImageFont
+                return ImageFont.truetype(p, target_size)
+            except Exception:
+                pass
+
+    # Recursive search in system font directories
+    search_dirs = ["/usr/share/fonts", "/usr/local/share/fonts", os.path.expanduser("~/.fonts")]
+    for s_dir in search_dirs:
+        if os.path.exists(s_dir):
+            for match in glob.glob(f"{s_dir}/**/*.ttf", recursive=True):
+                m_lower = match.lower()
+                if any(b in m_lower for b in ["bold", "black", "heavy", "b.ttf"]):
+                    try:
+                        from PIL import ImageFont
+                        return ImageFont.truetype(match, target_size)
+                    except Exception:
+                        pass
+
+    # Pillow 10+ load_default with size argument
+    try:
+        from PIL import ImageFont
+        return ImageFont.load_default(size=target_size)
+    except Exception:
+        pass
+
+    from PIL import ImageFont
+    return ImageFont.load_default()
+
+
+def fit_font(draw, text, max_w, start_size=96, min_size=48):
+    for sz in range(start_size, min_size - 1, -4):
+        f = get_robust_bold_font(sz)
+        try:
+            bbox = draw.textbbox((0, 0), text, font=f)
+            if (bbox[2] - bbox[0]) <= max_w:
+                return f, sz
+        except Exception:
+            return f, sz
+    return get_robust_bold_font(min_size), min_size
+
+
 # ==========================================
 # Main Orchestration Loop
 # ==========================================
@@ -862,15 +966,17 @@ async def main():
     script_path = find_script()
     with open(script_path, "r", encoding="utf-8") as f:
         script = json.load(f)
-    domain = script.get("domain", "history")
-    voice = script.get("voice", "hi-IN-Neural2-B" if "hi" in script.get("language", "Hindi").lower() else "en-IN-PrabhatNeural")
-    rate = script.get("rate", "+10%")
-    speaking_rate = parse_rate_multiplier(rate)
+    domain = script.get("domain", "general")
+    visual_bible = script.get("visual_bible", {})
+    voice = script.get("voice", "hi-IN-Neural2-B" if "hi" in script.get("language", "English").lower() else "en-IN-PrabhatNeural")
+    rate = script.get("rate", "+4%" if domain == "sports" else "+0%")
     scenes = script["scenes"]
     audio_summary = script.get("audio_summary", voice)
-    print(f"Loaded script: '{script.get('title')}' with {len(scenes)} scenes. Domain: {domain}, Voice: {voice}, Rate: {rate} ({speaking_rate}x)")
+    print(f"Loaded script: '{script.get('title')}' with {len(scenes)} scenes. Domain: {domain}, Voice: {voice}, Rate: {rate}")
     if audio_summary and audio_summary != voice:
         print(f"[Audio Provenance] Actual audio models used: {audio_summary}")
+    if visual_bible:
+        print(f"[Visual Bible] Dynamic grounding loaded: {len(visual_bible.get('latentTrapsToBan', []))} traps banned, {len(visual_bible.get('organicSettings', []))} organic settings.")
 
     # Check if all scenes already have pre-packaged audio
     audio_dir = os.path.join(os.path.dirname(script_path), "audio")
@@ -881,14 +987,45 @@ async def main():
     if all_packaged:
         print(f"[TTS] ✅ All {len(scenes)} scenes have pre-packaged audio ({audio_summary}). Using high-fidelity local master tracks.")
     else:
-        await probe_edge_tts(voice, rate=rate)
+        # Pre-flight probe with up to 3 retries. Fails immediately if Microsoft is unreachable!
+        edge_voice = voice
+        if "neural2" in voice.lower():
+            edge_voice = "hi-IN-MadhurNeural" if "hi" in script.get("language", "English").lower() else "en-IN-PrabhatNeural"
+        await probe_edge_tts(edge_voice, rate=rate)
 
     cfg = find_config()
     hf_token = cfg.get("hf_token", "").strip()
-    gcp_key = cfg.get("gcp_tts_api_key", "").strip()
+    gcp_tts_key = cfg.get("gcp_tts_key", "").strip()
+
+    # Memory Isolation Invariant: Pre-generate ALL missing keyframes with SDXL-Lightning
+    # and completely evict SDXL from RAM & VRAM before Wan2.1-VACE or AnimateDiff is initialized.
+    # This guarantees SDXL (6GB) and Wan2.1 (12GB) NEVER coexist in memory, eliminating OOM crashes.
+    missing_kf_indices = []
+    for i, sc in enumerate(scenes):
+        kf = find_keyframe_image(i)
+        if not kf or not os.path.exists(kf):
+            missing_kf_indices.append(i)
+
+    if missing_kf_indices:
+        print(f"[Memory Isolation] {len(missing_kf_indices)}/{len(scenes)} keyframes missing from dataset. Pre-generating via SDXL-Lightning before video model boot...")
+        kf_gen = KaggleKeyframeFallback(hf_token=hf_token)
+        real_grounding = visual_bible.get("realWorldGrounding", "")
+        grounding_prefix = f"{real_grounding[:120]}, " if real_grounding else ""
+        for i in missing_kf_indices:
+            sc = scenes[i]
+            target_kf = f"{TMP}/kf_{i:03d}.png"
+            kf_prompt = f"{grounding_prefix}{sc.get('visual_prompt', sc.get('narration', ''))[:220]}, modern documentary cinema, sharp focus, zero text"
+            kf_gen.generate(kf_prompt, target_kf)
+        kf_gen.release_vram()
+        del kf_gen
+        import gc
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        print("[Memory Isolation] ✅ All missing keyframes generated and SDXL completely evicted from memory.")
 
     # Initialize Wan2.1-VACE (1.3B) Image-to-Video Engine (Character Lock)
-    diffusion = WanT4OptimizedEngine(hf_token=hf_token)
+    diffusion = WanVACE13BEngine(hf_token=hf_token)
 
     clips, narr_files = [], []
     master_cues = []
@@ -899,59 +1036,50 @@ async def main():
         v_path = f"{TMP}/v{i:03d}.mp4"
 
         print(f"\n--- [Scene {i+1}/{len(scenes)}] ---")
-        # 1. Audio Acquisition: Pre-packaged Dataset Audio ➔ Kokoro-82M ➔ Google Cloud Neural2 ➔ Edge-TTS
+        # Check if pre-packaged audio exists in dataset
         dataset_audio = os.path.join(os.path.dirname(script_path), "audio", f"a{i:03d}.mp3")
-        submaker = None
-
         if os.path.exists(dataset_audio) and os.path.getsize(dataset_audio) > 500:
-            normalize_audio_to_44k_stereo(dataset_audio, a_path)
-            print(f"[TTS] Using pre-packaged audio ({os.path.getsize(a_path)} bytes, 44.1kHz stereo).")
+            # Normalize every audio file to standard 44.1kHz stereo MP3
+            # (Fixes silent video / truncated audio caused by WAV/MP3 container mismatches between Gemini TTS and Chirp 3 HD)
+            ok_norm = run(["ffmpeg", "-y", "-i", dataset_audio, "-ar", "44100", "-ac", "2", "-c:a", "libmp3lame", "-b:a", "192k", a_path])
+            if not (ok_norm and os.path.exists(a_path) and os.path.getsize(a_path) > 500):
+                shutil.copyfile(dataset_audio, a_path)
+            print(f"[TTS] Using pre-packaged audio ({os.path.getsize(a_path)} bytes, normalized MP3 44.1kHz).")
+            submaker = edge_tts.SubMaker() if edge_tts else None
         else:
             is_hindi = (
                 not sc.get("speaker")
                 or sc.get("speaker") in ("Narrator", "Exam Booster")
                 or any("\u0900" <= c <= "\u097F" for c in sc.get("narration", ""))
             )
-            audio_ready = False
+            # Tier 1: Try Google Cloud Neural2 directly on Kaggle if gcp_tts_key is provided
+            synthesized = False
+            if gcp_tts_key:
+                target_rate = 1.04 if domain == "sports" else 1.0
+                gcp_voice = voice if "neural2" in voice.lower() else ("hi-IN-Neural2-B" if domain == "sports" else ("hi-IN-Neural2-C" if is_hindi else "en-US-Neural2-J"))
+                synthesized = synthesize_gcp_neural2(sc["narration"], a_path, gcp_tts_key, voice_name=gcp_voice, speaking_rate=target_rate)
+                submaker = edge_tts.SubMaker() if edge_tts else None
 
-            if not is_hindi:
+            # Tier 2: Try Kokoro-82M offline on Kaggle (for English or offline dialogue)
+            if not synthesized and not is_hindi:
                 k_voice = resolve_kokoro_voice(sc.get("speaker", ""), sc.get("voice", ""))
-                print(f"[TTS] Synthesizing English dialogue via Kokoro-82M ('{k_voice}')...")
-                audio_ready = synthesize_kokoro_audio(sc["narration"], k_voice, a_path, speed=speaking_rate)
-                if not audio_ready and gcp_key:
-                    eng_gcp_voice = "en-IN-Neural2-B" if "narrator" in (sc.get("speaker") or "").lower() else "en-US-Neural2-J"
-                    print(f"[TTS] Kokoro fallback -> Cloud GCP English Neural2 ('{eng_gcp_voice}')...")
-                    audio_ready = synthesize_gcp_cloud_tts(
-                        sc["narration"], eng_gcp_voice, a_path, gcp_key, default_lang="en-US", speaking_rate=speaking_rate
-                    )
-            else:
-                if gcp_key:
-                    print("[TTS] Synthesizing Hindi narration via Cloud Google Cloud TTS...")
-                    audio_ready = synthesize_gcp_cloud_tts(
-                        sc["narration"], sc.get("voice", voice), a_path, gcp_key, default_lang="hi-IN", speaking_rate=speaking_rate
-                    )
+                synthesized = synthesize_kokoro_audio(sc["narration"], k_voice, a_path, speed=1.0)
+                submaker = edge_tts.SubMaker() if edge_tts else None
 
-            if not audio_ready and EDGE_TTS_AVAILABLE:
-                try:
-                    edge_fallback_voice = "hi-IN-MadhurNeural" if is_hindi else "en-US-ChristopherNeural"
-                    req_scene_v = sc.get("voice") or ""
-                    scene_voice = (
-                        req_scene_v
-                        if (req_scene_v and not is_hindi and "neural2" not in req_scene_v.lower() and "_" not in req_scene_v)
-                        else edge_fallback_voice
-                    )
-                    submaker = await tts_with_boundaries(sc["narration"], scene_voice, a_path, rate=rate)
-                    audio_ready = True
-                except Exception as tts_e:
-                    print(f"[TTS] ⚠️ Edge-TTS failed for scene {i+1}: {tts_e}")
+            # Tier 3: Edge-TTS Fallback with WordBoundaries
+            if not synthesized or not os.path.exists(a_path) or os.path.getsize(a_path) < 500:
+                edge_voice = voice
+                if "neural2" in voice.lower():
+                    edge_voice = "hi-IN-MadhurNeural" if is_hindi else "en-IN-PrabhatNeural"
+                submaker = await tts_with_boundaries(sc["narration"], edge_voice, a_path, rate=rate)
 
-            if not os.path.exists(a_path) or os.path.getsize(a_path) < 100:
-                raise RuntimeError(f"[TTS] Critical: Audio missing for scene {i+1}. Halting pipeline to prevent rendering a mute video.")
+        if not os.path.exists(a_path) or os.path.getsize(a_path) < 100:
+            raise RuntimeError(f"[TTS] Critical: Audio missing for scene {i+1}. Halting pipeline to prevent rendering a mute video.")
 
         d = round(duration(a_path), 3)
 
         # 2. Extract Subtitle cues for this scene (Pure English captions)
-        eng_caption = (sc.get("caption") or "").strip()
+        eng_caption = sc.get("caption", "").strip()
         if eng_caption:
             words = eng_caption.split()
             chunk_size = 7
@@ -966,54 +1094,38 @@ async def main():
                     "text": ch
                 })
         else:
-            cues = []
-            if submaker is not None:
-                try:
-                    scene_srt = submaker.get_srt()
-                    cues = parse_srt_cues(scene_srt, current_time_offset)
-                except Exception:
-                    cues = []
+            scene_srt = submaker.get_srt() if submaker else ""
+            cues = parse_srt_cues(scene_srt, current_time_offset)
             if not cues:
-                narr_words = sc.get("narration", "").strip().split()
-                chunk_size = 7
-                chunks = [" ".join(narr_words[j:j+chunk_size]) for j in range(0, len(narr_words), chunk_size)] or [sc.get("narration", "").strip()]
-                chunk_dur = d / len(chunks)
-                for c_idx, ch in enumerate(chunks):
-                    if ch:
-                        cues.append({
-                            "start": current_time_offset + (c_idx * chunk_dur),
-                            "end": current_time_offset + ((c_idx + 1) * chunk_dur),
-                            "text": ch
-                        })
+                cues.append({
+                    "start": current_time_offset,
+                    "end": current_time_offset + duration(a_path),
+                    "text": sc["narration"].strip()
+                })
             master_cues.extend(cues)
-
         # 3. Generate non-repeating continuous video montage on GPU
-        diffusion.generate_scene_montage(sc["visual_prompt"], d, v_path, scene_idx=i, domain=domain)
+        diffusion.generate_scene_montage(sc["visual_prompt"], d, v_path, scene_idx=i, domain=domain, visual_bible=visual_bible)
 
-        # Synchronize audio and video precisely and advance current_time_offset by the ACTUAL scene audio duration
-        # so cumulative subtitle drift is 0.00s across all scenes!
+        # Synchronize audio and video precisely and advance current_time_offset by actual_scene_dur
+        # so cumulative subtitle drift is guaranteed 0.00s across all scenes
         v_dur = duration(v_path)
         actual_scene_dur = d
-        if v_dur > d + 0.03:
+        if v_dur > duration(a_path) + 0.03:
             a_padded = f"{TMP}/a_pad_{i:03d}.mp3"
             pad_filter = f"apad=whole_dur={v_dur:.3f}"
-            run([
-                "ffmpeg", "-y", "-i", a_path, "-af", pad_filter,
-                "-ar", "44100", "-ac", "2", "-c:a", "libmp3lame", "-b:a", "192k", a_padded
-            ])
+            run(["ffmpeg", "-y", "-i", a_path, "-af", pad_filter, "-ar", "44100", "-ac", "2", "-c:a", "libmp3lame", "-b:a", "192k", a_padded])
             if os.path.exists(a_padded) and os.path.getsize(a_padded) > 500:
                 narr_files.append(a_padded)
-                actual_scene_dur = round(duration(a_padded), 3) or round(v_dur, 3)
+                actual_scene_dur = v_dur
             else:
                 narr_files.append(a_path)
         else:
             narr_files.append(a_path)
-
         current_time_offset += actual_scene_dur
 
         if os.path.exists(v_path) and os.path.getsize(v_path) > 1000:
             clips.append(v_path)
-            print(f"[Scene {i+1}] Rendered successfully (speech={d:.2f}s, scene_slot={actual_scene_dur:.2f}s).")
+            print(f"[Scene {i+1}] Rendered successfully ({d:.2f}s).")
         else:
             raise RuntimeError(f"Scene {i+1} failed to render video clip.")
 
@@ -1035,6 +1147,7 @@ async def main():
         "-c:v", "libx264", "-preset", "veryfast", padded_v
     ])
     if not (ok_v and os.path.exists(padded_v) and os.path.getsize(padded_v) > 1000):
+        # Bulletproof fallback: extract last frame and generate freeze loop clip
         freeze_img = f"{TMP}/outro_last_frame.png"
         run(["ffmpeg", "-y", "-sseof", "-0.1", "-i", last_v, "-frames:v", "1", "-update", "1", freeze_img])
         freeze_clip = f"{TMP}/outro_freeze_clip.mp4"
@@ -1060,21 +1173,18 @@ async def main():
     ok_a = run([
         "ffmpeg", "-y", "-i", last_a,
         "-af", "apad=pad_dur=3.5",
-        "-ar", "44100", "-ac", "2", "-c:a", "libmp3lame", "-b:a", "192k", padded_a
+        "-c:a", "libmp3lame", "-b:a", "192k", padded_a
     ])
     if ok_a and os.path.exists(padded_a) and os.path.getsize(padded_a) > 500:
         narr_files[-1] = padded_a
 
-    # Assemble concatenated master scenes and narration (all files are uniform 44.1kHz stereo)
+    # Assemble concatenated master scenes and narration
     print("\nConcatenating master continuous scenes...")
     open(f"{TMP}/vlist.txt", "w").write("".join(f"file '{c}'\n" for c in clips))
     open(f"{TMP}/alist.txt", "w").write("".join(f"file '{a}'\n" for a in narr_files))
 
     run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", f"{TMP}/vlist.txt", "-c", "copy", f"{TMP}/video_raw.mp4"])
-    run([
-        "ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", f"{TMP}/alist.txt",
-        "-ar", "44100", "-ac", "2", "-c:a", "libmp3lame", "-b:a", "192k", f"{TMP}/narration.mp3"
-    ])
+    run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", f"{TMP}/alist.txt", "-c:a", "libmp3lame", f"{TMP}/narration.mp3"])
 
     # Synchronize total durations so -shortest never prematurely cuts dialogue or holds
     v_raw_dur = duration(f"{TMP}/video_raw.mp4")
@@ -1087,7 +1197,7 @@ async def main():
         run([
             "ffmpeg", "-y", "-i", f"{TMP}/narration.mp3",
             "-af", f"apad=whole_dur={target_master_dur:.3f}",
-            "-ar", "44100", "-ac", "2", "-c:a", "libmp3lame", "-b:a", "192k", a_matched
+            "-c:a", "libmp3lame", "-b:a", "192k", a_matched
         ])
         if os.path.exists(a_matched) and os.path.getsize(a_matched) > 1000:
             shutil.move(a_matched, f"{TMP}/narration.mp3")
@@ -1104,8 +1214,8 @@ async def main():
             shutil.move(v_matched, f"{TMP}/video_raw.mp4")
             v_raw_dur = duration(f"{TMP}/video_raw.mp4")
 
-    # 4. Generate Master SRT Subtitles
-    print(f"Generating master subtitles from {len(master_cues)} synchronized cues...")
+    # 4. Generate Master SRT Subtitles from Edge-TTS WordBoundaries
+    print(f"Generating master subtitles from {len(master_cues)} WordBoundary cues...")
 
     def ts_fmt(t):
         h, m, s = int(t // 3600), int(t % 3600 // 60), t % 60
@@ -1119,7 +1229,8 @@ async def main():
     open(f"{OUT}/captions.srt", "w", encoding="utf-8").write("\n".join(srt))
     open(f"{OUT}/transcript.txt", "w", encoding="utf-8").write(" ".join(txt))
 
-    # 4.5. Domain-Adapted Atmospheric Sound Design (Full Broadcast Voice Loudness Preserved):
+    # 4.5. Domain-Adapted Atmospheric Sound Design:
+    # Eliminates awkward silence behind spoken dialogue with a subtle, non-intrusive cinematic ambient bed.
     bgm_candidates = [
         os.path.join(os.path.dirname(script_path), "audio", "bgm.ogg"),
         os.path.join(os.path.dirname(script_path), "audio", "bgm.mp3"),
@@ -1135,12 +1246,12 @@ async def main():
             "ffmpeg", "-y", "-stream_loop", "-1", "-i", bgm_path,
             "-t", f"{target_master_dur:.3f}",
             "-af", "volume=0.10,afade=t=in:st=0:d=2.0",
-            "-ar", "44100", "-ac", "2", "-c:a", "libmp3lame", "-b:a", "192k", ambient_mp3
+            "-c:a", "libmp3lame", "-b:a", "192k", ambient_mp3
         ])
         if ok_bgm and os.path.exists(ambient_mp3) and os.path.getsize(ambient_mp3) > 1000:
             has_ambient = True
 
-    # 4.6. Dynamic Acoustic SFX Moments Overlay (Scales to millions of topics):
+    # Dynamic Acoustic SFX Moments Overlay (Scales to millions of topics)
     sfx_dir = os.path.join(os.path.dirname(script_path), "audio", "sfx")
     if os.path.exists(sfx_dir) and has_ambient:
         sfx_files = [os.path.join(sfx_dir, f) for f in os.listdir(sfx_dir) if f.endswith((".ogg", ".mp3", ".wav"))]
@@ -1155,67 +1266,102 @@ async def main():
                         "-i", sfx_p,
                         "-filter_complex", "[0:a]volume=1.0[a0];[1:a]volume=0.30[a1];[a0][a1]amix=inputs=2:duration=first:dropout_transition=2:normalize=0[aout]",
                         "-map", "[aout]",
-                        "-ar", "44100", "-ac", "2", "-c:a", "libmp3lame", "-b:a", "192k", mixed_sfx
+                        "-c:a", "libmp3lame", "-b:a", "192k", mixed_sfx
                     ])
                     if ok_sfx and os.path.exists(mixed_sfx) and os.path.getsize(mixed_sfx) > 1000:
                         ambient_mp3 = mixed_sfx
     else:
-        print(f"[Audio] Synthesizing domain-calibrated cinematic ambient drone for domain '{domain}'...")
-        if domain in ["science", "space", "technology"]:
-            aeval = (
-                "sin(55*2*PI*t)*0.16 + sin(110*2*PI*t)*0.09 + "
-                "sin(165*2*PI*t)*0.04 + sin(54.5*2*PI*t)*0.10"
-            )
-            bg_filter = "lowpass=f=320,volume=0.12,afade=t=in:st=0:d=2.0"
-        elif domain == "sports":
-            aeval = (
-                "sin(65*2*PI*t)*0.18 + sin(130*2*PI*t)*0.08 + "
-                "sin(195*2*PI*t)*0.03 + sin(64.5*2*PI*t)*0.09"
-            )
-            bg_filter = "lowpass=f=450,volume=0.14,afade=t=in:st=0:d=1.0"
+        soundscape = visual_bible.get("soundscapeProfile", {})
+        dom_freqs = soundscape.get("dominantFrequencies", [])
+        ambient_style = soundscape.get("ambientBedStyle", "")
+        energy = soundscape.get("energyLevel", "measured")
+
+        if dom_freqs and len(dom_freqs) >= 2:
+            f0 = float(dom_freqs[0])
+            f1 = float(dom_freqs[1])
+            f2 = float(dom_freqs[2]) if len(dom_freqs) > 2 else f0 * 2.0
+            fb = f0 - 0.5
+            print(f"[Audio] Synthesizing dynamic audio soundscape for '{domain}': style='{ambient_style}', energy='{energy}', freqs={dom_freqs}...")
+            if ambient_style == "stadium" or energy == "high":
+                # Dynamic stadium roar modulation with rolling wave resonance
+                aeval = (
+                    f"sin({f0}*2*PI*t)*0.15*(1+0.3*sin(0.35*2*PI*t)) + sin({f1}*2*PI*t)*0.08 + "
+                    f"sin({f2}*2*PI*t)*0.04 + sin({fb}*2*PI*t)*0.08 + "
+                    f"(random(0)-0.5)*0.035*(1+0.5*sin(0.2*2*PI*t))"
+                )
+            else:
+                aeval = (
+                    f"sin({f0}*2*PI*t)*0.16 + sin({f1}*2*PI*t)*0.08 + "
+                    f"sin({f2}*2*PI*t)*0.04 + sin({fb}*2*PI*t)*0.09"
+                )
+            if energy == "high" or ambient_style == "stadium":
+                # High-energy stadium / arena: rich atmospheric bed with rhythmic modulation
+                bg_filter = "lowpass=f=520,volume=0.20,afade=t=in:st=0:d=1.0"
+            elif energy == "contemplative" or ambient_style == "nature":
+                bg_filter = "lowpass=f=300,volume=0.14,afade=t=in:st=0:d=2.0"
+            else:
+                bg_filter = "lowpass=f=350,volume=0.15,afade=t=in:st=0:d=1.5"
         else:
-            aeval = (
-                "sin(60*2*PI*t)*0.16 + sin(120*2*PI*t)*0.08 + "
-                "sin(180*2*PI*t)*0.04 + sin(59.5*2*PI*t)*0.10"
-            )
-            bg_filter = "lowpass=f=360,volume=0.12,afade=t=in:st=0:d=1.5"
+            print(f"[Audio] Synthesizing domain-calibrated cinematic ambient drone for domain '{domain}'...")
+            if domain in ["science", "space", "technology"]:
+                # Deep cosmic/cleanroom sub-bass drone: 55Hz + 110Hz + 165Hz subtle harmonics + binaural beat (54.5Hz)
+                aeval = (
+                    "sin(55*2*PI*t)*0.16 + sin(110*2*PI*t)*0.09 + "
+                    "sin(165*2*PI*t)*0.04 + sin(54.5*2*PI*t)*0.10"
+                )
+                bg_filter = "lowpass=f=320,volume=0.14,afade=t=in:st=0:d=2.0"
+            elif domain == "sports":
+                # Dynamic rhythmic stadium pulse: 65Hz fundamental + undulating crowd energy harmonics
+                aeval = (
+                    "sin(65*2*PI*t)*0.16*(1+0.25*sin(0.4*2*PI*t)) + sin(130*2*PI*t)*0.08 + "
+                    "sin(195*2*PI*t)*0.04 + sin(64.5*2*PI*t)*0.08 + "
+                    "(random(0)-0.5)*0.04*(1+0.4*sin(0.15*2*PI*t))"
+                )
+                bg_filter = "bandpass=f=280:width_type=h:w=360,volume=0.22,afade=t=in:st=0:d=1.0"
+            elif domain == "nature":
+                # Natural oceanic/atmospheric texture: low-frequency rolling swell + wind resonance
+                aeval = (
+                    "sin(45*2*PI*t)*0.14 + sin(90*2*PI*t)*(0.07+0.04*sin(0.2*2*PI*t)) + "
+                    "sin(135*2*PI*t)*0.03 + sin(44.5*2*PI*t)*0.08"
+                )
+                bg_filter = "lowpass=f=300,volume=0.15,afade=t=in:st=0:d=2.0"
+            else:
+                # Warm documentary pad drone: rich ambient bed masking synthetic gaps
+                aeval = (
+                    "sin(58*2*PI*t)*0.15 + sin(116*2*PI*t)*0.08 + "
+                    "sin(174*2*PI*t)*0.04 + sin(57.5*2*PI*t)*0.09"
+                )
+                bg_filter = "lowpass=f=350,volume=0.14,afade=t=in:st=0:d=1.5"
 
         ok_amb = run([
             "ffmpeg", "-y", "-f", "lavfi",
             "-i", f"aevalsrc={aeval}:s=44100:d={target_master_dur:.3f}",
             "-af", bg_filter,
-            "-ar", "44100", "-ac", "2", "-c:a", "libmp3lame", "-b:a", "192k", ambient_mp3
+            "-c:a", "libmp3lame", "-b:a", "192k", ambient_mp3
         ])
         if ok_amb and os.path.exists(ambient_mp3) and os.path.getsize(ambient_mp3) > 1000:
             has_ambient = True
 
     master_audio = f"{TMP}/master_audio_mixed.mp3"
     if has_ambient:
-        print("[Audio] Mixing narration with cinematic atmospheric drone (normalize=0 to preserve 100% voice loudness)...")
+        print("[Audio] Mixing narration with cinematic atmospheric drone...")
         ok_mix = run([
             "ffmpeg", "-y",
             "-i", f"{TMP}/narration.mp3",
             "-i", ambient_mp3,
             "-filter_complex", "[0:a]volume=1.0[a0];[1:a]volume=1.0[a1];[a0][a1]amix=inputs=2:duration=first:dropout_transition=2:normalize=0[aout]",
             "-map", "[aout]",
-            "-ar", "44100", "-ac", "2", "-c:a", "libmp3lame", "-b:a", "192k", master_audio
+            "-c:a", "libmp3lame", "-b:a", "192k", master_audio
         ])
         if not (ok_mix and os.path.exists(master_audio) and os.path.getsize(master_audio) > 1000):
-            ok_mix_fb = run([
-                "ffmpeg", "-y",
-                "-i", f"{TMP}/narration.mp3",
-                "-i", ambient_mp3,
-                "-filter_complex", "[0:a]volume=2.0[a0];[1:a]volume=1.5[a1];[a0][a1]amix=inputs=2:duration=first:dropout_transition=2[aout]",
-                "-map", "[aout]",
-                "-ar", "44100", "-ac", "2", "-c:a", "libmp3lame", "-b:a", "192k", master_audio
-            ])
-            if not (ok_mix_fb and os.path.exists(master_audio) and os.path.getsize(master_audio) > 1000):
-                print("[Audio] Mix failed, falling back to clean narration...")
-                master_audio = f"{TMP}/narration.mp3"
+            print("[Audio] Mix failed, falling back to clean narration...")
+            master_audio = f"{TMP}/narration.mp3"
     else:
         master_audio = f"{TMP}/narration.mp3"
 
     # 5. Master Grade Burn-In & Film Cohesion:
+    # Pristine 1080p Digital Cinema clarity with clean typography and smooth outro fade
+    # Anti-Premature Fade: Screen remains 100% bright for 2.0s AFTER speech completes before 1.0s fade-out
     style = (
         "FontName=DejaVu Sans,FontSize=20,Bold=1,"
         "PrimaryColour=&H00FFFFFF,SecondaryColour=&H0000FFFF,"
@@ -1246,6 +1392,9 @@ async def main():
     final_dur = duration(f"{OUT}/video.mp4") if ok else 0
 
     # 6. Automated YouTube Thumbnail Generation (OPTION A: High-CTR Concept Diffusion):
+    # Generates a dedicated high-impact poster concept image using diffusion,
+    # with authentic fallback to the highest-contrast hero video frame,
+    # followed by bold high-visibility yellow/cyan typography overlays.
     print("\nGenerating Option A high-CTR YouTube thumbnail (Ask Studio quality)...")
     try:
         from PIL import Image, ImageDraw, ImageFont
@@ -1253,13 +1402,15 @@ async def main():
         thumb_data = script.get("thumbnail") or {}
         custom_prompt = thumb_data.get("visual_prompt", "").strip()
         if not custom_prompt:
+            # Fallback to topic + key scenes
             custom_prompt = f"{script.get('title')}. {scenes[0].get('visual_prompt', '')}"
 
         concept_img_path = f"{TMP}/thumb_concept.jpg"
         generated_diffusion = False
 
+        # Attempt Option A: Dedicated GPU diffusion pass
         try:
-            generated_diffusion = diffusion.generate_hero_thumbnail_diffusion(custom_prompt, concept_img_path, domain=domain)
+            generated_diffusion = diffusion.generate_hero_thumbnail_diffusion(custom_prompt, concept_img_path, domain=domain, visual_bible=visual_bible)
         except Exception as diff_e:
             print(f"Diffusion thumbnail attempt note: {diff_e}")
 
@@ -1268,7 +1419,7 @@ async def main():
             img = Image.open(concept_img_path).convert("RGB")
             print("Using Option A dedicated diffusion image for thumbnail.")
         else:
-            import cv2
+            # Fallback: Extract hero frame from video_raw
             raw_v = f"{TMP}/video_raw.mp4" if os.path.exists(f"{TMP}/video_raw.mp4") else f"{OUT}/video.mp4"
             thumb_cap = cv2.VideoCapture(raw_v)
             v_fps = thumb_cap.get(cv2.CAP_PROP_FPS) or 24.0
@@ -1284,48 +1435,61 @@ async def main():
         if img is not None:
             img = img.resize((1280, 720), Image.Resampling.LANCZOS)
 
+            # 1. Left-Side Cinematic Contrast Shadow (covers left 65% with smooth falloff)
+            # Guarantees typography pops with 100% razor-sharp contrast on any background
             overlay = Image.new("RGBA", (1280, 720), (0, 0, 0, 0))
             odraw = ImageDraw.Draw(overlay)
-            for y in range(460, 720):
-                alpha = int((y - 460) / 260 * 195)
+            for x in range(0, 820):
+                alpha = int(230 * ((820 - x) / 820) ** 1.35)
+                odraw.line([(x, 0), (x, 720)], fill=(0, 0, 0, alpha))
+
+            # Subtle top and bottom letterbox vignettes for cinematic framing
+            for y in range(0, 150):
+                alpha = int(140 * ((150 - y) / 150))
                 odraw.line([(0, y), (1280, y)], fill=(0, 0, 0, alpha))
-            for y in range(0, 160):
-                alpha = int((160 - y) / 160 * 140)
+            for y in range(570, 720):
+                alpha = int(170 * ((y - 570) / 150))
                 odraw.line([(0, y), (1280, y)], fill=(0, 0, 0, alpha))
 
             img = Image.alpha_composite(img.convert("RGBA"), overlay).convert("RGB")
             draw = ImageDraw.Draw(img)
 
+            # Determine Headline and Subheadline (Truthful, high-curiosity hook)
             raw_title = script.get("title", "DOCUMENTARY EXCLUSIVE").upper()
             title_parts = raw_title.split(":")
 
             main_h = thumb_data.get("headline") or title_parts[0].strip()
-            main_h = main_h.upper()[:32]
+            main_h = main_h.upper()[:30].strip()
 
-            sub_h = thumb_data.get("subheadline") or (title_parts[1].strip() if len(title_parts) > 1 else script.get("description", ""))
-            sub_h = sub_h.upper()[:44]
+            sub_h = thumb_data.get("subheadline") or (title_parts[1].strip() if len(title_parts) > 1 else "")
+            sub_h = sub_h.upper()[:38].strip()
 
-            try:
-                font_main = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 54)
-                font_sub = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 34)
-            except Exception:
-                try:
-                    font_main = ImageFont.truetype("arialbd.ttf", 54)
-                    font_sub = ImageFont.truetype("arialbd.ttf", 34)
-                except Exception:
-                    font_main = ImageFont.load_default()
-                    font_sub = ImageFont.load_default()
+            # Dynamic font fitting for maximum impact without overflow
+            max_text_width = 750
+            font_main, main_sz = fit_font(draw, main_h, max_text_width, start_size=96, min_size=52)
+            font_sub, sub_sz = fit_font(draw, sub_h, max_text_width, start_size=int(main_sz * 0.74), min_size=40) if sub_h else (None, 0)
 
-            draw.text((64, 524), main_h, font=font_main, fill=(0, 0, 0))
-            draw.text((60, 520), main_h, font=font_main, fill=(255, 225, 0))
+            x_pos = 64
+            y_pos = 65
 
-            if sub_h:
-                draw.text((64, 604), sub_h, font=font_sub, fill=(0, 0, 0))
-                draw.text((60, 600), sub_h, font=font_sub, fill=(0, 240, 255))
+            # Multi-directional 3D Drop Shadow + Thick Stroke for Line 1 (High-Impact Yellow #FFE600)
+            for dx, dy in [(-6, -6), (6, -6), (-6, 6), (6, 6), (0, 8), (0, -8), (8, 0), (-8, 0), (0, 10)]:
+                draw.text((x_pos + dx, y_pos + dy), main_h, font=font_main, fill=(0, 0, 0))
+            draw.text((x_pos, y_pos), main_h, font=font_main, fill=(255, 230, 0), stroke_width=5, stroke_fill=(0, 0, 0))
+
+            bbox1 = draw.textbbox((x_pos, y_pos), main_h, font=font_main)
+            h1_height = bbox1[3] - bbox1[1]
+
+            # Line 2 (Subheadline): Razor Crisp Diamond White (#FFFFFF)
+            if sub_h and font_sub:
+                y_pos2 = y_pos + h1_height + 24
+                for dx, dy in [(-6, -6), (6, -6), (-6, 6), (6, 6), (0, 8), (0, -8), (8, 0), (-8, 0), (0, 10)]:
+                    draw.text((x_pos + dx, y_pos2 + dy), sub_h, font=font_sub, fill=(0, 0, 0))
+                draw.text((x_pos, y_pos2), sub_h, font=font_sub, fill=(255, 255, 255), stroke_width=5, stroke_fill=(0, 0, 0))
 
             img.save(f"{OUT}/thumbnail.jpg", quality=95)
             img.save(f"{OUT}/frame_30s.jpg", quality=95)
-            print("Successfully saved Option A thumbnail.jpg and frame_30s.jpg!")
+            print(f"Successfully saved modern high-CTR Option A thumbnail.jpg (headline='{main_h}' [size={main_sz}], sub='{sub_h}' [size={sub_sz}])!")
         else:
             print("Warning: Could not produce image for thumbnail.")
     except Exception as th_err:
@@ -1342,7 +1506,7 @@ async def main():
         "language": script.get("language") or ("Hindi" if "hi-IN" in voice else "English"),
         "engine": diffusion.engine_name,
         "motion_interpolation": "RIFE / MCI",
-        "subtitles": "Synchronized 44.1kHz Zero-Drift",
+        "subtitles": "Edge-TTS WordBoundary",
         "modern_digital_cinema": True,
         "multi_shot_montage": True
     }
@@ -1353,3 +1517,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+

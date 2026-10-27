@@ -262,49 +262,84 @@ async def tts_with_boundaries(text, voice, a_path, rate="+0%", max_retries=3):
     )
 
 
+def chunk_text_utf8(text, max_bytes=4200):
+    cleaned = (text or "").strip()
+    if not cleaned:
+        return []
+    if len(cleaned.encode("utf-8")) <= max_bytes:
+        return [cleaned]
+    sentences = re.split(r"(?<=[।.!?;\n])\s+", cleaned)
+    chunks, current = [], ""
+    for s in sentences:
+        cand = f"{current} {s}".strip() if current else s
+        if len(cand.encode("utf-8")) <= max_bytes:
+            current = cand
+        else:
+            if current:
+                chunks.append(current)
+            current = s
+    if current:
+        chunks.append(current)
+    return chunks
+
+
 def synthesize_gcp_neural2(text, out_mp3, api_key, voice_name="hi-IN-Neural2-C", speaking_rate=1.0):
     """
     Tier 1 Voice Synthesis: Calls Google Cloud Text-to-Speech (Neural2) directly on Kaggle GPU.
     Uses standard library urllib (zero external pip packages, ultra-reliable).
+    Supports UTF-8 byte chunking (<=4200 bytes) and multi-part merging.
     """
     import urllib.request
     import base64
 
-    lang_code = "hi-IN" if "hi-" in voice_name else "en-IN"
-    url = f"https://texttospeech.googleapis.com/v1/text:synthesize?key={api_key}"
-    payload = {
-        "input": {"text": text},
-        "voice": {
-            "languageCode": lang_code,
-            "name": voice_name
-        },
-        "audioConfig": {
-            "audioEncoding": "MP3",
-            "speakingRate": speaking_rate,
-            "sampleRateHertz": 44100
-        }
-    }
+    clean_key = (api_key or "").split(",")[0].strip()
+    if not clean_key or clean_key.startswith("{"):
+        return False
+
+    v_name = voice_name or "hi-IN-Neural2-C"
+    lang_code = (
+        "en-GB" if "en-GB" in v_name else
+        "en-US" if "en-US" in v_name else
+        "en-IN" if "en-IN" in v_name else
+        "hi-IN" if "hi-" in v_name or "hindi" in v_name.lower() else "hi-IN"
+    )
+
+    url = f"https://texttospeech.googleapis.com/v1/text:synthesize?key={clean_key}"
+    if not url.startswith("https://texttospeech.googleapis.com"):
+        return False
+
+    chunks = chunk_text_utf8(text, 4200)
+    if not chunks:
+        return False
+
+    audio_parts = []
     try:
-        if not url.startswith("https://"):
-            raise ValueError("Only HTTPS URLs are allowed for TTS requests")
-        # Ensure URL is a trusted TTS endpoint
-        trusted_prefix = "https://texttospeech.googleapis.com"
-        if not url.startswith(trusted_prefix):
-            raise ValueError(f"URL must start with trusted prefix {trusted_prefix}")
-        req = urllib.request.Request(
-            url,
-            data=json.dumps(payload).encode("utf-8"),
-            headers={"Content-Type": "application/json"}
-        )
         opener = urllib.request.build_opener(urllib.request.HTTPSHandler())
-        with opener.open(req, timeout=25) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-            if "audioContent" in data:
-                audio_bytes = base64.b64decode(data["audioContent"])
-                with open(out_mp3, "wb") as f:
-                    f.write(audio_bytes)
-                print(f"[GCP TTS] ✅ Synthesized scene audio ({len(audio_bytes)} bytes) using {voice_name}.")
-                return True
+        for ch in chunks:
+            payload = {
+                "input": {"text": ch},
+                "voice": {"languageCode": lang_code, "name": v_name},
+                "audioConfig": {"audioEncoding": "MP3", "speakingRate": speaking_rate, "sampleRateHertz": 44100}
+            }
+            req = urllib.request.Request(
+                url,
+                data=json.dumps(payload).encode("utf-8"),
+                headers={"Content-Type": "application/json"}
+            )
+            with opener.open(req, timeout=25) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                if "audioContent" in data:
+                    audio_parts.append(base64.b64decode(data["audioContent"]))
+                else:
+                    return False
+
+        if audio_parts:
+            with open(out_mp3, "wb") as f:
+                for part in audio_parts:
+                    f.write(part)
+            total_bytes = sum(len(p) for p in audio_parts)
+            print(f"[GCP TTS] ✅ Synthesized scene audio ({total_bytes} bytes) using {v_name}.")
+            return True
     except Exception as e:
         print(f"[GCP TTS Warning] Failed ({e}). Falling back...")
     return False
@@ -1012,16 +1047,21 @@ async def main():
             print(f"[TTS] Using pre-packaged audio ({os.path.getsize(a_path)} bytes, normalized MP3 44.1kHz).")
             submaker = edge_tts.SubMaker() if edge_tts else None
         else:
+            is_hindi = (
+                not sc.get("speaker")
+                or sc.get("speaker") in ("Narrator", "Exam Booster")
+                or any("\u0900" <= c <= "\u097F" for c in sc.get("narration", ""))
+            )
             # Tier 1: Try Google Cloud Neural2 directly on Kaggle if gcp_tts_key is provided
             synthesized = False
             if gcp_tts_key:
                 target_rate = 1.04 if domain == "sports" else 1.0
-                gcp_voice = voice if "neural2" in voice.lower() else ("hi-IN-Neural2-B" if domain == "sports" else "hi-IN-Neural2-C")
+                gcp_voice = voice if "neural2" in voice.lower() else ("hi-IN-Neural2-B" if domain == "sports" else ("hi-IN-Neural2-C" if is_hindi else "en-US-Neural2-J"))
                 synthesized = synthesize_gcp_neural2(sc["narration"], a_path, gcp_tts_key, voice_name=gcp_voice, speaking_rate=target_rate)
                 submaker = edge_tts.SubMaker() if edge_tts else None
 
             # Tier 2: Try Kokoro-82M offline on Kaggle (for English or offline dialogue)
-            if not synthesized and not ("hi" in script.get("language", "English").lower() or any('\u0900' <= char <= '\u097f' for char in sc["narration"])):
+            if not synthesized and not is_hindi:
                 k_voice = resolve_kokoro_voice(sc.get("speaker", ""), sc.get("voice", ""))
                 synthesized = synthesize_kokoro_audio(sc["narration"], k_voice, a_path, speed=1.0)
                 submaker = edge_tts.SubMaker() if edge_tts else None
@@ -1030,7 +1070,7 @@ async def main():
             if not synthesized or not os.path.exists(a_path) or os.path.getsize(a_path) < 500:
                 edge_voice = voice
                 if "neural2" in voice.lower():
-                    edge_voice = "hi-IN-MadhurNeural" if "hi" in script.get("language", "English").lower() else "en-IN-PrabhatNeural"
+                    edge_voice = "hi-IN-MadhurNeural" if is_hindi else "en-IN-PrabhatNeural"
                 submaker = await tts_with_boundaries(sc["narration"], edge_voice, a_path, rate=rate)
 
         if not os.path.exists(a_path) or os.path.getsize(a_path) < 100:

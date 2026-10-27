@@ -191,6 +191,8 @@
 - **Strict Pipeline Parity (`chapter-pipeline.ts` <-> `job.ts` <-> `cricketTemplate.ts`):**
   - Any update to video asset generation, audio synthesis cascade, keyframe packaging, BGM streaming, SFX moments, or metadata contracts in `job.ts` MUST simultaneously be applied to `chapter-pipeline.ts` (and `cricketTemplate.ts` when sports/cricket domain is touched), and vice versa.
   - Never leave one pipeline with legacy, unbundled, or divergent behavior while upgrading the other.
+- **Strict Kernel Script Synchronization (`video/kernel/render.py` <-> `src/experiments/ncert/render-ncert.py`):**
+  - `video/kernel/render.py` and `src/experiments/ncert/render-ncert.py` MUST strictly remain 100% byte-for-byte synchronized. Any update to rendering logic, audio mixing (`normalize=0`), outro holds, subtitle burning, or thumbnail fonts must be mirrored across both files immediately.
 - **Mandatory Pre-Flight Verification Lock:**
   - Prior to creating Kaggle datasets (`kaggle datasets create`) and dispatching kernels (`kaggle kernels push`), both pipelines must enforce an uncompromising pre-flight verification gate (`verifyPreFlightDataset`):
     1. 100% of scene audio tracks (`a000.mp3`, `a001.mp3`, ...) must exist on disk and meet size criteria (`>= 500` bytes).
