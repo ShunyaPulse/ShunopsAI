@@ -188,11 +188,14 @@
   - Running and queued GPU jobs represent valuable compute time and quota. Premature cancellation without user consent is strictly forbidden.
 
 ## 19. Dual-Pipeline Synchronization & Mandatory Pre-Flight Verification Lock
-- **Strict Pipeline Parity (`chapter-pipeline.ts` <-> `job.ts` <-> `cricketTemplate.ts`):**
-  - Any update to video asset generation, audio synthesis cascade, keyframe packaging, BGM streaming, SFX moments, or metadata contracts in `job.ts` MUST simultaneously be applied to `chapter-pipeline.ts` (and `cricketTemplate.ts` when sports/cricket domain is touched), and vice versa.
-  - Never leave one pipeline with legacy, unbundled, or divergent behavior while upgrading the other.
-- **Strict Kernel Script Synchronization (`video/kernel/render.py` <-> `src/experiments/ncert/render-ncert.py`):**
-  - `video/kernel/render.py` and `src/experiments/ncert/render-ncert.py` MUST strictly remain 100% byte-for-byte synchronized. Any update to rendering logic, audio mixing (`normalize=0`), outro holds, subtitle burning, or thumbnail fonts must be mirrored across both files immediately.
+- **Core Technology & Tool Parity (`chapter-pipeline.ts` <-> `job.ts` <-> `cricketTemplate.ts`):**
+  - Any architectural advancement in video asset packaging, pre-flight verification, dynamic BGM streaming, SFX moments, robust font fitting (`fit_font`), motion interpolation (`minterpolate=mi_mode=blend`), or audio mixing (`normalize=0`) MUST simultaneously be applied across both pipelines.
+  - Never leave one pipeline with legacy infrastructure or missing tools while upgrading the other.
+- **Preservation of Domain-Specific Optimizations (Zero Placebo Flattening):**
+  - Synchronization applies strictly to technologies, tools, and infrastructure standards. NEVER homogenize domain-optimized specializations:
+    1. `render-ncert.py` is the domain-optimized engine for literature/chapters (preserving distinct character voices, British/historical Kokoro mapping `bf_emma`/`bm_george`, Exam Booster Q&A, and curriculum subtitle cues).
+    2. `render.py` is the domain-optimized engine for general documentaries and sports (Fenrir/Aoede personas, fast sports pacing, and stadium acoustic soundscapes).
+  - Sync the tools, dependencies, and rendering quality standards — preserve the domain-specific acoustic and aesthetic specializations.
 - **Mandatory Pre-Flight Verification Lock:**
   - Prior to creating Kaggle datasets (`kaggle datasets create`) and dispatching kernels (`kaggle kernels push`), both pipelines must enforce an uncompromising pre-flight verification gate (`verifyPreFlightDataset`):
     1. 100% of scene audio tracks (`a000.mp3`, `a001.mp3`, ...) must exist on disk and meet size criteria (`>= 500` bytes).
@@ -200,7 +203,7 @@
     3. Background score (`bgm.ogg`) must be present in `audio/`.
   - If ANY asset is missing or corrupted, the pipeline MUST immediately abort with `[Pre-Flight Verification Gate Abort]` and throw an error. It is strictly forbidden to dispatch an empty, partial, or unverified dataset to Kaggle GPU.
 - **Preservation of Kernel-Level T2V Fallback:**
-  - The Kaggle GPU renderer (`render.py` / `render-ncert.py`) retains its Wan2.1 T2V / AnimateDiff fallback as a last-resort safety net if runtime tensor decoding fails, but upstream runners must never rely on this as normal operation.
+  - The Kaggle GPU renderer retains its Wan2.1 T2V / AnimateDiff fallback as a last-resort safety net if runtime tensor decoding fails, but upstream runners must never rely on this as normal operation.
 
 
 
