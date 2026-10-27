@@ -34,7 +34,23 @@ const MAX_CACHE_ENTRIES = 256;
 const DEFAULT_TTL_MS = 10 * 60 * 1000; // 10 minutes
 const DEFAULT_SIMILARITY_THRESHOLD = 0.94;
 
-const cacheStore = new Map<string, SemanticCacheEntry>();
+// Tenant-Partitioned Map: Map<scopeKey:preference, Map<id, SemanticCacheEntry>>
+const tenantCacheStore = new Map<string, Map<string, SemanticCacheEntry>>();
+let totalCacheEntries = 0;
+
+function getPartitionKey(scopeKey: string, preference: string): string {
+  return `${scopeKey}:${preference}`;
+}
+
+function getTenantStore(scopeKey: string, preference: string): Map<string, SemanticCacheEntry> {
+  const pKey = getPartitionKey(scopeKey, preference);
+  let store = tenantCacheStore.get(pKey);
+  if (!store) {
+    store = new Map<string, SemanticCacheEntry>();
+    tenantCacheStore.set(pKey, store);
+  }
+  return store;
+}
 
 let cacheHits = 0;
 let cacheMisses = 0;
@@ -88,12 +104,12 @@ export function lookupSemanticCache(
   let bestMatch: SemanticCacheEntry | null = null;
   let bestSim = 0;
 
-  for (const [key, entry] of cacheStore.entries()) {
+  const tenantStore = getTenantStore(scopeKey, preference);
+
+  for (const [key, entry] of tenantStore.entries()) {
     if (now >= entry.expiresAtMs) {
-      cacheStore.delete(key);
-      continue;
-    }
-    if (entry.scopeKey !== scopeKey || entry.preference !== preference) {
+      tenantStore.delete(key);
+      totalCacheEntries = Math.max(0, totalCacheEntries - 1);
       continue;
     }
     const sim = dotProductNormalized(queryVec, entry.embedding);
@@ -108,9 +124,9 @@ export function lookupSemanticCache(
     bestMatch.hitCount++;
     savedPromptTokens += bestMatch.promptTokens;
     savedCompletionTokens += bestMatch.completionTokens;
-    // Refresh LRU position
-    cacheStore.delete(bestMatch.id);
-    cacheStore.set(bestMatch.id, bestMatch);
+    // Refresh LRU position in tenant map
+    tenantStore.delete(bestMatch.id);
+    tenantStore.set(bestMatch.id, bestMatch);
     return {
       entry: bestMatch,
       similarity: Number(bestSim.toFixed(4)),
@@ -145,16 +161,30 @@ export function storeSemanticCache(params: {
   const embedding = computeDeterministicEmbedding(params.prompt);
   const id = `${params.scopeKey}:${preference}:${params.prompt.trim().toLowerCase().slice(0, 120)}`;
 
-  if (cacheStore.has(id)) {
-    cacheStore.delete(id);
-  } else if (cacheStore.size >= MAX_CACHE_ENTRIES) {
-    const oldestKey = cacheStore.keys().next().value;
+  const tenantStore = getTenantStore(params.scopeKey, preference);
+
+  if (tenantStore.has(id)) {
+    tenantStore.delete(id);
+    totalCacheEntries = Math.max(0, totalCacheEntries - 1);
+  } else if (totalCacheEntries >= MAX_CACHE_ENTRIES) {
+    // Evict oldest from this tenant or oldest overall
+    const oldestKey = tenantStore.keys().next().value;
     if (oldestKey !== undefined) {
-      cacheStore.delete(oldestKey);
+      tenantStore.delete(oldestKey);
+      totalCacheEntries = Math.max(0, totalCacheEntries - 1);
+    } else {
+      for (const store of tenantCacheStore.values()) {
+        const key = store.keys().next().value;
+        if (key !== undefined) {
+          store.delete(key);
+          totalCacheEntries = Math.max(0, totalCacheEntries - 1);
+          break;
+        }
+      }
     }
   }
 
-  cacheStore.set(id, {
+  tenantStore.set(id, {
     id,
     scopeKey: params.scopeKey,
     preference,
@@ -169,6 +199,7 @@ export function storeSemanticCache(params: {
     expiresAtMs: now + (params.ttlMs ?? DEFAULT_TTL_MS),
     hitCount: 0,
   });
+  totalCacheEntries++;
 }
 
 /**
@@ -181,7 +212,7 @@ export function getSemanticCacheStats() {
   return {
     enabled: process.env.DISABLE_SEMANTIC_CACHE !== "true",
     similarityThreshold: resolveThreshold(),
-    size: cacheStore.size,
+    size: totalCacheEntries,
     maxEntries: MAX_CACHE_ENTRIES,
     hits: cacheHits,
     misses: cacheMisses,
@@ -196,5 +227,6 @@ export function getSemanticCacheStats() {
  * Clear all semantic cache entries (used in tests or admin cache flush).
  */
 export function clearSemanticCache(): void {
-  cacheStore.clear();
+  tenantCacheStore.clear();
+  totalCacheEntries = 0;
 }

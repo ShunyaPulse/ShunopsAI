@@ -22,6 +22,7 @@ import { synthesizeGeminiTTS } from "../../tools/gemini-tts.js";
 import { generateSceneKeyframes } from "../../tools/video/keyframes.js";
 import { searchAndDownloadSFX, resolveAndDownloadCloudBgm } from "../../tools/video/dynamicSound.js";
 import { verifyPreFlightDataset } from "../../tools/video/preflight.js";
+import { waitForDatasetReady } from "../../tools/video/job.js";
 
 export interface CharacterVisualDNA {
   name: string;
@@ -735,8 +736,8 @@ export async function launchChapterJob(
 
   console.log(`\n🚀 [Kaggle Dispatch] Uploading dataset with all pre-packaged audio (--dir-mode zip) & kernel for "${script.title}"...`);
   await kaggle(["datasets", "create", "-p", dsDir, "--dir-mode", "zip"]);
-  // Wait 20 seconds for Kaggle dataset mount propagation before pushing kernel
-  await new Promise((r) => setTimeout(r, 20000));
+  // Smart polling for Kaggle dataset readiness (instant mount as soon as ready)
+  await waitForDatasetReady(`${user}/video-job-${id}`, 30000, 2000);
   await kaggle(["kernels", "push", "-p", kDir]);
 
   const kaggleUrl = `https://www.kaggle.com/code/${user}/video-render-${id}`;

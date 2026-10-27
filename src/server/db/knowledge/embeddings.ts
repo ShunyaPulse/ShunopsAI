@@ -143,8 +143,9 @@ export function computeDeterministicEmbedding(text: string): number[] {
   }
   const norm = Math.sqrt(normSq) || 1;
   const out = new Array<number>(EMBEDDING_DIM);
+  const invNorm = 1 / norm;
   for (let i = 0; i < EMBEDDING_DIM; i++) {
-    out[i] = Number((vec[i]! / norm).toFixed(6));
+    out[i] = vec[i]! * invNorm;
   }
   if (deterministicEmbeddingMemo.size >= MAX_DETERMINISTIC_MEMO) {
     const oldest = deterministicEmbeddingMemo.keys().next().value;

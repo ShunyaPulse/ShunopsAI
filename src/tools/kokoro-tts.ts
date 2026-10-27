@@ -170,6 +170,165 @@ if chunks:
   }
 }
 
+export interface KokoroBatchItem {
+  text: string;
+  outPath: string;
+  voice?: string;
+  language?: string;
+  speed?: number;
+}
+
+/**
+ * High-Performance Single-Process Batch Kokoro Synthesis.
+ * Loads the 82M KPipeline into memory once and synthesizes all scenes sequentially,
+ * avoiding per-scene Python startup and model reload overhead.
+ */
+export async function synthesizeKokoroBatch(
+  items: KokoroBatchItem[]
+): Promise<{ successCount: number; total: number }> {
+  if (items.length === 0) return { successCount: 0, total: 0 };
+  if (items.length === 1) {
+    const it = items[0]!;
+    const ok = await synthesizeKokoroTTS(it.text, it.outPath, {
+      voice: it.voice,
+      language: it.language,
+      speed: it.speed,
+    });
+    return { successCount: ok ? 1 : 0, total: 1 };
+  }
+
+  const pyBin = await resolvePythonBin();
+  const tmpFiles: string[] = [];
+
+  const preparedItems = items.map((it) => {
+    const voice = resolveKokoroVoice(it.voice, it.language);
+    const langCode = voice.startsWith("b") ? "b" : voice.startsWith("h") ? "h" : "a";
+    const tmpWav = path.join(os.tmpdir(), `kokoro_b_${Date.now()}_${Math.random().toString(36).slice(2)}.wav`);
+    tmpFiles.push(tmpWav);
+    return {
+      text: it.text,
+      outPath: it.outPath,
+      tmpWav: tmpWav.replace(/\\/g, "/"),
+      voice,
+      langCode,
+      speed: it.speed ?? 1.0,
+    };
+  });
+
+  const pyScript = `
+import json, sys, os
+import kokoro
+import numpy as np
+import soundfile as sf
+
+pipelines = {}
+items = json.loads(sys.argv[1])
+results = []
+
+for item in items:
+    out_wav = item["tmpWav"]
+    text = item["text"]
+    voice = item["voice"]
+    lang = item["langCode"]
+    speed = item.get("speed", 1.0)
+    try:
+        if lang not in pipelines:
+            pipelines[lang] = kokoro.KPipeline(lang_code=lang)
+        pipeline = pipelines[lang]
+        gen = pipeline(text, voice=voice, speed=speed)
+        chunks = [a for _, _, a in gen if a is not None and len(a) > 0]
+        if chunks:
+            full = np.concatenate(chunks)
+            sf.write(out_wav, full, 24000)
+            results.append({"tmpWav": out_wav, "ok": True})
+        else:
+            results.append({"tmpWav": out_wav, "ok": False, "err": "empty audio"})
+    except Exception as e:
+        results.append({"tmpWav": out_wav, "ok": False, "err": str(e)})
+
+print(json.dumps(results))
+`;
+
+  let successCount = 0;
+  const timeoutMs = Math.max(30000, items.length * 6000);
+
+  try {
+    const { stdout } = await execFileAsync(pyBin, ["-c", pyScript, JSON.stringify(preparedItems)], {
+      timeout: timeoutMs,
+      maxBuffer: 10 * 1024 * 1024,
+    });
+
+    let results: Array<{ tmpWav: string; ok: boolean; err?: string }> = [];
+    try {
+      results = JSON.parse(stdout.trim());
+    } catch {
+      console.warn("[Kokoro-82M Batch] Failed to parse batch json output, falling back to individual synthesis.");
+    }
+
+    const resultMap = new Map(results.map((r) => [r.tmpWav, r.ok]));
+
+    for (const prep of preparedItems) {
+      await fs.mkdir(path.dirname(prep.outPath), { recursive: true });
+      const wasOk = resultMap.get(prep.tmpWav);
+
+      if (wasOk && fsSync.existsSync(prep.tmpWav) && (await fs.stat(prep.tmpWav)).size > 300) {
+        if (prep.outPath.toLowerCase().endsWith(".wav")) {
+          await fs.copyFile(prep.tmpWav, prep.outPath);
+          successCount++;
+        } else {
+          try {
+            await execFileAsync("ffmpeg", [
+              "-y",
+              "-i",
+              prep.tmpWav,
+              "-ar",
+              "44100",
+              "-ac",
+              "2",
+              "-c:a",
+              "libmp3lame",
+              "-b:a",
+              "192k",
+              prep.outPath,
+            ], { timeout: 15000 });
+            if (fsSync.existsSync(prep.outPath) && (await fs.stat(prep.outPath)).size > 500) {
+              successCount++;
+            }
+          } catch {
+            const fallbackOk = await synthesizeKokoroTTS(prep.text, prep.outPath, {
+              voice: prep.voice,
+              speed: prep.speed,
+            });
+            if (fallbackOk) successCount++;
+          }
+        }
+      } else {
+        const fallbackOk = await synthesizeKokoroTTS(prep.text, prep.outPath, {
+          voice: prep.voice,
+          speed: prep.speed,
+        });
+        if (fallbackOk) successCount++;
+      }
+    }
+  } catch (err: any) {
+    console.warn(`[Kokoro-82M Batch] Batch execution failed: ${err.message}. Cascading individual fallbacks.`);
+    for (const it of items) {
+      const ok = await synthesizeKokoroTTS(it.text, it.outPath, {
+        voice: it.voice,
+        language: it.language,
+        speed: it.speed,
+      });
+      if (ok) successCount++;
+    }
+  } finally {
+    for (const tmp of tmpFiles) {
+      await fs.unlink(tmp).catch(() => {});
+    }
+  }
+
+  return { successCount, total: items.length };
+}
+
 /**
  * Edge-TTS fallback synthesis using a temp file (`-f`) to prevent CLI flag-injection on leading hyphens/quotes,
  * followed by 44.1kHz MP3 standardization if ffmpeg is available.

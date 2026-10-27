@@ -39,6 +39,35 @@ function sanitizeTitleForSlug(title?: string): string {
   return cleaned ? `-${cleaned}` : "";
 }
 
+/**
+ * Smart Kaggle Dataset Readiness Poller (replaces blind 20s sleep).
+ * Polls `kaggle datasets status <ref>` every 2 seconds until "ready",
+ * cutting job dispatch wait by ~12-16 seconds.
+ */
+export async function waitForDatasetReady(
+  datasetRef: string,
+  maxWaitMs = 30000,
+  pollIntervalMs = 2000
+): Promise<boolean> {
+  const start = Date.now();
+  console.log(`[Video] ⏳ Smart polling Kaggle dataset readiness for "${datasetRef}"...`);
+  while (Date.now() - start < maxWaitMs) {
+    try {
+      const statusRes = await kaggle(["datasets", "status", datasetRef]);
+      if (statusRes.toLowerCase().includes("ready")) {
+        const elapsed = ((Date.now() - start) / 1000).toFixed(1);
+        console.log(`[Video] ⚡ Dataset "${datasetRef}" ready in ${elapsed}s (saved ~${Math.max(0, 20 - Number(elapsed))}s)!`);
+        return true;
+      }
+    } catch {
+      // transient poll error, keep waiting
+    }
+    await new Promise((r) => setTimeout(r, pollIntervalMs));
+  }
+  console.warn(`[Video] Dataset poll reached timeout (${maxWaitMs / 1000}s); proceeding with kernel push.`);
+  return false;
+}
+
 function datasetMetadata(user: string, id: string, title?: string) {
   const displayTitle = title ? `Video Job: ${title.slice(0, 45)}` : `video job ${id}`;
   const slug = `${id}${sanitizeTitleForSlug(title)}`;
@@ -185,8 +214,8 @@ export async function startVideoJob(
   console.log(`[Video] 🛡️ [Pre-Flight Verified] 100% assets verified: ${preflight.audioCount} audio, ${preflight.keyframeCount} keyframes, BGM: OK.`);
 
   const ds = await kaggle(["datasets", "create", "-p", dsDir, "--dir-mode", "zip"]);
-  // dataset processing takes a few seconds before a kernel can mount it
-  await new Promise((r) => setTimeout(r, DATASET_SETTLE_MS));
+  // Smart polling for Kaggle dataset readiness (instant mount as soon as ready)
+  await waitForDatasetReady(`${user}/video-job-${slug}`, 30000, 2000);
   const push = await kaggle(["kernels", "push", "-p", kDir]);
 
   return JSON.stringify(

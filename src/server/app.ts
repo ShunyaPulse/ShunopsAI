@@ -1,4 +1,5 @@
 import * as crypto from "node:crypto";
+import * as zlib from "node:zlib";
 import Fastify, { type FastifyInstance } from "fastify";
 import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
@@ -224,6 +225,24 @@ export async function createApp(config: AppConfig = loadAppConfig()): Promise<Fa
         );
       }
     }
+
+    // Optimization #8: Brotli / Gzip response compression for JSON / HTML payloads > 1KB
+    if (payload && (typeof payload === "string" || Buffer.isBuffer(payload)) && !reply.hasHeader("Content-Encoding")) {
+      const payloadBytes = typeof payload === "string" ? Buffer.byteLength(payload) : payload.length;
+      if (payloadBytes >= 1024) {
+        const acceptEncoding = String(_req.headers["accept-encoding"] || "").toLowerCase();
+        if (acceptEncoding.includes("br")) {
+          reply.header("Content-Encoding", "br");
+          reply.removeHeader("Content-Length");
+          return zlib.brotliCompressSync(payload);
+        } else if (acceptEncoding.includes("gzip")) {
+          reply.header("Content-Encoding", "gzip");
+          reply.removeHeader("Content-Length");
+          return zlib.gzipSync(payload);
+        }
+      }
+    }
+
     return payload;
   });
 

@@ -208,6 +208,28 @@ const PRECOMPILED_RUNNER_SCRIPT = new vm.Script(SANDBOX_RUNNER_SOURCE, {
   filename: "shunops-sandbox-runner.js",
 });
 
+const SCRIPT_CACHE_LIMIT = 64;
+const scriptCache = new Map<string, vm.Script>();
+
+export function getCachedVmScript(code: string, filename = "eval.js"): vm.Script {
+  if (code.length > 50000) {
+    return new vm.Script(code, { filename });
+  }
+  let s = scriptCache.get(code);
+  if (s) {
+    scriptCache.delete(code);
+    scriptCache.set(code, s);
+    return s;
+  }
+  if (scriptCache.size >= SCRIPT_CACHE_LIMIT) {
+    const oldest = scriptCache.keys().next().value;
+    if (oldest !== undefined) scriptCache.delete(oldest);
+  }
+  s = new vm.Script(code, { filename });
+  scriptCache.set(code, s);
+  return s;
+}
+
 function resolveTimeout(timeoutMs: number | undefined): number {
   const requested = Number(timeoutMs);
   if (!Number.isFinite(requested) || requested <= 0) return DEFAULT_TIMEOUT_MS;

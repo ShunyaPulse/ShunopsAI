@@ -73,6 +73,42 @@ OUT = "/kaggle/working"
 TMP = "/kaggle/working/tmp"
 os.makedirs(TMP, exist_ok=True)
 
+_CACHED_ENCODER_ARGS = None
+
+def get_best_video_encoder_args():
+    """
+    Probes if NVIDIA h264_nvenc hardware encoder is functional in this GPU environment.
+    Runs a test 0.1-second encode. If functional, returns NVENC flags (-c:v h264_nvenc -preset p4 -cq 18).
+    Otherwise, cleanly auto-falls back to CPU libx264 (-c:v libx264 -preset veryfast -crf 18).
+    """
+    global _CACHED_ENCODER_ARGS
+    if _CACHED_ENCODER_ARGS is not None:
+        return _CACHED_ENCODER_ARGS
+
+    test_clip = f"{TMP}/_test_nvenc.mp4"
+    try:
+        enc_check = subprocess.run(["ffmpeg", "-encoders"], capture_output=True, text=True, timeout=5)
+        if "h264_nvenc" in enc_check.stdout:
+            test_res = subprocess.run([
+                "ffmpeg", "-y", "-f", "lavfi", "-i", "color=c=black:s=64x64:d=0.1",
+                "-c:v", "h264_nvenc", "-preset", "p4", "-cq", "18", test_clip
+            ], capture_output=True, timeout=8)
+            if test_res.returncode == 0 and os.path.exists(test_clip) and os.path.getsize(test_clip) > 100:
+                print("⚡ [Hardware Encoder] NVIDIA h264_nvenc detected and functional! Using GPU hardware acceleration.")
+                _CACHED_ENCODER_ARGS = ["-c:v", "h264_nvenc", "-preset", "p4", "-cq", "18"]
+                try: os.remove(test_clip)
+                except Exception: pass
+                return _CACHED_ENCODER_ARGS
+    except Exception as e:
+        print(f"[Hardware Encoder Probe] NVENC not available ({e}); using CPU libx264.")
+
+    try:
+        if os.path.exists(test_clip): os.remove(test_clip)
+    except Exception: pass
+
+    _CACHED_ENCODER_ARGS = ["-c:v", "libx264", "-preset", "veryfast", "-crf", "18"]
+    return _CACHED_ENCODER_ARGS
+
 
 def find_script():
     for p in glob.glob("/kaggle/input/**/script.json", recursive=True):
@@ -769,7 +805,7 @@ class WanT4OptimizedEngine:
                 "ffmpeg", "-y", "-i", raw_clip,
                 "-vf", vf_pipeline,
                 "-r", "24", "-t", f"{shot_dur:.3f}",
-                "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", sub_clip
+                *get_best_video_encoder_args(), sub_clip
             ])
             shot_files.append(sub_clip)
 
@@ -1039,12 +1075,9 @@ async def main():
         # Check if pre-packaged audio exists in dataset
         dataset_audio = os.path.join(os.path.dirname(script_path), "audio", f"a{i:03d}.mp3")
         if os.path.exists(dataset_audio) and os.path.getsize(dataset_audio) > 500:
-            # Normalize every audio file to standard 44.1kHz stereo MP3
-            # (Fixes silent video / truncated audio caused by WAV/MP3 container mismatches between Gemini TTS and Chirp 3 HD)
-            ok_norm = run(["ffmpeg", "-y", "-i", dataset_audio, "-ar", "44100", "-ac", "2", "-c:a", "libmp3lame", "-b:a", "192k", a_path])
-            if not (ok_norm and os.path.exists(a_path) and os.path.getsize(a_path) > 500):
-                shutil.copyfile(dataset_audio, a_path)
-            print(f"[TTS] Using pre-packaged audio ({os.path.getsize(a_path)} bytes, normalized MP3 44.1kHz).")
+            # Pre-packaged audio is already standard 44.1kHz stereo MP3: instant zero-transcode reuse
+            shutil.copyfile(dataset_audio, a_path)
+            print(f"[TTS] Using pre-packaged audio ({os.path.getsize(a_path)} bytes, instant zero-transcode reuse).")
             submaker = edge_tts.SubMaker() if edge_tts else None
         else:
             is_hindi = (
@@ -1385,7 +1418,7 @@ async def main():
         "-vf", master_vf,
         "-af", master_af,
         "-map", "0:v", "-map", "1:a",
-        "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
+        *get_best_video_encoder_args(),
         "-c:a", "aac", "-b:a", "192k", "-shortest", f"{OUT}/video.mp4"
     ])
 
