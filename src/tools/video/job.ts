@@ -34,7 +34,7 @@ function sanitizeTitleForSlug(title?: string): string {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
-    .slice(0, 35)
+    .slice(0, 20)
     .replace(/-+$/, "");
   return cleaned ? `-${cleaned}` : "";
 }
@@ -153,6 +153,14 @@ export async function startVideoJob(
     }
   }
 
+  // Stage 1.7: Write dataset and kernel metadata before pre-flight gate
+  const slug = `${id}${sanitizeTitleForSlug(script.title)}`;
+  await writeJsonFile(path.join(dsDir, "script.json"), script);
+  await writeJsonFile(path.join(dsDir, "dataset-metadata.json"), datasetMetadata(user, id, script.title));
+  await writeJsonFile(path.join(dsDir, "config.json"), runtimeConfig(options?.gcpKey), 0o600);
+  await fs.copyFile(RENDER_SRC, path.join(kDir, "render.py"));
+  await writeJsonFile(path.join(kDir, "kernel-metadata.json"), kernelMetadata(user, id, script.title));
+
   // Stage 2: Enforce Non-Bypassable Pre-Flight Verification Gate
   console.log(`[Video] 🛡️ [Pre-Flight Gate] Validating all dataset assets before Kaggle dispatch...`);
   const preflight = await verifyPreFlightDataset(dsDir, script.scenes.length, {
@@ -175,13 +183,6 @@ export async function startVideoJob(
     );
   }
   console.log(`[Video] 🛡️ [Pre-Flight Verified] 100% assets verified: ${preflight.audioCount} audio, ${preflight.keyframeCount} keyframes, BGM: OK.`);
-
-  const slug = `${id}${sanitizeTitleForSlug(script.title)}`;
-  await writeJsonFile(path.join(dsDir, "script.json"), script);
-  await writeJsonFile(path.join(dsDir, "dataset-metadata.json"), datasetMetadata(user, id, script.title));
-  await writeJsonFile(path.join(dsDir, "config.json"), runtimeConfig(options?.gcpKey), 0o600);
-  await fs.copyFile(RENDER_SRC, path.join(kDir, "render.py"));
-  await writeJsonFile(path.join(kDir, "kernel-metadata.json"), kernelMetadata(user, id, script.title));
 
   const ds = await kaggle(["datasets", "create", "-p", dsDir, "--dir-mode", "zip"]);
   // dataset processing takes a few seconds before a kernel can mount it

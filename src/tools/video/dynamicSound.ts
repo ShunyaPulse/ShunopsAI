@@ -168,53 +168,42 @@ export async function searchAndDownloadSFX(
 
 /**
  * 100% Cloud-Streamed BGM Catalog (Zero Laptop Storage)
- * Streams authentic public domain master tracks on-demand during cloud execution.
+ * Resolves authentic public domain master tracks on-demand via Wikimedia Commons API.
  */
-export const BGM_CLOUD_CATALOG: Record<string, { title: string; url: string }> = {
+export const BGM_CLOUD_CATALOG: Record<string, { title: string; fileTitle: string }> = {
   inspirational_cello: {
     title: "Bach Cello Suite - John Michel",
-    url: "https://upload.wikimedia.org/wikipedia/commons/e/ec/John_Michel_-_Cello_Suite_No._1_in_G_Major_-_1._Pr%C3%A9lude.ogg",
-  },
-  ambient_piano: {
-    title: "Satie Gymnopedie No 1",
-    url: "https://upload.wikimedia.org/wikipedia/commons/2/29/Debussy_Gymnopedie_1%2C_arrangement_of_Satie%E2%80%99s_Gymnopedie_3.wav",
+    fileTitle: "File:JOHN MICHEL CELLO-J S BACH CELLO SUITE 1 in G Prelude.ogg",
   },
   dramatic_strings: {
     title: "Beethoven Symphony 5",
-    url: "https://upload.wikimedia.org/wikipedia/commons/5/52/Ludwig_van_Beethoven_-_Symphonie_5_c-moll_-_1._Allegro_con_brio.ogg",
-  },
-  gentle_acoustic: {
-    title: "Tarrega Recuerdos de la Alhambra",
-    url: "https://upload.wikimedia.org/wikipedia/commons/0/05/Recuerdos_de_la_Alhambra.ogg",
-  },
-  epic_orchestral: {
-    title: "Dvorak New World Symphony",
-    url: "https://upload.wikimedia.org/wikipedia/commons/5/57/Antonin_Dvorak_-_symphony_no._9_in_e_minor_%27from_the_new_world%27%2C_op._95_-_iv._allegro_con_fuoco.ogg",
-  },
-  melancholy_violin: {
-    title: "Massenet Meditation Thais",
-    url: "https://upload.wikimedia.org/wikipedia/commons/3/3d/Meditation_from_Thais_-_Bomsori_Kim.opus",
-  },
-  mysterious_ambient: {
-    title: "Debussy Clair de Lune",
-    url: "https://upload.wikimedia.org/wikipedia/commons/e/e2/Moonlight_-_Clair_de_Lune_%28As_the_rememberance_of_Sir_Debussy.ogg",
+    fileTitle: "File:Ludwig van Beethoven - Symphonie 5 c-moll - 1. Allegro con brio.ogg",
   },
   triumphant_brass: {
     title: "Holst Planets Jupiter",
-    url: "https://upload.wikimedia.org/wikipedia/commons/5/57/Gustav_Holst_-_the_planets%2C_op._32_-_iv._jupiter%2C_the_bringer_of_jollity.ogg",
+    fileTitle: "File:Gustav Holst - the planets, op. 32 - iv. jupiter, the bringer of jollity.ogg",
   },
-  uplifting_documentary: {
-    title: "Vivaldi Spring",
-    url: "https://upload.wikimedia.org/wikipedia/commons/3/3c/Vivaldi_-_Four_Seasons_1_Spring_mvt_1_Allegro_-_John_Harrison_violin.oga",
+  epic_orchestral: {
+    title: "Dvorak New World Symphony",
+    fileTitle: "File:Antonin Dvorak - symphony no. 9 in e minor 'from the new world', op. 95 - iv. allegro con fuoco.ogg",
   },
   warm_serenade: {
     title: "Mozart Romanze",
-    url: "https://upload.wikimedia.org/wikipedia/commons/1/14/Mozart_-_Serenade_No._13_for_strings_in_G_major%2C_K._525_-_Romanze.ogg",
+    fileTitle: "File:Mozart - Serenade No. 13 for strings in G major, K. 525 - Romanze.ogg",
+  },
+  gentle_acoustic: {
+    title: "Tarrega Recuerdos de la Alhambra",
+    fileTitle: "File:Recuerdos de la Alhambra.ogg",
+  },
+  uplifting_documentary: {
+    title: "Vivaldi Spring",
+    fileTitle: "File:Vivaldi - Four Seasons 1 Spring mvt 1 Allegro - John Harrison violin.oga",
   },
 };
 
 /**
  * Downloads and caches a cloud BGM track directly into target audioDir.
+ * Dynamically resolves URL from Wikimedia API with reliable audio fallback.
  */
 export async function resolveAndDownloadCloudBgm(
   bgmGenre: string | undefined,
@@ -230,21 +219,35 @@ export async function resolveAndDownloadCloudBgm(
   }
 
   try {
-    const res = await fetch(track.url, {
-      headers: { "User-Agent": USER_AGENT },
-      signal: AbortSignal.timeout(15000),
-    });
-    if (res.ok) {
-      const buf = Buffer.from(await res.arrayBuffer());
-      if (buf.length > 5000) {
-        await fs.writeFile(targetBgm, buf);
-        console.log(`🎻 [Cloud BGM Streamed] Downloaded "${track.title}" (${(buf.length / 1024 / 1024).toFixed(2)} MB) directly into dataset.`);
-        return true;
+    const info = await getAudioDirectUrl(track.fileTitle);
+    if (info?.url) {
+      const res = await fetch(info.url, {
+        headers: { "User-Agent": USER_AGENT },
+        signal: AbortSignal.timeout(25000),
+      });
+      if (res.ok) {
+        const buf = Buffer.from(await res.arrayBuffer());
+        if (buf.length > 5000) {
+          await fs.writeFile(targetBgm, buf);
+          console.log(`🎻 [Cloud BGM Streamed] Downloaded "${track.title}" (${(buf.length / 1024 / 1024).toFixed(2)} MB) directly into dataset.`);
+          return true;
+        }
       }
     }
   } catch (err: any) {
-    console.warn(`[Cloud BGM] Failed to stream ${track.title}:`, err?.message || err);
+    console.warn(`[Cloud BGM] Wikimedia fetch failed for ${track.title}:`, err?.message || err);
   }
+
+  // Fallback: If cloud BGM fetch failed, generate an ambient drone bed via FFmpeg so BGM is never missing
+  try {
+    const { execSync } = await import("node:child_process");
+    execSync(`ffmpeg -y -f lavfi -i aevalsrc="sin(65*2*PI*t)*0.15+sin(130*2*PI*t)*0.08:s=44100:d=180" -ar 44100 -ac 2 -c:a libvorbis "${targetBgm}"`, { stdio: "ignore" });
+    if (fsSync.existsSync(targetBgm) && fsSync.statSync(targetBgm).size > 5000) {
+      console.log(`🎻 [Cloud BGM Fallback] Synthesized ambient drone BGM -> ${targetBgm}`);
+      return true;
+    }
+  } catch {}
+
   return false;
 }
 
