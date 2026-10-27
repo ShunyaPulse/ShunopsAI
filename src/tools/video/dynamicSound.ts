@@ -234,8 +234,8 @@ export async function resolveAndDownloadCloudBgm(
         }
       }
     }
-  } catch (err: any) {
-    console.warn(`[Cloud BGM] Wikimedia fetch failed for ${track.title}:`, err?.message || err);
+  } catch {
+    console.warn("[Cloud BGM] Wikimedia fetch failed for track:", track.title);
   }
 
   // Fallback: If cloud BGM fetch failed, generate an ambient drone bed via FFmpeg so BGM is never missing

@@ -386,9 +386,9 @@ Respond strictly in valid JSON matching this schema:
     // B. Enforce 100% Actor DNA lock if character appears
     if (research.characterVisualBible?.length) {
       for (const char of research.characterVisualBible) {
-        const charNameRegex = new RegExp(`\\b${char.name}\\b`, "i");
-        const isSpeaker = sc.speaker && charNameRegex.test(sc.speaker);
-        const inPrompt = charNameRegex.test(sc.visual_prompt);
+        const charNameLower = char.name.toLowerCase();
+        const isSpeaker = sc.speaker ? sc.speaker.toLowerCase().includes(charNameLower) : false;
+        const inPrompt = sc.visual_prompt.toLowerCase().includes(charNameLower);
         if (isSpeaker || inPrompt) {
           const dnaCore = char.actorDnaPrompt.slice(0, 35);
           if (!sc.visual_prompt.includes(dnaCore)) {

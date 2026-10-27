@@ -352,28 +352,33 @@ export async function runAutoAlertResolver(
     console.log(`\n${colors.green}Pushing ${resolvedCount} auto-resolved security patches to main...${colors.reset}`);
     try {
       const authEnv = getGitHubAuthEnv(token);
+      try {
+        execFileSync("git", ["config", "user.name", "ShunopsAI-Bot"], { env: authEnv });
+        execFileSync("git", ["config", "user.email", "bot@shunops.ai"], { env: authEnv });
+      } catch {}
+
       execFileSync("git", ["add", "-A"], { env: authEnv });
-      execFileSync("git", [
-        "commit",
-        "-m",
-        `fix(security): auto-resolved ${resolvedCount} code scanning alerts by ShunopsAI`,
-      ], { env: authEnv });
-      const pat = token || process.env.GH_PAT || process.env.GITHUB_PAT || process.env.GH_TOKEN || process.env.GITHUB_TOKEN;
-      if (pat) {
-        const basicAuth = Buffer.from(`x-access-token:${pat}`).toString("base64");
-        execFileSync(
-          "git",
-          [
-            "-c",
-            `http.https://github.com/.extraheader=AUTHORIZATION: basic ${basicAuth}`,
-            "push",
-            "https://github.com/ShunyaPulse/ShunopsAI.git",
-            "main:main",
-          ],
-          { stdio: "pipe", env: authEnv }
-        );
-      } else {
+      try {
+        execFileSync("git", [
+          "commit",
+          "-m",
+          `fix(security): auto-resolved ${resolvedCount} code scanning alerts by ShunopsAI`,
+        ], { env: authEnv });
+      } catch (commitErr: any) {
+        console.warn(`[Commit notice] ${commitErr?.message || commitErr}`);
+      }
+
+      // First try standard push (works seamlessly in GitHub Actions where credentials are provided by checkout)
+      try {
         execFileSync("git", ["push", "origin", "main"], { stdio: "pipe", env: authEnv });
+      } catch {
+        const pat = token || process.env.GH_PAT || process.env.GITHUB_PAT || process.env.GH_TOKEN || process.env.GITHUB_TOKEN;
+        if (pat) {
+          const pushUrl = `https://${encodeURIComponent(pat)}@github.com/ShunyaPulse/ShunopsAI.git`;
+          execFileSync("git", ["push", pushUrl, "main:main"], { stdio: "pipe", env: authEnv });
+        } else {
+          throw new Error("Git push failed and no GH_PAT / GITHUB_TOKEN available for authenticated push.");
+        }
       }
       console.log(`${colors.green}✓ All patches pushed to GitHub main successfully!${colors.reset}`);
     } catch (pushErr: any) {

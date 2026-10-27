@@ -93,7 +93,7 @@ export async function callCloudflareFlux(
       });
 
       if (!res.ok) {
-        console.warn(`[Keyframes] Cloudflare FLUX account ${acc.id.slice(0, 6)} returned HTTP ${res.status}: [REDACTED]`);
+        console.warn(`[Keyframes] Cloudflare FLUX endpoint returned HTTP ${res.status}`);
         if (res.status === 429 || res.status === 503) {
           continue; // cascade to next account
         }
@@ -117,8 +117,8 @@ export async function callCloudflareFlux(
       await fs.mkdir(path.dirname(outPng), { recursive: true });
       await fs.writeFile(outPng, buffer);
       return true;
-    } catch (err: any) {
-      console.warn(`[Keyframes] FLUX request exception on account ${acc.id.slice(0, 6)}: [REDACTED]`);
+    } catch {
+      console.warn("[Keyframes] FLUX request exception occurred during generation.");
       continue;
     }
   }
@@ -176,7 +176,7 @@ export async function generateSceneKeyframes(
       ok = await callCloudflareFlux(prompt, outPng, accountId, apiToken);
       if (ok) {
         successCount++;
-        console.log(`[Keyframes] ✅ Scene ${i + 1}/${totalScenes} keyframe ready -> ${path.basename(outPng)}`);
+        console.log(`[Keyframes] ✅ Scene ${i + 1}/${totalScenes} keyframe ready (scene_${String(i).padStart(3, "0")}.png)`);
         break;
       }
       if (attempt < 2) {

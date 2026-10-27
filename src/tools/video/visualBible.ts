@@ -159,8 +159,8 @@ Return ONLY valid JSON in this structure:
     if (parsed.teamsDescription || parsed.heroPlayersDNA) {
       return parsed;
     }
-  } catch (err: any) {
-    console.warn(`[Video] Cricket dynamic match extraction non-fatal fallback: ${err?.message || err}`);
+  } catch {
+    console.warn("[Video] Cricket dynamic match extraction non-fatal fallback activated.");
   }
   return {};
 }

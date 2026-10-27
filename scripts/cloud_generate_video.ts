@@ -69,13 +69,15 @@ async function main() {
 
       console.log(`\n🚀 Launching Autonomous Video Job for: "${finalTopic}"...`);
       const launchOutput = await startVideoJob(finalTopic, minutes, language, trendReason);
-      console.log(`\n🎉 [SUCCESS] General Video Job Output:\n${launchOutput}`);
+      let parsedJob: any = {};
+      try { parsedJob = JSON.parse(launchOutput); } catch {}
+      console.log(`\n🎉 [SUCCESS] General Video Job Output: ${parsedJob.jobId || "Job started"}`);
     }
   } catch (err: any) {
-    console.error(`❌ [Cloud Video Dispatch Error]:`, err?.message || err);
+    console.error("❌ [Cloud Video Dispatch Error]: Dispatch execution failed.");
     await sendIncidentAlert(
       "Cloud Video Pipeline Failure",
-      `Failed to dispatch cloud video for topic: "${topicArg || "autonomous"}"\n\nError: ${err?.message || String(err)}`
+      `Failed to dispatch cloud video for topic: "${topicArg || "autonomous"}"\n\nError: ${err?.message ? String(err.message).slice(0, 100) : "Internal error"}`
     ).catch(() => {});
     process.exit(1);
   }
