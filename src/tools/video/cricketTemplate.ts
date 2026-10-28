@@ -221,6 +221,15 @@ export interface DynamicCricketParams {
 }
 
 /**
+ * Formats the 22 canonical actions for dynamic injection into the Director's Visual Bible.
+ */
+export function formatCricketActionsForPrompt(): string {
+  return CRICKET_MAJOR_ACTIONS.map(
+    (a, i) => `${i + 1}. [${a.name} (${a.category})]: ${a.biomechanicalPrompt}`
+  ).join("\n");
+}
+
+/**
  * Dynamically builds a production-grade Cricket Visual & Acoustic Bible
  * using real-world research facts (teams, notable players)
  * merged with strict physical & geometric invariants of an international cricket stadium.
@@ -260,7 +269,7 @@ export function buildCricketVisualBible(params: DynamicCricketParams = {}): Visu
     latentTrapsToBan: CRICKET_LATENT_TRAPS,
 
     characterGrammar:
-      `Authentic athletic cricket cinematography: (1) Hero Character Visual DNA: ${heroDNA}. Active players executing one of the 22 Canonical Cricket Actions: textbook front-foot cover drive with high elbow; authoritative back-foot pull shot with horizontal blade arc; lofted straight drive down-the-ground; wristy flick off pads; explosive pace bowler overhead delivery release; lethal toe-crusher yorker shattering off-stump; airborne wicketkeeper diving catch; precision direct-hit run-out throw; and landmark century bat raises. All players must wear team-authentic solid athletic jerseys (India: Royal Indian Blue athletic jersey and matching blue trousers; opposition in solid dark team kit). Strictly ZERO gym vests, sleeveless tank tops, civilian clothes, or yellow/black random kits on Indian players. (2) Electric Stadium & Fan Invariant: Packed cheering grandstands with 60,000+ roaring spectators and waving team flags under floodlights. (3) Bilateral Celebration Standard: Batsman taking off helmet and raising flat English willow bat toward the standing roaring crowd; passionate fist-pumping celebration with batting partner mid-pitch; team dugout rushing onto boundary cushions. Strictly ZERO Champions League or giant football trophies. (4) 100% Genuine Cricket Equipment: Handcrafted flat-faced English willow bat with arched rear spine and rubber cane handle (never round baseball bats or rolling pins); exactly three vertical wooden Ash stumps firmly anchored into the pitch with two wooden bails (never 4+ stumps or floating wickets); four-piece leather ball with visible hand-stitched seam.`,
+      `Authentic athletic cricket cinematography: (1) Hero Character Visual DNA: ${heroDNA}. (2) Real-Action Cricket Repertoire (Visuals MUST actively depict one of the 22 canonical actions matching commentary; never passive crowd pans or disconnected balls floating in sky):\n${formatCricketActionsForPrompt()}\n(3) Team Kits: All players must wear team-authentic solid athletic jerseys (India: Royal Indian Blue athletic jersey and matching blue trousers; opposition in solid dark team kit). Strictly ZERO gym vests, sleeveless tank tops, civilian clothes, or yellow/black random kits on Indian players. (4) Electric Stadium & Fan Invariant: Packed cheering grandstands with 60,000+ roaring spectators and waving team flags under floodlights. (5) Bilateral Celebration Standard: Batsman taking off helmet and raising flat English willow bat toward the standing roaring crowd; passionate fist-pumping celebration with batting partner mid-pitch; team dugout rushing onto boundary cushions. Strictly ZERO Champions League or giant football trophies. (6) 100% Genuine Cricket Equipment: Handcrafted flat-faced English willow bat with arched rear spine and rubber cane handle (never round baseball bats or rolling pins); exactly three vertical wooden Ash stumps firmly anchored into the pitch with two wooden bails (never 4+ stumps or floating wickets); four-piece leather ball with visible hand-stitched seam.`,
 
     zeroTextRules:
       "STRICT ABSOLUTE ZERO SCOREBOARDS OR DIGITAL TEXT: Never render stadium scoreboards, speed guns, or digital time tickers in diffusion latents. Athletic jerseys must feature solid vibrant color panels and clean cloth folds with zero numbers, zero sponsor text, zero letters. All boundary perimeter hoardings must be smooth blurred color gradients with zero legible branding.",

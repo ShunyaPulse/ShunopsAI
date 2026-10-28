@@ -207,66 +207,13 @@ CRITICAL DIRECTIVES:
 
      * Use macro equipment cinematography (e.g. ball seam spinning, equipment impact, turf explosion under spikes), dynamic tracking of trajectory, over-the-shoulder perspectives, or athletic player celebrations.
 
-   - SPORTS & CRICKET AUTHENTICITY, PACKED STADIUMS & HERO CRICKETERS:
+   - REAL-ACTION CINEMATIC MANDATE (ZERO DISCONNECTED OR PASSIVE SHOTS):
 
-     * NEVER render empty stadiums, ghost grounds, deserted stands, or silent grass fields when narration describes roaring crowds, tension, or match excitement.
+     * Visuals MUST actively depict real, continuous physical actions matching spoken commentary (e.g. actual cricket batting strokes/deliveries, telescope mirror deployment, robotic cleanroom operations).
 
-     * Every stadium shot must showcase packed stands with 60,000+ cheering fans under blazing floodlights, waving team flags, and electric match haze.
+     * ABSOLUTELY NEVER replace active commentary with purely passive crowd pans or disconnected objects floating in the dark sky!
 
-     * FEATURE ACTIVE HERO CRICKETERS IN MATCH ACTION:
-       - When the script focuses on specific players (e.g. Abhishek Sharma, Virat Kohli, Rohit Sharma, Jasprit Bumrah) or a match-winning partnership, show the hero cricketer in action:
-         (a) Resolute batsman facing down the pitch wearing protective batting pads, gloves, team-authentic solid athletic jersey, and helmet with steel face grille,
-         (b) Dynamic action stances: executing crisp cricket strokes (pull shot, cover drive, lofted straight hit, or diving into the crease),
-         (c) Passionate roaring celebrations: batsman raising English willow bat high to the packed cheering crowd, emotional fist pump, or joyous partner embrace mid-pitch!
-       - Balance equipment close-ups with genuine human athlete drama, expressions, and celebrations.
-
-     * STRICT CRICKET GEOMETRY:
-       - Pitch: strictly 22 yards of clay-turf with a single crisp white popping crease. NEVER depict tennis court lines, badminton boxes, or multiple parallel white lines.
-       - Wickets: strictly exactly three vertical wooden Ash stumps with two wooden bails on top. NEVER depict bowling pins, carrom pawns, or wooden frames.
-       - Ball: four-piece raised-seam leather cricket ball with visible white hand-stitched seam.
-
-   - REAL-ACTION CRICKET REPERTOIRE (22 CANONICAL ACTION TYPES):
-
-     * CRICKET REAL-ACTION MANDATE: Visuals MUST actively match the commentary action using one of the 22 canonical action types below. NEVER replace real match action with purely passive crowd pans or disconnected balls floating in the dark sky!
-
-     * BATTING ACTIONS:
-       1. Front-Foot Classical Cover Drive: Batsman bending front knee, high front elbow, presenting flat blade of English willow bat to caress ball through extra cover.
-       2. Back-Foot Authoritative Pull Shot: Batsman rocking back, pivoting on back foot, horizontal flat-bat whip across chest dispatching short ball through midwicket.
-       3. Textbook Straight Drive / On-Drive: Textbook vertical bat blade, high elbow, balanced head, punching full ball past bowler along the turf.
-       4. Lofted Straight Hit Down-the-Ground: Batsman dancing down pitch, high backlift, full arm extension launching ball over bowler into roaring stands.
-       5. Square Cut / Late Cut: Back-foot weight shift, arms extended wide, slashing open-faced willow blade through point and third man.
-       6. Wristy Flick / Whip off Pads: Supple wrist roll on middle-and-leg, whipping leather ball off pads to deep midwicket.
-       7. Traditional Sweep / Slog Sweep: Dropping onto front knee on turf, sweeping bat in a powerful horizontal arc over deep square leg.
-       8. Reverse Sweep / Switch Hit: Rapid grip and stance switch, crouched low, rolling blade over ball toward short third man.
-       9. Ramp / Dilscoop / Upper Cut: Dropping low or arching back, using bowler pace to scoop ball over wicketkeeper's helmet.
-       10. Classical Forward Defensive Block: Soft hands, vertical bat tucked inside front pad, smothering spin/seam into the pitch.
-
-     * BOWLING ACTIONS:
-       11. Fast Bowler Overhead Delivery Release: Leaping in explosive delivery stride at bowling crease, right arm high at 12 o'clock, whipping leather ball with backward seam rotation.
-       12. Outswing / Inswing Seam Mechanics: Macro tracking of upright tilted seam curving through air under floodlights past batsman's edge.
-       13. Hostile Short-Pitched Bouncer: Fast bowler aggressive follow-through as ball rears off pitch chest-high towards the batter.
-       14. Lethal Yorker / Stumps Shatter: Laser-accurate delivery crashing into base of stumps at batsman's toes, sending wooden bails flying.
-       15. Wrist-Spin / Leg-Break Turn: Spinner releasing ball with cocked wrist revolutions, ball gripping dry turf and turning sharply away.
-       16. Finger-Spin / Off-Break Turn: Fingers snapping across raised seam, ball gripping rough clay outside off-stump and biting in.
-
-     * FIELDING & WICKETKEEPING ACTIONS:
-       17. Wicketkeeper Airborne Diving Catch: Keeper in webbed gloves leaping horizontally across slip cordon to pouch outside edge inches off turf.
-       18. Direct-Hit Precision Run-Out Throw: Fielder swooping at extra cover, picking up cleanly and shattering middle stump in one fluid motion.
-       19. Boundary Rope Sliding Save: Outfielder sprinting, knee-sliding on turf to flick ball back inside rope before hitting foam cushions.
-       20. Slips Cordon Low Reflex Catch: Slip fielder crouching low, reacting with split-second reflex to cup soft hands around traveling edge.
-
-     * CELEBRATIONS & TEAM DRAMA:
-       21. Batsman Landmark Century Celebration: Batsman removing helmet, raising English willow bat with both arms aloft toward 60,000 standing cheering fans under floodlights.
-       22. Bowler Wicket Roar & Team Huddle: Fast bowler airborne leap with pumped fist and impassioned roar, mobbed by teammates in pitch-center huddle.
-
-     * STRICT TEAM KITS & NO RANDOM CLOTHES:
-       - Every player depicted MUST be explicitly tagged with their exact official team kit color (e.g. "Abhishek Sharma in solid Royal Indian Blue athletic jersey and matching blue trousers").
-       - STRICTLY FORBIDDEN: Random yellow or black shirts on Indian players, mismatched yellow pads, gym vests, sleeveless tank tops, black workout tees, or civilian streetwear on the cricket pitch.
-
-     * STRICT CRICKET EQUIPMENT & WICKETS INVARIANT:
-       - Bat: MUST be an authentic handcrafted English willow cricket bat with flat front face, arched spine, and cane handle. STRICTLY BAN round baseball bats, rolling pins, or flat wooden planks.
-       - Wickets: Strictly exactly three vertical wooden Ash stumps firmly anchored into the pitch with two wooden bails on top. STRICTLY BAN 4, 5, 6, or 7 stumps, floating wickets, or stumps sprouting from the ground.
-       - Trophy Rule for Bilateral Matches: In bilateral series matches (e.g. Match 3 of India vs New Zealand series), NEVER generate trophy presentations or giant Champions League / football-style silver cups! Players celebrate by taking off helmets and raising bats to 60,000 cheering fans, energetic mid-pitch fist pumps, and dugout celebration huddles.
+     * Refer directly to the "DIRECTOR'S BESPOKE VISUAL & ACOUSTIC BIBLE" above for the exact domain action repertoire, character visual DNA, authentic uniforms, and physical equipment invariants.
 
    - RIGID BACKGROUND GEOMETRY & LOW-MOTION STABILITY (PREVENT BREATHING/SURFACE WARPING):
 
