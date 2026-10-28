@@ -47,6 +47,174 @@ export const CRICKET_LATENT_TRAPS = [
   "numbers on shirt", "commercial logos on boundary", "legible text on screen", "garbled letters on screen"
 ];
 
+export interface CricketActionDefinition {
+  id: string;
+  category: "batting" | "bowling" | "fielding" | "celebration";
+  name: string;
+  biomechanicalPrompt: string;
+}
+
+/**
+ * Complete catalog of 22 canonical cricket action types covering batting,
+ * bowling, fielding, and celebration cinematography.
+ */
+export const CRICKET_MAJOR_ACTIONS: CricketActionDefinition[] = [
+  // 1. Front-Foot Classical Cover Drive
+  {
+    id: "cover_drive",
+    category: "batting",
+    name: "Front-Foot Classical Cover Drive",
+    biomechanicalPrompt: "Hero batsman bending front knee with head over the ball, high front elbow pointing toward extra cover, presenting the wide flat face of the handcrafted English willow bat to caress the leather ball along the turf past the fielder under blazing floodlights."
+  },
+  // 2. Back-Foot Authoritative Pull Shot
+  {
+    id: "pull_shot",
+    category: "batting",
+    name: "Back-Foot Authoritative Pull Shot",
+    biomechanicalPrompt: "Hero batsman rocking back onto back foot, pivoting decisively, swinging the English willow bat in a powerful horizontal arc across the chest, dispatching the short-pitched ball through midwicket into the deep boundary."
+  },
+  // 3. Textbook Straight Drive / On-Drive
+  {
+    id: "straight_drive",
+    category: "batting",
+    name: "Textbook Straight Drive / On-Drive",
+    biomechanicalPrompt: "Hero batsman leaning forward with vertical bat blade, elbow high and head perfectly still, punching the full-length ball crisply past the bowler along the clay pitch."
+  },
+  // 4. Lofted Straight Hit Down-the-Ground
+  {
+    id: "lofted_straight_hit",
+    category: "batting",
+    name: "Lofted Straight Hit Down-the-Ground",
+    biomechanicalPrompt: "Hero batsman dancing down the pitch with nimble footwork, high backlift, full arm extension swinging the willow bat through the line, launching the leather ball high over long-on into the roaring 60,000-fan upper tier."
+  },
+  // 5. Square Cut / Late Cut
+  {
+    id: "square_cut",
+    category: "batting",
+    name: "Square Cut / Late Cut",
+    biomechanicalPrompt: "Hero batsman shifting weight quickly to the back foot, arms extending wide, slashing the willow bat with open face to guide the bouncing ball through backward point and third man."
+  },
+  // 6. Wristy Flick / Whip off Pads
+  {
+    id: "flick_off_pads",
+    category: "batting",
+    name: "Wristy Flick / Whip off Pads",
+    biomechanicalPrompt: "Hero batsman closing the face with supple wrist roll at the instant of impact, whipping the leather ball effortlessly off middle-and-leg stump toward the deep midwicket boundary."
+  },
+  // 7. Traditional Sweep / Slog Sweep
+  {
+    id: "sweep_shot",
+    category: "batting",
+    name: "Traditional Sweep / Slog Sweep",
+    biomechanicalPrompt: "Hero batsman dropping low onto front knee on the turf, sweeping the willow bat in a ferocious horizontal arc across the spinning ball, depositing it over deep square leg."
+  },
+  // 8. Reverse Sweep / Switch Hit
+  {
+    id: "reverse_sweep",
+    category: "batting",
+    name: "Reverse Sweep / Switch Hit",
+    biomechanicalPrompt: "Hero batsman swiftly reversing grip and stance, crouched low over the pitch, rolling the blade over the top of the spinning ball to guide it over short third man."
+  },
+  // 9. Ramp / Dilscoop / Upper Cut
+  {
+    id: "ramp_shot",
+    category: "batting",
+    name: "Ramp / Dilscoop / Upper Cut",
+    biomechanicalPrompt: "Hero batsman sinking low or arching backward, using the fast bowler's high velocity to deflect the ball with angled willow blade directly over the wicketkeeper's helmet."
+  },
+  // 10. Classical Forward Defensive Block
+  {
+    id: "forward_defense",
+    category: "batting",
+    name: "Classical Forward Defensive Block",
+    biomechanicalPrompt: "Hero batsman stretching forward with soft hands, vertical willow bat tucked securely beside the front pad, head directly over the ball, deadening the ball into the clay pitch."
+  },
+  // 11. Fast Bowler Explosive Delivery Stride & Release
+  {
+    id: "fast_bowler_release",
+    category: "bowling",
+    name: "Fast Bowler Explosive Overhead Delivery Stride",
+    biomechanicalPrompt: "Pace bowler leaping high into the delivery stride at the bowling crease, front foot slamming down with chalk dust puff, right arm high at 12 o'clock, whipping the four-piece leather ball with visible backward seam rotation toward the 3 wooden stumps."
+  },
+  // 12. Outswing / Inswing Seam Mechanics
+  {
+    id: "swing_bowling",
+    category: "bowling",
+    name: "Outswing / Inswing Seam Mechanics",
+    biomechanicalPrompt: "Close-up macro tracking of the four-piece leather ball in flight under floodlights, visible hand-stitched seam tilted at an angle, curving late in the air past the outside edge of the batsman's bat."
+  },
+  // 13. Hostile Short-Pitched Bouncer
+  {
+    id: "bouncer_delivery",
+    category: "bowling",
+    name: "Hostile Short-Pitched Bouncer",
+    biomechanicalPrompt: "Fast bowler following through aggressively on turf as the leather ball rears up off the clay pitch chest-high towards the batter, testing the batsman's evasive reflexes."
+  },
+  // 14. Lethal Yorker / Stumps Shatter
+  {
+    id: "yorker_delivery",
+    category: "bowling",
+    name: "Lethal Yorker / Stumps Shatter",
+    biomechanicalPrompt: "Fast bowler pitching laser-accurate delivery right at the base of the batsman's boots on the popping crease, crashing into off-stump and sending wooden bails spinning through the air under floodlights."
+  },
+  // 15. Wrist-Spin / Leg-Break Turn
+  {
+    id: "leg_spin",
+    category: "bowling",
+    name: "Wrist-Spin / Leg-Break Delivery",
+    biomechanicalPrompt: "Leg-spinner cocking wrist and releasing ball with sharp revolutions, ball drifting in the air, gripping the dry pitch turf and spinning sharply away from the right-handed batsman."
+  },
+  // 16. Finger-Spin / Off-Break Turn
+  {
+    id: "off_spin",
+    category: "bowling",
+    name: "Finger-Spin / Off-Break Turn",
+    biomechanicalPrompt: "Off-spinner turning fingers violently across the raised seam at release, ball gripping the rough clay surface outside off-stump and biting back viciously toward the stumps."
+  },
+  // 17. Wicketkeeper Airborne Diving Catch
+  {
+    id: "keeper_diving_catch",
+    category: "fielding",
+    name: "Wicketkeeper Airborne Diving Catch",
+    biomechanicalPrompt: "Athletic wicketkeeper in padded gloves and helmet leaping horizontally across the slip cordon, grasping the flying leather ball inches above the green grass with outstretched webbed gloves."
+  },
+  // 18. Direct-Hit Precision Run-Out Throw
+  {
+    id: "run_out_throw",
+    category: "fielding",
+    name: "Direct-Hit Precision Run-Out Throw",
+    biomechanicalPrompt: "Infield fielder swooping on the ball at extra cover, picking up cleanly in one fluid athletic motion, and releasing an arrow-straight throw that shatters the middle stump at the non-striker's end."
+  },
+  // 19. Boundary Rope Sliding Save / Relay Flick
+  {
+    id: "boundary_slide_save",
+    category: "fielding",
+    name: "Boundary Rope Sliding Save / Relay Flick",
+    biomechanicalPrompt: "Outfielder sprinting at full tilt along the boundary foam cushions, sliding on knees across the grass to flick the ball back into play a split second before crossing the rope."
+  },
+  // 20. Slips Cordon Low Reflex Catch
+  {
+    id: "slip_reflex_catch",
+    category: "fielding",
+    name: "Slips Cordon Low Reflex Catch",
+    biomechanicalPrompt: "First slip fielder crouching in sharp anticipation, eyes locked on the edge, reacting with split-second reflex to cup soft hands around the rapid traveling leather ball at knee height."
+  },
+  // 21. Batsman Century / Landmark Triumphant Celebration
+  {
+    id: "century_celebration",
+    category: "celebration",
+    name: "Batsman Century / Landmark Triumphant Celebration",
+    biomechanicalPrompt: "Hero batsman removing helmet, raising the handcrafted English willow bat with both arms aloft toward 60,000 standing roaring fans under glowing floodlights, embracing batting partner mid-pitch in ecstatic victory."
+  },
+  // 22. Bowler Wicket Roar & Pitch-Center Team Huddle
+  {
+    id: "wicket_celebration_huddle",
+    category: "celebration",
+    name: "Bowler Wicket Roar & Pitch-Center Team Huddle",
+    biomechanicalPrompt: "Fast bowler executing an explosive airborne leap with pumped fist and impassioned celebratory roar, as teammates in matching team jerseys rush in from cover and mid-off to mob him in a joyous huddle."
+  }
+];
+
 export interface DynamicCricketParams {
   teamsDescription?: string;
   heroPlayersDNA?: string;
@@ -76,17 +244,23 @@ export function buildCricketVisualBible(params: DynamicCricketParams = {}): Visu
       "Hero batsman in solid team kit leaning into a classical front-foot cover drive, high front elbow, wide flat blade of willow bat meeting ball crisply",
       "Pitch-center mid-pitch celebration huddle, hero batsman raising English willow bat to standing ovation from 60,000 cheering fans",
       "Close-up of hero cricketer raising helmet and English willow bat high in triumph, roaring crowd in background",
-      "Fast bowler leaping in explosive delivery stride at bowling crease, right arm high in classic overhead release delivering four-piece leather ball toward 3 wooden stumps",
+      "Fast bowler leaping in explosive overhead delivery stride at bowling crease releasing four-piece leather ball toward 3 wooden stumps",
       "Batsman pivoting on back foot executing powerful pull shot through midwicket, willow bat swinging horizontally under bright floodlights",
+      "Textbook straight drive along the turf with vertical bat blade and high front elbow punch",
+      "Lofted straight hit down-the-ground with batsman stepping out and launching leather ball over bowler's head into packed stands",
+      "Late cut slicing behind point with angled blade of English willow bat",
+      "Wristy flick off pads rolling wrists to guide ball through midwicket boundary",
+      "Wicketkeeper in padded gloves and helmet leaping in airborne dive to pouch edge inches off the grass",
+      "Direct-hit run-out throw from cover shattering middle stump with bails flying under floodlights",
+      "Boundary rope sliding save with fielder flicking ball back inside rope before colliding with foam cushions",
       "Dugout players leaping onto boundary cushions in wild celebration under confetti and pyrotechnic stadium haze",
-      "Lush green outfield boundary rope perimeter with foam triangular cushions and towering floodlights shining over packed stands",
-      "Athletic wicketkeeper in team kit crouching in low anticipation stance behind the exactly 3 wooden stumps with bails"
+      "Lush green outfield boundary rope perimeter with foam triangular cushions and towering floodlights shining over packed stands"
     ],
 
     latentTrapsToBan: CRICKET_LATENT_TRAPS,
 
     characterGrammar:
-      `Authentic athletic cricket cinematography: (1) Hero Character Visual DNA: ${heroDNA}. Active players in dynamic real-action cricket stances: front-foot cover drive bending knee with high front elbow and flat face of English willow bat striking the ball; authoritative back-foot pull shot with horizontal bat swing; fast bowler in high-velocity overhead delivery stride releasing four-piece leather ball with backward seam rotation. All players must wear team-authentic solid athletic jerseys (India: Royal Indian Blue athletic jersey and matching blue trousers; opposition in solid dark team kit). Strictly ZERO gym vests, sleeveless tank tops, civilian clothes, or yellow/black random kits on Indian players. (2) Electric Stadium & Fan Invariant: Packed cheering grandstands with 60,000+ roaring spectators and waving team flags under floodlights. (3) Bilateral Celebration Standard: Batsman taking off helmet and raising flat English willow bat toward the standing roaring crowd; passionate fist-pumping celebration with batting partner mid-pitch; team dugout rushing onto boundary cushions. Strictly ZERO Champions League or giant football trophies. (4) 100% Genuine Cricket Equipment: Handcrafted flat-faced English willow bat with arched rear spine and rubber cane handle (never round baseball bats or rolling pins); exactly three vertical wooden Ash stumps firmly anchored into the pitch with two wooden bails (never 4+ stumps or floating wickets); four-piece leather ball with visible hand-stitched seam.`,
+      `Authentic athletic cricket cinematography: (1) Hero Character Visual DNA: ${heroDNA}. Active players executing one of the 22 Canonical Cricket Actions: textbook front-foot cover drive with high elbow; authoritative back-foot pull shot with horizontal blade arc; lofted straight drive down-the-ground; wristy flick off pads; explosive pace bowler overhead delivery release; lethal toe-crusher yorker shattering off-stump; airborne wicketkeeper diving catch; precision direct-hit run-out throw; and landmark century bat raises. All players must wear team-authentic solid athletic jerseys (India: Royal Indian Blue athletic jersey and matching blue trousers; opposition in solid dark team kit). Strictly ZERO gym vests, sleeveless tank tops, civilian clothes, or yellow/black random kits on Indian players. (2) Electric Stadium & Fan Invariant: Packed cheering grandstands with 60,000+ roaring spectators and waving team flags under floodlights. (3) Bilateral Celebration Standard: Batsman taking off helmet and raising flat English willow bat toward the standing roaring crowd; passionate fist-pumping celebration with batting partner mid-pitch; team dugout rushing onto boundary cushions. Strictly ZERO Champions League or giant football trophies. (4) 100% Genuine Cricket Equipment: Handcrafted flat-faced English willow bat with arched rear spine and rubber cane handle (never round baseball bats or rolling pins); exactly three vertical wooden Ash stumps firmly anchored into the pitch with two wooden bails (never 4+ stumps or floating wickets); four-piece leather ball with visible hand-stitched seam.`,
 
     zeroTextRules:
       "STRICT ABSOLUTE ZERO SCOREBOARDS OR DIGITAL TEXT: Never render stadium scoreboards, speed guns, or digital time tickers in diffusion latents. Athletic jerseys must feature solid vibrant color panels and clean cloth folds with zero numbers, zero sponsor text, zero letters. All boundary perimeter hoardings must be smooth blurred color gradients with zero legible branding.",
