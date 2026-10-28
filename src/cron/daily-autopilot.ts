@@ -78,7 +78,36 @@ async function waitForKaggleKernel(
  * Executes a full autonomous end-to-end cycle:
  * Trend -> Curation -> Kaggle Render -> YouTube Upload (Private) -> Email Review Alert.
  */
+/**
+ * Autonomous GitOps Self-Sync:
+ * Automatically checks and pulls origin/main before launching the daily video cycle
+ * so the runner is guaranteed to run the latest pipeline code and never fall behind.
+ */
+async function autoSyncGitRepository(): Promise<void> {
+  try {
+    const { execFile } = await import("node:child_process");
+    const { promisify } = await import("node:util");
+    const execFileAsync = promisify(execFile);
+    console.log("[Autopilot] 🔄 Checking for upstream code updates from origin/main...");
+    await execFileAsync("git", ["fetch", "origin", "main"], { timeout: 30000 });
+    const { stdout: revHead } = await execFileAsync("git", ["rev-parse", "HEAD"], { timeout: 10000 });
+    const { stdout: revOrigin } = await execFileAsync("git", ["rev-parse", "origin/main"], { timeout: 10000 });
+    if (revHead.trim() !== revOrigin.trim()) {
+      console.log(`[Autopilot] ⚡ Local commit (${revHead.trim().slice(0, 7)}) behind origin/main (${revOrigin.trim().slice(0, 7)}). Auto-pulling latest changes...`);
+      await execFileAsync("git", ["pull", "--ff-only", "origin", "main"], { timeout: 30000 });
+      console.log(`[Autopilot] ✅ Successfully self-updated to latest origin/main.`);
+    } else {
+      console.log(`[Autopilot] ✅ Runner is in lockstep with origin/main (${revHead.trim().slice(0, 7)}).`);
+    }
+  } catch (err: any) {
+    console.warn(`[Autopilot] Notice: Auto-sync skipped (${err?.message || err}).`);
+  }
+}
+
 export async function runAutonomousCycle(): Promise<AutopilotRunResult> {
+  // Step 0: Ensure runner is in lockstep with origin/main
+  await autoSyncGitRepository();
+
   const autonomy = await getAutonomyStatus();
   if (autonomy.paused) {
     console.log("\n=======================================================");
