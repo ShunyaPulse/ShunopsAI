@@ -25,10 +25,22 @@ export const CRICKET_LATENT_TRAPS = [
   "swimming pool in outfield", "living room sofa",
 
   // Malformed equipment & anatomical glitches
-  "4 stumps", "2 stumps", "plastic wickets", "wire fence on pitch", "holding bat upside down",
+  "baseball bat", "round bat", "rolling pin", "flat wooden board", "plank of wood", "flat paddle", "bat looking like a plank", "paddle bat", "hockey stick",
+  "4 stumps", "2 stumps", "5 stumps", "6 stumps", "7 stumps", "multiple stumps", "stumps sprouting from ground", "floating stumps", "floating wickets", "floating bails", "flying stumps while batsman batting",
+  "plastic wickets", "wire fence on pitch", "holding bat upside down",
   "bat handle separated from blade", "curved tennis racket handle on bat", "three arms on batter",
   "football goalkeeper gloves on wicketkeeper", "ice hockey helmet", "floating bat", "melting shoulder",
   "fused fingers", "disjointed elbow", "cartoon", "anime", "cgi video game look", "faceless mannequin",
+
+  // Inappropriate attire & rogue extra hallucinations
+  "gym vest", "sleeveless shirt", "tank top", "black sleeveless t-shirt", "workout tank", "civilian clothes on pitch", "streetwear on field", "bare arms without team jersey",
+  "yellow and black jersey on Indian player", "yellow pads on Indian batsman", "mismatched random kit", "unbranded random colored shirt", "random spectators on pitch", "people without cricket uniforms",
+
+  // Inappropriate trophies & non-bilateral celebrations
+  "champions league trophy", "giant silver football cup", "uefa trophy", "fifa world cup trophy", "giant two-handled metallic cup", "lifting trophy in bilateral match", "holding football trophy",
+
+  // Passive / disconnected animations
+  "passive crowd panning", "ball floating purposelessly in dark sky", "static players staring", "motionless players standing around",
 
   // Garbled diffusion text & scoreboard hallucinations
   "scoreboard with text", "digital numbers scoreboard", "led ticker display", "text on jersey",
@@ -61,20 +73,20 @@ export function buildCricketVisualBible(params: DynamicCricketParams = {}): Visu
     organicSettings: [
       "Packed 60,000-seat cricket stadium stands with standing roaring fans waving team flags under blazing floodlights",
       "Pristine 22-yard clay-turf cricket pitch with single chalk popping crease, exactly 3 wooden stumps, and 2 bails",
-      "Batter in solid team kit stepping out of the crease, executing powerful stroke past roaring crowd in the background",
+      "Hero batsman in solid team kit leaning into a classical front-foot cover drive, high front elbow, wide flat blade of willow bat meeting ball crisply",
       "Pitch-center mid-pitch celebration huddle, hero batsman raising English willow bat to standing ovation from 60,000 cheering fans",
       "Close-up of hero cricketer raising helmet and English willow bat high in triumph, roaring crowd in background",
-      "Bowler charging in past roaring crowd, delivering four-piece raised-seam leather ball toward 3 wooden stumps",
+      "Fast bowler leaping in explosive delivery stride at bowling crease, right arm high in classic overhead release delivering four-piece leather ball toward 3 wooden stumps",
+      "Batsman pivoting on back foot executing powerful pull shot through midwicket, willow bat swinging horizontally under bright floodlights",
       "Dugout players leaping onto boundary cushions in wild celebration under confetti and pyrotechnic stadium haze",
       "Lush green outfield boundary rope perimeter with foam triangular cushions and towering floodlights shining over packed stands",
-      "Athletic wicketkeeper crouching in low anticipation stance behind the 3 wooden stumps with bails",
-      "Dynamic boundary line tracking shot of white leather ball skidding across lush green outfield turf toward boundary cushion"
+      "Athletic wicketkeeper in team kit crouching in low anticipation stance behind the exactly 3 wooden stumps with bails"
     ],
 
     latentTrapsToBan: CRICKET_LATENT_TRAPS,
 
     characterGrammar:
-      `Authentic athletic cricket cinematography: (1) Hero Character Visual DNA: ${heroDNA}. Active players in dynamic action stances (pull shot, crisp cover drive, lofted straight hit, or diving into the crease) wearing team-authentic solid athletic jerseys (clean cloth folds, zero text/logos), protective pads, and steel-grille helmet. (2) Electric Stadium & Fan Invariant: Never depict empty or ghost stadiums. Every stadium perspective must reveal packed cheering grandstands with 60,000+ roaring spectators and waving team flags under floodlights. (3) Peak Emotional Climax: Batsman raising English willow bat toward the standing roaring crowd, passionate fist-pumping celebration with batting partner mid-pitch. (4) 100% Genuine Cricket Equipment: Exactly 22-yard clay pitch with a single crisp chalk batting crease line, exactly three vertical wooden Ash stumps with two bails, four-piece leather ball with visible hand-stitched white seam. Strictly ban empty stadiums, tennis court lines, bowling pins, croquet wickets, and golf balls.`,
+      `Authentic athletic cricket cinematography: (1) Hero Character Visual DNA: ${heroDNA}. Active players in dynamic real-action cricket stances: front-foot cover drive bending knee with high front elbow and flat face of English willow bat striking the ball; authoritative back-foot pull shot with horizontal bat swing; fast bowler in high-velocity overhead delivery stride releasing four-piece leather ball with backward seam rotation. All players must wear team-authentic solid athletic jerseys (India: Royal Indian Blue athletic jersey and matching blue trousers; opposition in solid dark team kit). Strictly ZERO gym vests, sleeveless tank tops, civilian clothes, or yellow/black random kits on Indian players. (2) Electric Stadium & Fan Invariant: Packed cheering grandstands with 60,000+ roaring spectators and waving team flags under floodlights. (3) Bilateral Celebration Standard: Batsman taking off helmet and raising flat English willow bat toward the standing roaring crowd; passionate fist-pumping celebration with batting partner mid-pitch; team dugout rushing onto boundary cushions. Strictly ZERO Champions League or giant football trophies. (4) 100% Genuine Cricket Equipment: Handcrafted flat-faced English willow bat with arched rear spine and rubber cane handle (never round baseball bats or rolling pins); exactly three vertical wooden Ash stumps firmly anchored into the pitch with two wooden bails (never 4+ stumps or floating wickets); four-piece leather ball with visible hand-stitched seam.`,
 
     zeroTextRules:
       "STRICT ABSOLUTE ZERO SCOREBOARDS OR DIGITAL TEXT: Never render stadium scoreboards, speed guns, or digital time tickers in diffusion latents. Athletic jerseys must feature solid vibrant color panels and clean cloth folds with zero numbers, zero sponsor text, zero letters. All boundary perimeter hoardings must be smooth blurred color gradients with zero legible branding.",

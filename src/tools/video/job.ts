@@ -162,16 +162,21 @@ export async function startVideoJob(
   console.log(`[Video] 🎨 Keyframe packaging complete: ${script.keyframes_summary}`);
 
   // Stage 1.5: Stream domain BGM directly into dataset/audio (Zero Laptop Storage)
+  const soundscape =
+    (script as any).visual_bible?.soundscapeProfile ||
+    (script as any).visual_bible?.soundscape_profile ||
+    (script as any).soundscape_profile ||
+    (script as any).soundscapeProfile ||
+    {};
   const requestedBgm =
-    (script as any).soundscape_profile?.bgmGenre ||
-    (script as any).soundscapeProfile?.bgmGenre ||
+    soundscape.bgmGenre ||
     (isSports ? "epic_orchestral" : "uplifting_documentary");
   await resolveAndDownloadCloudBgm(requestedBgm, audioDir);
 
   // Stage 1.6: Stream dynamic SFX moments directly into dataset/audio
   const sfxMoments: Array<{ sceneHint?: string; sfx?: string; sfxQuery?: string }> =
-    (script as any).soundscape_profile?.keySFXMoments ||
-    (script as any).soundscapeProfile?.keySFXMoments ||
+    soundscape.keySFXMoments ||
+    (script as any).keySFXMoments ||
     [];
   if (Array.isArray(sfxMoments) && sfxMoments.length > 0) {
     for (const moment of sfxMoments) {

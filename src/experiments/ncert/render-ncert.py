@@ -1293,10 +1293,11 @@ async def main():
 
     if bgm_path:
         print(f"[Audio] Using packaged background audio track from {bgm_path}...")
+        bgm_vol = "0.22" if domain == "sports" else "0.16"
         ok_bgm = run([
             "ffmpeg", "-y", "-stream_loop", "-1", "-i", bgm_path,
             "-t", f"{target_master_dur:.3f}",
-            "-af", "volume=0.10,afade=t=in:st=0:d=2.0",
+            "-af", f"volume={bgm_vol},afade=t=in:st=0:d=2.0",
             "-ar", "44100", "-ac", "2", "-c:a", "libmp3lame", "-b:a", "192k", ambient_mp3
         ])
         if ok_bgm and os.path.exists(ambient_mp3) and os.path.getsize(ambient_mp3) > 1000:
@@ -1315,13 +1316,15 @@ async def main():
                         "ffmpeg", "-y",
                         "-i", ambient_mp3,
                         "-i", sfx_p,
-                        "-filter_complex", "[0:a]volume=1.0[a0];[1:a]volume=0.30[a1];[a0][a1]amix=inputs=2:duration=first:dropout_transition=2:normalize=0[aout]",
+                        "-filter_complex", "[0:a]volume=1.0[a0];[1:a]volume=0.35[a1];[a0][a1]amix=inputs=2:duration=first:dropout_transition=2:normalize=0[aout]",
                         "-map", "[aout]",
                         "-ar", "44100", "-ac", "2", "-c:a", "libmp3lame", "-b:a", "192k", mixed_sfx
                     ])
                     if ok_sfx and os.path.exists(mixed_sfx) and os.path.getsize(mixed_sfx) > 1000:
                         ambient_mp3 = mixed_sfx
-    else:
+
+    # Fallback to procedural drone synthesis ONLY if NO background audio track exists
+    if not has_ambient:
         print(f"[Audio] Synthesizing domain-calibrated cinematic ambient drone for domain '{domain}'...")
         if domain in ["science", "space", "technology"]:
             aeval = (

@@ -201,29 +201,22 @@ CRITICAL DIRECTIVES:
 
      * STRICTLY BANNED: Residential buildings, colonial palaces, mansions, havelis, luxury resort gardens, or random hotel rooms in sports or technical documentaries.
 
-   - BIOMECHANICAL KINEMATICS & ANTI-WARPING STANDARD:
+   - BIOMECHANICAL KINEMATICS & REAL-ACTION SPORTS STANDARD:
 
-     * For athletic or high-speed maneuvers: NEVER prompt full-body side-profile complex swings or high-speed human limb contortions (which trigger shoulder melting, floating equipment, or cross-sport confusion like baseball sliding).
+     * CRICKET REAL-ACTION MANDATE: Visuals MUST actively match the commentary action.
+       - If commentary describes a cover drive: Prompt the batsman in exact team kit (e.g. solid Royal Indian Blue jersey, matching blue trousers, white batting pads, blue helmet) bending his front knee, high front elbow, executing a crisp front-foot cover drive with the flat blade of his English willow bat.
+       - If commentary describes fast bowling or pace: Prompt the fast bowler in his explosive delivery stride at the bowling crease, right arm high in classic overhead release, whipping the four-piece leather ball with visible backward seam rotation toward the batsman.
+       - If commentary describes a pull shot: Prompt the batsman rocking back, pivoting on back foot with a commanding horizontal swing of the willow bat.
+       - NEVER replace real action with purely passive crowd pans or disconnected balls floating in the dark sky!
 
-     * Use macro equipment cinematography (e.g. ball seam spinning, equipment impact, turf explosion under spikes), dynamic tracking of trajectory, over-the-shoulder perspectives, or athletic player celebrations.
+     * STRICT TEAM KITS & NO RANDOM CLOTHES:
+       - Every player depicted MUST be explicitly tagged with their exact official team kit color (e.g. "Abhishek Sharma in solid Royal Indian Blue athletic jersey and matching blue trousers").
+       - STRICTLY FORBIDDEN: Random yellow or black shirts on Indian players, mismatched yellow pads, gym vests, sleeveless tank tops, black workout tees, or civilian streetwear on the cricket pitch.
 
-   - SPORTS & CRICKET AUTHENTICITY, PACKED STADIUMS & HERO CRICKETERS:
-
-     * NEVER render empty stadiums, ghost grounds, deserted stands, or silent grass fields when narration describes roaring crowds, tension, or match excitement.
-
-     * Every stadium shot must showcase packed stands with 60,000+ cheering fans under blazing floodlights, waving team flags, and electric match haze.
-
-     * FEATURE ACTIVE HERO CRICKETERS IN MATCH ACTION:
-       - When the script focuses on specific players (e.g. Shadab Khan, Virat Kohli, Rohit Sharma, Ben Stokes) or a match-winning partnership, show the hero cricketer in action:
-         (a) Resolute batsman facing down the pitch wearing protective batting pads, gloves, team-authentic solid athletic jersey, and helmet with steel face grille,
-         (b) Dynamic action stances: executing crisp cricket strokes (pull shot, cover drive, lofted straight hit, or diving into the crease),
-         (c) Passionate roaring celebrations: batsman raising English willow bat high to the packed cheering crowd, emotional fist pump, or joyous partner embrace mid-pitch!
-       - Balance equipment close-ups with genuine human athlete drama, expressions, and celebrations.
-
-     * STRICT CRICKET GEOMETRY:
-       - Pitch: strictly 22 yards of clay-turf with a single crisp white popping crease. NEVER depict tennis court lines, badminton boxes, or multiple parallel white lines.
-       - Wickets: strictly three vertical wooden Ash stumps with two wooden bails on top. NEVER depict bowling pins, carrom pawns, or wooden frames.
-       - Ball: four-piece raised-seam leather cricket ball with visible white hand-stitched seam.
+     * STRICT CRICKET EQUIPMENT & WICKETS INVARIANT:
+       - Bat: MUST be an authentic English willow cricket bat with flat front face, arched spine, and cane handle. STRICTLY BAN round baseball bats, rolling pins, or flat wooden planks.
+       - Wickets: Strictly exactly three vertical wooden Ash stumps firmly anchored into the pitch with two wooden bails on top. STRICTLY BAN 4, 5, 6, or 7 stumps, floating wickets, or stumps sprouting from the ground.
+       - Trophy Rule for Bilateral Matches: In bilateral series matches (e.g. Match 3 of India vs New Zealand series), NEVER generate trophy presentations or giant Champions League / football-style silver cups! Players celebrate by taking off helmets and raising bats to 60,000 cheering fans, energetic mid-pitch fist pumps, and dugout celebration huddles.
 
    - RIGID BACKGROUND GEOMETRY & LOW-MOTION STABILITY (PREVENT BREATHING/SURFACE WARPING):
 

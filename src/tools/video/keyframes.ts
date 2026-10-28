@@ -36,15 +36,23 @@ function buildKeyframePrompt(
 ): string {
   const parts: string[] = [];
 
-  // 1. Character Visual DNA lock (if present)
+  // 1. Character Visual DNA lock (Preserve full DNA & kit colors, do NOT truncate)
   if (visualBible?.characterGrammar) {
-    parts.push(visualBible.characterGrammar.slice(0, 200));
+    parts.push(visualBible.characterGrammar);
   }
 
   // 2. Scene specific visual prompt
   parts.push(scPrompt);
 
-  // 3. Cinematic 3D aesthetic & anti-2D cartoon invariant
+  // 3. Strict equipment & kit invariants for sports/cricket
+  const isSports = domain === "sports" || domain.includes("cricket") || (visualBible?.realWorldGrounding && visualBible.realWorldGrounding.toLowerCase().includes("cricket"));
+  if (isSports) {
+    parts.push(
+      "AUTHENTIC MATCH EQUIPMENT ONLY: Exactly three upright wooden cricket stumps with two wooden bails on top. Genuine flat-bladed English willow cricket bat with cane handle. Players must wear official solid athletic team cricket jerseys and trousers, white or team-matching protective batting pads, and cricket helmet with steel face grille. STRICTLY BANNED: baseball bats, round bats, rolling pins, flat wooden planks, 4 or more stumps, floating wickets, stumps multiplying from the ground, gym vests, tank tops, casual civilian clothes, sleeveless shirts on players, yellow/black random kits on Indian players, Champions League or football trophies, giant two-handled silver cups in regular matches"
+    );
+  }
+
+  // 4. Cinematic 3D aesthetic & anti-2D cartoon invariant
   parts.push(
     "Cinematic photography, 35mm lens, photorealistic, sharp focus, volumetric dramatic lighting, detailed textures, zero text, zero logos, zero watermarks. STRICTLY BANNED: 2D cartoon, flat vector art, anime, comic book, pencil sketch, line drawing, 2D flat animation, floating cartoon hearts, disembodied floating heads, uncanny surrealism"
   );

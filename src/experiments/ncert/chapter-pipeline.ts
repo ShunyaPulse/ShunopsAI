@@ -638,13 +638,19 @@ export async function launchChapterJob(
   }
 
   // Stage 0.5: Dynamically stream domain BGM from cloud catalog (Zero Laptop Storage)
-  const requestedGenre = (script as any).soundscape_profile?.bgmGenre || (script as any).soundscapeProfile?.bgmGenre;
+  const soundscape =
+    (script as any).visual_bible?.soundscapeProfile ||
+    (script as any).visual_bible?.soundscape_profile ||
+    (script as any).soundscape_profile ||
+    (script as any).soundscapeProfile ||
+    {};
+  const requestedGenre = soundscape.bgmGenre;
   await resolveAndDownloadCloudBgm(requestedGenre, audioDir);
 
   // Stage 0.6: Dynamically search and package on-demand acoustic SFX moments (Scales to millions of topics)
   const sfxMoments: Array<{ sceneHint?: string; sfx?: string; sfxQuery?: string }> =
-    (script as any).soundscape_profile?.keySFXMoments ||
-    (script as any).soundscapeProfile?.keySFXMoments ||
+    soundscape.keySFXMoments ||
+    (script as any).keySFXMoments ||
     [];
   if (Array.isArray(sfxMoments) && sfxMoments.length > 0) {
     for (const moment of sfxMoments) {
