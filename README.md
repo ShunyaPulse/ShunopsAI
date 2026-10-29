@@ -55,18 +55,30 @@
   4. **Hardcoded Paths**: Replaces brittle directory strings with cross-platform `path.resolve`.
 - **Smart Quota Guardrails**: Caches commit SHAs in distributed Redis (`REDIS_URL`) and throttles execution after 2 consecutive identical commit runs to conserve model quotas.
 
-### 4. Automated Kaggle GPU Video Engine
-- Generates 24-scene YouTube documentary scripts using structured Gemini prompts.
-- Packages dataset bundles and launches remote Dual-T4 Kaggle GPU rendering kernels via cross-platform Kaggle CLI runner.
-- **Quality Safeguards**:
-  - Rigid camera geometry directives eliminating AI UI/screen hallucination.
-  - Custom highlight roll-off color curves (`curves=all='0/0 0.85/0.83 1/0.92'`) preventing electric blue saturation clipping.
-  - 35mm optical grain matching (`noise=alls=1.5`) across all synthetic cuts.
+### 4. Autonomous Multimodal Video Engine (Wan2.1 DiT + Dual-T4 Kaggle GPU)
+- **Alibaba Wan2.1-VACE (1.3B) Video Diffusion**: Drives zero-laptop cinematic I2V/T2V synthesis on remote Dual-T4 GPUs with Cutlass FP16 and Diffusers attention slicing.
+- **Character Visual DNA Lock**: Synthesizes and prepends rigorous facial structure, skin tone, haircut, and historical garment descriptors to every scene prompt, eliminating character morphing and phantom extra characters.
+- **Multi-Tier Dynamic Speech Synthesis**:
+  - *Gemini Enterprise/Developer Audio API*: Synthesizes emotional narration using Aoede and Fenrir personas with prompt-directed Indian vernacular cadence and inflection steering.
+  - *Fallback Tiers*: Gracefully degrades through Google Cloud Chirp 3 HD, Kokoro-82M (British/historical voices), and Edge-TTS.
+- **Pre-Packaged Keyframes via Cloudflare Workers AI**: Generates photorealistic keyframe scenes via FLUX.1-schnell before dataset upload, preserving precious Kaggle GPU runtime purely for video tensor latents.
+- **Dynamic Soundscapes & Cloud BGM Streaming**: Streams genre-calibrated background scores directly from Google Cloud Storage CDN (`gs://shunops-bgm-assets-422513/` with 10 master tracks) with Wikimedia & drone fallbacks, mixed with automated scene-accurate Foley SFX moments.
+- **22 Canonical Match Action Taxonomy**: Eliminates generic crowd pans and floating stumps in sports cinematography; strictly enforces authentic team jerseys, willow bats, 3 pitch-grounded stumps, and true kinetic ball/bat action.
+- **Kaggle Dual-T4 GPU Parallel Sharding**: Leverages `ProcessPoolExecutor` across `cuda:0` and `cuda:1` to render scenes in parallel, cutting overall video production latency by ~50%.
+- **Pre-Flight Verification Gate & Kaggle Argument Normalizer**:
+  - `verifyPreFlightDataset` verifies that 100% of scene audio tracks, keyframe images, and `bgm.ogg` meet strict size thresholds (`>= 500` B audio, `>= 5000` B images) before dispatch.
+  - `normalizeKaggleArgs` unconditionally enforces `-r zip` and `path.resolve()`, preventing subdirectories (`audio/`, `images/`) from being skipped during CLI dataset upload.
+- **Autonomous GitOps Self-Sync**: `autoSyncGitRepository` in `daily-autopilot.ts` pulls `origin/main` automatically on every 3:30 PM IST cron run, ensuring cloud runners stay in permanent lockstep with latest code.
+- **Automated Sweeper & YouTube Publisher**: `sweep_publish_videos.ts` polls completed Kaggle GPU outputs, applies cinematic linear blending (`minterpolate=mi_mode=blend`) and loudness normalization (`normalize=0`), and uploads directly to YouTube with automated chapters, tags, and thumbnails.
 
 ### 5. Embeddable ReAct Edge AI Command Center
 - Lightweight, zero-dependency drop-in JavaScript widget (`/widget.js`).
 - Features client domain awareness, customizable quick-action chips, dark/light theme adaptation, and SSE streaming responses.
 - Generates interactive, cryptographic HMAC-signed action cards for one-click trigger executions.
+
+### 6. Client-Side Non-Extractable CryptoKey Vault (Zero-Persistence)
+- WebCrypto API AES-256-GCM encryption with non-extractable keys stored in browser `IndexedDB`.
+- User and BYOK API keys exist exclusively in browser client memory for request authorization — zero plaintext storage at rest, zero server-side persistence, and immune to XSS exfiltration.
 
 ---
 
@@ -123,7 +135,16 @@
     │   ├── cloud.ts             # Cloud Run, OCI Redis, Neon Postgres, & SSRF-safe inspector
     │   ├── cloudflare-ai.ts     # Cloudflare Workers AI & LoRA inference runner
     │   ├── wire-cloud-webhooks.ts # GCP Cloud Monitoring & alert notification auto-wirer
-    │   ├── video.ts             # Kaggle script generator, GPU runner, & rerun manager
+    │   ├── video/               # Multimodal video production engine
+    │   │   ├── job.ts           #   Kaggle dataset/kernel lifecycle & readiness poller
+    │   │   ├── preflight.ts     #   Mandatory Pre-Flight asset verification gate
+    │   │   ├── kaggle.ts        #   Cross-platform CLI runner & --dir-mode zip normalizer
+    │   │   ├── keyframes.ts     #   Cloudflare FLUX.1-schnell keyframe pre-packaging
+    │   │   ├── tts.ts           #   Gemini Flash Developer API audio synthesis (Aoede/Fenrir)
+    │   │   ├── narration.ts     #   Multi-tier TTS fallback cascade (Chirp 3 HD, Kokoro, Edge)
+    │   │   ├── visualBible.ts   #   Dynamic Visual Bible & Character DNA grounding
+    │   │   ├── cricketTemplate.ts # 22 canonical match action types cinematography
+    │   │   └── dynamicSound.ts  #   Cloud Storage BGM streaming & Foley SFX downloader
     │   ├── trends.ts            # Google Trends & topic discovery engine
     │   ├── youtube.ts           # YouTube Data API upload & metadata manager
     │   ├── safety.ts            # Destructive command heuristics & HITL approval queue
@@ -132,7 +153,8 @@
     │   └── consensus.ts         # Dual-model consensus protocol (Gemini Flash + Groq 120B)
     ├── cron/                    # Scheduled automations
     │   ├── sentinel-cron.ts     #   12-hour multi-cloud health audit job
-    │   └── daily-autopilot.ts   #   Automated daily YouTube documentary pipeline
+    │   ├── daily-autopilot.ts   #   Automated daily YouTube documentary pipeline with GitOps self-sync
+    │   └── sweep_publish_videos.ts # Autonomous video sweeper & YouTube publisher
     ├── dashboard/               # Embedded Command Center UI
     │   ├── html.ts              #   Dashboard HTML template
     │   ├── styles.ts            #   Cyberpunk dark-theme CSS styles
