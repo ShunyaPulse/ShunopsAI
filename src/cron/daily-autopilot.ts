@@ -53,7 +53,7 @@ async function waitForKaggleKernel(
         statusOutput.includes("404 Client Error")
       ) {
         console.error(
-          `[Autopilot] ❌ Fatal Kaggle error: Kernel does not exist or access denied (${kernelRef}). Aborting polling.`,
+          `[Autopilot] ❌ Fatal Kaggle error: Kernel does not exist or access denied ([REDACTED]). Aborting polling.`,
         );
         return false;
       }
