@@ -69,8 +69,8 @@ export async function waitForDatasetReady(
 }
 
 function datasetMetadata(user: string, id: string, title?: string) {
-  const displayTitle = title ? `Video Job: ${title.slice(0, 45)}` : `video job ${id}`;
   const slug = `${id}${sanitizeTitleForSlug(title)}`;
+  const displayTitle = (title ? `Job ${id}: ${title}` : `video job ${slug}`).slice(0, 48);
   return {
     title: displayTitle,
     id: `${user}/video-job-${slug}`,
@@ -219,6 +219,9 @@ export async function startVideoJob(
   console.log(`[Video] 🛡️ [Pre-Flight Verified] 100% assets verified: ${preflight.audioCount} audio, ${preflight.keyframeCount} keyframes, BGM: OK.`);
 
   const ds = await kaggle(["datasets", "create", "-p", dsDir, "--dir-mode", "zip"]);
+  if (/400 Client Error|403 Client Error|404 Client Error|error|must be between/i.test(ds)) {
+    throw new Error(`[Kaggle Dataset Create Failed] ${ds}`);
+  }
   // Smart polling for Kaggle dataset readiness (instant mount as soon as ready)
   await waitForDatasetReady(`${user}/video-job-${slug}`, 30000, 2000);
   const push = await kaggle(["kernels", "push", "-p", kDir]);
