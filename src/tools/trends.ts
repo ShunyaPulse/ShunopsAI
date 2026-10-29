@@ -1,4 +1,5 @@
 import { geminiGenerate } from "./video.js";
+import { executeWebSearch } from "./cloud/webSearch.js";
 
 export interface TrendingItem {
   title: string;
@@ -372,7 +373,43 @@ export async function curateBestTrendTopic(items: TrendingItem[]): Promise<Curat
   const bottomTraffic = candidatePool[candidatePool.length - 1]?.approx_traffic || "20,000+";
   console.log(`[Trends] 📊 Curating from Top ${candidatePool.length} High-Volume Trends (${topTraffic} down to ${bottomTraffic}).`);
 
-  const itemsListFormatted = candidatePool
+  const itemsListFormatted = (
+    await (async () => {
+      // Real-Time Reason Enrichment (Zero Hardcoding):
+      // Google Trends UI returns raw query tags (e.g. "m4 | macbook | apple") rather than the actual breaking event.
+      // We query live breaking news in parallel for top candidates so the Curator sees the EXACT real-world event/breakthrough!
+      const topCandidates = candidatePool.slice(0, 8);
+      console.log(`[Trends] 🌐 Fetching live breaking news context for top ${topCandidates.length} trends...`);
+      await Promise.allSettled(
+        topCandidates.map(async (item) => {
+          try {
+            const liveIntel = await executeWebSearch(`${item.title} news today breaking`, { maxResults: 3 });
+            if (liveIntel && !liveIntel.startsWith("Error:")) {
+              const lines = liveIntel.split("\n").map((l) => l.trim());
+              const newsLines = lines
+                .filter((l) => l.startsWith("• [News:") || l.startsWith("• [DuckDuckGo") || l.startsWith("Direct Answer:"))
+                .map((l) =>
+                  l
+                    .replace(/^• \[(?:News|DuckDuckGo Instant Answer):\s*/, "")
+                    .replace(/\].*$/, "")
+                    .replace(/^Direct Answer:\s*/, "")
+                    .trim()
+                )
+                .filter((l) => l.length > 10);
+
+              if (newsLines.length > 0 && newsLines[0]) {
+                item.news_title = newsLines[0];
+                item.news_snippet = newsLines.slice(0, 3).join(" | ");
+              }
+            }
+          } catch {
+            // Fall back gracefully to existing snippet on network timeout
+          }
+        })
+      );
+      return candidatePool;
+    })()
+  )
     .map(
       (item, idx) =>
         `${idx + 1}. [Trend: "${item.title}"] (Traffic: ${item.approx_traffic}, Domain: ${item.categories?.join(", ") || "General"})\n` +
