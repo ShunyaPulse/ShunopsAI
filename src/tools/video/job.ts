@@ -80,8 +80,8 @@ function datasetMetadata(user: string, id: string, title?: string) {
 }
 
 function kernelMetadata(user: string, id: string, title?: string) {
-  const displayTitle = title ? `Video Render: ${title.slice(0, 45)}` : `video render ${id}`;
   const slug = `${id}${sanitizeTitleForSlug(title)}`;
+  const displayTitle = `video render ${slug}`;
   return {
     id: `${user}/video-render-${slug}`,
     title: displayTitle,
@@ -222,6 +222,9 @@ export async function startVideoJob(
   // Smart polling for Kaggle dataset readiness (instant mount as soon as ready)
   await waitForDatasetReady(`${user}/video-job-${slug}`, 30000, 2000);
   const push = await kaggle(["kernels", "push", "-p", kDir]);
+  if (/400 Client Error|403 Client Error|404 Client Error|Kaggle CLI Error/i.test(push)) {
+    throw new Error(`[Kaggle Kernel Push Failed] ${push}`);
+  }
 
   return JSON.stringify(
     {

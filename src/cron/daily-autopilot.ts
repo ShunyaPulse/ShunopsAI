@@ -37,6 +37,7 @@ async function waitForKaggleKernel(
   const startTime = Date.now();
   console.log("[Autopilot] Polling Kaggle kernel [REDACTED]...");
 
+  let consecutiveErrors = 0;
   while (Date.now() - startTime < maxWaitMs) {
     try {
       const statusOutput = await manageKaggle("status", kernelRef);
@@ -44,11 +45,31 @@ async function waitForKaggleKernel(
         `[Autopilot] ${new Date().toLocaleTimeString()} - Status: [REDACTED]`,
       );
 
-      // Transient CLI errors (e.g. Kaggle CLI network dropouts, 502/503) should retry, not abort
-      if (statusOutput.includes("Kaggle CLI Error")) {
-        console.warn(
-          `[Autopilot] Transient Kaggle CLI error encountered, retrying...`,
+      // Fatal errors: kernel does not exist, permission denied, or bad slug -> abort immediately
+      if (
+        statusOutput.includes("Cannot access kernel") ||
+        statusOutput.includes("Permission 'kernels.get' was denied") ||
+        statusOutput.includes("403 Client Error") ||
+        statusOutput.includes("404 Client Error")
+      ) {
+        console.error(
+          `[Autopilot] ❌ Fatal Kaggle error: Kernel does not exist or access denied (${kernelRef}). Aborting polling.`,
         );
+        return false;
+      }
+
+      // Transient CLI errors (e.g. Kaggle CLI network dropouts, 502/503) should retry with bounded count
+      if (statusOutput.includes("Kaggle CLI Error")) {
+        consecutiveErrors++;
+        console.warn(
+          `[Autopilot] Transient Kaggle CLI error encountered (${consecutiveErrors}/10), retrying...`,
+        );
+        if (consecutiveErrors >= 10) {
+          console.error(
+            `[Autopilot] ❌ Bounded retry limit reached (10 consecutive CLI errors). Aborting polling.`,
+          );
+          return false;
+        }
       } else if (statusOutput.toUpperCase().includes("COMPLETE")) {
         console.log(`[Autopilot] ✅ Kaggle kernel finished successfully!`);
         return true;
@@ -59,6 +80,8 @@ async function waitForKaggleKernel(
       ) {
         console.error(`[Autopilot] ❌ Kaggle kernel failed with status: [REDACTED]`);
         return false;
+      } else {
+        consecutiveErrors = 0;
       }
     } catch {
       console.warn("[Autopilot] Status check warning: transient polling exception encountered");
