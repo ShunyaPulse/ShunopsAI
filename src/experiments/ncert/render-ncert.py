@@ -504,6 +504,7 @@ class WanT4OptimizedEngine:
         if not torch.cuda.is_available():
             raise RuntimeError("CRITICAL ERROR: CUDA is not available! Kaggle kernel must have GPU enabled.")
 
+        num_gpus = torch.cuda.device_count()
         dev_idx = 0
         if ":" in str(self.device):
             try: dev_idx = int(str(self.device).split(":")[1])
@@ -511,7 +512,12 @@ class WanT4OptimizedEngine:
 
         gpu_name = torch.cuda.get_device_name(dev_idx)
         vram_gb = torch.cuda.get_device_properties(dev_idx).total_memory / (1024 ** 3)
-        print(f"[Wan2.1] Initializing on GPU ({self.device}): {gpu_name} ({vram_gb:.1f} GB VRAM)")
+        print(f"[Wan2.1] CUDA devices detected: {num_gpus}. Primary GPU ({dev_idx}): {gpu_name} ({vram_gb:.1f} GB VRAM)")
+        if num_gpus >= 2:
+            for g_i in range(num_gpus):
+                g_name = torch.cuda.get_device_name(g_i)
+                g_vram = torch.cuda.get_device_properties(g_i).total_memory / (1024 ** 3)
+                print(f"[Wan2.1 Hardware] GPU {g_i}: {g_name} ({g_vram:.1f} GB VRAM)")
 
         if self.hf_token:
             os.environ["HF_TOKEN"] = self.hf_token
@@ -528,20 +534,54 @@ class WanT4OptimizedEngine:
                 PipelineClass = DiffusionPipeline
 
             model_id = "Wan-AI/Wan2.1-VACE-1.3B-diffusers"
-            print(f"[Wan2.1] Loading Alibaba Wan2.1 1.3B DiT: {model_id} in float16...")
-            self.pipe = PipelineClass.from_pretrained(
-                model_id,
-                torch_dtype=torch.float16,  # float16 natively supported on Turing SM 7.5
-                low_cpu_mem_usage=True,
-                token=self.hf_token if self.hf_token else None
-            )
 
-            # 1. Native attention slicing: divides computation into temporal slices (drops VRAM from 48 GB -> ~7-9 GB)
-            if hasattr(self.pipe, "enable_attention_slicing"):
-                self.pipe.enable_attention_slicing(slice_size="max")
-                print("[Wan2.1] Native Diffusers attention slicing enabled (slice_size='max')!")
+            # -----------------------------------------------------------------
+            # Strategy A: Multi-GPU Model Sharding (device_map="balanced")
+            # Locks model in VRAM across both GPUs (Zero CPU-offload latency bottleneck).
+            # -----------------------------------------------------------------
+            if num_gpus >= 2:
+                print(f"[Wan2.1-VACE] 🚀 Multi-GPU Model Sharding Active: Distributing layers across {num_gpus} GPUs (device_map='balanced')...")
+                try:
+                    self.pipe = PipelineClass.from_pretrained(
+                        model_id,
+                        torch_dtype=torch.float16,
+                        device_map="balanced",
+                        low_cpu_mem_usage=True,
+                        token=self.hf_token if self.hf_token else None
+                    )
+                    print(f"[Wan2.1-VACE] ✅ Model Sharding successful across {num_gpus} GPUs! Zero CPU-offload bottleneck.")
+                except Exception as shard_err:
+                    print(f"[Wan2.1-VACE] ⚠️ device_map='balanced' encountered notice ({shard_err}); falling back to single GPU CPU-offload...")
+                    self.pipe = None
 
-            # 2. VAE latent tiling and slicing: prevents VAE decoding VRAM spikes
+            # -----------------------------------------------------------------
+            # Strategy B: Single GPU with CPU Offloading (Fallback)
+            # -----------------------------------------------------------------
+            if self.pipe is None:
+                print(f"[Wan2.1] Loading Alibaba Wan2.1 1.3B DiT: {model_id} in float16 (Single GPU / CPU offload)...")
+                self.pipe = PipelineClass.from_pretrained(
+                    model_id,
+                    torch_dtype=torch.float16,  # float16 natively supported on Turing SM 7.5
+                    low_cpu_mem_usage=True,
+                    token=self.hf_token if self.hf_token else None
+                )
+
+                # Native attention slicing: divides computation into temporal slices (drops VRAM from 48 GB -> ~7-9 GB)
+                if hasattr(self.pipe, "enable_attention_slicing"):
+                    self.pipe.enable_attention_slicing(slice_size="max")
+                    print("[Wan2.1] Native Diffusers attention slicing enabled (slice_size='max')!")
+
+                # Model CPU offload: swaps modules to host RAM to keep active VRAM under 9 GB on T4
+                if hasattr(self.pipe, "enable_model_cpu_offload"):
+                    print(f"[Wan2.1] Enabling model CPU offload on GPU {dev_idx}...")
+                    try:
+                        self.pipe.enable_model_cpu_offload(gpu_id=dev_idx)
+                    except Exception:
+                        self.pipe.enable_model_cpu_offload()
+                else:
+                    self.pipe = self.pipe.to(self.device)
+
+            # VAE latent tiling and slicing: prevents VAE decoding VRAM spikes in both modes
             if hasattr(self.pipe, "vae"):
                 if hasattr(self.pipe.vae, "enable_tiling"):
                     self.pipe.vae.enable_tiling()
@@ -549,18 +589,8 @@ class WanT4OptimizedEngine:
                     self.pipe.vae.enable_slicing()
                 print("[Wan2.1] VAE tiling and slicing enabled!")
 
-            # 3. Model CPU offload: swaps modules to host RAM to keep active VRAM under 9 GB on T4
-            if hasattr(self.pipe, "enable_model_cpu_offload"):
-                print(f"[Wan2.1] Enabling model CPU offload on {self.device}...")
-                try:
-                    self.pipe.enable_model_cpu_offload(gpu_id=dev_idx)
-                except Exception:
-                    self.pipe.enable_model_cpu_offload()
-            else:
-                self.pipe = self.pipe.to(self.device)
-
             self.engine_name = "Wan2.1-VACE-1.3B"
-            print("[Wan2.1-VACE] Wan2.1-VACE-1.3B online with FP16 Cutlass + Attention Slicing + Character Lock!")
+            print("[Wan2.1-VACE] Wan2.1-VACE-1.3B online with FP16 Cutlass + Character Lock!")
             return
         except Exception as wan_err:
             print(f"[Wan2.1 Warning] Could not initialize WanPipeline ({wan_err}). Preparing fallback...")
