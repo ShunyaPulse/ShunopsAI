@@ -521,6 +521,7 @@ class WanT4OptimizedEngine:
             self.pipe = PipelineClass.from_pretrained(
                 model_id,
                 torch_dtype=torch.float16,  # float16 natively supported on Turing SM 7.5
+                low_cpu_mem_usage=True,
                 token=self.hf_token if self.hf_token else None
             )
 
@@ -557,6 +558,7 @@ class WanT4OptimizedEngine:
                 self.pipe = WanPipeline.from_pretrained(
                     "Wan-AI/Wan2.1-T2V-1.3B-Diffusers",
                     torch_dtype=torch.float16,
+                    low_cpu_mem_usage=True,
                     token=self.hf_token if self.hf_token else None
                 )
                 if hasattr(self.pipe, "enable_attention_slicing"):
@@ -1124,55 +1126,21 @@ async def main():
         })
         raw_submakers.append(submaker)
 
-    # Phase 2: Video Diffusion on GPU(s) (Dual-T4 Parallel Execution when 2 GPUs available)
+    # Phase 2: Video Diffusion on GPU (Single Engine on cuda:0 to preserve 30GB Host RAM limit)
     num_gpus = torch.cuda.device_count() if torch.cuda.is_available() else 0
-    print(f"\n[Phase 2/3] Rendering Video Clips across {max(1, num_gpus)} GPU(s)...")
-
-    if num_gpus >= 2:
-        print(f"[Dual-GPU] 🚀 Dual NVIDIA T4 detected! Launching parallel scene synthesis on cuda:0 and cuda:1...")
-        import queue
-        from concurrent.futures import ThreadPoolExecutor
-
-        engine_0 = WanVACE13BEngine(hf_token=hf_token, device="cuda:0")
-        engine_1 = WanVACE13BEngine(hf_token=hf_token, device="cuda:1")
-
-        engine_q = queue.Queue()
-        engine_q.put(engine_0)
-        engine_q.put(engine_1)
-
-        def _render_worker(item):
-            eng = engine_q.get()
-            try:
-                print(f"[Dual-GPU] Scene {item['idx']+1}/{len(scenes)} generating on {eng.device}...")
-                with torch.cuda.device(eng.device):
-                    eng.generate_scene_montage(
-                        item["scene"]["visual_prompt"],
-                        item["dur"],
-                        item["v_path"],
-                        scene_idx=item["idx"],
-                        domain=domain,
-                        visual_bible=visual_bible
-                    )
-                print(f"[Dual-GPU] ✅ Scene {item['idx']+1}/{len(scenes)} completed on {eng.device}.")
-            finally:
-                engine_q.put(eng)
-
-        with ThreadPoolExecutor(max_workers=2) as executor:
-            list(executor.map(_render_worker, scene_items))
-
-    else:
-        target_device = "cuda:0" if num_gpus > 0 else "cpu"
-        diffusion = WanVACE13BEngine(hf_token=hf_token, device=target_device)
-        for item in scene_items:
-            print(f"\n--- [Scene {item['idx']+1}/{len(scenes)}] Rendering on {target_device} ---")
-            diffusion.generate_scene_montage(
-                item["scene"]["visual_prompt"],
-                item["dur"],
-                item["v_path"],
-                scene_idx=item["idx"],
-                domain=domain,
-                visual_bible=visual_bible
-            )
+    target_device = "cuda:0" if num_gpus > 0 else "cpu"
+    print(f"\n[Phase 2/3] Rendering Video Clips on {target_device}...")
+    diffusion = WanVACE13BEngine(hf_token=hf_token, device=target_device)
+    for item in scene_items:
+        print(f"\n--- [Scene {item['idx']+1}/{len(scenes)}] Rendering on {target_device} ---")
+        diffusion.generate_scene_montage(
+            item["scene"]["visual_prompt"],
+            item["dur"],
+            item["v_path"],
+            scene_idx=item["idx"],
+            domain=domain,
+            visual_bible=visual_bible
+        )
 
     # Phase 3: Alignment, Audio-Video Duration Sync & Subtitle Cues Assembly
     print("\n[Phase 3/3] Synchronizing audio-video timing & assembling subtitles...")
