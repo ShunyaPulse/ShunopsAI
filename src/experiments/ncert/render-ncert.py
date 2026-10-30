@@ -824,6 +824,49 @@ class WanT4OptimizedEngine:
                 "-r", "24", "-t", f"{shot_dur:.3f}",
                 *get_best_video_encoder_args(), sub_clip
             ])
+
+            # Luma Verification Gate: Prevent pitch-black dead screen (YAVG < 25.0)
+            # Uses direct lightweight ffmpeg signalstats sample (5 frames at mid-shot) without brittle movie= filter escaping
+            is_pitch_black = False
+            avg_y = None
+            try:
+                sample_ss = str(round(min(0.5, max(0.0, shot_dur / 2.0)), 2))
+                luma_cmd = [
+                    "ffmpeg", "-y", "-ss", sample_ss, "-i", sub_clip,
+                    "-vframes", "5",
+                    "-vf", "signalstats,metadata=print:key=lavfi.signalstats.YAVG:file=-",
+                    "-f", "null", "-"
+                ]
+                luma_run = subprocess.run(luma_cmd, capture_output=True, text=True, timeout=8)
+                y_matches = re.findall(r"lavfi\.signalstats\.YAVG=([0-9\.]+)", luma_run.stdout + luma_run.stderr)
+                if y_matches:
+                    avg_y = sum(float(y) for y in y_matches) / len(y_matches)
+                    if avg_y < 25.0:
+                        is_pitch_black = True
+                        print(f"[Luma Gate ⚠️] Scene {scene_idx+1} Shot {s_idx+1} collapsed to pitch black (YAVG={avg_y:.1f} < 25.0).")
+            except Exception as e:
+                print(f"[Luma Gate Warning] Could not probe luminance: {e}")
+
+            if is_pitch_black:
+                print(f"[Luma Gate 🛡️] Executing pristine keyframe Ken Burns dynamic rescue for Scene {scene_idx+1} Shot {s_idx+1}...")
+                rescue_kf = kf_path if (kf_path and os.path.exists(kf_path)) else None
+                if not rescue_kf:
+                    for alt_idx in [scene_idx, max(0, scene_idx - 1), 0]:
+                        alt_kf = find_keyframe_image(alt_idx)
+                        if alt_kf and os.path.exists(alt_kf):
+                            rescue_kf = alt_kf
+                            break
+                if rescue_kf:
+                    shot_frames = max(24, int(shot_dur * 24))
+                    zoom_cmd = "min(zoom+0.0008,1.15)" if s_idx == 0 else "max(1.15-0.0008*on,1.0)"
+                    run([
+                        "ffmpeg", "-y", "-loop", "1", "-i", rescue_kf,
+                        "-vf", f"zoompan=z='{zoom_cmd}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d={shot_frames}:s=1920x1080:fps=24,unsharp=5:5:0.5:5:5:0.2,eq=contrast=1.06:brightness=0.01:saturation=1.12,format=yuv420p",
+                        "-r", "24", "-t", f"{shot_dur:.3f}",
+                        *get_best_video_encoder_args(), sub_clip
+                    ])
+                    print(f"[Luma Gate ✅] Scene {scene_idx+1} Shot {s_idx+1} successfully rescued with high-definition Ken Burns keyframe motion.")
+
             shot_files.append(sub_clip)
 
         if len(shot_files) == 1:
@@ -1213,22 +1256,33 @@ async def main():
     else:
         print("[Warning] Outro video padding failed, keeping original final clip.")
 
-    # 3. Pad final narration audio with 3.5s trailing silence so dialogue never ends abruptly
-    print("Adding 3.5s silence buffer to final narration audio...")
-    last_a = narr_files[-1]
-    padded_a = f"{TMP}/a_final_padded.mp3"
-    ok_a = run([
-        "ffmpeg", "-y", "-i", last_a,
-        "-af", "apad=pad_dur=3.5",
-        "-ar", "44100", "-ac", "2", "-c:a", "libmp3lame", "-b:a", "192k", padded_a
-    ])
-    if ok_a and os.path.exists(padded_a) and os.path.getsize(padded_a) > 500:
-        narr_files[-1] = padded_a
+    # 3. Pre-normalize all narration tracks to uniform 44.1kHz stereo PCM for glitch-free concat
+    # Crucial Invariant: Eliminates demuxer format mismatch (mixing WAV PCM with MP3) which causes digital static bursts!
+    print("Normalizing all scene audio tracks to uniform 44.1kHz stereo PCM for pristine concat...")
+    norm_audio_files = []
+    for idx, a_file in enumerate(narr_files):
+        norm_a = f"{TMP}/norm_a_{idx:03d}.wav"
+        if idx == len(narr_files) - 1:
+            # Pad final scene with 3.5s trailing silence so dialogue never ends abruptly
+            run([
+                "ffmpeg", "-y", "-i", a_file,
+                "-af", "apad=pad_dur=3.5",
+                "-ar", "44100", "-ac", "2", "-c:a", "pcm_s16le", norm_a
+            ])
+        else:
+            run([
+                "ffmpeg", "-y", "-i", a_file,
+                "-ar", "44100", "-ac", "2", "-c:a", "pcm_s16le", norm_a
+            ])
+        if os.path.exists(norm_a) and os.path.getsize(norm_a) > 500:
+            norm_audio_files.append(norm_a)
+        else:
+            norm_audio_files.append(a_file)
 
     # Assemble concatenated master scenes and narration (all files are uniform 44.1kHz stereo)
     print("\nConcatenating master continuous scenes...")
     open(f"{TMP}/vlist.txt", "w").write("".join(f"file '{c}'\n" for c in clips))
-    open(f"{TMP}/alist.txt", "w").write("".join(f"file '{a}'\n" for a in narr_files))
+    open(f"{TMP}/alist.txt", "w").write("".join(f"file '{a}'\n" for a in norm_audio_files))
 
     run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", f"{TMP}/vlist.txt", "-c", "copy", f"{TMP}/video_raw.mp4"])
     run([
@@ -1354,12 +1408,12 @@ async def main():
 
     master_audio = f"{TMP}/master_audio_mixed.mp3"
     if has_ambient:
-        print("[Audio] Mixing narration with cinematic atmospheric drone (normalize=0 to preserve 100% voice loudness)...")
+        print("[Audio] Mixing narration with cinematic atmospheric drone (normalize=0 with safety limiter)...")
         ok_mix = run([
             "ffmpeg", "-y",
             "-i", f"{TMP}/narration.mp3",
             "-i", ambient_mp3,
-            "-filter_complex", "[0:a]volume=1.0[a0];[1:a]volume=1.0[a1];[a0][a1]amix=inputs=2:duration=first:dropout_transition=2:normalize=0[aout]",
+            "-filter_complex", "[0:a]volume=1.0[a0];[1:a]volume=1.0[a1];[a0][a1]amix=inputs=2:duration=first:dropout_transition=2:normalize=0,alimiter=limit=0.92:attack=5:release=50[aout]",
             "-map", "[aout]",
             "-ar", "44100", "-ac", "2", "-c:a", "libmp3lame", "-b:a", "192k", master_audio
         ])
