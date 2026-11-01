@@ -88,7 +88,7 @@ async function main() {
       title: "Cloud Video Pipeline Failure",
       service: "VideoPipeline",
       status: "DOWN",
-      details: `Failed to dispatch cloud video for topic: "${topicArg || "autonomous"}"\n\nError: ${safeError}`,
+      details: `Failed to dispatch cloud video for topic: "${topicArg || "autonomous"}"\n\nError: [REDACTED]`,
     }).catch(() => {});
     process.exit(1);
   }
