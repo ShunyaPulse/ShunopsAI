@@ -69,13 +69,13 @@ async function main() {
         console.log(`✅ Curated Trending Topic: [REDACTED]`);
       }
 
-      console.log(`\n🚀 Launching Autonomous Video Job for: "${finalTopic}"...`);
+      console.log(`\n🚀 Launching Autonomous Video Job...`);
       const launchOutput = await startVideoJob(finalTopic, minutes, language, trendReason);
       let parsedJob: any = {};
       try { parsedJob = JSON.parse(launchOutput); } catch {}
-      console.log(`\n🎉 [SUCCESS] General Video Job Dispatched: ${parsedJob.jobId || "OK"}`);
+      console.log(`\n🎉 [SUCCESS] General Video Job Dispatched: [REDACTED]`);
       console.log(`   Kaggle Kernel: ${parsedJob.kernel || "OK"}`);
-      console.log(`   Title: "${parsedJob.title || finalTopic}"`);
+      console.log(`   Title: "[REDACTED]"`);
       console.log(`   Scenes: ${parsedJob.scenes || "OK"}`);
     }
   } catch (err: any) {

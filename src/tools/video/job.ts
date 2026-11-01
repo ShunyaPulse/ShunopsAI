@@ -241,7 +241,7 @@ export async function startVideoJob(
   await waitForDatasetReady(`${user}/video-job-${slug}`, 30000, 2000);
   console.log(`[Video] 🚀 Pushing Kaggle kernel for job "${slug}"...`);
   const push = await kaggle(["kernels", "push", "-p", kDir]);
-  console.log(`[Video] 🚀 Kaggle kernel push output:\n${push}`);
+  console.log(`[Video] 🚀 Kaggle kernel push output: [REDACTED]`);
   if (/400 Client Error|403 Client Error|404 Client Error|Kaggle CLI Error/i.test(push)) {
     throw new Error(`[Kaggle Kernel Push Failed] ${push}`);
   }
