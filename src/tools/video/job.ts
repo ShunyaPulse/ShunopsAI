@@ -232,7 +232,7 @@ export async function startVideoJob(
 
   console.log(`[Video] 📦 Creating Kaggle dataset for job "${slug}"...`);
   const ds = await kaggle(["datasets", "create", "-p", dsDir, "--dir-mode", "zip"]);
-  console.log(`[Video] 📦 Kaggle dataset create output:\n${ds}`);
+  console.log(`[Video] 📦 Kaggle dataset create output: [REDACTED]`);
   if (/400 Client Error|403 Client Error|404 Client Error|error|must be between|Kaggle CLI Error/i.test(ds)) {
     throw new Error(`[Kaggle Dataset Create Failed] ${ds}`);
   }

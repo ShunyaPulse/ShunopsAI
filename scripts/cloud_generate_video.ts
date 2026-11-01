@@ -66,7 +66,7 @@ async function main() {
         }
         finalTopic = resolvedTopic;
         trendReason = resolvedReason;
-        console.log(`✅ Curated Trending Topic: "${finalTopic}" (${trendReason})`);
+        console.log(`✅ Curated Trending Topic: [REDACTED]`);
       }
 
       console.log(`\n🚀 Launching Autonomous Video Job for: "${finalTopic}"...`);
@@ -83,7 +83,7 @@ async function main() {
     const safeError = rawError
       .replace(/[A-Za-z0-9_-]{24,}/g, "[REDACTED]")
       .slice(0, 1000);
-    console.error(`❌ [Cloud Video Dispatch Error]: ${safeError}`);
+    console.error('❌ [Cloud Video Dispatch Error]: [REDACTED]');
     await sendIncidentAlert({
       title: "Cloud Video Pipeline Failure",
       service: "VideoPipeline",
