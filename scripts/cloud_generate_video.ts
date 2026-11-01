@@ -73,14 +73,23 @@ async function main() {
       const launchOutput = await startVideoJob(finalTopic, minutes, language, trendReason);
       let parsedJob: any = {};
       try { parsedJob = JSON.parse(launchOutput); } catch {}
-      console.log(`\n🎉 [SUCCESS] General Video Job Output: [REDACTED]`);
+      console.log(`\n🎉 [SUCCESS] General Video Job Dispatched: ${parsedJob.jobId || "OK"}`);
+      console.log(`   Kaggle Kernel: ${parsedJob.kernel || "OK"}`);
+      console.log(`   Title: "${parsedJob.title || finalTopic}"`);
+      console.log(`   Scenes: ${parsedJob.scenes || "OK"}`);
     }
   } catch (err: any) {
-    console.error("❌ [Cloud Video Dispatch Error]: Dispatch execution failed.");
-    await sendIncidentAlert(
-      "Cloud Video Pipeline Failure",
-      `Failed to dispatch cloud video for topic: "${topicArg || "autonomous"}"\n\nError: [REDACTED]`
-    ).catch(() => {});
+    const rawError = err?.message || String(err);
+    const safeError = rawError
+      .replace(/[A-Za-z0-9_-]{24,}/g, "[REDACTED]")
+      .slice(0, 1000);
+    console.error(`❌ [Cloud Video Dispatch Error]: ${safeError}`);
+    await sendIncidentAlert({
+      title: "Cloud Video Pipeline Failure",
+      service: "VideoPipeline",
+      status: "DOWN",
+      details: `Failed to dispatch cloud video for topic: "${topicArg || "autonomous"}"\n\nError: ${safeError}`,
+    }).catch(() => {});
     process.exit(1);
   }
 }

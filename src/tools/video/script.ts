@@ -298,16 +298,27 @@ CRITICAL DIRECTIVES:
 
 
 function parseScriptJson(text: string): VideoScript {
+  let cleaned = text.trim();
+  const match = cleaned.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (match && match[1]) cleaned = match[1].trim();
+
+  // If wrapped with extra prose, find bounds of the outermost JSON object
+  const firstBrace = cleaned.indexOf("{");
+  const lastBrace = cleaned.lastIndexOf("}");
+  if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+    cleaned = cleaned.slice(firstBrace, lastBrace + 1);
+  }
+
   let parsed: VideoScript;
   try {
-    parsed = JSON.parse(text) as VideoScript;
+    parsed = JSON.parse(cleaned) as VideoScript;
   } catch {
-    // Sometimes the model wraps JSON in a code fence - strip it
-    const match = text.match(/```(?:json)?\s*([\s\S]*?)```/);
-    if (match && match[1]) {
-      parsed = JSON.parse(match[1]) as VideoScript;
-    } else {
-      throw new Error(`Gemini response is not valid JSON: ${text.slice(0, 200)}`);
+    // Attempt stripping trailing commas before closing braces/brackets
+    try {
+      const sanitized = cleaned.replace(/,\s*([\]}])/g, "$1");
+      parsed = JSON.parse(sanitized) as VideoScript;
+    } catch {
+      throw new Error(`Gemini response is not valid JSON: ${cleaned.slice(0, 200)}`);
     }
   }
   if (!parsed.tags) parsed.tags = [];
