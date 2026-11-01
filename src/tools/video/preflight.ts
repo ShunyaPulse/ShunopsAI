@@ -14,6 +14,7 @@ export interface PreFlightCheckOptions {
   requireBgm?: boolean;
   minAudioBytes?: number;
   minImageBytes?: number;
+  allowSdxlFallback?: boolean;
 }
 
 export interface PreFlightResult {
@@ -23,6 +24,7 @@ export interface PreFlightResult {
   hasBgm: boolean;
   totalScenes: number;
   errors: string[];
+  sdxlFallbackActive?: boolean;
 }
 
 export async function verifyPreFlightDataset(
@@ -85,10 +87,19 @@ export async function verifyPreFlightDataset(
     errors.push("Missing script.json in dataset root");
   }
 
+  // Dual-Mode Governance Policy:
+  // In user-interactive mode (default): 100% FLUX keyframes required (requireKeyframes=true, zero quality compromise).
+  // In autonomous/unattended cron mode: if FLUX experienced cloud outages, allow fallback to Kaggle GPU SDXL-Lightning
+  const isImageOnlyError = errors.every(err => err.includes("keyframe image"));
+  const allowSdxl = options.allowSdxlFallback ?? false;
+  const sdxlFallbackActive = allowSdxl && isImageOnlyError && keyframeCount < totalScenes;
+
+  const effectiveErrors = sdxlFallbackActive ? [] : errors;
+
   const ok = (!requireAudio || audioCount === totalScenes) &&
-             (!requireKeyframes || keyframeCount === totalScenes) &&
+             (sdxlFallbackActive || !requireKeyframes || keyframeCount === totalScenes) &&
              (!requireBgm || hasBgm) &&
-             errors.length === 0;
+             effectiveErrors.length === 0;
 
   return {
     ok,
@@ -96,7 +107,8 @@ export async function verifyPreFlightDataset(
     keyframeCount,
     hasBgm,
     totalScenes,
-    errors,
+    errors: effectiveErrors,
+    sdxlFallbackActive,
   };
 }
 

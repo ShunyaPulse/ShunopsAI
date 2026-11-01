@@ -90,6 +90,7 @@ export interface ChapterScript {
   voice: string;
   rate?: string;
   domain?: string;
+  render_mode?: string;
   scenes: ChapterScene[];
 }
 
@@ -719,13 +720,21 @@ export async function launchChapterJob(
   }
 
   console.log(`\n🛡️ [Pre-Flight Verification Gate] Validating all dataset assets on disk before Kaggle upload...`);
+  const isUnattendedSchedule = process.env.GITHUB_EVENT_NAME === "schedule" || process.env.AUTONOMOUS_CRON === "true";
   const preflight = await verifyPreFlightDataset(dsDir, script.scenes.length, {
     requireAudio: true,
     requireKeyframes: true,
     requireBgm: true,
     minAudioBytes: 500,
     minImageBytes: 5000,
+    allowSdxlFallback: isUnattendedSchedule,
   });
+
+  if (preflight.sdxlFallbackActive) {
+    console.warn(`   ⚡ [Pre-Flight Smart Fallback] Unattended mode: ${preflight.keyframeCount}/${script.scenes.length} FLUX keyframes ready. Kaggle GPU SDXL-Lightning fallback active for remaining.`);
+    script.render_mode = "sdxl_fallback";
+    await fs.writeFile(path.join(dsDir, "script.json"), JSON.stringify(script, null, 2));
+  }
 
   if (!preflight.ok) {
     const errorDetails = preflight.errors.slice(0, 10).join("\n - ");

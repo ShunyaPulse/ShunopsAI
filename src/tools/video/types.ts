@@ -24,6 +24,7 @@ export interface VideoScript {
   audio_summary?: string;
   keyframes_summary?: string;
   domain?: VideoDomain;
+  render_mode?: string;
   visual_bible?: VisualBible;
   chapters: { title: string; start_scene: number }[];
   scenes: {

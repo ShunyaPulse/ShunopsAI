@@ -197,13 +197,24 @@ export async function startVideoJob(
 
   // Stage 2: Enforce Non-Bypassable Pre-Flight Verification Gate
   console.log(`[Video] 🛡️ [Pre-Flight Gate] Validating all dataset assets before Kaggle dispatch...`);
+  // Dual-Mode Policy:
+  // In user-present/manual mode: strict 100% FLUX quality check.
+  // In unattended scheduled cron (GITHUB_EVENT_NAME === 'schedule'): allow resilient on-the-fly SDXL-Lightning fallback on Kaggle.
+  const isUnattendedSchedule = process.env.GITHUB_EVENT_NAME === "schedule" || process.env.AUTONOMOUS_CRON === "true";
   const preflight = await verifyPreFlightDataset(dsDir, script.scenes.length, {
     requireAudio: true,
     requireKeyframes: true,
     requireBgm: true,
     minAudioBytes: 500,
     minImageBytes: 5000,
+    allowSdxlFallback: isUnattendedSchedule,
   });
+
+  if (preflight.sdxlFallbackActive) {
+    console.warn(`[Video] ⚡ [Pre-Flight Smart Fallback] Unattended mode detected: ${preflight.keyframeCount}/${script.scenes.length} FLUX keyframes ready. Kaggle GPU on-the-fly SDXL-Lightning fallback activated for remaining scenes.`);
+    script.render_mode = "sdxl_fallback";
+    await writeJsonFile(path.join(dsDir, "script.json"), script);
+  }
 
   if (!preflight.ok) {
     const errorDetails = preflight.errors.slice(0, 10).join("\n - ");
