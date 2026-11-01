@@ -59,11 +59,13 @@ async function main() {
         console.log(`\n🔍 Fetching Google Trends for India...`);
         const trends = await fetchGoogleTrendsIndia();
         const curated = await curateBestTrendTopic(trends);
-        if (!curated || !curated.topic) {
+        const resolvedTopic = (curated as any)?.documentary_topic || (curated as any)?.topic;
+        const resolvedReason = (curated as any)?.trend_reason || (curated as any)?.reason;
+        if (!curated || !resolvedTopic) {
           throw new Error("Failed to curate trending topic from Google Trends India.");
         }
-        finalTopic = curated.topic;
-        trendReason = curated.reason;
+        finalTopic = resolvedTopic;
+        trendReason = resolvedReason;
         console.log(`✅ Curated Trending Topic: "${finalTopic}" (${trendReason})`);
       }
 
