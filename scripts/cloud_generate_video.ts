@@ -83,7 +83,7 @@ async function main() {
     const safeError = rawError
       .replace(/[A-Za-z0-9_-]{24,}/g, "[REDACTED]")
       .slice(0, 1000);
-    console.error('❌ [Cloud Video Dispatch Error]: [REDACTED]');
+    console.error('❌ [Cloud Video Dispatch Error]');
     await sendIncidentAlert({
       title: "Cloud Video Pipeline Failure",
       service: "VideoPipeline",

@@ -234,7 +234,7 @@ export async function startVideoJob(
   const ds = await kaggle(["datasets", "create", "-p", dsDir, "--dir-mode", "zip"]);
   console.log(`[Video] 📦 Kaggle dataset create output: [REDACTED]`);
   if (/400 Client Error|403 Client Error|404 Client Error|error|must be between|Kaggle CLI Error/i.test(ds)) {
-    throw new Error(`[Kaggle Dataset Create Failed] ${ds}`);
+    throw new Error('[Kaggle Dataset Create Failed] [REDACTED]');
   }
   // Smart polling for Kaggle dataset readiness (instant mount as soon as ready)
   console.log(`[Video] ⏳ Smart polling Kaggle dataset readiness for "${user}/video-job-${slug}"...`);
