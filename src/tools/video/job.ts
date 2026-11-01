@@ -243,7 +243,7 @@ export async function startVideoJob(
   const push = await kaggle(["kernels", "push", "-p", kDir]);
   console.log(`[Video] 🚀 Kaggle kernel push output: [REDACTED]`);
   if (/400 Client Error|403 Client Error|404 Client Error|Kaggle CLI Error/i.test(push)) {
-    throw new Error(`[Kaggle Kernel Push Failed] ${push}`);
+    throw new Error('[Kaggle Kernel Push Failed]');
   }
 
   return JSON.stringify(
