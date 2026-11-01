@@ -225,7 +225,7 @@ export async function startVideoJob(
       `${preflight.audioCount}/${script.scenes.length} audio, ` +
       `${preflight.keyframeCount}/${script.scenes.length} keyframes, ` +
       `BGM: ${preflight.hasBgm ? "OK" : "MISSING"}. ` +
-      `Refusing to dispatch broken/empty dataset to Kaggle GPU.\n - ${errorDetails}`
+      `Refusing to dispatch broken/empty dataset to Kaggle GPU.\n - [REDACTED]`
     );
   }
   console.log(`[Video] 🛡️ [Pre-Flight Verified] 100% assets verified: ${preflight.audioCount} audio, ${preflight.keyframeCount} keyframes, BGM: OK.`);
