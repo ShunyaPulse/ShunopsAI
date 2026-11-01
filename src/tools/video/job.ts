@@ -252,7 +252,7 @@ export async function startVideoJob(
       kernel: `${user}/video-render-${slug}`,
       title: script.title,
       scenes: script.scenes.length,
-      dataset: ds.slice(0, 200),
+      dataset: "[REDACTED]",
       push: push.slice(0, 300),
       next: "Use manage_kaggle action=status ref=<kernel> to observe; action=output to download video.mp4",
     },

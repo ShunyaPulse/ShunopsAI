@@ -74,7 +74,7 @@ async function main() {
       let parsedJob: any = {};
       try { parsedJob = JSON.parse(launchOutput); } catch {}
       console.log(`\n🎉 [SUCCESS] General Video Job Dispatched: [REDACTED]`);
-      console.log(`   Kaggle Kernel: ${parsedJob.kernel || "OK"}`);
+      console.log('   Kaggle Kernel: [REDACTED]');
       console.log(`   Title: "[REDACTED]"`);
       console.log(`   Scenes: ${parsedJob.scenes || "OK"}`);
     }
