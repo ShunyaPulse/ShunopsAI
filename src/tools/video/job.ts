@@ -228,7 +228,7 @@ export async function startVideoJob(
       `Refusing to dispatch broken/empty dataset to Kaggle GPU.\n - [REDACTED]`
     );
   }
-  console.log(`[Video] 🛡️ [Pre-Flight Verified] 100% assets verified: ${preflight.audioCount} audio, ${preflight.keyframeCount} keyframes, BGM: OK.`);
+  console.log('[Video] 🛡️ [Pre-Flight Verified] 100% assets verified: [REDACTED]');
 
   console.log(`[Video] 📦 Creating Kaggle dataset for job "${slug}"...`);
   const ds = await kaggle(["datasets", "create", "-p", dsDir, "--dir-mode", "zip"]);
