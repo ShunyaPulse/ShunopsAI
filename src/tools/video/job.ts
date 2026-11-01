@@ -237,7 +237,7 @@ export async function startVideoJob(
     throw new Error('[Kaggle Dataset Create Failed] [REDACTED]');
   }
   // Smart polling for Kaggle dataset readiness (instant mount as soon as ready)
-  console.log(`[Video] ⏳ Smart polling Kaggle dataset readiness for "${user}/video-job-${slug}"...`);
+  console.log('[Video] ⏳ Smart polling Kaggle dataset readiness for [REDACTED]...');
   await waitForDatasetReady(`${user}/video-job-${slug}`, 30000, 2000);
   console.log(`[Video] 🚀 Pushing Kaggle kernel for job "${slug}"...`);
   const push = await kaggle(["kernels", "push", "-p", kDir]);
