@@ -36,28 +36,30 @@ function buildKeyframePrompt(
 ): string {
   const parts: string[] = [];
 
-  // 1. Character Visual DNA lock (Preserve full DNA & kit colors, do NOT truncate)
+  // 1. Character Visual DNA lock (Concise high-retention character grammar)
   if (visualBible?.characterGrammar) {
-    parts.push(visualBible.characterGrammar);
+    parts.push(visualBible.characterGrammar.slice(0, 500));
   }
 
   // 2. Scene specific visual prompt
   parts.push(scPrompt);
 
-  // 3. Strict equipment & kit invariants for sports/cricket
+  // 3. Strict equipment & kit invariants for sports/cricket (Compact Positive Anchors)
   const isSports = domain === "sports" || domain.includes("cricket") || (visualBible?.realWorldGrounding && visualBible.realWorldGrounding.toLowerCase().includes("cricket"));
   if (isSports) {
     parts.push(
-      "AUTHENTIC MATCH EQUIPMENT ONLY: Exactly three upright wooden cricket stumps with two wooden bails on top. Genuine flat-bladed English willow cricket bat with cane handle. Players must wear official solid athletic team cricket jerseys and trousers, white or team-matching protective batting pads, and cricket helmet with steel face grille. STRICTLY BANNED: baseball bats, round bats, rolling pins, flat wooden planks, 4 or more stumps, floating wickets, stumps multiplying from the ground, gym vests, tank tops, casual civilian clothes, sleeveless shirts on players, yellow/black random kits on Indian players, Champions League or football trophies, giant two-handled silver cups in regular matches"
+      "Authentic cricket equipment: 3 upright wooden stumps with bails, flat-bladed English willow bat, official solid team jersey, protective batting pads and helmet. Zero casual clothes, zero baseball bats, zero digital scoreboards"
     );
   }
 
-  // 4. Cinematic 3D aesthetic & anti-2D cartoon invariant
+  // 4. Cinematic optical aesthetic (Positive optical descriptors)
   parts.push(
-    "Cinematic photography, 35mm lens, photorealistic, sharp focus, volumetric dramatic lighting, detailed textures, zero text, zero logos, zero watermarks. STRICTLY BANNED: 2D cartoon, flat vector art, anime, comic book, pencil sketch, line drawing, 2D flat animation, floating cartoon hearts, disembodied floating heads, uncanny surrealism"
+    "Cinematic 35mm photography, photorealistic, sharp focus, volumetric lighting, authentic textures, zero text, zero watermarks"
   );
 
-  return parts.join(". ").replace(/\s+/g, " ").trim();
+  const fullPrompt = parts.join(". ").replace(/\s+/g, " ").trim();
+  // Absolute Hard Ceiling: Cloudflare FLUX limits prompts to 2048 chars max. Safe limit at 1800.
+  return fullPrompt.length > 1800 ? fullPrompt.slice(0, 1800).trim() : fullPrompt;
 }
 
 /**
