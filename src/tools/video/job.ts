@@ -230,7 +230,7 @@ export async function startVideoJob(
   }
   console.log('[Video] 🛡️ [Pre-Flight Verified] 100% assets verified: [REDACTED]');
 
-  console.log(`[Video] 📦 Creating Kaggle dataset for job "${slug}"...`);
+  console.log('[Video] 📦 Creating Kaggle dataset for job [REDACTED]...');
   const ds = await kaggle(["datasets", "create", "-p", dsDir, "--dir-mode", "zip"]);
   console.log(`[Video] 📦 Kaggle dataset create output: [REDACTED]`);
   if (/400 Client Error|403 Client Error|404 Client Error|error|must be between|Kaggle CLI Error/i.test(ds)) {
