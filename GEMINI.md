@@ -208,6 +208,10 @@
   - Kaggle CLI's default directory mode is `skip`, which silences and omits `audio/` and `images/` directories unless `--dir-mode zip` (or `-r zip`) is specified.
   - In `src/tools/video/kaggle.ts`, `normalizeKaggleArgs` permanently and automatically injects `-r zip` for all `datasets create` and `datasets version` calls if omitted, and resolves folder paths to absolute paths to prevent Windows path-mangling bugs in Kaggle CLI.
 
-
-
-
+## 20. Cloudflare Workers AI Quota Preservation & Health Probe Standard
+- **Neuron Quota Preservation for Image Generation:**
+  - Cloudflare Workers AI free tier quota (10,000 neurons/day) is strictly reserved for **FLUX.1-schnell** image generation (`src/tools/video/keyframes.ts`).
+  - Text models (e.g. `@cf/meta/llama-3.3-70b-instruct-fp8-fast`) must NEVER be used in general agent reasoning or fallback chains, as large text models drain thousands of neurons per response.
+- **Micro-Weight Health Probe Invariant (`@cf/meta/llama-3.2-1b-instruct`):**
+  - Whenever checking Cloudflare Workers AI connectivity, quota availability, or operational status, ALWAYS send the probe exclusively to `@cf/meta/llama-3.2-1b-instruct` with a minimal prompt (`max_tokens <= 16`).
+  - Never use 70B, 8B, or heavy models for health checks or status pings. The 1B model consumes near-zero neurons and instantly reveals whether the account is healthy (200 OK) or quota-limited (429 code 4006).

@@ -135,8 +135,8 @@ export async function pingCloudflareAi(): Promise<{
     };
   }
 
-  const model =
-    process.env.CLOUDFLARE_AI_MODEL || "@cf/meta/llama-3.1-8b-instruct";
+  // Ultra-lightweight 1B model strictly used for health status checks to preserve neuron quota
+  const model = "@cf/meta/llama-3.2-1b-instruct";
   const start = Date.now();
 
   try {
