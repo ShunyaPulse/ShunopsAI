@@ -76,7 +76,7 @@ async function main() {
       console.log(`\n🎉 [SUCCESS] General Video Job Dispatched: [REDACTED]`);
       console.log('   Kaggle Kernel: [REDACTED]');
       console.log(`   Title: "[REDACTED]"`);
-      console.log(`   Scenes: ${parsedJob.scenes || "OK"}`);
+      console.log(`   Scenes: [REDACTED]`);
     }
   } catch (err: any) {
     const rawError = err?.message || String(err);
