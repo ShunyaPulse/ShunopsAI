@@ -61,7 +61,7 @@ export const PROPOSER_MODELS_CHAIN: ModelEndpoint[] = [
 
   // 3. GitHub Models & Cloudflare Workers AI (When connected or configured)
   { provider: "github", model: "gpt-4o", name: "OpenAI GPT-4o (GitHub Models)" },
-  { provider: "cloudflare", model: "@cf/meta/llama-3.3-70b-instruct-fp8-fast", name: "Llama 3.3 70B Fast (Cloudflare AI)" },
+  // { provider: "cloudflare", model: "@cf/meta/llama-3.3-70b-instruct-fp8-fast", name: "Llama 3.3 70B Fast (Cloudflare AI)" },
 
   // 4. OpenRouter High-Capability Free Models (550B, 120B, 70B Heavyweights)
   { provider: "openrouter", model: "nvidia/nemotron-3-ultra-550b-a55b:free", name: "Nemotron 3 Ultra 550B (Primary #1)" },
@@ -85,7 +85,7 @@ export const AUDITOR_MODELS_CHAIN: ModelEndpoint[] = [
 
   // 3. GitHub Models & Cloudflare Workers AI (When connected or configured)
   { provider: "github", model: "gpt-4o", name: "OpenAI GPT-4o (GitHub Audit)" },
-  { provider: "cloudflare", model: "@cf/meta/llama-3.3-70b-instruct-fp8-fast", name: "Llama 3.3 70B Fast (Cloudflare Audit)" },
+  // { provider: "cloudflare", model: "@cf/meta/llama-3.3-70b-instruct-fp8-fast", name: "Llama 3.3 70B Fast (Cloudflare Audit)" },
 
   // 4. OpenRouter High-Capability Free Models (Specialized Code & Reasoning)
   { provider: "openrouter", model: "cohere/north-mini-code:free", name: "Cohere North Mini Code (Audit)" },
@@ -97,7 +97,7 @@ export const AUDITOR_MODELS_CHAIN: ModelEndpoint[] = [
 
 export const DEFAULT_PROPOSER = PROPOSER_MODELS_CHAIN[0]!;
 export const DEFAULT_AUDITOR = AUDITOR_MODELS_CHAIN[0]!;
-export const BACKUP_PROPOSER = PROPOSER_MODELS_CHAIN[6]!;
+export const BACKUP_PROPOSER = PROPOSER_MODELS_CHAIN.find((m) => m.provider === "openrouter") || PROPOSER_MODELS_CHAIN[PROPOSER_MODELS_CHAIN.length - 1]!;
 export const BACKUP_OPENROUTER_PROPOSER = BACKUP_PROPOSER;
 export const BACKUP_GROQ_AUDITOR = AUDITOR_MODELS_CHAIN[1]!;
 

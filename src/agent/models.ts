@@ -34,10 +34,10 @@ export const AGENT_MODELS_CHAIN: ModelTarget[] = [
   { provider: "github", model: "o1-mini", name: "OpenAI o1-mini (GitHub Reasoning)" },
   { provider: "github", model: "meta-llama-3.3-70b-instruct", name: "Llama 3.3 70B (GitHub Models)" },
 
-  // 4. Cloudflare Workers AI (Serverless Edge Inference)
-  { provider: "cloudflare", model: "@cf/meta/llama-3.3-70b-instruct-fp8-fast", name: "Llama 3.3 70B Fast (Cloudflare Workers AI)" },
-  { provider: "cloudflare", model: "@cf/meta/llama-3.1-8b-instruct", name: "Llama 3.1 8B (Cloudflare Workers AI)" },
-  { provider: "cloudflare", model: "@cf/qwen/qwen1.5-7b-chat-awq", name: "Qwen 1.5 7B Chat (Cloudflare Workers AI)" },
+  // 4. Cloudflare Workers AI - Commented out to preserve 100% daily neuron quota exclusively for FLUX.1-schnell image generation
+  // { provider: "cloudflare", model: "@cf/meta/llama-3.3-70b-instruct-fp8-fast", name: "Llama 3.3 70B Fast (Cloudflare Workers AI)" },
+  // { provider: "cloudflare", model: "@cf/meta/llama-3.1-8b-instruct", name: "Llama 3.1 8B (Cloudflare Workers AI)" },
+  // { provider: "cloudflare", model: "@cf/qwen/qwen1.5-7b-chat-awq", name: "Qwen 1.5 7B Chat (Cloudflare Workers AI)" },
 
   // 5. OpenRouter High-Capability Heavyweights
   { provider: "openrouter", model: "nvidia/nemotron-3-ultra-550b-a55b:free", name: "Nemotron 3 Ultra 550B (OpenRouter)" },
