@@ -18,7 +18,7 @@ import { synthesizeKokoroTTS } from "../kokoro-tts.js";
 import { synthesizeGeminiTTS } from "../gemini-tts.js";
 
 import { resolveEdgeVoice, sanitizeNarrationForTTS, synthesizeLocalEdgeTTS } from "./tts.js";
-
+import { getTopicHash, downloadFromGCS, uploadToGCS } from "./gcsVault.js";
 import type { VideoScript } from "./types.js";
 
 
@@ -434,6 +434,8 @@ export async function synthesizeNarration(
 
 
 
+  const topicHash = getTopicHash(script.title, language);
+
   for (let i = 0; i < script.scenes.length; i++) {
 
     const sc = script.scenes[i];
@@ -441,11 +443,22 @@ export async function synthesizeNarration(
     if (!sc) continue;
 
     const outMp3 = sceneAudioPath(audioDir, i);
+    const remoteGcsPath = `video-vault/${topicHash}/audio/a${String(i).padStart(3, "0")}.mp3`;
 
-    // Flywheel Cache: If scene audio already exists from prior run/retry, reuse immediately (0 tokens, 0 latency)
+    // 1. Local Cache Hit (0 tokens, 0 latency)
     try {
       if (fsSync.existsSync(outMp3) && fsSync.statSync(outMp3).size >= MIN_AUDIO_BYTES) {
-        console.log(`[Video] ⚡ Scene ${i + 1} audio cache hit (${fsSync.statSync(outMp3).size} bytes). Reusing without re-synthesis.`);
+        console.log(`[Video] ⚡ Scene ${i + 1} audio local cache hit (${fsSync.statSync(outMp3).size} bytes). Reusing without re-synthesis.`);
+        geminiSuccessCount++;
+        continue;
+      }
+    } catch {}
+
+    // 2. GCS Cloud Vault Hit (download in <150ms, 0 TTS quota burned)
+    try {
+      const gcsAudioHit = await downloadFromGCS(remoteGcsPath, outMp3);
+      if (gcsAudioHit && fsSync.existsSync(outMp3) && fsSync.statSync(outMp3).size >= MIN_AUDIO_BYTES) {
+        console.log(`[Video] ☁️ Scene ${i + 1} audio GCS Vault hit (${fsSync.statSync(outMp3).size} bytes) -> downloaded from cloud storage.`);
         geminiSuccessCount++;
         continue;
       }
@@ -550,6 +563,9 @@ export async function synthesizeNarration(
       );
 
     }
+
+    // Asynchronously persist to GCS Vault so failure downstream never loses this audio
+    uploadToGCS(outMp3, remoteGcsPath, "audio/mpeg").catch(() => {});
 
     // Mindful adaptive pacing between scenes (550ms - 850ms with jitter): eliminates burst concurrency and prevents 429 RPM spikes
     if (i < script.scenes.length - 1) {

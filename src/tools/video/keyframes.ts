@@ -14,6 +14,7 @@
 import * as fs from "node:fs/promises";
 import * as fsSync from "node:fs";
 import * as path from "node:path";
+import { getTopicHash, downloadFromGCS, uploadToGCS } from "./gcsVault.js";
 import type { VideoScript } from "./types.js";
 
 export interface KeyframesSynthesisResult {
@@ -163,16 +164,29 @@ export async function generateSceneKeyframes(
   await fs.mkdir(imagesDir, { recursive: true });
   console.log(`[Keyframes] 🎨 Pre-packaging ${totalScenes} keyframes via Cloudflare Workers AI (${FLUX_MODEL})...`);
 
+  const topicHash = getTopicHash(script.title, script.language);
+
   for (let i = 0; i < totalScenes; i++) {
     const sc = script.scenes[i];
     if (!sc) continue;
 
     const outPng = path.join(imagesDir, `scene_${String(i).padStart(3, "0")}.png`);
+    const remoteGcsPath = `video-vault/${topicHash}/images/scene_${String(i).padStart(3, "0")}.png`;
 
-    // Flywheel Cache: If this keyframe already exists and has valid bytes, reuse it immediately (0 tokens, 0 delay)
+    // 1. Local Disk Cache Hit (0 tokens, 0 delay)
     try {
       if (fsSync.existsSync(outPng) && fsSync.statSync(outPng).size >= MIN_IMAGE_BYTES) {
-        console.log(`[Keyframes] ⚡ Scene ${i + 1} keyframe cache hit (${fsSync.statSync(outPng).size} bytes) -> reusing.`);
+        console.log(`[Keyframes] ⚡ Scene ${i + 1} keyframe local cache hit (${fsSync.statSync(outPng).size} bytes) -> reusing.`);
+        successCount++;
+        continue;
+      }
+    } catch {}
+
+    // 2. GCS Cloud Vault Hit (download in <200ms, skips Cloudflare FLUX completely)
+    try {
+      const gcsHit = await downloadFromGCS(remoteGcsPath, outPng);
+      if (gcsHit && fsSync.existsSync(outPng) && fsSync.statSync(outPng).size >= MIN_IMAGE_BYTES) {
+        console.log(`[Keyframes] ☁️ Scene ${i + 1} keyframe GCS Vault hit (${fsSync.statSync(outPng).size} bytes) -> downloaded from cloud storage.`);
         successCount++;
         continue;
       }
@@ -187,6 +201,8 @@ export async function generateSceneKeyframes(
       if (ok) {
         successCount++;
         console.log(`[Keyframes] ✅ Scene ${i + 1}/${totalScenes} keyframe ready (scene_${String(i).padStart(3, "0")}.png)`);
+        // Asynchronously persist to GCS Vault so future runs/retries never lose this image
+        uploadToGCS(outPng, remoteGcsPath, "image/png").catch(() => {});
         break;
       }
       if (attempt < 2) {

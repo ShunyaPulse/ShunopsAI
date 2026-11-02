@@ -86,6 +86,9 @@ jobs:
           KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
           GCP_TTS_API_KEY: ${{ secrets.GCP_TTS_API_KEY || secrets.GOOGLE_TTS_API_KEY }}
           GOOGLE_TTS_API_KEY: ${{ secrets.GOOGLE_TTS_API_KEY || secrets.GCP_TTS_API_KEY }}
+          GCP_CREDENTIALS: ${{ secrets.GCP_CREDENTIALS }}
+          GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+          GCS_ASSETS_BUCKET: ${{ secrets.GCS_ASSETS_BUCKET || 'shunops-bgm-assets-422513' }}
           REDIS_URL: ${{ secrets.REDIS_URL }}
           REDIS_HOST: ${{ secrets.REDIS_HOST }}
           REDIS_PORT: ${{ secrets.REDIS_PORT }}
@@ -98,4 +101,13 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
         run: |
           npx tsx scripts/cloud_generate_video.ts
+
+      - name: Upload Video Assets Artifact (Safety Net)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: video-assets-${{ github.run_id }}
+          path: jobs/
+          retention-days: 3
+
 
