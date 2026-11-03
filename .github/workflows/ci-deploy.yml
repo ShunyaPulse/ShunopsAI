@@ -101,12 +101,11 @@ jobs:
         uses: github/codeql-action/analyze@v4
         continue-on-error: true
 
-      # 9. Autonomous AI Remediation (Runs only if failures exist or on issue/PR trigger)
+      # 9. Autonomous AI Remediation (Runs only if failures exist or on maintainer issue trigger)
       - name: Autonomous AI Remediation
         if: >-
           failure() ||
-          (github.event_name == 'issues' && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.issue.author_association)) ||
-          (github.event_name == 'pull_request' && github.actor == 'dependabot[bot]')
+          (github.event_name == 'issues' && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.issue.author_association))
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_KEYS || secrets.OPENROUTER_API_KEYS || secrets.OPENROUTER_API_KEY }}
           OPENROUTER_KEYS: ${{ secrets.OPENROUTER_KEYS || secrets.OPENROUTER_API_KEYS || secrets.OPENROUTER_API_KEY }}
