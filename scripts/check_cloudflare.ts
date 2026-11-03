@@ -58,7 +58,7 @@ async function checkAccount(target: AccountTarget) {
     return false;
   } catch (err: any) {
     console.log(`\n------------------------------------------------------------`);
-    console.log(`📡 [${target.name}] Account ID: ${target.accountId.slice(0, 8)}...`);
+    console.log(`📡 [${target.name}] Account ID: [REDACTED]...`);
     console.log(`❌ Connection Error: [REDACTED]`);
     return false;
   }
