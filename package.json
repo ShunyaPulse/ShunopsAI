@@ -12,6 +12,7 @@
     "test:isolation": "tsx tests/multi-tenant-scope.test.ts",
     "typecheck": "tsc --noEmit",
     "resolve-alerts": "tsx src/tools/code-scanner-resolver.ts",
+    "check:cf": "tsx scripts/check_cloudflare.ts",
     "worker:dev": "npx wrangler dev",
     "worker:deploy": "npx wrangler deploy"
   },

@@ -1,3 +1,4 @@
+import { auditDiffusionPromptWithMammoth } from "../../ai/decisions.js";
 /**
  * ShunopsAI - Cloudflare Workers AI FLUX.1-schnell Keyframe Pre-Packager (Tarika 2)
  *
@@ -66,6 +67,28 @@ function buildKeyframePrompt(
 /**
  * Synthesizes a single keyframe image via Cloudflare Workers AI FLUX.1-schnell
  */
+
+/**
+ * Uses Baseten Mammoth 1 decision engine to detect and eliminate any diffusion text prompts
+ * enforcing GEMINI.md Rule 12 & Rule 17 (Zero AI glyphs / zero corrupt scoreboards).
+ */
+export async function sanitizeZeroDiffusionText(prompt: string): Promise<string> {
+  if (!/\b(text|scoreboard|leaderboard|infographic|words|letters|signage|writing|numbers)\b/i.test(prompt)) {
+    return prompt;
+  }
+  try {
+    const audit = await auditDiffusionPromptWithMammoth(prompt);
+    if (audit?.hasTextAnomaly) {
+      console.log(`[Zero-Diffusion Text Gate] 🛡️ Mammoth 1 flagged text anomaly (action=${audit.suggestedAction}, confidence=${(audit.confidence * 100).toFixed(1)}%). Applying cinematic metaphor.`);
+      return prompt
+        .replace(/\b(scoreboard|leaderboard|digital timer|score ticker)\b/gi, "blurred stadium floodlights")
+        .replace(/\b(written text|words saying|letters)\b/gi, "tactile cinematic texture")
+        .trim();
+    }
+  } catch {}
+  return prompt;
+}
+
 export async function callCloudflareFlux(
   prompt: string,
   outPng: string,
@@ -192,7 +215,7 @@ export async function generateSceneKeyframes(
       }
     } catch {}
 
-    const prompt = buildKeyframePrompt(sc.visual_prompt, script.visual_bible, script.domain);
+    const prompt = await sanitizeZeroDiffusionText(buildKeyframePrompt(sc.visual_prompt, script.visual_bible, script.domain));
     let ok = false;
 
     // Retry with brief backoff on cold starts

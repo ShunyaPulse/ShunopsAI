@@ -1,3 +1,4 @@
+import { auditCodePatchWithMammoth } from "../../ai/decisions.js";
 import { execFileSync } from "node:child_process";
 import * as fs from "node:fs/promises";
 import * as fsSync from "node:fs";
@@ -228,6 +229,23 @@ export async function remediateFlawWithConsensus(
 
     const searchTarget = audit.decision.finalSearch || proposal.proposal.search;
     const replaceTarget = audit.decision.finalReplace || proposal.proposal.replace;
+
+    // Round 3: Baseten Mammoth 1 Full-Spectrum Mathematical Sanity Audit
+    try {
+      const sanity = await auditCodePatchWithMammoth({
+        filePath: flaw.filePath,
+        ruleId: flaw.ruleId,
+        search: searchTarget,
+        replace: replaceTarget,
+      });
+      if (sanity && !sanity.isSafe) {
+        console.warn(`${colors.yellow}⚠️ Baseten Mammoth 1 flagged potential regression (${sanity.rationale}). Rejecting patch.${colors.reset}`);
+        return { success: false, patchSummary: `Rejected by Mammoth 1 sanity audit: ${sanity.rationale}` };
+      }
+      if (sanity) {
+        console.log(`${colors.green}🛡️ ${sanity.rationale}${colors.reset}`);
+      }
+    } catch {}
 
     if (!fileContent.includes(searchTarget)) {
       return { success: false, patchSummary: `Search target not matched in ${flaw.filePath}` };

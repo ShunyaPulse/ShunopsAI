@@ -74,6 +74,7 @@ export async function runAutonomousAgent(
         priorToolCallSignatures,
         counters,
         onProgress: options.onProgress,
+        taskGoal: userGoal,
       };
 
       for (let step = 1; step <= maxSteps; step++) {

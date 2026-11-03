@@ -1,3 +1,4 @@
+import { askMammothChoice, routeOptimalTierWithMammoth, type ModelTierPreference } from "../ai/decisions.js";
 import {
   AGENT_MODELS_CHAIN,
   createClientForTarget,
@@ -92,7 +93,28 @@ export async function analyzeTaskComplexity(
   const cached = complexityCache.get(cacheKey);
   if (cached) return cached;
 
-  // Ambiguous prompt: invoke very-lightweight high-capacity classifier (Groq Qwen 27B or Gemini Flash)
+  // 1. Try Baseten Mammoth 1 decision engine on OpenRouter (single forward-pass probability, 0 text tokens)
+  try {
+    const mammothDecision = await askMammothChoice(
+      { prompt: prompt.slice(0, 500) },
+      "Classify the computational and reasoning complexity of this task.",
+      {
+        simple: "Casual greetings, brief questions, summaries, creative writing, or basic pleasantries",
+        complex: "Coding, software debugging, math, algorithms, architecture, security, or multi-step logic",
+      }
+    );
+    if (mammothDecision && (mammothDecision.choice === "simple" || mammothDecision.choice === "complex")) {
+      const level: ComplexityLevel = mammothDecision.choice;
+      if (complexityCache.size >= MAX_CACHE_SIZE) {
+        const firstKey = complexityCache.keys().next().value;
+        if (firstKey) complexityCache.delete(firstKey);
+      }
+      complexityCache.set(cacheKey, level);
+      return level;
+    }
+  } catch {}
+
+  // 2. Ambiguous prompt fallback: invoke very-lightweight classifier (Groq Qwen 27B or Gemini Flash)
   const classifierTarget: ModelTarget = overrides?.groqApiKey || process.env.GROQ_API_KEY
     ? { provider: "groq", model: "qwen/qwen3.8-27b", name: "Groq Qwen 27B Classifier" }
     : { provider: "gemini", model: "gemini-3.8-flash", name: "Gemini 3.8 Flash Classifier" };
@@ -380,8 +402,25 @@ export async function getRoutingTargets(
   message: string,
   overrides?: ProviderKeyOverrides
 ): Promise<{ targets: ModelTarget[]; routedComplexity: ComplexityLevel; preference: string }> {
-  const complexity = await analyzeTaskComplexity(message, overrides);
-  const candidates = buildCandidateChain(preference, complexity);
+  let effectivePreference = preference;
+  let complexity: ComplexityLevel = "simple";
+
+  if (preference === "auto") {
+    // Unconstrained 5-tier classification using Baseten Mammoth 1
+    try {
+      const mammothTier = await determineOptimalPreferenceWithMammoth(message);
+      if (mammothTier) {
+        effectivePreference = mammothTier;
+        complexity = mammothTier === "fast" ? "simple" : "complex";
+      }
+    } catch {}
+  }
+
+  if (effectivePreference === "auto") {
+    complexity = await analyzeTaskComplexity(message, overrides);
+  }
+
+  const candidates = buildCandidateChain(effectivePreference, complexity);
 
   const healthy: Array<{ target: ModelTarget; idx: number; banditScore: number }> = [];
   const degraded: ModelTarget[] = [];
@@ -421,4 +460,18 @@ export async function getRoutingTargets(
     routedComplexity: complexity,
     preference,
   };
+}
+
+
+/**
+ * Unconstrained Full-Taxonomy Router using Baseten Mammoth 1:
+ * Classifies queries directly across all 5 specialized tiers (fast, code, deep-reasoning, research, frontier)
+ * returning calibrated probabilities and confidence.
+ */
+export async function determineOptimalPreferenceWithMammoth(
+  userQuery: string,
+  recentContext?: string
+): Promise<ModelTierPreference | null> {
+  const result = await routeOptimalTierWithMammoth(userQuery, recentContext);
+  return result ? result.tier : null;
 }

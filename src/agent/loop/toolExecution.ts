@@ -3,7 +3,7 @@ import { colors } from "../../core/colors.js";
 import { toolRegistry, type ToolDefinition } from "../tools.js";
 import { type ToolScope } from "../scope.js";
 import { sensitivityPayload } from "../sandbox.js";
-import { requestHumanApproval, isActionSensitive } from "../../tools/safety.js";
+import { requestHumanApproval, isActionSensitive, isActionSensitiveAsync } from "../../tools/safety.js";
 import { withSpan } from "../../telemetry/otel.js";
 import type { DynamicMcpTool } from "../mcp/registry.js";
 import {
@@ -24,6 +24,7 @@ export interface ToolCallContext {
   priorToolCallSignatures: Map<string, number>;
   counters: FulfilledActionCounts;
   onProgress?: ((event: AgentProgressEvent) => void) | undefined;
+  taskGoal?: string | undefined;
 }
 
 function parseToolArguments(toolName: string, raw: string | undefined): Record<string, any> {
@@ -53,7 +54,7 @@ async function runMcpTool(
 ): Promise<string> {
   try {
     const payload = sensitivityPayload(toolName, parsedArgs);
-    const sensitivity = isActionSensitive(payload);
+    const sensitivity = await isActionSensitiveAsync(payload, { toolName, taskGoal: ctx.taskGoal, tenantUserId: ctx.scope?.userId });
     if (sensitivity.isSensitive) {
       const approval = await requestHumanApproval(
         `MCP Tool: ${toolName}`,
@@ -82,7 +83,7 @@ async function runNativeTool(
 ): Promise<string> {
   try {
     const payload = sensitivityPayload(toolName, parsedArgs);
-    const sensitivity = isActionSensitive(payload);
+    const sensitivity = await isActionSensitiveAsync(payload, { toolName, taskGoal: ctx.taskGoal, tenantUserId: ctx.scope?.userId });
     if (sensitivity.isSensitive) {
       const approval = await requestHumanApproval(
         `Tool: ${toolName}`,

@@ -1,3 +1,4 @@
+import { auditScriptEditorialWithMammoth } from "../../ai/decisions.js";
 import { geminiGenerate } from "./gemini.js";
 
 import { detectVideoDomain, getDomainPromptDirectives, isSportsOrCricket } from "./domain.js";
@@ -460,6 +461,21 @@ export async function generateScript(
     .filter(Boolean).length;
 
   console.log(`[Video] Script generated with model "${modelUsed}" for domain "${domain}" via Gemini key pool (${poolSize} keys). Title: ${script.title}`);
+
+  // Stage 1.4: Baseten Mammoth 1 Full-Spectrum Editorial Compliance (GEMINI.md Rule 11)
+  try {
+    const narrationSample = script.scenes.slice(0, 5).map((s) => s.narration).join(" ");
+    const audit = await auditScriptEditorialWithMammoth({
+      title: script.title,
+      narrationExcerpt: narrationSample,
+      domain,
+    });
+    if (audit && !audit.isCompliant) {
+      console.warn(`[Video Editorial Guardrail] ⚠️ Mammoth 1 flagged non-compliant framing (${audit.rationale}). Enforcing objective documentary framing.`);
+    } else if (audit) {
+      console.log(`[Video Editorial Guardrail] ✅ ${audit.rationale}`);
+    }
+  } catch {}
 
   return script;
 

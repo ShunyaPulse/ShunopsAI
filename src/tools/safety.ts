@@ -1,3 +1,4 @@
+import { evaluateToolRiskWithFullContext } from "../ai/decisions.js";
 import * as readline from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import { randomInt } from "node:crypto";
@@ -107,6 +108,46 @@ function settleApproval(request: ApprovalRequest, approved: boolean): void {
 /**
  * Heuristics to check if an action is potentially destructive/sensitive
  */
+/**
+ * Evaluates whether an action is potentially destructive or sensitive.
+ * Fast-paths clear regex patterns first (0ms), then uses Baseten Mammoth 1 decision model
+ * with full semantic context (task goal, environment, arguments, and intent alignment).
+ */
+export async function isActionSensitiveAsync(
+  command: string,
+  context?: {
+    toolName?: string | undefined;
+    taskGoal?: string | undefined;
+    tenantUserId?: number | null | undefined;
+    environment?: string | undefined;
+  }
+): Promise<{ isSensitive: boolean; reason: string }> {
+  // 1. Instant static regex check (0ms)
+  const syncCheck = isActionSensitive(command);
+  if (syncCheck.isSensitive) {
+    return syncCheck;
+  }
+
+  // 2. Full-Context Baseten Mammoth 1 Semantic Decision
+  try {
+    const verdict = await evaluateToolRiskWithFullContext({
+      toolName: context?.toolName || "tool",
+      taskGoal: context?.taskGoal,
+      payload: command,
+      environment: context?.environment,
+      tenantUserId: context?.tenantUserId,
+    });
+    if (verdict?.requiresApproval) {
+      return {
+        isSensitive: true,
+        reason: verdict.rationale,
+      };
+    }
+  } catch {}
+
+  return { isSensitive: false, reason: "" };
+}
+
 export function isActionSensitive(command: string): { isSensitive: boolean; reason: string } {
   // Collapse SQL block/line comments so `DROP/**/TABLE` cannot evade whitespace regexes
   const normalized = command
