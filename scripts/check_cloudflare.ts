@@ -54,7 +54,7 @@ async function checkAccount(target: AccountTarget) {
     }
 
     console.log(`⚠️ Status: 🟡 UNEXPECTED HTTP ${res.status}`);
-    console.log(`Details:`, JSON.stringify(data.errors || data));
+    console.log('Details: [REDACTED]');
     return false;
   } catch (err: any) {
     console.log(`\n------------------------------------------------------------`);
