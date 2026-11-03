@@ -2,11 +2,33 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import * as os from "node:os";
 import * as path from "node:path";
+import * as fs from "node:fs";
 
 const execFileAsync = promisify(execFile);
 
 const KAGGLE_TIMEOUT_MS = 120000;
 const MAX_BUFFER = 1024 * 1024 * 5;
+
+/**
+ * Ensures ~/.kaggle/kaggle.json exists with secure permissions on Linux/Mac/Windows.
+ * Prevents CLI authentication failures on cloud runners where secrets are provided as env vars.
+ */
+function ensureKaggleCredentials(): void {
+  const user = process.env.VIDEO_KAGGLE_USERNAME || process.env.KAGGLE_USERNAME || "shunyapulse";
+  const key = process.env.VIDEO_TOKEN || process.env.KAGGLE_KEY || process.env.KAGGLE_API_TOKEN;
+  if (!user || !key) return;
+
+  try {
+    const kaggleDir = path.join(os.homedir(), ".kaggle");
+    const kaggleJson = path.join(kaggleDir, "kaggle.json");
+    if (!fs.existsSync(kaggleDir)) {
+      fs.mkdirSync(kaggleDir, { recursive: true, mode: 0o700 });
+    }
+    if (!fs.existsSync(kaggleJson)) {
+      fs.writeFileSync(kaggleJson, JSON.stringify({ username: user, key }), { mode: 0o600 });
+    }
+  } catch {}
+}
 
 function kaggleEnv(): NodeJS.ProcessEnv {
   const user = process.env.VIDEO_KAGGLE_USERNAME || process.env.KAGGLE_USERNAME || "shunyapulse";
@@ -47,6 +69,7 @@ function normalizeKaggleArgs(args: string[]): string[] {
 
 /** Run the Kaggle CLI, falling back to `python -m kaggle` off Windows. */
 export async function kaggle(args: string[], timeout = KAGGLE_TIMEOUT_MS): Promise<string> {
+  ensureKaggleCredentials();
   const env = kaggleEnv();
   const safeArgs = normalizeKaggleArgs(args);
   const isWin = os.platform() === "win32";

@@ -12,7 +12,31 @@ import {
  */
 export function getFallbackVisualBible(topic: string, domain: VideoDomain): VisualBible {
   if (domain === "sports") {
-    return CRICKET_PRODUCTION_TEMPLATE;
+    if (isCricketTopic(topic)) {
+      return CRICKET_PRODUCTION_TEMPLATE;
+    }
+    return {
+      realWorldGrounding: `Authentic professional athletic venue, arena, or racetrack matching ${topic}, authentic sports equipment, realistic competition environment under volumetric lighting.`,
+      organicSettings: [
+        "Professional competition circuit or arena",
+        "Athletic preparation facility or team paddock",
+        "Championship podium or finish line atmosphere",
+        "High-performance training facility",
+        "Post-competition debrief zone"
+      ],
+      latentTrapsToBan: [
+        "cricket bats in non-cricket sports", "wooden wickets", "casual street clothes",
+        "mutated anatomy", "floating gear", "distorted hands", "cartoon characters"
+      ],
+      characterGrammar: "Frame athletes in authentic action poses with locked aerodynamic/athletic kit, focused facial expressions, 35mm shallow depth of field.",
+      zeroTextRules: "Zero digital leaderboards, scoreboards, or sponsor typography. Depict motion, lighting, and physical equipment without legible text.",
+      soundscapeProfile: {
+        energyLevel: "high",
+        ambientBedStyle: "stadium",
+        dominantFrequencies: [80, 160],
+        foleyCues: ["engine roar", "crowd cheer", "athletic impact", "wind rush"]
+      }
+    };
   }
 
   if (domain === "science" || domain === "space" || domain === "technology") {

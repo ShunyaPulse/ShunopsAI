@@ -1,4 +1,5 @@
 import { auditDiffusionPromptWithMammoth } from "../../ai/decisions.js";
+import { isCricketTopic } from "./cricketTemplate.js";
 /**
  * ShunopsAI - Cloudflare Workers AI FLUX.1-schnell Keyframe Pre-Packager (Tarika 2)
  *
@@ -47,13 +48,17 @@ function buildKeyframePrompt(
   parts.push(scPrompt);
 
   // 3. Strict equipment & kit invariants for sports/cricket (Compact Positive Anchors)
-  const isSports =
-    domain === "sports" ||
+  const isCricket =
+    isCricketTopic(scPrompt) ||
     domain.includes("cricket") ||
-    (visualBible?.realWorldGrounding && visualBible.realWorldGrounding.toLowerCase().includes("cricket"));
-  if (isSports) {
+    (visualBible?.realWorldGrounding && isCricketTopic(visualBible.realWorldGrounding));
+  if (isCricket) {
     parts.push(
       "Authentic cricket equipment: 3 upright wooden stumps with bails, flat-bladed English willow bat, official solid team jersey, protective batting pads and helmet. Zero casual clothes, zero baseball bats, zero digital scoreboards"
+    );
+  } else if (domain === "sports") {
+    parts.push(
+      "Authentic professional athletic equipment, official solid competition team kit, clean arena and circuit lighting. Zero casual streetwear, zero digital scoreboards, zero text"
     );
   }
 
@@ -92,7 +97,7 @@ export async function sanitizeZeroDiffusionText(prompt: string): Promise<string>
         // Strip explicit quoted strings like 'saying "INDIA"' or 'reading "WINNER"'
         .replace(/\b(saying|reading|titled|labeled|inscribed with|displaying)\s+["'][^"']+["']/gi, "with clean text-free surfaces")
         .replace(/["'][^"']{2,40}["']/g, "")
-        .replace(/\b(scoreboard|leaderboard|digital timer|score ticker|giant screen|stadium screen)\b/gi, "blurred stadium floodlights")
+        .replace(/\b(scoreboard|leaderboard|digital timer|score ticker|giant screen|stadium screen)\b/gi, "blurred atmospheric background lighting")
         .replace(/\b(infographic|presentation slide|bulleted list|bar chart|line graph|diagram)\b/gi, "tactile physical equipment model")
         .replace(/\b(written text|words saying|readable letters|banner|placard|signage)\b/gi, "clean atmospheric background")
         .replace(/\s{2,}/g, " ")

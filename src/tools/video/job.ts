@@ -232,18 +232,30 @@ export async function startVideoJob(
 
   console.log('[Video] 📦 Creating Kaggle dataset for job [REDACTED]...');
   const ds = await kaggle(["datasets", "create", "-p", dsDir, "--dir-mode", "zip"]);
-  console.log(`[Video] 📦 Kaggle dataset create output: [REDACTED]`);
-  if (/400 Client Error|403 Client Error|404 Client Error|error|must be between|Kaggle CLI Error/i.test(ds)) {
-    throw new Error('[Kaggle Dataset Create Failed] [REDACTED]');
+  const safeDsLog = (ds || "")
+    .replace(/[a-f0-9]{32}/gi, "[REDACTED_HASH]")
+    .replace(/[A-Za-z0-9_-]{24,}/g, "[REDACTED]")
+    .slice(0, 250);
+  console.log(`[Video] 📦 Kaggle dataset create output: ${safeDsLog}`);
+  const isDatasetFailure =
+    /40[0-9] Client Error|50[0-9] Server Error|Kaggle CLI Error/i.test(ds) ||
+    /An error occurred while creating your dataset/i.test(ds) ||
+    /title must be between/i.test(ds);
+  if (isDatasetFailure) {
+    throw new Error(`[Kaggle Dataset Create Failed] ${safeDsLog}`);
   }
   // Smart polling for Kaggle dataset readiness (instant mount as soon as ready)
   console.log('[Video] ⏳ Smart polling Kaggle dataset readiness for [REDACTED]...');
   await waitForDatasetReady(`${user}/video-job-${slug}`, 30000, 2000);
   console.log(`[Video] 🚀 Pushing Kaggle kernel for job "${slug}"...`);
   const push = await kaggle(["kernels", "push", "-p", kDir]);
-  console.log(`[Video] 🚀 Kaggle kernel push output: [REDACTED]`);
-  if (/400 Client Error|403 Client Error|404 Client Error|Kaggle CLI Error/i.test(push)) {
-    throw new Error('[Kaggle Kernel Push Failed]');
+  const safePushLog = (push || "")
+    .replace(/[a-f0-9]{32}/gi, "[REDACTED_HASH]")
+    .replace(/[A-Za-z0-9_-]{24,}/g, "[REDACTED]")
+    .slice(0, 250);
+  console.log(`[Video] 🚀 Kaggle kernel push output: ${safePushLog}`);
+  if (/40[0-9] Client Error|50[0-9] Server Error|Kaggle CLI Error/i.test(push)) {
+    throw new Error(`[Kaggle Kernel Push Failed] ${safePushLog}`);
   }
 
   return JSON.stringify(
