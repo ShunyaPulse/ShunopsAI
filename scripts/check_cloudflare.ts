@@ -37,7 +37,7 @@ async function checkAccount(target: AccountTarget) {
     const data = (await res.json()) as any;
 
     console.log(`\n------------------------------------------------------------`);
-    console.log(`📡 [${target.name}] Account ID: ${target.accountId.slice(0, 8)}... (${elapsed}ms)`);
+    console.log(`📡 [${target.name}] Account ID: [REDACTED] (${elapsed}ms)`);
 
     if (res.status === 200 && data.success) {
       console.log(`✅ Status: 🟢 RESET / OPERATIONAL`);
