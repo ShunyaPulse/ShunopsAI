@@ -1,4 +1,5 @@
 import type OpenAI from "openai";
+import { getCachedTurnIntakeDecision } from "../../ai/decisions.js";
 
 /**
  * Universal agentic tools every run keeps available regardless of intent.
@@ -15,7 +16,7 @@ const ALWAYS_ON_CORE_TOOLS = new Set<string>([
   "ask_user_confirmation",
 ]);
 
-/** Goal keywords that unlock specialist tool families. */
+/** Fast fallback keyword triggers when Mammoth-1 intake is not cached. */
 const SPECIALIST_TRIGGERS: Array<{ pattern: RegExp; tools: string[] }> = [
   {
     pattern: /\b(?:swarm|sub-?agent|multi-?agent|blackboard|consensus|debate|audit|auditor)\b/,
@@ -26,11 +27,11 @@ const SPECIALIST_TRIGGERS: Array<{ pattern: RegExp; tools: string[] }> = [
     tools: ["manage_agent_schedules"],
   },
   {
-    pattern: /\b(?:sql|postgres|neon|supabase|table|schema|query|database|db|row|rows|select|insert|users)\b/,
+    pattern: /\b(?:sql|postgres|neon|supabase|table|schema|query|database|db|row|rows|select|insert|users|signup|account|record)\b/,
     tools: ["execute_neon_sql"],
   },
   {
-    pattern: /\b(?:redis|upstash|cache|ttl|hget|incr)\b/,
+    pattern: /\b(?:redis|upstash|cache|ttl|hget|incr|queue|rate-?limit)\b/,
     tools: ["execute_redis_command"],
   },
   {
@@ -47,10 +48,9 @@ const FULL_SURFACE_PATTERN =
   /\b(?:gcp|google\s*cloud|bigquery|cloud\s*run|compute|vm|cloudflare|worker|sentinel|heal|shell|bash|directory|video|kaggle|youtube|index)\b/;
 
 /**
- * Zero-Loss Energy Efficiency: Intent-Scoped Dynamic Tool Schema Pruning.
- * Sends the 9 universal agentic tools + any domain-matched specialist tools on Step 1
- * (saving ~60-70% of GPU input schema tokens), while keeping 100% of scope-permitted
- * tools unlocked in `allowedNames` for execution.
+ * Zero-Loss Energy Efficiency: Semantic + Intent-Scoped Dynamic Tool Schema Pruning.
+ * Combines Baseten Mammoth 1's single-pass semantic capability detection (when available)
+ * with fast fallback triggers so specialist tools are never pruned due to missing keywords.
  */
 export function selectEnergyEfficientToolsForGoal(
   userGoal: string,
@@ -62,11 +62,31 @@ export function selectEnergyEfficientToolsForGoal(
   }
   const g = String(userGoal || "").toLowerCase();
 
-  if (FULL_SURFACE_PATTERN.test(g)) {
+  // Check Baseten Mammoth 1 semantic intake decision (populated during routing / prepareRun)
+  const mammothIntake = getCachedTurnIntakeDecision(userGoal);
+  if (mammothIntake?.unlockedToolFamilies.cloudOrFullSurface || FULL_SURFACE_PATTERN.test(g)) {
     return allActiveTools;
   }
 
   const matchedSpecialists = new Set<string>();
+
+  if (mammothIntake) {
+    const fam = mammothIntake.unlockedToolFamilies;
+    if (fam.sqlDb) matchedSpecialists.add("execute_neon_sql");
+    if (fam.redisCache) matchedSpecialists.add("execute_redis_command");
+    if (fam.githubOps) {
+      matchedSpecialists.add("manage_github");
+      matchedSpecialists.add("resolve_code_scanning_alerts");
+    }
+    if (fam.multiAgentSwarm) {
+      matchedSpecialists.add("delegate_to_agent_swarm");
+      matchedSpecialists.add("dual_model_consensus");
+    }
+    if (fam.schedules) {
+      matchedSpecialists.add("manage_agent_schedules");
+    }
+  }
+
   for (const { pattern, tools } of SPECIALIST_TRIGGERS) {
     if (pattern.test(g)) {
       for (const tool of tools) matchedSpecialists.add(tool);

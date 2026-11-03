@@ -1,4 +1,8 @@
-import { askMammothChoice, routeOptimalTierWithMammoth, type ModelTierPreference } from "../ai/decisions.js";
+import {
+  analyzeTurnIntakeWithMammoth,
+  routeOptimalTierWithMammoth,
+  type ModelTierPreference,
+} from "../ai/decisions.js";
 import {
   AGENT_MODELS_CHAIN,
   createClientForTarget,
@@ -18,6 +22,21 @@ const complexityCache = new Map<string, ComplexityLevel>();
 const MAX_CACHE_SIZE = 256;
 
 /**
+ * Fast check for unmistakable trivial greetings/acks (< 8 words) so we never
+ * waste a network round-trip to Mammoth-1 on "Hi", "Thanks", or "Ok".
+ */
+export function isTrivialConversationalTurn(prompt: string): boolean {
+  const p = prompt.trim();
+  const lower = p.toLowerCase();
+  const wordCount = p.split(/\s+/).length;
+  if (wordCount > 8 || /[{}[\];<>=$`]/.test(p)) return false;
+
+  const trivialPattern =
+    /^(hi|hello|hey|namaste|greetings|hola|good\s+(morning|afternoon|evening)|how\s+are\s+you|who\s+are\s+you|what\s+is\s+your\s+name|thank\s+you|thanks|bye|ok|okay|yes|no|haan|nahi|done|great|nice)\b/i;
+  return trivialPattern.test(lower);
+}
+
+/**
  * Micro-Heuristic Classifier (<0.1ms, zero network calls, zero tokens consumed).
  * Evaluates clear AST, code, debugging, mathematical, and algorithmic signals.
  */
@@ -27,8 +46,7 @@ export function classifyHeuristic(prompt: string): ComplexityLevel | null {
   const wordCount = p.split(/\s+/).length;
 
   // 1. Simple conversational greetings & basic pleasantries
-  const simpleGreetingPrefix = /^(hi|hello|hey|namaste|greetings|hola|good\s+(morning|afternoon|evening)|how\s+are\s+you|who\s+are\s+you|what\s+is\s+your\s+name|thank\s+you|thanks|bye|help\s+me)\b/i;
-  if (wordCount <= 8 && simpleGreetingPrefix.test(lower)) {
+  if (isTrivialConversationalTurn(p)) {
     return "simple";
   }
 
@@ -51,37 +69,33 @@ export function classifyHeuristic(prompt: string): ComplexityLevel | null {
     }
   }
 
-  // 3. Short casual inquiries (< 20 words without code/math)
+  // 3. Short casual inquiries (< 18 words without code/math/system keywords)
   if (
-    wordCount < 20 &&
+    wordCount < 18 &&
     !/[{}[\];<>=$]/.test(p) &&
-    /\b(what is|who is|when was|where is|tell me a|joke|quote|draft|translate|rephrase|summarize)\b/i.test(lower)
+    /\b(what is|who is|when was|where is|tell me a|joke|quote|translate|rephrase)\b/i.test(lower)
   ) {
     return "simple";
   }
 
-  // 4. Short conversational follow-ups & verification commands
-  const shortFollowUpPattern = /^(check|try|see|look|test|verify|retry|refresh|recheck|inspect|continue|proceed|go ahead|done|ok|okay|yes|no|haan|nahi|karo|batao|ab dekho|once more|again)\b/i;
-  if (wordCount <= 6 && !/[{}[\];<>=$]/.test(p) && shortFollowUpPattern.test(lower)) {
-    return "simple";
-  }
-
-  // 5. Long, detailed multi-step technical instructions (> 90 words with numbering)
+  // 4. Long, detailed multi-step technical instructions (> 90 words with numbering)
   if (wordCount > 90 && /\b(1\.|step 1|first,|firstly)\b/i.test(p)) {
     return "complex";
   }
 
-  return null; // Ambiguous: defer to lightweight classifier
+  return null; // Ambiguous: defer to Mammoth 1 or lightweight classifier
 }
 
 /**
  * Classify task complexity:
  * 1. Micro-heuristics (<0.1ms, 0 tokens)
- * 2. Ultra-lightweight high-capacity LLM fallback (Groq Qwen 27B / Gemini 3.8 Flash) with 4 max tokens and 1.5s timeout.
+ * 2. Unified Baseten Mammoth 1 intake (if not already attempted)
+ * 3. Ultra-lightweight high-capacity LLM fallback (Groq Qwen 27B / Gemini 3.8 Flash) with 4 max tokens and 1.5s timeout.
  */
 export async function analyzeTaskComplexity(
   prompt: string,
-  overrides?: ProviderKeyOverrides
+  overrides?: ProviderKeyOverrides,
+  skipMammoth = false
 ): Promise<ComplexityLevel> {
   const heuristic = classifyHeuristic(prompt);
   if (heuristic) {
@@ -93,26 +107,21 @@ export async function analyzeTaskComplexity(
   const cached = complexityCache.get(cacheKey);
   if (cached) return cached;
 
-  // 1. Try Baseten Mammoth 1 decision engine on OpenRouter (single forward-pass probability, 0 text tokens)
-  try {
-    const mammothDecision = await askMammothChoice(
-      { prompt: prompt.slice(0, 500) },
-      "Classify the computational and reasoning complexity of this task.",
-      {
-        simple: "Casual greetings, brief questions, summaries, creative writing, or basic pleasantries",
-        complex: "Coding, software debugging, math, algorithms, architecture, security, or multi-step logic",
+  // 1. Try Baseten Mammoth 1 unified intake (only if caller hasn't already invoked it)
+  if (!skipMammoth) {
+    try {
+      const intake = await analyzeTurnIntakeWithMammoth(prompt);
+      if (intake) {
+        const level: ComplexityLevel = intake.tier === "fast" ? "simple" : "complex";
+        if (complexityCache.size >= MAX_CACHE_SIZE) {
+          const firstKey = complexityCache.keys().next().value;
+          if (firstKey) complexityCache.delete(firstKey);
+        }
+        complexityCache.set(cacheKey, level);
+        return level;
       }
-    );
-    if (mammothDecision && (mammothDecision.choice === "simple" || mammothDecision.choice === "complex")) {
-      const level: ComplexityLevel = mammothDecision.choice;
-      if (complexityCache.size >= MAX_CACHE_SIZE) {
-        const firstKey = complexityCache.keys().next().value;
-        if (firstKey) complexityCache.delete(firstKey);
-      }
-      complexityCache.set(cacheKey, level);
-      return level;
-    }
-  } catch {}
+    } catch {}
+  }
 
   // 2. Ambiguous prompt fallback: invoke very-lightweight classifier (Groq Qwen 27B or Gemini Flash)
   const classifierTarget: ModelTarget = overrides?.groqApiKey || process.env.GROQ_API_KEY
@@ -377,13 +386,6 @@ export async function getModelsHealthStatus(): Promise<IndividualModelStatus[]> 
 }
 
 /**
- * Resolve execution targets with Circuit Breaker + Stage 8 Multi-Armed Bandit Awareness:
- * 1. Automatically deprioritizes models currently in rate-limit/error cooldown.
- * 2. Within the same provider group, promotes models with higher empirical banditScore
- *    (lower EWMA latency & higher reliability) while preserving the architectural tier order.
- */
-
-/**
  * Green Energy Efficiency Bonus:
  * For simple queries, rewards ultra-low-wattage SRAM LPUs (Groq 27B), Flash/MoE models (Gemini Flash),
  * and Serverless Edge models without altering complex reasoning priority.
@@ -404,20 +406,29 @@ export async function getRoutingTargets(
 ): Promise<{ targets: ModelTarget[]; routedComplexity: ComplexityLevel; preference: string }> {
   let effectivePreference = preference;
   let complexity: ComplexityLevel = "simple";
+  let mammothAttempted = false;
 
   if (preference === "auto") {
-    // Unconstrained 5-tier classification using Baseten Mammoth 1
-    try {
-      const mammothTier = await determineOptimalPreferenceWithMammoth(message);
-      if (mammothTier) {
-        effectivePreference = mammothTier;
-        complexity = mammothTier === "fast" ? "simple" : "complex";
-      }
-    } catch {}
+    // 1. Zero-latency bypass for unmistakable trivial greetings ("Hi", "Thanks", "Ok")
+    if (isTrivialConversationalTurn(message)) {
+      effectivePreference = "fast";
+      complexity = "simple";
+    } else {
+      // 2. Single-pass 5-tier classification + tool/deliverable intake via Baseten Mammoth 1
+      mammothAttempted = true;
+      try {
+        const mammothTier = await determineOptimalPreferenceWithMammoth(message);
+        if (mammothTier) {
+          effectivePreference = mammothTier;
+          complexity = mammothTier === "fast" ? "simple" : "complex";
+        }
+      } catch {}
+    }
   }
 
   if (effectivePreference === "auto") {
-    complexity = await analyzeTaskComplexity(message, overrides);
+    // Pass skipMammoth = mammothAttempted so we NEVER call Mammoth twice on the same message
+    complexity = await analyzeTaskComplexity(message, overrides, mammothAttempted);
   }
 
   const candidates = buildCandidateChain(effectivePreference, complexity);
@@ -438,8 +449,6 @@ export async function getRoutingTargets(
   }
 
   // Stage 8 Adaptive Bandit Re-ranking within same-provider adjacent candidates:
-  // If an adjacent candidate from the same provider has a significantly higher banditScore
-  // (>8 points better due to faster EWMA latency or fewer transient errors), promote it.
   for (let i = 0; i < healthy.length - 1; i++) {
     const curr = healthy[i]!;
     const next = healthy[i + 1]!;
@@ -461,7 +470,6 @@ export async function getRoutingTargets(
     preference,
   };
 }
-
 
 /**
  * Unconstrained Full-Taxonomy Router using Baseten Mammoth 1:

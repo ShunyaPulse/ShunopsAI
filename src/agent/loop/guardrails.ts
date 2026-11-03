@@ -1,3 +1,5 @@
+import { getCachedTurnIntakeDecision } from "../../ai/decisions.js";
+
 /** Per-run tally of agentic actions the user explicitly asked for. */
 export interface FulfilledActionCounts {
   workspaceFilesSaved: number;
@@ -25,26 +27,36 @@ export function isErrorToolOutput(result: string): boolean {
 interface DeliverableCheck {
   /** Goal phrasing that requests this deliverable. */
   goalPattern: RegExp;
+  /** Semantic Mammoth-1 intake flag corresponding to this deliverable. */
+  mammothKey: keyof NonNullable<ReturnType<typeof getCachedTurnIntakeDecision>>["expectedDeliverables"];
   /** Counter field that must have been incremented. */
   counter: keyof FulfilledActionCounts;
   /** Tool that can fulfil the deliverable. */
   tool: string;
   /** Instruction fed back to the model when the deliverable is missing. */
-  instruction: (match: RegExpMatchArray) => string;
+  instruction: (match: RegExpMatchArray | null, userGoal: string) => string;
 }
 
 const DELIVERABLE_CHECKS: DeliverableCheck[] = [
   {
     goalPattern:
       /\b(?:save|write|create|draft|store|export)\b[\s\S]{0,80}?\b([a-zA-Z0-9_\-./]+\.(?:md|json|csv|js|ts|txt|html|sql|py|yaml|yml))\b/i,
+    mammothKey: "saveWorkspaceFile",
     counter: "workspaceFilesSaved",
     tool: "manage_workspace_files",
-    instruction: (match) =>
-      `Save the requested file "${match[1]}" using manage_workspace_files (operation: "write", filename: "${match[1]}", content: "...").`,
+    instruction: (match, userGoal) => {
+      const explicitFile =
+        match?.[1] ||
+        userGoal.match(/\b([a-zA-Z0-9_\-./]+\.(?:md|json|csv|js|ts|txt|html|sql|py|yaml|yml))\b/i)?.[1];
+      return explicitFile
+        ? `Save the requested file "${explicitFile}" using manage_workspace_files (operation: "write", filename: "${explicitFile}", content: "...").`
+        : `Save the requested workspace file using manage_workspace_files (operation: "write", filename: "...", content: "...").`;
+    },
   },
   {
     goalPattern:
       /\b(?:remember\s+that|save\s+(?:this\s+)?to\s+(?:your\s+|agent\s+)?memory|store\s+in\s+(?:long-term\s+)?memory)\b/i,
+    mammothKey: "saveMemory",
     counter: "memoriesSaved",
     tool: "manage_agent_memory",
     instruction: () =>
@@ -53,6 +65,7 @@ const DELIVERABLE_CHECKS: DeliverableCheck[] = [
   {
     goalPattern:
       /\b(?:create\s+a\s+(?:\d+-step\s+)?(?:task\s+|action\s+|launch\s+|rollout\s+)?plan|add\s+to\s+(?:my\s+)?checklist)\b/i,
+    mammothKey: "createTaskPlan",
     counter: "tasksPlanned",
     tool: "manage_agent_tasks",
     instruction: () =>
@@ -61,6 +74,7 @@ const DELIVERABLE_CHECKS: DeliverableCheck[] = [
   {
     goalPattern:
       /\b(?:create\s+a\s+scheduled|schedule\s+a\s+(?:website\s+)?monitor|monitor\s+https?:\/\/\S+\s+every\s+\d+)\b/i,
+    mammothKey: "createSchedule",
     counter: "schedulesCreated",
     tool: "manage_agent_schedules",
     instruction: () =>
@@ -69,6 +83,7 @@ const DELIVERABLE_CHECKS: DeliverableCheck[] = [
   {
     goalPattern:
       /\b(?:delegate\s+to\s+(?:an?\s+)?(?:agent\s+)?swarm|run\s+a\s+multi-agent\s+swarm|spawn\s+an?\s+agent\s+swarm)\b/i,
+    mammothKey: "dispatchSwarm",
     counter: "swarmsDispatched",
     tool: "delegate_to_agent_swarm",
     instruction: () =>
@@ -77,9 +92,9 @@ const DELIVERABLE_CHECKS: DeliverableCheck[] = [
 ];
 
 /**
- * Step 2 Multi-Intent Action & Deliverable Verification Guardrail: verify that
- * explicit requests to save a file, remember a fact, create a plan, schedule a
- * monitor or dispatch a swarm were actually executed before the agent concludes.
+ * Step 2 Multi-Intent Action & Deliverable Verification Guardrail:
+ * Combines Mammoth-1 semantic deliverable detection (covering English, Hinglish, and natural phrasing)
+ * with regex fallback to verify requested deliverables were executed before concluding.
  */
 export function findUnfulfilledRequestedActions(
   userGoal: string,
@@ -87,10 +102,15 @@ export function findUnfulfilledRequestedActions(
   counts: FulfilledActionCounts
 ): string[] {
   const missing: string[] = [];
+  const mammothIntake = getCachedTurnIntakeDecision(userGoal);
+
   for (const check of DELIVERABLE_CHECKS) {
     if (counts[check.counter] > 0 || !allowedNames.has(check.tool)) continue;
     const match = userGoal.match(check.goalPattern);
-    if (match) missing.push(check.instruction(match));
+    const semanticHit = Boolean(mammothIntake?.expectedDeliverables?.[check.mammothKey]);
+    if (match || semanticHit) {
+      missing.push(check.instruction(match, userGoal));
+    }
   }
   return missing;
 }

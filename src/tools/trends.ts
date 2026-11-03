@@ -1,3 +1,4 @@
+import { evaluateTrendsWithMammoth } from "../ai/decisions.js";
 import { geminiGenerate } from "./video.js";
 import { executeWebSearch } from "./cloud/webSearch.js";
 
@@ -104,7 +105,7 @@ export async function fetchGoogleTrendsWebUI(geo: string = "IN"): Promise<Trendi
     headers: {
       "User-Agent":
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-      "Accept":
+      Accept:
         "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
       "Accept-Language": "en-US,en;q=0.9",
     },
@@ -224,35 +225,60 @@ export async function fetchGoogleTrendsIndia(): Promise<TrendingItem[]> {
 }
 
 /**
- * Filters out controversial, negative, or sensationalist trends (scandals, arrests, crimes, political mudslinging).
- */
-/**
  * Invariant: Sports matches that are currently LIVE or IN PROGRESS must NEVER have videos made on them.
  * A sports match video is only allowed once the match is 100% completed and the final result is locked.
  */
 export function isLiveOngoingMatch(item: TrendingItem): boolean {
   const combined = `${item.title} ${item.news_title} ${item.news_snippet || ""}`.toLowerCase();
 
-  // Explicit completion indicators override live keywords (e.g. "won by", "beat", "post match", "highlights")
-  const isFinished = /\b(won by|defeated|beat|beats|won the match|won trophy|champions|lift trophy|match highlights|post-match|full match summary|all out for)\b/i.test(combined);
+  // Explicit completion indicators override live keywords
+  const isFinished =
+    /\b(won by|defeated|beat|beats|won the match|won trophy|champions|lift trophy|match highlights|post-match|full match summary|all out for)\b/i.test(
+      combined
+    );
   if (isFinished) return false;
 
-  // Live match search indicators: search spikes happening during the live broadcast
-  const isLive = /\b(live score|live match|live cricket|live streaming|live stream|live telecast|live commentary|scorecard live|toss update|playing 11|playing xi|toss won by|in progress|ongoing match|currently batting|currently bowling|stumps day|innings break)\b/i.test(combined);
+  const isLive =
+    /\b(live score|live match|live cricket|live streaming|live stream|live telecast|live commentary|scorecard live|toss update|playing 11|playing xi|toss won by|in progress|ongoing match|currently batting|currently bowling|stumps day|innings break)\b/i.test(
+      combined
+    );
   return isLive;
 }
 
+/**
+ * Fast first-pass filter for obvious violent crime/arrests, while protecting scientific
+ * and sports phrases (e.g. "asteroid strike", "lightning strike", "tectonic clash", "titan clash").
+ * Subtle editorial and live-match filtering is handled semantically by Baseten Mammoth 1 in `curateBestTrendTopic`.
+ */
 export function isBannedControversialTrend(item: TrendingItem): boolean {
   const combined = `${item.title} ${item.news_title} ${item.news_snippet || ""}`.toLowerCase();
-  const bannedKeywords = [
-    "arrest", "arrested", "cbi", "ed raid", "custody", "scam", "bribe", "corruption",
-    "murder", "rape", "assault", "suicide", "crime", "violence", "riot", "clash",
-    "scandal", "expose", "controversy", "allegation", "fir filed", "court case",
-    "resignation", "defamation", "protest", "strike", "dharna", "hate speech",
-    "blame", "slams", "hits out", "attacks", "row over", "dispute", "boycott",
-    "jail", "chargesheet", "extortion", "fraud", "interrogation",
+
+  // Allow scientific/astronomical/sports uses of words like "strike" or "clash"
+  const strippedSafeCompounds = combined.replace(
+    /\b(asteroid|meteor|lightning|solar|surgical|bowling|batting|tectonic|galactic|planetary|historic|title|final)\s+(strike|clash)\b/g,
+    ""
+  );
+
+  const hardCrimeKeywords = [
+    "arrest",
+    "arrested",
+    "ed raid",
+    "custody",
+    "bribe",
+    "murder",
+    "rape",
+    "assault",
+    "suicide",
+    "riot",
+    "fir filed",
+    "defamation",
+    "dharna",
+    "hate speech",
+    "chargesheet",
+    "extortion",
+    "interrogation",
   ];
-  return bannedKeywords.some((kw) => combined.includes(kw));
+  return hardCrimeKeywords.some((kw) => strippedSafeCompounds.includes(kw));
 }
 
 /**
@@ -329,10 +355,8 @@ Return ONLY valid JSON matching this exact structure:
 }
 
 /**
- * Uses Gemini to evaluate the top trending items and pick the single best
+ * Uses Baseten Mammoth 1 + Gemini to evaluate top trending items and pick the single best
  * documentary topic that provides genuine value addition to the viewer.
- * Automatically pivots to an Evergreen Concept Video if trend strength is low (< 20K)
- * or if no viable high-quality documentary trend exists.
  */
 export async function curateBestTrendTopic(items: TrendingItem[]): Promise<CuratedTopicResult> {
   if (!items.length) {
@@ -340,8 +364,7 @@ export async function curateBestTrendTopic(items: TrendingItem[]): Promise<Curat
     return await generateEvergreenConceptTopic();
   }
 
-  // 1. Filter out banned sensationalist & negative controversial items (crimes, violence, arrests, scandal mudslinging)
-  // 1. Filter out banned controversial items AND active live/in-progress matches
+  // 1. Fast first-pass filter for obvious crime/arrests and explicit live-score tags
   const cleanItems = items.filter((item) => !isBannedControversialTrend(item) && !isLiveOngoingMatch(item));
   if (cleanItems.length === 0) {
     console.log("[Trends] ⚠️ All trends filtered out by controversy rules. Falling back to Evergreen Concept Video...");
@@ -349,13 +372,10 @@ export async function curateBestTrendTopic(items: TrendingItem[]): Promise<Curat
   }
 
   // 2. Strict Traffic-Weighted Ranking & Threshold Enforcement:
-  // Google Trends Web UI returns 300+ items that are NOT sorted purely by search traffic.
-  // We strictly sort all clean trends by search traffic descending so only high-volume viral events qualify!
   const trafficSortedItems = [...cleanItems].sort(
     (a, b) => parseApproxTrafficNumber(b.approx_traffic) - parseApproxTrafficNumber(a.approx_traffic)
   );
 
-  // Filter out any micro-trends (< MIN_TREND_TRAFFIC_THRESHOLD e.g. 20K/1K searches)
   const highVolumeTrends = trafficSortedItems.filter(
     (it) => parseApproxTrafficNumber(it.approx_traffic) >= MIN_TREND_TRAFFIC_THRESHOLD
   );
@@ -367,49 +387,66 @@ export async function curateBestTrendTopic(items: TrendingItem[]): Promise<Curat
     return await generateEvergreenConceptTopic();
   }
 
-  // Strictly select candidate pool from the TOP 10-15 highest search volume trends in India
-  const candidatePool = highVolumeTrends.slice(0, 15);
+  let candidatePool = highVolumeTrends.slice(0, 15);
   const topTraffic = candidatePool[0]?.approx_traffic || "20,000+";
   const bottomTraffic = candidatePool[candidatePool.length - 1]?.approx_traffic || "20,000+";
   console.log(`[Trends] 📊 Curating from Top ${candidatePool.length} High-Volume Trends (${topTraffic} down to ${bottomTraffic}).`);
 
-  const itemsListFormatted = (
-    await (async () => {
-      // Real-Time Reason Enrichment (Zero Hardcoding):
-      // Google Trends UI returns raw query tags (e.g. "m4 | macbook | apple") rather than the actual breaking event.
-      // We query live breaking news in parallel for top candidates so the Curator sees the EXACT real-world event/breakthrough!
-      const topCandidates = candidatePool.slice(0, 8);
-      console.log(`[Trends] 🌐 Fetching live breaking news context for top ${topCandidates.length} trends...`);
-      await Promise.allSettled(
-        topCandidates.map(async (item) => {
-          try {
-            const liveIntel = await executeWebSearch(`${item.title} news today breaking`, { maxResults: 3 });
-            if (liveIntel && !liveIntel.startsWith("Error:")) {
-              const lines = liveIntel.split("\n").map((l) => l.trim());
-              const newsLines = lines
-                .filter((l) => l.startsWith("• [News:") || l.startsWith("• [DuckDuckGo") || l.startsWith("Direct Answer:"))
-                .map((l) =>
-                  l
-                    .replace(/^• \[(?:News|DuckDuckGo Instant Answer):\s*/, "")
-                    .replace(/\].*$/, "")
-                    .replace(/^Direct Answer:\s*/, "")
-                    .trim()
-                )
-                .filter((l) => l.length > 10);
+  // Real-Time Reason Enrichment (Zero Hardcoding)
+  const topCandidates = candidatePool.slice(0, 8);
+  console.log(`[Trends] 🌐 Fetching live breaking news context for top ${topCandidates.length} trends...`);
+  await Promise.allSettled(
+    topCandidates.map(async (item) => {
+      try {
+        const liveIntel = await executeWebSearch(`${item.title} news today breaking`, { maxResults: 3 });
+        if (liveIntel && !liveIntel.startsWith("Error:")) {
+          const lines = liveIntel.split("\n").map((l) => l.trim());
+          const newsLines = lines
+            .filter((l) => l.startsWith("• [News:") || l.startsWith("• [DuckDuckGo") || l.startsWith("Direct Answer:"))
+            .map((l) =>
+              l
+                .replace(/^• \[(?:News|DuckDuckGo Instant Answer):\s*/, "")
+                .replace(/\].*$/, "")
+                .replace(/^Direct Answer:\s*/, "")
+                .trim()
+            )
+            .filter((l) => l.length > 10);
 
-              if (newsLines.length > 0 && newsLines[0]) {
-                item.news_title = newsLines[0];
-                item.news_snippet = newsLines.slice(0, 3).join(" | ");
-              }
-            }
-          } catch {
-            // Fall back gracefully to existing snippet on network timeout
+          if (newsLines.length > 0 && newsLines[0]) {
+            item.news_title = newsLines[0];
+            item.news_snippet = newsLines.slice(0, 3).join(" | ");
           }
-        })
-      );
-      return candidatePool;
-    })()
-  )
+        }
+      } catch {
+        // Fall back gracefully to existing snippet on network timeout
+      }
+    })
+  );
+
+  // 2.5: Baseten Mammoth 1 Single-Pass Batch Semantic Trend Gate
+  // Evaluates enriched headlines in ONE forward pass for constructive documentary value & match conclusion
+  try {
+    const mammothVerdicts = await evaluateTrendsWithMammoth(candidatePool);
+    if (mammothVerdicts) {
+      const semanticallyApproved = candidatePool.filter((_, idx) => {
+        const v = mammothVerdicts[idx];
+        return !v || (v.isConstructive && v.isConcluded);
+      });
+      if (semanticallyApproved.length > 0) {
+        console.log(
+          `[Trends] 🛡️ Mammoth 1 semantic gate approved ${semanticallyApproved.length}/${candidatePool.length} constructive, concluded trends.`
+        );
+        candidatePool = semanticallyApproved;
+      } else {
+        console.log(
+          `[Trends] 🛡️ Mammoth 1 flagged all breaking candidates as non-constructive or ongoing matches. Pivoting to Evergreen...`
+        );
+        return await generateEvergreenConceptTopic();
+      }
+    }
+  } catch {}
+
+  const itemsListFormatted = candidatePool
     .map(
       (item, idx) =>
         `${idx + 1}. [Trend: "${item.title}"] (Traffic: ${item.approx_traffic}, Domain: ${item.categories?.join(", ") || "General"})\n` +
@@ -487,7 +524,6 @@ If the candidate items in this list are exclusively frivolous celebrity gossip, 
     }
   }
 
-  // Handle Quality Escape Hatch: If Gemini evaluated that no candidate trend is viable, pivot to Evergreen!
   if (parsed.no_viable_trend) {
     console.log(`[Trends] 🌿 Gemini evaluated breaking candidates as low documentary value (${parsed.reason}). Pivoting to Evergreen Concept Video...`);
     return await generateEvergreenConceptTopic();

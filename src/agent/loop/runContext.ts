@@ -1,5 +1,7 @@
 import type OpenAI from "openai";
+import { analyzeTurnIntakeWithMammoth, getCachedTurnIntakeDecision } from "../../ai/decisions.js";
 import { AGENT_MODELS_CHAIN, type ModelTarget } from "../models.js";
+import { getRoutingTargets, isTrivialConversationalTurn } from "../router.js";
 import { buildSystemPrompt } from "../prompts.js";
 import { registeredTools, type ToolName } from "../tools.js";
 import { allowedToolsForScope, type ToolScope } from "../scope.js";
@@ -139,7 +141,19 @@ export async function prepareRun(
   userGoal: string,
   options: AgentOptions
 ): Promise<PreparedRun> {
-  const targets = resolveTargets(options);
+  // Ensure Mammoth-1 single-pass turn intake is populated for non-trivial runs
+  // so toolSelection.ts and guardrails.ts have semantic intelligence even when
+  // runAutonomousAgent is invoked directly from CLI or Work Mode.
+  let targets: ModelTarget[];
+  if ((options.targets && options.targets.length > 0) || (options.models && options.models.length > 0)) {
+    targets = resolveTargets(options);
+    if (!isTrivialConversationalTurn(userGoal) && !getCachedTurnIntakeDecision(userGoal)) {
+      await analyzeTurnIntakeWithMammoth(userGoal).catch(() => null);
+    }
+  } else {
+    const routed = await getRoutingTargets("auto", userGoal, options.keyOverrides);
+    targets = routed.targets;
+  }
 
   // Least-privilege: restrict the toolset exposed to the model for this run.
   const scope: ToolScope | undefined = options.scope

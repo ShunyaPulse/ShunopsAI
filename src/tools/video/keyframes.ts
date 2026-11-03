@@ -47,7 +47,10 @@ function buildKeyframePrompt(
   parts.push(scPrompt);
 
   // 3. Strict equipment & kit invariants for sports/cricket (Compact Positive Anchors)
-  const isSports = domain === "sports" || domain.includes("cricket") || (visualBible?.realWorldGrounding && visualBible.realWorldGrounding.toLowerCase().includes("cricket"));
+  const isSports =
+    domain === "sports" ||
+    domain.includes("cricket") ||
+    (visualBible?.realWorldGrounding && visualBible.realWorldGrounding.toLowerCase().includes("cricket"));
   if (isSports) {
     parts.push(
       "Authentic cricket equipment: 3 upright wooden stumps with bails, flat-bladed English willow bat, official solid team jersey, protective batting pads and helmet. Zero casual clothes, zero baseball bats, zero digital scoreboards"
@@ -65,25 +68,42 @@ function buildKeyframePrompt(
 }
 
 /**
- * Synthesizes a single keyframe image via Cloudflare Workers AI FLUX.1-schnell
- */
-
-/**
  * Uses Baseten Mammoth 1 decision engine to detect and eliminate any diffusion text prompts
- * enforcing GEMINI.md Rule 12 & Rule 17 (Zero AI glyphs / zero corrupt scoreboards).
+ * enforcing GEMINI.md Rule 12 & Rule 17 (Zero AI glyphs / zero corrupt scoreboards)
+ * without being restricted to a tiny 6-word hardcoded list.
  */
 export async function sanitizeZeroDiffusionText(prompt: string): Promise<string> {
-  if (!/\b(text|scoreboard|leaderboard|infographic|words|letters|signage|writing|numbers)\b/i.test(prompt)) {
+  // Fast skip only if prompt has no quotes, numbers, or any signage/screen/text concepts
+  const mightContainTextConcept =
+    /["'][^"']{2,}["']|\b(text|scoreboard|leaderboard|infographic|words|letters|signage|writing|numbers|banner|poster|placard|slide|chart|graph|screen|monitor|ticker|caption|label|heading|title|inscription)\b/i.test(
+      prompt
+    );
+  if (!mightContainTextConcept) {
     return prompt;
   }
+
   try {
     const audit = await auditDiffusionPromptWithMammoth(prompt);
     if (audit?.hasTextAnomaly) {
-      console.log(`[Zero-Diffusion Text Gate] 🛡️ Mammoth 1 flagged text anomaly (action=${audit.suggestedAction}, confidence=${(audit.confidence * 100).toFixed(1)}%). Applying cinematic metaphor.`);
-      return prompt
-        .replace(/\b(scoreboard|leaderboard|digital timer|score ticker)\b/gi, "blurred stadium floodlights")
-        .replace(/\b(written text|words saying|letters)\b/gi, "tactile cinematic texture")
+      console.log(
+        `[Zero-Diffusion Text Gate] 🛡️ Mammoth 1 flagged text anomaly (action=${audit.suggestedAction}, confidence=${(audit.confidence * 100).toFixed(1)}%). Applying ${audit.suggestedAction}.`
+      );
+      let cleaned = prompt
+        // Strip explicit quoted strings like 'saying "INDIA"' or 'reading "WINNER"'
+        .replace(/\b(saying|reading|titled|labeled|inscribed with|displaying)\s+["'][^"']+["']/gi, "with clean text-free surfaces")
+        .replace(/["'][^"']{2,40}["']/g, "")
+        .replace(/\b(scoreboard|leaderboard|digital timer|score ticker|giant screen|stadium screen)\b/gi, "blurred stadium floodlights")
+        .replace(/\b(infographic|presentation slide|bulleted list|bar chart|line graph|diagram)\b/gi, "tactile physical equipment model")
+        .replace(/\b(written text|words saying|readable letters|banner|placard|signage)\b/gi, "clean atmospheric background")
+        .replace(/\s{2,}/g, " ")
         .trim();
+
+      if (audit.suggestedAction === "blur-background") {
+        cleaned += ", shallow depth of field with softly blurred bokeh background";
+      } else if (audit.suggestedAction === "replace-with-metaphor") {
+        cleaned += ", depicted through tactile text-free physical objects and lighting";
+      }
+      return cleaned.slice(0, 1800);
     }
   } catch {}
   return prompt;
@@ -100,13 +120,16 @@ export async function callCloudflareFlux(
     accountsToTry.push({ id: accountId, token: apiToken });
   }
   if (process.env.CLOUDFLARE_ACCOUNT_ID && process.env.CLOUDFLARE_API_TOKEN) {
-    if (!accountsToTry.some(a => a.id === process.env.CLOUDFLARE_ACCOUNT_ID)) {
+    if (!accountsToTry.some((a) => a.id === process.env.CLOUDFLARE_ACCOUNT_ID)) {
       accountsToTry.push({ id: process.env.CLOUDFLARE_ACCOUNT_ID, token: process.env.CLOUDFLARE_API_TOKEN });
     }
   }
   if (process.env.SARALGATI_CLOUDFLARE_ACCOUNT_ID && process.env.SARALGATI_CLOUDFLARE_API_TOKEN) {
-    if (!accountsToTry.some(a => a.id === process.env.SARALGATI_CLOUDFLARE_ACCOUNT_ID)) {
-      accountsToTry.push({ id: process.env.SARALGATI_CLOUDFLARE_ACCOUNT_ID, token: process.env.SARALGATI_CLOUDFLARE_API_TOKEN });
+    if (!accountsToTry.some((a) => a.id === process.env.SARALGATI_CLOUDFLARE_ACCOUNT_ID)) {
+      accountsToTry.push({
+        id: process.env.SARALGATI_CLOUDFLARE_ACCOUNT_ID,
+        token: process.env.SARALGATI_CLOUDFLARE_API_TOKEN,
+      });
     }
   }
 
@@ -215,7 +238,9 @@ export async function generateSceneKeyframes(
       }
     } catch {}
 
-    const prompt = await sanitizeZeroDiffusionText(buildKeyframePrompt(sc.visual_prompt, script.visual_bible, script.domain));
+    const prompt = await sanitizeZeroDiffusionText(
+      buildKeyframePrompt(sc.visual_prompt, script.visual_bible, script.domain)
+    );
     let ok = false;
 
     // Retry with brief backoff on cold starts
@@ -254,4 +279,3 @@ export async function generateSceneKeyframes(
     modelUsed: FLUX_MODEL,
   };
 }
-
