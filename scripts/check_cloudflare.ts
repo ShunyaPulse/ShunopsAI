@@ -48,7 +48,7 @@ async function checkAccount(target: AccountTarget) {
     if (res.status === 429 || (data.errors && data.errors.some((e: any) => e.code === 4006 || String(e.message).includes("10,000 neurons")))) {
       console.log(`⚠️ Status: 🔴 QUOTA EXHAUSTED (HTTP ${res.status})`);
       const errorMsg = data.errors?.[0]?.message || "Daily free allocation of 10,000 neurons used up.";
-      console.log(`❌ Message: ${errorMsg}`);
+      console.log(`❌ Message: [REDACTED]`);
       console.log(`ℹ️ Quota resets daily at 00:00 UTC (05:30 AM IST).`);
       return false;
     }
@@ -59,7 +59,7 @@ async function checkAccount(target: AccountTarget) {
   } catch (err: any) {
     console.log(`\n------------------------------------------------------------`);
     console.log(`📡 [${target.name}] Account ID: ${target.accountId.slice(0, 8)}...`);
-    console.log(`❌ Connection Error: ${err.message}`);
+    console.log(`❌ Connection Error: [REDACTED]`);
     return false;
   }
 }
