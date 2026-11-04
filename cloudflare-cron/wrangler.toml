@@ -1,0 +1,9 @@
+name = "shunops-cron-worker"
+main = "src/index.js"
+compatibility_date = "2024-01-01"
+
+[triggers]
+crons = [
+  "0 10 * * *", # Roz 3:30 PM IST (10:00 UTC) par ShunopsAI Video Pipeline trigger karega
+  "23 * * * *"  # Har ghante minute 23 par SaralGati Flywheel trigger karega
+]

@@ -720,7 +720,13 @@ export async function launchChapterJob(
   }
 
   console.log(`\n🛡️ [Pre-Flight Verification Gate] Validating all dataset assets on disk before Kaggle upload...`);
-  const isUnattendedSchedule = process.env.GITHUB_EVENT_NAME === "schedule" || process.env.AUTONOMOUS_CRON === "true";
+  const isUnattendedSchedule =
+    process.env.GITHUB_EVENT_NAME === "schedule" ||
+    process.env.GITHUB_EVENT_NAME === "workflow_dispatch" ||
+    process.env.GITHUB_EVENT_NAME === "repository_dispatch" ||
+    process.env.GITHUB_ACTIONS === "true" ||
+    process.env.AUTONOMOUS_CRON === "true" ||
+    process.env.ALLOW_SDXL_FALLBACK === "true";
   const preflight = await verifyPreFlightDataset(dsDir, script.scenes.length, {
     requireAudio: true,
     requireKeyframes: true,
