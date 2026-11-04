@@ -670,6 +670,69 @@ class WanT4OptimizedEngine:
             except Exception:
                 pass
 
+    def render_subpixel_ken_burns(self, img_path, out_clip_path, duration_sec, shot_idx=0):
+        """
+        Subpixel floating-point smooth Ken Burns at native 1080p (1920x1080).
+        Replaces integer-quantized FFmpeg zoompan, eliminating all 1-pixel micro-jitter / stair-step vibrations.
+        Uses cv2.warpAffine with INTER_CUBIC subpixel remapping and cosine ease curve.
+        """
+        try:
+            import cv2
+            import numpy as np
+            img = cv2.imread(img_path)
+            if img is None:
+                raise ValueError(f"Could not read image: {img_path}")
+            h, w = img.shape[:2]
+            target_ar = 16.0 / 9.0
+            cur_ar = w / float(h)
+            if cur_ar > target_ar:
+                new_w = int(round(h * target_ar))
+                start_x = (w - new_w) // 2
+                img = img[:, start_x:start_x + new_w]
+            else:
+                new_h = int(round(w / target_ar))
+                start_y = (h - new_h) // 2
+                img = img[start_y:start_y + new_h, :]
+
+            h, w = img.shape[:2]
+            fps = 24
+            total_frames = max(24, int(round(duration_sec * fps)))
+            temp_raw = f"{out_clip_path}.raw.mp4"
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            vw = cv2.VideoWriter(temp_raw, fourcc, fps, (1920, 1080))
+
+            zoom_in = (shot_idx == 0)
+            center = (w / 2.0, h / 2.0)
+            for i in range(total_frames):
+                progress = i / float(total_frames)
+                ease = 0.5 * (1.0 - math.cos(progress * math.pi))
+                scale = (1.0 + 0.08 * ease) if zoom_in else (1.08 - 0.08 * ease)
+                M = cv2.getRotationMatrix2D(center, 0.0, scale)
+                M[0, 2] += (1920.0 / 2.0) - center[0]
+                M[1, 2] += (1080.0 / 2.0) - center[1]
+                frame = cv2.warpAffine(img, M, (1920, 1080), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REFLECT)
+                vw.write(frame)
+            vw.release()
+
+            run([
+                "ffmpeg", "-y", "-i", temp_raw,
+                "-vf", "unsharp=5:5:0.5:5:5:0.2,eq=contrast=1.06:brightness=0.01:saturation=1.12,format=yuv420p",
+                "-r", "24", "-t", f"{duration_sec:.3f}",
+                *get_best_video_encoder_args(), out_clip_path
+            ])
+            if os.path.exists(temp_raw):
+                os.remove(temp_raw)
+            return True
+        except Exception as e:
+            print(f"[Ken Burns Warning] OpenCV subpixel render failed ({e}), falling back to FFmpeg Lanczos 1080p...")
+            run([
+                "ffmpeg", "-y", "-loop", "1", "-i", img_path,
+                "-vf", "scale=1920:1080:force_original_aspect_ratio=increase:flags=lanczos,crop=1920:1080,unsharp=5:5:0.5:5:5:0.2,eq=contrast=1.06:brightness=0.01:saturation=1.12,format=yuv420p",
+                "-r", "24", "-t", f"{duration_sec:.3f}",
+                *get_best_video_encoder_args(), out_clip_path
+            ])
+            return True
+
     def generate_scene_montage(self, prompt, target_dur, out_mp4, scene_idx, domain="general", visual_bible=None):
         """
         Generates continuous, non-repeating video for a scene with Wan2.1 DiT.
@@ -767,7 +830,7 @@ class WanT4OptimizedEngine:
                         "width": 640,
                         "num_frames": 33,
                         "num_inference_steps": 25,
-                        "guidance_scale": 5.0,
+                        "guidance_scale": 3.8,
                         "generator": generator
                     }
                     if ref_image is not None:
@@ -876,8 +939,9 @@ class WanT4OptimizedEngine:
                 *get_best_video_encoder_args(), sub_clip
             ])
 
-            # Luma Verification Gate: Prevent pitch-black dead screen (YAVG < 25.0)
-            # Uses direct lightweight ffmpeg signalstats sample (5 frames at mid-shot) without brittle movie= filter escaping
+            # Luma Verification Gate: Prevent true pitch-black latent collapse (YAVG < 10.0)
+            # Uses direct lightweight ffmpeg signalstats sample (5 frames at mid-shot)
+            # Preserves authentic dark, moody tech/server-room lighting (YAVG 12-24) without false fallback
             is_pitch_black = False
             avg_y = None
             try:
@@ -892,9 +956,9 @@ class WanT4OptimizedEngine:
                 y_matches = re.findall(r"lavfi\.signalstats\.YAVG=([0-9\.]+)", luma_run.stdout + luma_run.stderr)
                 if y_matches:
                     avg_y = sum(float(y) for y in y_matches) / len(y_matches)
-                    if avg_y < 25.0:
+                    if avg_y < 10.0:
                         is_pitch_black = True
-                        print(f"[Luma Gate ⚠️] Scene {scene_idx+1} Shot {s_idx+1} collapsed to pitch black (YAVG={avg_y:.1f} < 25.0).")
+                        print(f"[Luma Gate ⚠️] Scene {scene_idx+1} Shot {s_idx+1} collapsed to pitch black (YAVG={avg_y:.1f} < 10.0).")
             except Exception as e:
                 print(f"[Luma Gate Warning] Could not probe luminance: {e}")
 
@@ -908,15 +972,9 @@ class WanT4OptimizedEngine:
                             rescue_kf = alt_kf
                             break
                 if rescue_kf:
-                    shot_frames = max(24, int(shot_dur * 24))
-                    zoom_cmd = "min(zoom+0.0008,1.15)" if s_idx == 0 else "max(1.15-0.0008*on,1.0)"
-                    run([
-                        "ffmpeg", "-y", "-loop", "1", "-i", rescue_kf,
-                        "-vf", f"zoompan=z='{zoom_cmd}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d={shot_frames}:s=1920x1080:fps=24,unsharp=5:5:0.5:5:5:0.2,eq=contrast=1.06:brightness=0.01:saturation=1.12,format=yuv420p",
-                        "-r", "24", "-t", f"{shot_dur:.3f}",
-                        *get_best_video_encoder_args(), sub_clip
-                    ])
-                    print(f"[Luma Gate ✅] Scene {scene_idx+1} Shot {s_idx+1} successfully rescued with high-definition Ken Burns keyframe motion.")
+                    # Silky-smooth subpixel float Ken Burns at native 1080p (Zero integer-quantization jitter)
+                    self.render_subpixel_ken_burns(rescue_kf, sub_clip, shot_dur, shot_idx=s_idx)
+                    print(f"[Luma Gate ✅] Scene {scene_idx+1} Shot {s_idx+1} successfully rescued with jitter-free subpixel Ken Burns motion.")
 
             shot_files.append(sub_clip)
 

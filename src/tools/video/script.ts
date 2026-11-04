@@ -125,6 +125,9 @@ CRITICAL DIRECTIVES:
    - CONTROLLED DOLLY SPEEDS (ELIMINATE MOTION BLUR & FRAME SMEAR):
      * Ban whip-pans, fast zooms, or aggressive camera tracks.
      * Specify slow, controlled, steady camera work: "Slow cinematic dolly forward on track", "Smooth steadicam glidecam push-in", "Gentle cinematic tripod pan".
+   - TACTILE PHYSICAL ARCHITECTURE & ZERO AMBIGUOUS SYMBOL DESCRIPTORS:
+     * When describing doors, elevators, server bays, panels, or corporate architecture: Describe clean physical materials (e.g. brushed anodized aluminum panels with clean straight seams, polished steel, glass with dark wainscoting, matte architectural finishes).
+     * NEVER use vague, ambiguous phrases like 'unbranded geometric indentation', 'mysterious symbol', or 'abstract geometric motif' - which cause image diffusion models to assemble accidental esoteric, occult, or religious symbols. Describe concrete, grounded, clean architectural surfaces and authentic real-world styling.
    - Modern Digital Lighting & Clarity:
      * "Crisp natural digital cinematography, modern high-end documentary lighting, balanced realistic color grade, sharp clean focus, absolutely NO vintage/retro/sepia/8mm/grainy aesthetics."
    - Realism enforcement: Clean, authentic physical textures (modern architectural glass, polished materials, real skin, crisp telemetry). Avoid retro filters, heavy grain, sepia tones, plastic CGI, or still-photo aesthetics.

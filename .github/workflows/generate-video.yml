@@ -26,7 +26,7 @@ on:
       minutes:
         description: "Target Duration (minutes)"
         required: false
-        default: "5"
+        default: "3"
   repository_dispatch:
     types: [generate-video, video-job]
 
@@ -73,7 +73,7 @@ jobs:
           TOPIC: ${{ github.event.client_payload.topic || github.event.inputs.topic || '' }}
           VIDEO_TYPE: ${{ github.event.client_payload.video_type || github.event.inputs.video_type || 'trend' }}
           LANGUAGE: ${{ github.event.client_payload.language || github.event.inputs.language || 'Hindi' }}
-          MINUTES: ${{ github.event.client_payload.minutes || github.event.inputs.minutes || '5' }}
+          MINUTES: ${{ github.event.client_payload.minutes || github.event.inputs.minutes || '3' }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_KEYS || secrets.GEMINI_API_KEYS || secrets.GEMINI_API_KEY }}
           GEMINI_KEYS: ${{ secrets.GEMINI_KEYS || secrets.GEMINI_API_KEYS || secrets.GEMINI_API_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_KEYS || secrets.OPENROUTER_API_KEYS || secrets.OPENROUTER_API_KEY }}

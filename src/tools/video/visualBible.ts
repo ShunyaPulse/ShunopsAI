@@ -123,9 +123,9 @@ Your output will be used to steer image diffusion (FLUX.1-schnell) and video mot
 Return a JSON object with:
 1. "realWorldGrounding": A precise 2-sentence description of the authentic physical venue/stage where this event occurs. Strictly forbid colonial mansions, british palaces, havelis, luxury resort gardens, or domestic rooms for technical, military, space, and sports topics.
 2. "organicSettings": An array of 6-10 authentic scene settings physically native to this topic.
-3. "latentTrapsToBan": An array of 20-30 specific negative prompt strings that generative models frequently hallucinate for this topic (e.g. cross-sport equipment, incorrect period architecture, distorted text, scoreboard traps, malformed anatomy).
-4. "characterGrammar": Strict cinematic rules for human anatomy, camera angles, lighting, motion safety, and authentic uniforms/clothing for this topic.
-5. "zeroTextRules": Explicit rules ensuring zero legible scoreboards, ticker text, digital numbers, or brand logos appear in generated latents.
+3. "latentTrapsToBan": An array of 20-30 specific negative prompt strings that generative models frequently hallucinate for this topic (e.g. cross-sport equipment, incorrect period architecture, distorted text, scoreboard traps, malformed anatomy, and unintended religious, esoteric, or mystical geometric symbols that diffusion models confuse with architectural or corporate insignias).
+4. "characterGrammar": Strict cinematic rules for human anatomy, camera angles, lighting, motion safety, authentic uniforms/clothing, and architectural motifs appropriate for this topic.
+5. "zeroTextRules": Explicit rules ensuring zero legible scoreboards, ticker text, digital numbers, or hallucinatory brand insignias appear in generated latents. Emphasize clean physical architectural textures, minimalist geometry, and real tactile materials native to this domain.
 6. "soundscapeProfile": {
   "energyLevel": "high" | "measured" | "contemplative",
   "ambientBedStyle": "stadium" | "industrial" | "nature" | "orchestral" | "drone",

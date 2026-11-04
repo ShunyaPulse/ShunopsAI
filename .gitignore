@@ -44,3 +44,4 @@ __pycache__/
 *.pyc
 .freebuff/
 .cache/
+temp_*/
