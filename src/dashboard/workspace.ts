@@ -123,11 +123,13 @@ ${WORKSPACE_STYLES}
               <option value="github:o1-mini">OpenAI o1-mini Reasoning (⚠️)</option>
               <option value="github:meta-llama-3.3-70b-instruct">Meta Llama 3.3 70B (GitHub)</option>
             </optgroup>
+            <!-- Cloudflare Workers AI text models disabled to protect 100% daily neuron quota exclusively for FLUX.1-schnell keyframe generation (GEMINI.md Rule 20)
             <optgroup label="─── Cloudflare Workers AI (Serverless Edge) ───">
               <option value="cloudflare:@cf/meta/llama-3.3-70b-instruct-fp8-fast">Llama 3.3 70B Fast (Edge)</option>
               <option value="cloudflare:@cf/meta/llama-3.1-8b-instruct">Llama 3.1 8B (Edge Low Quota 🟢)</option>
               <option value="cloudflare:@cf/qwen/qwen1.5-7b-chat-awq">Qwen 1.5 7B Chat (Edge)</option>
             </optgroup>
+            -->
             <optgroup label="─── Open Models (OpenRouter Pool) ───">
               <option value="openrouter:nvidia/nemotron-3-ultra-550b-a55b:free">Nemotron 3 Ultra 550B (Giant ⚠️)</option>
               <option value="openrouter:nvidia/nemotron-3.5-lightning:free">Nemotron 3.5 Lightning (1M Context)</option>
@@ -232,11 +234,13 @@ ${WORKSPACE_STYLES}
                 <option value="github:o1-mini">OpenAI o1-mini Reasoning (⚠️)</option>
                 <option value="github:meta-llama-3.3-70b-instruct">Meta Llama 3.3 70B (GitHub)</option>
               </optgroup>
+              <!-- Cloudflare Workers AI text models disabled to protect 100% daily neuron quota exclusively for FLUX.1-schnell keyframe generation (GEMINI.md Rule 20)
               <optgroup label="─── Cloudflare Workers AI (Serverless Edge) ───">
                 <option value="cloudflare:@cf/meta/llama-3.3-70b-instruct-fp8-fast">Llama 3.3 70B Fast (Edge)</option>
                 <option value="cloudflare:@cf/meta/llama-3.1-8b-instruct">Llama 3.1 8B (Edge Low Quota 🟢)</option>
                 <option value="cloudflare:@cf/qwen/qwen1.5-7b-chat-awq">Qwen 1.5 7B Chat (Edge)</option>
               </optgroup>
+              -->
               <optgroup label="─── Open Models (OpenRouter Pool) ───">
                 <option value="openrouter:nvidia/nemotron-3-ultra-550b-a55b:free">Nemotron 3 Ultra 550B (Giant ⚠️)</option>
                 <option value="openrouter:nvidia/nemotron-3.5-lightning:free">Nemotron 3.5 Lightning (1M Context)</option>

@@ -287,7 +287,7 @@ export async function startVideoJob(
   const safeDsLog = (ds || "")
     .replace(/[a-f0-9]{32}/gi, "[REDACTED_HASH]")
     .replace(/[A-Za-z0-9_-]{24,}/g, "[REDACTED]")
-    .slice(0, 250);
+    .slice(0, 1500);
   console.log(`[Video] 📦 Kaggle dataset create output: ${safeDsLog}`);
   const isDatasetFailure =
     /40[0-9] Client Error|50[0-9] Server Error|Kaggle CLI Error/i.test(ds) ||
@@ -304,7 +304,7 @@ export async function startVideoJob(
   const safePushLog = (push || "")
     .replace(/[a-f0-9]{32}/gi, "[REDACTED_HASH]")
     .replace(/[A-Za-z0-9_-]{24,}/g, "[REDACTED]")
-    .slice(0, 250);
+    .slice(0, 1500);
   console.log(`[Video] 🚀 Kaggle kernel push output: ${safePushLog}`);
   if (/40[0-9] Client Error|50[0-9] Server Error|Kaggle CLI Error/i.test(push)) {
     throw new Error(`[Kaggle Kernel Push Failed] ${safePushLog}`);
