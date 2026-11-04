@@ -33,6 +33,7 @@ export function getFallbackVisualBible(topic: string, domain: VideoDomain): Visu
       soundscapeProfile: {
         energyLevel: "high",
         ambientBedStyle: "stadium",
+        bgmGenre: "triumphant_brass",
         dominantFrequencies: [80, 160],
         foleyCues: ["engine roar", "crowd cheer", "athletic impact", "wind rush"]
       }
@@ -59,6 +60,7 @@ export function getFallbackVisualBible(topic: string, domain: VideoDomain): Visu
       soundscapeProfile: {
         energyLevel: "measured",
         ambientBedStyle: "drone",
+        bgmGenre: "inspirational_cello",
         dominantFrequencies: [55, 110],
         foleyCues: ["cryogenic hum", "cleanroom air circulation", "servo motor click", "deep telemetry pulse"]
       }
@@ -84,6 +86,7 @@ export function getFallbackVisualBible(topic: string, domain: VideoDomain): Visu
       soundscapeProfile: {
         energyLevel: "contemplative",
         ambientBedStyle: "nature",
+        bgmGenre: "gentle_acoustic",
         dominantFrequencies: [45, 90],
         foleyCues: ["wind over canopy", "flowing water current", "subtle distant bird call", "geological rumble"]
       }
@@ -108,6 +111,7 @@ export function getFallbackVisualBible(topic: string, domain: VideoDomain): Visu
     soundscapeProfile: {
       energyLevel: "high",
       ambientBedStyle: "industrial",
+      bgmGenre: "uplifting_documentary",
       dominantFrequencies: [60, 120, 240],
       foleyCues: ["subtle room tone", "mechanical click", "movement whoosh", "ambient atmosphere swell"]
     }
@@ -127,11 +131,23 @@ Return a JSON object with:
 4. "characterGrammar": Strict cinematic rules for human anatomy, camera angles, lighting, motion safety, authentic uniforms/clothing, and architectural motifs appropriate for this topic.
 5. "zeroTextRules": Explicit rules ensuring zero legible scoreboards, ticker text, digital numbers, or hallucinatory brand insignias appear in generated latents. Emphasize clean physical architectural textures, minimalist geometry, and real tactile materials native to this domain.
 6. "soundscapeProfile": {
-  "energyLevel": "high" | "measured" | "contemplative",
+  "energyLevel": "high" | "measured" | "contemplative" | "dramatic",
   "ambientBedStyle": "stadium" | "industrial" | "nature" | "orchestral" | "drone",
+  "bgmGenre": "inspirational_cello" | "dramatic_strings" | "triumphant_brass" | "epic_orchestral" | "warm_serenade" | "gentle_acoustic" | "uplifting_documentary" | "contemplative_piano" | "solemn_history" | "heroic_adventure",
   "dominantFrequencies": [number, number],
   "foleyCues": ["string"]
 }
+BGM Genre Guidance:
+- "inspirational_cello": Hardware engineering, silicon chips, deep tech architecture, calm analytical focus (e.g. Apple Silicon, GPU architectures, advanced computing)
+- "dramatic_strings": High-stakes corporate debt races, severe financial tension, corporate battles, market crises, urgent suspense (e.g. tech debt borrowing, Wall Street crises)
+- "triumphant_brass": Sports victories, championship finals, gold medals, athletic triumphs, celebrations
+- "epic_orchestral": Deep space missions, planetary probes, cosmic discoveries, massive monumental engineering
+- "warm_serenade": Human-interest stories, uplifting community achievements, peaceful cultural transitions
+- "gentle_acoustic": Wildlife ecosystems, deep forest or marine biomes, wilderness expeditions, acoustic reflection
+- "uplifting_documentary": Scientific innovation, medical breakthroughs, clean energy revolutions, biology discoveries
+- "contemplative_piano": Philosophical dilemmas, existential mysteries, introspective technological ethics
+- "solemn_history": Historical retrospectives, somber memorials, classical heritage, tragic turning points
+- "heroic_adventure": High-octane breakthroughs, rapid technological rivalries, bold frontier explorations
 
 Return ONLY raw JSON in this structure:
 {
@@ -143,6 +159,7 @@ Return ONLY raw JSON in this structure:
   "soundscapeProfile": {
     "energyLevel": "high",
     "ambientBedStyle": "stadium",
+    "bgmGenre": "inspirational_cello",
     "dominantFrequencies": [60, 120],
     "foleyCues": ["string"]
   }

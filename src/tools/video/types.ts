@@ -9,6 +9,7 @@ export interface VisualBible {
   soundscapeProfile: {
     energyLevel: "high" | "measured" | "contemplative" | "dramatic";
     ambientBedStyle: "drone" | "stadium" | "nature" | "industrial" | "orchestral";
+    bgmGenre?: string;
     dominantFrequencies: number[];
     foleyCues: string[];
   };

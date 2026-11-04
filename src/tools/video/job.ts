@@ -7,6 +7,7 @@ import { generateSceneKeyframes } from "./keyframes.js";
 import { isSportsOrCricket } from "./domain.js";
 import { resolveAndDownloadCloudBgm, searchAndDownloadSFX } from "./dynamicSound.js";
 import { verifyPreFlightDataset } from "./preflight.js";
+import { askMammothChoice } from "../../ai/decisions.js";
 import type { KaggleAction, VideoScript } from "./types.js";
 
 const JOBS_DIR = path.resolve(process.cwd(), "jobs");
@@ -103,6 +104,50 @@ function runtimeConfig(gcpKey?: string) {
   };
 }
 
+const BGM_CRITERIA: Record<string, string> = {
+  inspirational_cello: "Hardware engineering, semiconductor chips, Apple silicon, technical architecture, deep learning mechanics, analytical focus",
+  dramatic_strings: "Corporate debt, financial crisis, massive borrowing, market distress, urgent suspense, high-stakes corporate rivalry",
+  triumphant_brass: "Sports championship, cricket victory, athletic glory, stadium celebrations, winning moments",
+  epic_orchestral: "Deep space missions, planetary discoveries, cosmic telescopes, grand monumental engineering, global human milestones",
+  warm_serenade: "Gentle human interest, inspiring community welfare, peaceful transitions, harmonious social progress",
+  gentle_acoustic: "Wilderness biomes, nature documentaries, deep oceans, wildlife expeditions, acoustic reflection",
+  uplifting_documentary: "Scientific discovery, clean energy transition, medical breakthroughs, biotechnology, general educational documentary",
+  contemplative_piano: "Philosophical reflection, deep existential questions, emotional human journey, mysterious dilemmas",
+  solemn_history: "Historical memorials, solemn heritage, sober historical retrospectives, classic tragedies, fallen dynasties",
+  heroic_adventure: "High-octane action, intense frontier exploration, rapid tech breakthroughs, daring competitive rivalry",
+};
+
+/**
+ * Intelligent BGM Classification Fallback using Baseten Mammoth-1 Decision Engine.
+ * Activated when director LLM does not supply a specific bgmGenre.
+ * Employs zero keyword hardcoding or local math heuristics (Rule 13).
+ */
+async function decideBgmWithMammoth(
+  title: string,
+  description?: string,
+  isSports?: boolean
+): Promise<string> {
+  if (isSports) {
+    return "triumphant_brass";
+  }
+  try {
+    const question = `Select the single most acoustically fitting background music theme for a documentary video titled "${title}". Context: ${description || title}.`;
+    console.log(`🦣 [Mammoth-1 Decision Engine] Classifying acoustic BGM theme for: "${title}"...`);
+    const result = await askMammothChoice(
+      { title, description },
+      question,
+      BGM_CRITERIA
+    );
+    if (result?.choice && BGM_CRITERIA[result.choice]) {
+      console.log(`🦣 [Mammoth-1 Decision] Selected "${result.choice}" (confidence: ${result.confidence?.toFixed(2) || "unknown"}, latency: ${result.latencyMs}ms)`);
+      return result.choice;
+    }
+  } catch (err: any) {
+    console.warn(`[Mammoth-1] Decision fallback failed: ${err?.message || err}. Defaulting to uplifting_documentary.`);
+  }
+  return "uplifting_documentary";
+}
+
 /**
  * Stage 3: package script + renderer and launch it on a Kaggle GPU kernel.
  */
@@ -169,9 +214,10 @@ export async function startVideoJob(
     (script as any).soundscape_profile ||
     (script as any).soundscapeProfile ||
     {};
-  const requestedBgm =
-    soundscape.bgmGenre ||
-    (isSports ? "epic_orchestral" : "uplifting_documentary");
+  let requestedBgm = soundscape.bgmGenre;
+  if (!requestedBgm) {
+    requestedBgm = await decideBgmWithMammoth(script.title, script.description, isSports);
+  }
   await resolveAndDownloadCloudBgm(requestedBgm, audioDir);
 
   // Stage 1.6: Stream dynamic SFX moments directly into dataset/audio

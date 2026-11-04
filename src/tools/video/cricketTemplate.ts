@@ -277,6 +277,7 @@ export function buildCricketVisualBible(params: DynamicCricketParams = {}): Visu
     soundscapeProfile: {
       energyLevel: "high",
       ambientBedStyle: "stadium",
+      bgmGenre: "triumphant_brass",
       dominantFrequencies: [65, 130, 260],
       foleyCues: [
         "crack of willow bat hitting leather ball",
