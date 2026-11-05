@@ -725,18 +725,41 @@ class WanT4OptimizedEngine:
                         "generator": generator
                     }
                     if ref_image is not None:
-                        call_kwargs["image"] = ref_image
+                        # Diffusers WanVACEPipeline natively expects reference_images=[ref_image] (R2V mode)
+                        # WanImageToVideoPipeline expects image=ref_image
+                        if "VACE" in type(self.pipe).__name__ or "WanVACE" in str(type(self.pipe)):
+                            call_kwargs["reference_images"] = [ref_image]
+                        else:
+                            call_kwargs["image"] = ref_image
 
                     try:
                         output = self.pipe(**call_kwargs)
                     except TypeError as te:
-                        if "image" in str(te) and ref_image is not None:
-                            call_kwargs.pop("image")
-                            call_kwargs["first_image"] = ref_image
-                            try:
-                                output = self.pipe(**call_kwargs)
-                            except TypeError:
-                                call_kwargs.pop("first_image", None)
+                        arg_err = str(te)
+                        if ("image" in arg_err or "reference_images" in arg_err or "unexpected keyword argument" in arg_err) and ref_image is not None:
+                            # Attempt parameter variants: reference_images=[ref_image] -> [[ref_image]] -> image=ref_image
+                            call_kwargs.pop("image", None)
+                            call_kwargs.pop("first_image", None)
+                            call_kwargs.pop("reference_images", None)
+
+                            tried_ok = False
+                            for param_name, param_val in [
+                                ("reference_images", [ref_image]),
+                                ("reference_images", [[ref_image]]),
+                                ("image", ref_image),
+                                ("first_image", ref_image)
+                            ]:
+                                try:
+                                    call_kwargs[param_name] = param_val
+                                    output = self.pipe(**call_kwargs)
+                                    tried_ok = True
+                                    break
+                                except TypeError:
+                                    call_kwargs.pop(param_name, None)
+                                    continue
+
+                            if not tried_ok:
+                                print(f"[Wan2.1 Warning] Pipeline does not accept reference image arguments ({te}). Falling back to text-guided motion.")
                                 output = self.pipe(**call_kwargs)
                         else:
                             raise te
@@ -1345,7 +1368,8 @@ async def main():
 
     if bgm_path:
         print(f"[Audio] Using packaged background audio track from {bgm_path}...")
-        bgm_vol = "0.22" if domain == "sports" else "0.16"
+        # Calibrated BGM mixing volume (20% reduction applied for pristine narration clarity)
+        bgm_vol = "0.176" if domain == "sports" else "0.128"
         ok_bgm = run([
             "ffmpeg", "-y", "-stream_loop", "-1", "-i", bgm_path,
             "-t", f"{target_master_dur:.3f}",
@@ -1383,19 +1407,19 @@ async def main():
                 "sin(55*2*PI*t)*0.16 + sin(110*2*PI*t)*0.09 + "
                 "sin(165*2*PI*t)*0.04 + sin(54.5*2*PI*t)*0.10"
             )
-            bg_filter = "lowpass=f=320,volume=0.12,afade=t=in:st=0:d=2.0"
+            bg_filter = "lowpass=f=320,volume=0.096,afade=t=in:st=0:d=2.0"
         elif domain == "sports":
             aeval = (
                 "sin(65*2*PI*t)*0.18 + sin(130*2*PI*t)*0.08 + "
                 "sin(195*2*PI*t)*0.03 + sin(64.5*2*PI*t)*0.09"
             )
-            bg_filter = "lowpass=f=450,volume=0.14,afade=t=in:st=0:d=1.0"
+            bg_filter = "lowpass=f=450,volume=0.112,afade=t=in:st=0:d=1.0"
         else:
             aeval = (
                 "sin(60*2*PI*t)*0.16 + sin(120*2*PI*t)*0.08 + "
                 "sin(180*2*PI*t)*0.04 + sin(59.5*2*PI*t)*0.10"
             )
-            bg_filter = "lowpass=f=360,volume=0.12,afade=t=in:st=0:d=1.5"
+            bg_filter = "lowpass=f=360,volume=0.096,afade=t=in:st=0:d=1.5"
 
         ok_amb = run([
             "ffmpeg", "-y", "-f", "lavfi",

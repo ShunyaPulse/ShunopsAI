@@ -48,10 +48,10 @@ function buildKeyframePrompt(
   parts.push(scPrompt);
 
   // 3. Strict equipment & kit invariants for sports/cricket (Compact Positive Anchors)
+  // Non-sports domains (space, science, tech, history) must NEVER inject sports/cricket anchors (GEMINI.md Rule 13)
   const isCricket =
-    isCricketTopic(scPrompt) ||
-    domain.includes("cricket") ||
-    (visualBible?.realWorldGrounding && isCricketTopic(visualBible.realWorldGrounding));
+    (domain === "cricket" || domain.includes("cricket")) ||
+    (domain === "sports" && (isCricketTopic(scPrompt) || (Boolean(visualBible?.realWorldGrounding) && isCricketTopic(visualBible?.realWorldGrounding || ""))));
   if (isCricket) {
     parts.push(
       "Authentic cricket equipment: 3 upright wooden stumps with bails, flat-bladed English willow bat, official solid team jersey, protective batting pads and helmet. Zero casual clothes, zero baseball bats, zero digital scoreboards"
@@ -147,6 +147,16 @@ export async function callCloudflareFlux(
       accountsToTry.push({
         id: process.env.SARALGATI_CLOUDFLARE_ACCOUNT_ID,
         token: process.env.SARALGATI_CLOUDFLARE_API_TOKEN,
+      });
+    }
+  }
+  const cf3Id = process.env.SHUNYAPULSE_CLOUDFLARE_ACCOUNT_ID || process.env.CLOUDFLARE_ACCOUNT_ID_3;
+  const cf3Token = process.env.SHUNYAPULSE_CLOUDFLARE_API_TOKEN || process.env.CLOUDFLARE_API_TOKEN_3;
+  if (cf3Id && cf3Token) {
+    if (!accountsToTry.some((a) => a.id === cf3Id)) {
+      accountsToTry.push({
+        id: cf3Id,
+        token: cf3Token,
       });
     }
   }

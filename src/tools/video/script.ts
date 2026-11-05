@@ -211,9 +211,12 @@ export async function generateScript(
   if (isMatchOrSports || trendReason) {
     try {
       const currentYear = new Date().getFullYear();
+      // Extract clean primary subject entity if topic has editorial embellishments or colons (e.g., 'Voyager 1 Rescued : 24 Billion KM...')
+      const primarySubject = topic.split(/[:\-|–]/)[0]?.trim() || topic;
+      const cleanSubject = primarySubject.length >= 3 && primarySubject.length <= 50 ? primarySubject : topic;
       const searchQuery = isMatchOrSports
-        ? `${topic} latest match result scorecard ${currentYear}`
-        : `${topic} breaking news facts ${currentYear}`;
+        ? `${cleanSubject} latest match result scorecard ${currentYear}`
+        : `${cleanSubject} breaking news update milestone ${currentYear}`;
       const searchRes = await executeWebSearch(searchQuery, { maxResults: 4 });
       if (searchRes && !searchRes.includes("No results found")) {
         liveSearchFacts = searchRes.slice(0, 2500);
