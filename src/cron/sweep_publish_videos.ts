@@ -227,8 +227,8 @@ export async function sweepAndPublishVideos(): Promise<{ checked: number; publis
   }
 
   console.log(`[Cloud Sweeper] Found ${videoKernels.length} video-render kernel(s) in account "[REDACTED]".`);
-  if (videoKernels.length === 0) {
-    console.log(`[Cloud Sweeper Notice] Output from Kaggle listing:\n${listingOutput}`);
+  if (videoKernels.length === 0 && listingOutput.includes("Error")) {
+    console.warn(`[Cloud Sweeper Warning] Kaggle listing returned error:\n${listingOutput}`);
   }
 
   let publishedCount = 0;
