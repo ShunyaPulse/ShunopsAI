@@ -49,24 +49,29 @@ export function detectVideoDomain(topic: string, trendReason?: string): VideoDom
   return "general";
 }
 
-const SCIENCE_TECH_DIRECTIVES = (domain: VideoDomain): string => `CRITICAL DOMAIN DIRECTIVES (${domain.toUpperCase()} INTELLECTUAL DOCUMENTARY):
-- MANDATORY HARD SCIENTIFIC METRICS & SCALE (CONCRETE NUMBERS):
-  * Spoken narration MUST state concrete, real-world measurements rather than vague descriptions: exact distances (km, light years, astronomical units), wavelengths (infrared, X-ray), temperatures (Kelvin, Celsius), mirror/antenna diameters, speeds, or dates (e.g. "Dharti se 15 lakh kilometer door L2 orbit", "minus 233 degree Celsius", "6.5 meter ka beryllium mirror", "13.6 billion saal purani pehli galaxy").
-  * STRICTLY BAN vague fluff ("bohot door tha", "bohot bada tha"); anchor every scene with real physical scale.
+const SCIENCE_TECH_DIRECTIVES = (_domain: VideoDomain): string => `CRITICAL DOMAIN DIRECTIVES (INTELLECTUAL DOCUMENTARY):
+- AUTHENTIC REAL-WORLD VENUE FIDELITY (MANDATORY):
+  * Ground ALL visual scenes in the authentic physical venue where this specific topic's events actually take place.
+  * NEVER impose stereotyped settings: a corporate acquisition or billion-dollar business deal happens in boardrooms, trading floors, and glass-tower executive corridors — NOT in silicon cleanrooms.
+  * Semiconductor fabrication topics happen in ISO cleanrooms. Business mergers happen in boardrooms. Policy debates happen in legislative chambers. Space missions happen at launch pads and mission control. Let the topic determine the setting.
+- MANDATORY HARD SCIENTIFIC AND FACTUAL METRICS (CONCRETE NUMBERS):
+  * Spoken narration MUST state concrete, real-world measurements and facts rather than vague descriptions: exact distances, dollar amounts, percentages, dates, company names, and verified milestones.
+  * STRICTLY BAN vague fluff ("bohot bada tha", "bahut bada deal tha"); anchor every scene with real, verifiable facts and numbers.
 - STRICT BAN ON SPORTS, ATHLETICS & CARTOONS:
-  * ABSOLUTELY ZERO sports footage, cricket bats, balls, pads, wickets, footballs, American football or baseball helmets, athletic jerseys, referee uniforms, scoreboards, or stadium crowds.
+  * ABSOLUTELY ZERO sports footage, cricket bats, balls, pads, wickets, footballs, athletic jerseys, referee uniforms, scoreboards, or stadium crowds.
   * ABSOLUTELY ZERO anime, cartoon, manga, or comic caricature characters.
-- CINEMATIC REALISM & VISUAL MOTIFS:
-  * Visuals MUST authentically depict real physical science: ${domain === "space" ? "golden beryllium telescope mirrors (JWST style), radio telescope dishes pointing at the stars, deep cosmic nebulae with accurate gravitational lensing, orbital mechanics, planetary surfaces, solar flare magnetic loops" : domain === "technology" ? "sub-nanometer photolithography cleanrooms with deep ultraviolet illumination, silicon wafer inspection, superconducting quantum processor dilution refrigerators, sleek industrial robotics, high-speed fiber-optic data switches" : "particle collision tracks, cryogenic electron microscopy, laser interferometry, glowing plasma chambers, 3D molecular protein folding models, sterile laboratory cleanrooms"}.
-- ELIMINATION OF CHARACTER WARPING & FACE MORPHING:
-  * For science and space documentaries, NEVER generate recurring human face close-ups across cuts (which causes horrific AI face warping, eye distortion, and melting skin).
-  * Keep visuals focused on the physical phenomenon, cosmic structures, instruments, cleanroom robots, or silhouetted researchers seen from a wide angle or from behind in cleanroom bunny suits.
 - ZERO AI TEXT IN DIFFUSION RULE (MANDATORY):
-  * Diffusion models must NEVER attempt to render legible text, letters, numerals, words, or pseudocode in the image (which creates gibberish distorted glyphs).
-  * Every monitor, telemetry screen, or laboratory readout MUST be described as: "unlabeled glowing abstract cyan and amber telemetry monitors, clean holographic data visualization, ambient volumetric HUD glow with zero text, zero letters, zero numbers".
+  * Diffusion models must NEVER attempt to render legible text, letters, numerals, words, or pseudocode in the image.
+  * Every monitor, screen, or display MUST be described as: "unlabeled glowing abstract telemetry monitors, ambient volumetric HUD glow with zero text, zero letters, zero numbers".
+- CINEMATIC REALISM & VISUAL QUALITY:
+  * Modern digital documentary cinematography: authentic textures, natural cinematic lighting, balanced composition, 35mm lens depth of field.
+  * NEVER grotesque, violent, or horror depictions. Focus on the authentic physical reality of this specific topic.
+- ELIMINATION OF CHARACTER WARPING & FACE MORPHING:
+  * For science and space documentaries, NEVER generate recurring human face close-ups across cuts (which causes horrific AI face warping).
+  * Keep visuals focused on the physical phenomenon, instruments, or researchers seen from wide angles or silhouettes.
 - AUDIO TONE, CADENCE & INTELLIGENT ENERGY:
   * Voiceover tone must be measured, cerebral, awe-inspiring, and authoritative (in the style of Cosmos / Veritasium / Think School / Brian Cox).
-  * NOT screaming sports commentary or shallow reel hype. Deliver an intellectual thrill with dynamic pitch variation, thoughtful pauses before major revelations, and deep respect for the viewer's intelligence.`;
+  * NOT screaming sports commentary or shallow reel hype. Deliver intellectual insight with dynamic pitch variation.`;
 
 const SPORTS_DIRECTIVES = `CRITICAL DOMAIN DIRECTIVES (SPORTS DOCUMENTARY):
 - STRICT CONCLUDED MATCH INVARIANT (ZERO LIVE / IN-PROGRESS SPECULATION):

@@ -121,6 +121,29 @@ export function getFallbackVisualBible(topic: string, domain: VideoDomain): Visu
 const VISUAL_BIBLE_PROMPT = (topic: string, trendReason?: string, domain?: VideoDomain) => `You are an elite Hollywood production designer and visual director.
 Analyze this video topic: "${topic}" ${trendReason ? `(Trend Context: ${trendReason})` : ""} (Domain: ${domain || "general"}).
 
+STEP 0 — IDENTIFY THE NARRATIVE ANGLE (do this before anything else):
+Determine the topic's primary narrative lens from these categories:
+- "business_finance": Corporate mergers, acquisitions, IPOs, market crashes, company rivalries, boardroom decisions, billion-dollar deals, funding rounds
+- "hardware_engineering": Semiconductor fabrication, chip design, wafer lithography, factory robotics, materials science, circuit manufacturing, cleanroom processes
+- "consumer_tech": Software products, apps, smartphones, AI assistants, consumer devices, OS launches, tech product reveals
+- "policy_geopolitics": Government regulation, international treaties, sanctions, geopolitical tech rivalry, diplomatic summits
+- "deep_science": Physics discoveries, biology, astronomy, pure research, lab experiments, particle physics, genomics
+- "infrastructure_megaproject": Bridges, power grids, railways, satellites, data centers, undersea cables, space launch infrastructure
+- "sports": Athletic competitions, matches, tournaments, championships, records, sports careers
+- "history": Ancient civilizations, historical events, dynasties, archaeological discoveries, heritage
+- "nature_earth": Wildlife, ecosystems, geology, oceans, climate, natural phenomena
+
+Based on this Narrative Angle, your characterGrammar, realWorldGrounding, and organicSettings MUST reflect the authentic physical world of that angle:
+- "business_finance" → Tailored dark suits and business formal attire, modern minimalist glass-and-steel boardrooms, trading floors with live ticker displays (no legible text), executive corridors, rooftop helipads, shareholder meeting halls. NEVER cleanroom bunny suits, lab coats, or sports gear.
+- "hardware_engineering" → ISO-standard cleanroom bunny suits with full-face shields, robotic handlers, UV lithography chambers, silicon wafer inspection stages, cleanroom environments with blue-white fluorescent lighting.
+- "consumer_tech" → Business casual smart attire, modern open-plan office campuses, product demo stages with dramatic spot lighting, design studios, tech keynote arenas.
+- "policy_geopolitics" → Formal diplomatic attire, conference halls with national flags, legislative chambers, situation rooms with large maps, ministerial corridors.
+- "deep_science" → Lab coats and safety goggles, university research labs, particle accelerator corridors, telescope domes, cryogenic chambers, electron microscope rooms.
+- "infrastructure_megaproject" → Hard hats and high-visibility vests, active construction sites, control rooms with engineering schematics, aerial survey landscapes.
+- "sports" → Official team athletic kits, stadiums, arenas, tracks, sports venues, locker rooms.
+- "history" → Period-accurate garments, archaeological excavation sites, ancient architecture, museum galleries.
+- "nature_earth" → No human attire focus; authentic natural landscapes, wildlife habitats, geological formations.
+
 Synthesize an exact, non-hallucinatory Visual & Acoustic Production Bible tailored to this topic.
 Your output will be used to steer image diffusion (FLUX.1-schnell) and video motion models (Wan2.1-VACE).
 

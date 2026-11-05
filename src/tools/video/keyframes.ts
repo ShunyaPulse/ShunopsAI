@@ -39,16 +39,23 @@ function buildKeyframePrompt(
 ): string {
   const parts: string[] = [];
 
-  // 1. Character Visual DNA lock (Concise high-retention character grammar)
-  if (visualBible?.characterGrammar) {
+  // 1. Character Visual DNA lock — ONLY inject when scene actually depicts humans/people.
+  // Blindly prepending characterGrammar to object/architecture/space shots causes wrong
+  // attire (e.g. "cleanroom bunny suits") to bleed into corporate or nature scenes.
+  // GEMINI.md Rule 13: semantic context wins over blanket injection.
+  const humanPresenceKeywords = /\b(people|person|personnel|engineer|scientist|analyst|executive|researcher|worker|man|woman|crowd|athlete|player|team|humans|characters|character|figure|figures|silhouette|hands|face|group|suit|attire|uniform|bunny suit|cleanroom suit|delegate|official|director|ceo|chairman|employee|staff|audience|spectator|journalist|reporter|professor|student|astronaut|cosmonaut|pilot|soldier|officer|diplomat)\b/i;
+  if (visualBible?.characterGrammar && humanPresenceKeywords.test(scPrompt)) {
     parts.push(visualBible.characterGrammar.slice(0, 500));
   }
 
   // 2. Scene specific visual prompt
   parts.push(scPrompt);
 
-  // 3. Strict equipment & kit invariants for sports/cricket (Compact Positive Anchors)
-  // Non-sports domains (space, science, tech, history) must NEVER inject sports/cricket anchors (GEMINI.md Rule 13)
+  // 3. Sport-specific equipment anchors — only for sports/cricket domains.
+  // The Visual Bible's characterGrammar & realWorldGrounding (synthesized by LLM) handle
+  // all sport-specific equipment for cricket; we only add a compact anchor here for
+  // non-cricket sports domains to prevent cross-sport confusion.
+  // Non-sports domains MUST NEVER receive sports/cricket anchors (GEMINI.md Rule 13).
   const isCricket =
     (domain === "cricket" || domain.includes("cricket")) ||
     (domain === "sports" && (isCricketTopic(scPrompt) || (Boolean(visualBible?.realWorldGrounding) && isCricketTopic(visualBible?.realWorldGrounding || ""))));
