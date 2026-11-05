@@ -78,13 +78,26 @@ async function main() {
     });
   }
 
+  // 1st Fallback: ShunyaPulse Account (Priority Reserve)
+  const cfFallback1Id = process.env.SHUNYAPULSE_CLOUDFLARE_ACCOUNT_ID || process.env.CLOUDFLARE_ACCOUNT_ID_3;
+  const cfFallback1Token = process.env.SHUNYAPULSE_CLOUDFLARE_API_TOKEN || process.env.CLOUDFLARE_API_TOKEN_3;
+  if (cfFallback1Id && cfFallback1Token && !accounts.some((a) => a.accountId === cfFallback1Id)) {
+    accounts.push({
+      name: "SHUNYAPULSE (Fallback 1)",
+      accountId: cfFallback1Id,
+      apiToken: cfFallback1Token,
+    });
+  }
+
+  // 2nd Fallback: SaralGati Account (Secondary Reserve)
   if (
     process.env.SARALGATI_CLOUDFLARE_ACCOUNT_ID &&
     process.env.SARALGATI_CLOUDFLARE_API_TOKEN &&
-    process.env.SARALGATI_CLOUDFLARE_ACCOUNT_ID !== process.env.CLOUDFLARE_ACCOUNT_ID
+    process.env.SARALGATI_CLOUDFLARE_ACCOUNT_ID !== process.env.CLOUDFLARE_ACCOUNT_ID &&
+    !accounts.some((a) => a.accountId === process.env.SARALGATI_CLOUDFLARE_ACCOUNT_ID)
   ) {
     accounts.push({
-      name: "SARALGATI (Isolated)",
+      name: "SARALGATI (Fallback 2)",
       accountId: process.env.SARALGATI_CLOUDFLARE_ACCOUNT_ID,
       apiToken: process.env.SARALGATI_CLOUDFLARE_API_TOKEN,
     });

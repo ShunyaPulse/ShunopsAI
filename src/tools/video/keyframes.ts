@@ -129,6 +129,19 @@ export async function callCloudflareFlux(
       accountsToTry.push({ id: process.env.CLOUDFLARE_ACCOUNT_ID, token: process.env.CLOUDFLARE_API_TOKEN });
     }
   }
+  // 1st Fallback: ShunyaPulse Account (absorbs load first)
+  const cfFallback1Id = process.env.SHUNYAPULSE_CLOUDFLARE_ACCOUNT_ID || process.env.CLOUDFLARE_ACCOUNT_ID_3;
+  const cfFallback1Token = process.env.SHUNYAPULSE_CLOUDFLARE_API_TOKEN || process.env.CLOUDFLARE_API_TOKEN_3;
+  if (cfFallback1Id && cfFallback1Token) {
+    if (!accountsToTry.some((a) => a.id === cfFallback1Id)) {
+      accountsToTry.push({
+        id: cfFallback1Id,
+        token: cfFallback1Token,
+      });
+    }
+  }
+
+  // 2nd Fallback: SaralGati Production Account (last resort reserve)
   if (process.env.SARALGATI_CLOUDFLARE_ACCOUNT_ID && process.env.SARALGATI_CLOUDFLARE_API_TOKEN) {
     if (!accountsToTry.some((a) => a.id === process.env.SARALGATI_CLOUDFLARE_ACCOUNT_ID)) {
       accountsToTry.push({
