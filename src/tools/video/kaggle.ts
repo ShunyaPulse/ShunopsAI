@@ -24,15 +24,14 @@ function ensureKaggleCredentials(): void {
     if (!fs.existsSync(kaggleDir)) {
       fs.mkdirSync(kaggleDir, { recursive: true, mode: 0o700 });
     }
-    if (!fs.existsSync(kaggleJson)) {
-      fs.writeFileSync(kaggleJson, JSON.stringify({ username: user, key }), { mode: 0o600 });
-    }
+    fs.writeFileSync(kaggleJson, JSON.stringify({ username: user, key }), { mode: 0o600 });
   } catch {}
 }
 
 function kaggleEnv(): NodeJS.ProcessEnv {
   const user = process.env.VIDEO_KAGGLE_USERNAME || process.env.KAGGLE_USERNAME || "shunyapulse";
   const key = process.env.VIDEO_TOKEN || process.env.KAGGLE_KEY || process.env.KAGGLE_API_TOKEN;
+  const kaggleDir = path.join(os.homedir(), ".kaggle");
   const pathSep = os.platform() === "win32" ? ";" : ":";
   return {
     ...process.env,
@@ -41,6 +40,7 @@ function kaggleEnv(): NodeJS.ProcessEnv {
     KAGGLE_USERNAME: user,
     KAGGLE_KEY: key,
     KAGGLE_API_TOKEN: key,
+    KAGGLE_CONFIG_DIR: kaggleDir,
     PATH: `${process.env.PATH}${pathSep}${path.join(os.homedir(), ".local", "bin")}`,
   };
 }
