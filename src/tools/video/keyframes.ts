@@ -32,51 +32,120 @@ const FLUX_MODEL = "@cf/black-forest-labs/flux-1-schnell";
 /**
  * Builds a character-locked visual prompt for FLUX.1-schnell
  */
-function buildKeyframePrompt(
+export function buildKeyframePrompt(
   scPrompt: string,
   visualBible?: VideoScript["visual_bible"],
-  domain: string = "general"
+  domain: string = "general",
+  videoTitle: string = ""
 ): string {
   const parts: string[] = [];
+  const fullContext = `${videoTitle} ${visualBible?.realWorldGrounding || ""} ${scPrompt}`.toLowerCase();
 
-  // 1. Character Visual DNA lock — ONLY inject when scene actually depicts humans/people.
-  // Blindly prepending characterGrammar to object/architecture/space shots causes wrong
-  // attire (e.g. "cleanroom bunny suits") to bleed into corporate or nature scenes.
-  // GEMINI.md Rule 13: semantic context wins over blanket injection.
-  const humanPresenceKeywords = /\b(people|person|personnel|engineer|scientist|analyst|executive|researcher|worker|man|woman|crowd|athlete|player|team|humans|characters|character|figure|figures|silhouette|hands|face|group|suit|attire|uniform|bunny suit|cleanroom suit|delegate|official|director|ceo|chairman|employee|staff|audience|spectator|journalist|reporter|professor|student|astronaut|cosmonaut|pilot|soldier|officer|diplomat|batsman|bowler|fielder|wicketkeeper|batter|cricketer)\b/i;
+  // 1. Graphic / Outro / Abstract Card Detection (GEMINI.md Rule 12 & 13)
+  const isGraphicOrOutro = /\b(outro|clean,?\s*dark screen|dark screen|black screen|fade to black|geometric (?:micro-)?pattern|title card|end screen|credits|blank background|minimalist background)\b/i.test(scPrompt);
+
+  // 2. Crowd-only Scene Detection (avoids injecting player character DNA into stadium crowds, while preserving empty stadiums)
+  const isCrowdOnly =
+    /\b(crowd|audience|spectator|spectators|fans in the stands|packed stands)\b/i.test(scPrompt) &&
+    !/\b(empty|seats are|silence)\b/i.test(scPrompt) &&
+    !/\b(player|athlete|figure|silhouette|ronaldo|striker|man|person|captain|him)\b/i.test(scPrompt);
+
+  // 3. Human Presence Detection — ONLY inject character DNA or sports uniforms when humans/athletes are present
+  const humanPresenceKeywords = /\b(people|person|personnel|engineer|scientist|analyst|executive|researcher|worker|man|woman|athlete|player|team|humans|characters|character|figure|figures|silhouette|hands|face|group|suit|attire|uniform|bunny suit|cleanroom suit|delegate|official|director|ceo|chairman|employee|staff|journalist|reporter|professor|student|astronaut|cosmonaut|pilot|soldier|officer|diplomat|batsman|bowler|fielder|wicketkeeper|batter|cricketer)\b/i;
   const hasHuman = humanPresenceKeywords.test(scPrompt);
-  if (visualBible?.characterGrammar && hasHuman) {
-    // Strip specific person names from character grammar (e.g. "Hero Batter Brendan Taylor:" -> "Hero Batter:")
-    // to eliminate the text prompt trigger that causes FLUX to hallucinate garbled names on jersey fabric.
+
+  // Character Visual DNA lock — ONLY inject when scene actually depicts individual humans/athletes and is NOT an outro card or crowd-only shot
+  if (visualBible?.characterGrammar && hasHuman && !isGraphicOrOutro && !isCrowdOnly) {
     let sanitizedGrammar = visualBible.characterGrammar.slice(0, 500);
-    sanitizedGrammar = sanitizedGrammar.replace(/\b(Hero Batter|Hero Cricketer|Hero Bowler|Hero Player)\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\s*:/g, "$1:");
+    sanitizedGrammar = sanitizedGrammar.replace(/\b(Hero Batter|Hero Cricketer|Hero Bowler|Hero Player|Hero Athlete)\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\s*:/g, "$1:");
     parts.push(sanitizedGrammar);
   }
 
-  // 2. Scene specific visual prompt — normalize multi-bat phrasing
+  // 4. Scene specific visual prompt normalization
   let sanitizedScPrompt = scPrompt
     .replace(/\braising (?:his )?bat with both hands\b/gi, "raising a single bat aloft in celebration")
-    .replace(/\bholding (?:his )?bat in both hands\b/gi, "holding a single bat with both hands on the handle");
-  parts.push(sanitizedScPrompt);
+    .replace(/\bholding (?:his )?bat in both hands\b/gi, "holding a single bat with both hands on the handle")
+    // Replace extreme motion-blur phrasing that creates broken blurry keyframes
+    .replace(/\b(?:abstract shot of\s+)?blurred\s+[^.]*?\s*moving rapidly\b/gi, "atmospheric celebratory stadium illumination with dynamic lighting, confetti, and stadium floodlights in sharp focus")
+    .replace(/\brapid motion blur\b/gi, "high shutter speed cinematic clarity")
+    .replace(/\babstract motion blur\b/gi, "crisp cinematic optical depth");
 
-  // 3. Strict Singular Geometry & Anti-Contamination Invariant (GEMINI.md Rule 12 & 13)
-  // Eliminates duplicate wickets, dual bats (bat in each hand), and jersey text hallucinations.
-  const isCricket =
-    (domain === "cricket" || domain.includes("cricket")) ||
-    (domain === "sports" && (isCricketTopic(scPrompt) || (Boolean(visualBible?.realWorldGrounding) && isCricketTopic(visualBible?.realWorldGrounding || ""))));
-  if (isCricket) {
-    parts.push(
-      "Strict singular cricket geometry: solitary single set of three upright wooden stumps on the pitch (strictly zero duplicate wickets, zero extra stumps), single solitary English willow bat (never two bats, never a bat in each hand, zero floating bats). Exactly one active primary player in the foreground matching the action. Solid plain jersey with zero text, zero printed player names, zero numbers on fabric"
-    );
-  } else if (domain === "sports") {
-    parts.push(
-      "Authentic professional athletic equipment, solid plain competition team kit, zero printed letters, zero numbers on shirts, zero digital scoreboards, zero text"
+  // Association Football (Soccer) vs American Football Disambiguation:
+  // FLUX / Diffusion models default bare "football" or "leather football" to American football with laces.
+  const isFootball = /\b(football|soccer|fifa|uefa|ronaldo|cristiano|messi|neymar|mbappe|haaland|striker|goalkeeper|premier league|la liga|serie a|champions league)\b/i.test(fullContext);
+  if (isFootball) {
+    sanitizedScPrompt = sanitizedScPrompt.replace(
+      /\b(?:weathered\s+|professional\s+|leather\s+)?football(s)?\b/gi,
+      (_match, plural) =>
+        plural
+          ? "spherical association soccer match balls with classic black-and-white pentagonal leather panels (strictly zero rugby balls, strictly zero American footballs)"
+          : "spherical association soccer match ball with classic black-and-white pentagonal leather panels (strictly zero rugby balls, strictly zero American football)"
     );
   }
 
-  // 4. Cinematic optical aesthetic (Positive optical descriptors)
+  parts.push(sanitizedScPrompt);
+
+  // 5. Domain & Geometry Guards (GEMINI.md Rule 12 & 13)
+  if (isGraphicOrOutro) {
+    // Pure minimalist aesthetic for outro cards — strictly ZERO sports gear, players, or basketball courts
+    parts.push(
+      "Minimalist text-free dark cinematic gradient, subtle dark vignette, clean textured backdrop, strictly zero humans, zero players, zero jerseys, zero sports equipment, zero text, zero logos, zero watermarks"
+    );
+  } else {
+    // Determine specific sport from OVERALL VIDEO TOPIC (never from isolated scene words)
+    const isCricket =
+      (domain === "cricket" || domain.includes("cricket")) ||
+      (domain === "sports" && isCricketTopic(videoTitle || "", visualBible?.realWorldGrounding));
+
+    if (isCricket) {
+      parts.push(
+        "Strict singular cricket geometry: solitary single set of three upright wooden stumps on the pitch (strictly zero duplicate wickets, zero extra stumps), single solitary English willow bat (never two bats, never a bat in each hand, zero floating bats)"
+      );
+      if (hasHuman && !isCrowdOnly) {
+        parts.push(
+          "Exactly one active primary player in the foreground matching the action. Solid plain jersey with zero text, zero printed player names, zero numbers on fabric"
+        );
+      }
+    } else if (isFootball) {
+      if (hasHuman && !isCrowdOnly) {
+        parts.push(
+          "Authentic European football (soccer) athletic apparel, solid plain competition jersey, soccer shorts and football socks, molded grass soccer studs (strictly zero cricket gear, zero cricket pads, zero bats, zero American football gear, zero rugby balls, zero printed letters, zero numbers on shirts)"
+        );
+      } else if (isCrowdOnly) {
+        parts.push(
+          "Vast passionate football stadium crowd celebrating in the stands, dynamic stadium floodlights, softly blurred depth of field, zero legible banners, zero text"
+        );
+      } else {
+        parts.push(
+          "Authentic European association football (soccer) stadium atmosphere and venue (strictly zero cricket stumps, zero cricket bats, zero American footballs, zero basketball gear, zero text)"
+        );
+      }
+    } else if (domain === "sports" && hasHuman && !isCrowdOnly) {
+      parts.push(
+        "Authentic professional athletic equipment, solid plain competition team kit, zero printed letters, zero numbers on shirts, zero digital scoreboards, zero text"
+      );
+    }
+  }
+
+  // 6. Indoor / Architecture anti-signage guardrail (Eliminates hallucinated text like "SCURIET")
+  const isIndoorArchitecture = /\b(trophy room|trophy gallery|gallery|vitrine|museum|hallway|tunnel|locker room|press conference|conference room|podium|stadium interior)\b/i.test(scPrompt);
+  if (isIndoorArchitecture) {
+    parts.push(
+      "Clean unprinted minimalist architectural surfaces, plain walls, zero wall signage, zero neon letters, zero plaques, zero typography"
+    );
+  }
+
+  // 7. Trophy & Metallic Objects anti-engraving guardrail (Eliminates fake inscribed glyphs)
+  const isTrophy = /\b(trophy|silver cup|golden cup|award|medal)\b/i.test(scPrompt);
+  if (isTrophy) {
+    parts.push(
+      "Completely blank unengraved polished metallic surface, pristine smooth metal reflection, zero engraved text, zero stamped letters, zero inscriptions, zero numerals"
+    );
+  }
+
+  // 8. Cinematic optical aesthetic (Positive optical descriptors)
   parts.push(
-    "Cinematic 35mm photography, photorealistic, sharp focus, volumetric lighting, authentic textures, completely unbranded clean apparel, zero text, zero watermarks"
+    "Cinematic 35mm photography, photorealistic, sharp focus, volumetric lighting, authentic tactile textures, completely unbranded clean surfaces, zero text, zero watermarks"
   );
 
   const fullPrompt = parts.join(". ").replace(/\s+/g, " ").trim();
@@ -228,7 +297,7 @@ export async function callCloudflareFlux(
 export async function generateSceneKeyframes(
   script: VideoScript,
   imagesDir: string,
-  options?: { accountId?: string; apiToken?: string }
+  options?: { accountId?: string; apiToken?: string; forceRegenerate?: boolean; sceneIndices?: number[] }
 ): Promise<KeyframesSynthesisResult> {
   const accountId = options?.accountId || process.env.CLOUDFLARE_ACCOUNT_ID;
   const apiToken = options?.apiToken || process.env.CLOUDFLARE_API_TOKEN;
@@ -256,30 +325,38 @@ export async function generateSceneKeyframes(
     const sc = script.scenes[i];
     if (!sc) continue;
 
+    // If specific scene indices requested, skip others
+    if (options?.sceneIndices && !options.sceneIndices.includes(i)) {
+      successCount++;
+      continue;
+    }
+
     const outPng = path.join(imagesDir, `scene_${String(i).padStart(3, "0")}.png`);
     const remoteGcsPath = `video-vault/${topicHash}/images/scene_${String(i).padStart(3, "0")}.png`;
 
-    // 1. Local Disk Cache Hit (0 tokens, 0 delay)
-    try {
-      if (fsSync.existsSync(outPng) && fsSync.statSync(outPng).size >= MIN_IMAGE_BYTES) {
-        console.log(`[Keyframes] ⚡ Scene ${i + 1} keyframe local cache hit (${fsSync.statSync(outPng).size} bytes) -> reusing.`);
-        successCount++;
-        continue;
-      }
-    } catch {}
+    if (!options?.forceRegenerate) {
+      // 1. Local Disk Cache Hit (0 tokens, 0 delay)
+      try {
+        if (fsSync.existsSync(outPng) && fsSync.statSync(outPng).size >= MIN_IMAGE_BYTES) {
+          console.log(`[Keyframes] ⚡ Scene ${i + 1} keyframe local cache hit (${fsSync.statSync(outPng).size} bytes) -> reusing.`);
+          successCount++;
+          continue;
+        }
+      } catch {}
 
-    // 2. GCS Cloud Vault Hit (download in <200ms, skips Cloudflare FLUX completely)
-    try {
-      const gcsHit = await downloadFromGCS(remoteGcsPath, outPng);
-      if (gcsHit && fsSync.existsSync(outPng) && fsSync.statSync(outPng).size >= MIN_IMAGE_BYTES) {
-        console.log(`[Keyframes] ☁️ Scene ${i + 1} keyframe GCS Vault hit (${fsSync.statSync(outPng).size} bytes) -> downloaded from cloud storage.`);
-        successCount++;
-        continue;
-      }
-    } catch {}
+      // 2. GCS Cloud Vault Hit (download in <200ms, skips Cloudflare FLUX completely)
+      try {
+        const gcsHit = await downloadFromGCS(remoteGcsPath, outPng);
+        if (gcsHit && fsSync.existsSync(outPng) && fsSync.statSync(outPng).size >= MIN_IMAGE_BYTES) {
+          console.log(`[Keyframes] ☁️ Scene ${i + 1} keyframe GCS Vault hit (${fsSync.statSync(outPng).size} bytes) -> downloaded from cloud storage.`);
+          successCount++;
+          continue;
+        }
+      } catch {}
+    }
 
     const prompt = await sanitizeZeroDiffusionText(
-      buildKeyframePrompt(sc.visual_prompt, script.visual_bible, script.domain)
+      buildKeyframePrompt(sc.visual_prompt, script.visual_bible, script.domain, script.title)
     );
     let ok = false;
 
