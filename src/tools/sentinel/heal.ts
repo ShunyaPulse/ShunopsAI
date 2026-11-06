@@ -45,10 +45,8 @@ async function healCloudflareAi(): Promise<HealReport> {
   const probe = await pingCloudflareAi();
   return {
     success: probe.ok,
-    actionTaken: "Probed Cloudflare Workers AI endpoint",
-    result: probe.ok
-      ? `Cloudflare AI responded in ${probe.latencyMs}ms on model ${probe.model}`
-      : `Cloudflare AI returned error: ${probe.error}`,
+    actionTaken: "Probed Cloudflare Workers AI account pool",
+    result: probe.summary,
   };
 }
 

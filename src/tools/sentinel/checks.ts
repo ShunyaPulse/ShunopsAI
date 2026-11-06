@@ -137,7 +137,7 @@ export async function checkCloudflareAiHealth(): Promise<ServiceHealthReport> {
   const now = new Date().toISOString();
   const probe = await pingCloudflareAi();
 
-  if (probe.error && probe.error.includes("Missing")) {
+  if (probe.totalCount === 0 || (probe.error && probe.error.includes("Missing"))) {
     return {
       service: "Cloudflare Workers AI",
       category: "ai",
@@ -147,13 +147,25 @@ export async function checkCloudflareAiHealth(): Promise<ServiceHealthReport> {
     };
   }
 
+  const isDegraded = probe.healthyCount > 0 && probe.healthyCount < probe.totalCount;
+  const status = probe.healthyCount === 0 ? "down" : (isDegraded ? "degraded" : "healthy");
+
   return {
     service: "Cloudflare Workers AI",
     category: "ai",
-    status: probe.ok ? "healthy" : "down",
+    status,
     latencyMs: probe.latencyMs,
-    details: { model: probe.model },
-    error: probe.error,
+    details: {
+      model: probe.model,
+      summary: probe.summary,
+      healthyCount: probe.healthyCount,
+      totalCount: probe.totalCount,
+      accounts: probe.accounts.map((a) => ({
+        name: a.displayName,
+        status: a.ok ? "healthy" : a.error,
+      })),
+    },
+    error: status !== "healthy" ? probe.summary : undefined,
     lastChecked: now,
   };
 }

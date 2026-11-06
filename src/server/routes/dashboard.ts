@@ -68,7 +68,6 @@ export async function dashboardRoutes(app: FastifyInstance, opts: DashboardRoute
       },
       integrations: {
         n8n: "Use 'HTTP Request' node pointing to POST /api/task or import integrations/n8n/shunops-n8n-workflow.json",
-        dify: "Use 'API Extension' pointing to POST /api/chat with integrations/dify/dify-tool-openapi.yaml",
       },
     };
   });
@@ -95,7 +94,7 @@ export async function dashboardRoutes(app: FastifyInstance, opts: DashboardRoute
         await opts.requireDashboardAuth(req, reply);
         if (reply.sent) return;
         return reply.type("text/html").send(renderDashboard());
-      } catch {}
+      } catch { }
     }
 
     return reply.redirect("/login");
@@ -158,7 +157,7 @@ export async function dashboardRoutes(app: FastifyInstance, opts: DashboardRoute
           username = user.username;
           isGuest = false;
         }
-      } catch {}
+      } catch { }
     }
 
     return reply.type("text/html").send(getUserWorkspaceHtml(username, isGuest));
