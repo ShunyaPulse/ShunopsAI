@@ -249,7 +249,7 @@ export async function runCloudflareAiInference(
         return `Cloudflare AI Response [Model: ${model}, Latency: ${latencyMs}ms]:\n${outputText}`;
       } catch (err: any) {
         lastCleanError = sanitizeAiErrorMessage(err.message);
-        console.warn(`[Cloudflare AI Fallback] Account (...${acc.id.slice(-4)}) Network issue on ${model}: ${err.message}. Trying next...`);
+        console.warn(`[Cloudflare AI Fallback] Account (...${acc.id.slice(-4)}) Network issue on ${model}: [REDACTED]. Trying next...`);
       }
     }
   }

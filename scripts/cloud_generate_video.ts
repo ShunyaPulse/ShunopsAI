@@ -127,7 +127,7 @@ async function main() {
     }
   } catch (err: any) {
     const cleanError = sanitizePipelineError(err);
-    console.error(`❌ [Cloud Video Dispatch Error at Stage: "${currentStage}"]:\n   ${cleanError}`);
+    console.error(`❌ [Cloud Video Dispatch Error at Stage: "${currentStage}"]:\n   [REDACTED]`);
 
     const activeTopic = finalTopic || topicArg || "Autonomous Daily Trend";
     await sendIncidentAlert({
