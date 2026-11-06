@@ -92,6 +92,7 @@ function kernelMetadata(user: string, id: string, title?: string) {
     kernel_type: "script",
     is_private: true,
     enable_gpu: true,
+    machine_shape: "NvidiaTeslaT4x2",
     enable_internet: true,
     dataset_sources: [`${user}/video-job-${slug}`],
   };
