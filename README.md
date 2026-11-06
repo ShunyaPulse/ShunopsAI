@@ -36,6 +36,7 @@
 ## 🚀 Key Capabilities
 
 ### 1. Dual-Model Consensus & AST Verification
+
 - **Zero Single-Agent Merges**: No PR or automated fix is committed by a single model alone.
 - **Protocol**:
   - **Round 1 (Proposer)**: Active Gemini Flash (`gemini-3.8-flash` / `3.7-flash` / `3.6-flash`) evaluates repository diffs or alerts and drafts remediation.
@@ -43,11 +44,13 @@
 - **Deterministic Gates**: Every remediation must pass strict `npm run typecheck` (`tsc --noEmit`) before git commit and push.
 
 ### 2. Multi-Service 34-Key Anti-Contention Engine
+
 - Supports rotating up to 34 Gemini API keys with **$O(1)$ zero-latency round-robin pointer advancement** (`roundRobinIndex = (roundRobinIndex + 1) % keys.length`) on live query hot-paths.
 - **Startup Permutation Offset**: Distinct services (`SaralGati`, `Kanban Cloud`, `AI Damage Inspector Pro`, `ShunopsAI`) initialize unique randomized starting indices at launch, preventing pool collision and 429 rate spikes.
 - Universal environment resolution: `GEMINI_KEYS` || `GEMINI_API_KEYS` || `GEMINI_API_KEY`.
 
 ### 3. Autonomous Proactive Repository Healing
+
 - Proactively inspects target repositories (`AUTONOMOUS_TARGET_REPOS`) and heals four critical vulnerability classes without waiting for alert webhooks:
   1. **Insecure Randomness**: Converts unseeded `Math.random` in token/ID contexts to `crypto.randomInt`.
   2. **Command Injection**: Refactors interpolated shell strings into safe `execFileSync` argument vectors.
@@ -56,11 +59,12 @@
 - **Smart Quota Guardrails**: Caches commit SHAs in distributed Redis (`REDIS_URL`) and throttles execution after 2 consecutive identical commit runs to conserve model quotas.
 
 ### 4. Autonomous Multimodal Video Engine (Wan2.1 DiT + Dual-T4 Kaggle GPU)
+
 - **Alibaba Wan2.1-VACE (1.3B) Video Diffusion**: Drives zero-laptop cinematic I2V/T2V synthesis on remote Dual-T4 GPUs with Cutlass FP16 and Diffusers attention slicing.
 - **Character Visual DNA Lock**: Synthesizes and prepends rigorous facial structure, skin tone, haircut, and historical garment descriptors to every scene prompt, eliminating character morphing and phantom extra characters.
 - **Multi-Tier Dynamic Speech Synthesis**:
-  - *Gemini Enterprise/Developer Audio API*: Synthesizes emotional narration using Aoede and Fenrir personas with prompt-directed Indian vernacular cadence and inflection steering.
-  - *Fallback Tiers*: Gracefully degrades through Google Cloud Chirp 3 HD, Kokoro-82M (British/historical voices), and Edge-TTS.
+  - _Gemini Enterprise/Developer Audio API_: Synthesizes emotional narration using Aoede and Fenrir personas with prompt-directed Indian vernacular cadence and inflection steering.
+  - _Fallback Tiers_: Gracefully degrades through Google Cloud Chirp 3 HD, Kokoro-82M (British/historical voices), and Edge-TTS.
 - **Pre-Packaged Keyframes via Cloudflare Workers AI**: Generates photorealistic keyframe scenes via FLUX.1-schnell before dataset upload, preserving precious Kaggle GPU runtime purely for video tensor latents.
 - **Dynamic Soundscapes & Cloud BGM Streaming**: Streams genre-calibrated background scores directly from Google Cloud Storage CDN (`gs://shunops-bgm-assets-422513/` with 10 master tracks) with Wikimedia & drone fallbacks, mixed with automated scene-accurate Foley SFX moments.
 - **22 Canonical Match Action Taxonomy**: Eliminates generic crowd pans and floating stumps in sports cinematography; strictly enforces authentic team jerseys, willow bats, 3 pitch-grounded stumps, and true kinetic ball/bat action.
@@ -72,11 +76,13 @@
 - **Automated Sweeper & YouTube Publisher**: `sweep_publish_videos.ts` polls completed Kaggle GPU outputs, applies cinematic linear blending (`minterpolate=mi_mode=blend`) and loudness normalization (`normalize=0`), and uploads directly to YouTube with automated chapters, tags, and thumbnails.
 
 ### 5. Embeddable ReAct Edge AI Command Center
+
 - Lightweight, zero-dependency drop-in JavaScript widget (`/widget.js`).
 - Features client domain awareness, customizable quick-action chips, dark/light theme adaptation, and SSE streaming responses.
 - Generates interactive, cryptographic HMAC-signed action cards for one-click trigger executions.
 
 ### 6. Client-Side Non-Extractable CryptoKey Vault (Zero-Persistence)
+
 - WebCrypto API AES-256-GCM encryption with non-extractable keys stored in browser `IndexedDB`.
 - User and BYOK API keys exist exclusively in browser client memory for request authorization — zero plaintext storage at rest, zero server-side persistence, and immune to XSS exfiltration.
 
@@ -95,7 +101,6 @@
 │       └── render.py            # Kaggle GPU rendering engine (diffusers, curves, film grain)
 ├── integrations/
 │   ├── n8n/                     # n8n autonomous webhook & incident orchestrator workflows
-│   └── dify/                    # Dify OpenAPI tool specifications
 ├── .github/
 │   └── workflows/
 │       ├── ci-deploy.yml        # CI/CD security pipeline (Semgrep, Trivy, Gitleaks, CodeQL)
@@ -171,6 +176,7 @@
 ## 🛠️ Quick Start
 
 ### 1. Installation
+
 ```bash
 git clone https://github.com/ShunyaPulse/ShunopsAI.git
 cd ShunopsAI
@@ -178,11 +184,15 @@ npm install
 ```
 
 ### 2. Configure Environment
+
 Create your `.env` file from the provided template:
+
 ```bash
 cp .env.example .env
 ```
+
 Ensure primary credentials are populated:
+
 ```env
 # AI Providers
 GEMINI_KEYS=key1,key2,key3,...
@@ -198,7 +208,9 @@ NEON_DATABASE_URL=postgres://...
 ```
 
 ### 3. Run Autonomous DevOps Tasks
+
 Execute tasks via CLI:
+
 ```bash
 # Infrastructure health check
 npx tsx agent.ts "Check status of Cloud Run services and verify Neon DB connection pool"
@@ -208,12 +220,15 @@ npx tsx src/tools/autonomous-repo-auditor.ts
 ```
 
 ### 4. Launch Command Server & Web Dashboard
+
 ```bash
 npm run server
 ```
+
 Access the Command Center at `http://localhost:4000`.
 
 ### 5. Typecheck & Verification
+
 ```bash
 npm run typecheck
 ```

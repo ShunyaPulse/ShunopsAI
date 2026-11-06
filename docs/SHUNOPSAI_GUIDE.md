@@ -15,9 +15,9 @@
     v                  v                   v                  v                  v
 [DevOps Sentinel] [Media Engine]    [Cloud Services]   [GitHub GitOps]   [Visual Bridges]
  - Neon DBs        - Scripting       - Cloud Run        - Scheduled Cron  - n8n Webhook
- - OCI Redis       - Kaggle GPU      - GCE Host SSH     - Issue Trigger   - Dify OpenAPI
+ - OCI Redis       - Kaggle GPU      - GCE Host SSH     - Issue Trigger   - Web Widget
  - CF Workers AI   - Edge TTS        - CF Workers AI    - Auto-Resolver   - Web Dashboard
- - Uptime & URLs   - Auto-YouTube    - Auto-Healing     - CI Security     - Web Widget
+ - Uptime & URLs   - Auto-YouTube    - Auto-Healing     - CI Security
 ```
 
 ---
@@ -64,7 +64,7 @@ Monitors, benchmarks, and maintains 100% error-free operation across all service
   - Live HUD displaying real-time health cards for Neon, Redis, Cloudflare, Cloud Run, and Kaggle.
   - Interactive ShunopsAI Terminal: Ask any out-of-the-box question or command.
   - 1-Click "Scan Now" and "Auto-Heal".
-- **Website Bot (Dify)**:
+- **Website Bot (Cloudflare Workers)**:
   - Exclusively for visitors/users to answer questions and provide support without exposing privileged tools.
 
 ### 🔐 Pillar 4: Tenant Isolation — Users Act Only On Their Own Accounts
