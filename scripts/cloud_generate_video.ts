@@ -112,7 +112,7 @@ async function main() {
         }
         finalTopic = resolvedTopic;
         trendReason = resolvedReason;
-        console.log(`✅ Curated Trending Topic: ${finalTopic}`);
+        console.log(`✅ Curated Trending Topic: [REDACTED]`);
       }
 
       currentStage = "Autonomous Video Pipeline Generation & Cloud Dispatch";
@@ -122,7 +122,7 @@ async function main() {
       try { parsedJob = JSON.parse(launchOutput); } catch {}
       console.log("\n🎉 [SUCCESS] General Video Job Dispatched: [REDACTED]");
       console.log(`   Kaggle Kernel: ${parsedJob.kernel || "Dispatched"}`);
-      console.log(`   Title: "${parsedJob.title || finalTopic}"`);
+      console.log(`   Title: "[REDACTED]"`);
       console.log(`   Scenes: ${parsedJob.scenes || "N/A"}`);
     }
   } catch (err: any) {
