@@ -41,27 +41,24 @@ export function buildKeyframePrompt(
   const parts: string[] = [];
   const fullContext = `${videoTitle} ${visualBible?.realWorldGrounding || ""} ${scPrompt}`.toLowerCase();
 
-  // 1. Graphic / Outro / Abstract Card Detection (GEMINI.md Rule 12 & 13)
-  const isGraphicOrOutro = /\b(outro|clean,?\s*dark screen|dark screen|black screen|fade to black|geometric (?:micro-)?pattern|title card|end screen|credits|blank background|minimalist background)\b/i.test(scPrompt);
-
-  // 2. Crowd-only Scene Detection (avoids injecting player character DNA into stadium crowds, while preserving empty stadiums)
+  // 1. Crowd-only Scene Detection (avoids injecting player character DNA into stadium crowds, while preserving empty stadiums)
   const isCrowdOnly =
     /\b(crowd|audience|spectator|spectators|fans in the stands|packed stands)\b/i.test(scPrompt) &&
     !/\b(empty|seats are|silence)\b/i.test(scPrompt) &&
     !/\b(player|athlete|figure|silhouette|ronaldo|striker|man|person|captain|him)\b/i.test(scPrompt);
 
-  // 3. Human Presence Detection — ONLY inject character DNA or sports uniforms when humans/athletes are present
+  // 2. Human Presence Detection — ONLY inject character DNA or sports uniforms when humans/athletes are present
   const humanPresenceKeywords = /\b(people|person|personnel|engineer|scientist|analyst|executive|researcher|worker|man|woman|athlete|player|team|humans|characters|character|figure|figures|silhouette|hands|face|group|suit|attire|uniform|bunny suit|cleanroom suit|delegate|official|director|ceo|chairman|employee|staff|journalist|reporter|professor|student|astronaut|cosmonaut|pilot|soldier|officer|diplomat|batsman|bowler|fielder|wicketkeeper|batter|cricketer)\b/i;
   const hasHuman = humanPresenceKeywords.test(scPrompt);
 
-  // Character Visual DNA lock — ONLY inject when scene actually depicts individual humans/athletes and is NOT an outro card or crowd-only shot
-  if (visualBible?.characterGrammar && hasHuman && !isGraphicOrOutro && !isCrowdOnly) {
+  // Character Visual DNA lock — ONLY inject when scene actually depicts individual humans/athletes and is NOT a crowd-only shot
+  if (visualBible?.characterGrammar && hasHuman && !isCrowdOnly) {
     let sanitizedGrammar = visualBible.characterGrammar.slice(0, 500);
     sanitizedGrammar = sanitizedGrammar.replace(/\b(Hero Batter|Hero Cricketer|Hero Bowler|Hero Player|Hero Athlete)\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\s*:/g, "$1:");
     parts.push(sanitizedGrammar);
   }
 
-  // 4. Scene specific visual prompt normalization
+  // 3. Scene specific visual prompt normalization
   let sanitizedScPrompt = scPrompt
     .replace(/\braising (?:his )?bat with both hands\b/gi, "raising a single bat aloft in celebration")
     .replace(/\bholding (?:his )?bat in both hands\b/gi, "holding a single bat with both hands on the handle")
@@ -85,46 +82,39 @@ export function buildKeyframePrompt(
 
   parts.push(sanitizedScPrompt);
 
-  // 5. Domain & Geometry Guards (GEMINI.md Rule 12 & 13)
-  if (isGraphicOrOutro) {
-    // Pure minimalist aesthetic for outro cards — strictly ZERO sports gear, players, or basketball courts
-    parts.push(
-      "Minimalist text-free dark cinematic gradient, subtle dark vignette, clean textured backdrop, strictly zero humans, zero players, zero jerseys, zero sports equipment, zero text, zero logos, zero watermarks"
-    );
-  } else {
-    // Determine specific sport from OVERALL VIDEO TOPIC (never from isolated scene words)
-    const isCricket =
-      (domain === "cricket" || domain.includes("cricket")) ||
-      (domain === "sports" && isCricketTopic(videoTitle || "", visualBible?.realWorldGrounding));
+  // 4. Domain & Geometry Guards (GEMINI.md Rule 12 & 13)
+  // Determine specific sport from OVERALL VIDEO TOPIC (never from isolated scene words)
+  const isCricket =
+    (domain === "cricket" || domain.includes("cricket")) ||
+    (domain === "sports" && isCricketTopic(videoTitle || "", visualBible?.realWorldGrounding));
 
-    if (isCricket) {
+  if (isCricket) {
+    parts.push(
+      "Strict singular cricket geometry: solitary single set of three upright wooden stumps on the pitch (strictly zero duplicate wickets, zero extra stumps), single solitary English willow bat (never two bats, never a bat in each hand, zero floating bats)"
+    );
+    if (hasHuman && !isCrowdOnly) {
       parts.push(
-        "Strict singular cricket geometry: solitary single set of three upright wooden stumps on the pitch (strictly zero duplicate wickets, zero extra stumps), single solitary English willow bat (never two bats, never a bat in each hand, zero floating bats)"
-      );
-      if (hasHuman && !isCrowdOnly) {
-        parts.push(
-          "Exactly one active primary player in the foreground matching the action. Solid plain jersey with zero text, zero printed player names, zero numbers on fabric"
-        );
-      }
-    } else if (isFootball) {
-      if (hasHuman && !isCrowdOnly) {
-        parts.push(
-          "Authentic European football (soccer) athletic apparel, solid plain competition jersey, soccer shorts and football socks, molded grass soccer studs (strictly zero cricket gear, zero cricket pads, zero bats, zero American football gear, zero rugby balls, zero printed letters, zero numbers on shirts)"
-        );
-      } else if (isCrowdOnly) {
-        parts.push(
-          "Vast passionate football stadium crowd celebrating in the stands, dynamic stadium floodlights, softly blurred depth of field, zero legible banners, zero text"
-        );
-      } else {
-        parts.push(
-          "Authentic European association football (soccer) stadium atmosphere and venue (strictly zero cricket stumps, zero cricket bats, zero American footballs, zero basketball gear, zero text)"
-        );
-      }
-    } else if (domain === "sports" && hasHuman && !isCrowdOnly) {
-      parts.push(
-        "Authentic professional athletic equipment, solid plain competition team kit, zero printed letters, zero numbers on shirts, zero digital scoreboards, zero text"
+        "Exactly one active primary player in the foreground matching the action. Solid plain jersey with zero text, zero printed player names, zero numbers on fabric"
       );
     }
+  } else if (isFootball) {
+    if (hasHuman && !isCrowdOnly) {
+      parts.push(
+        "Authentic European football (soccer) athletic apparel, solid plain competition jersey, soccer shorts and football socks, molded grass soccer studs (strictly zero cricket gear, zero cricket pads, zero bats, zero American football gear, zero rugby balls, zero printed letters, zero numbers on shirts)"
+      );
+    } else if (isCrowdOnly) {
+      parts.push(
+        "Vast passionate football stadium crowd celebrating in the stands, dynamic stadium floodlights, softly blurred depth of field, zero legible banners, zero text"
+      );
+    } else {
+      parts.push(
+        "Authentic European association football (soccer) stadium atmosphere and venue (strictly zero cricket stumps, zero cricket bats, zero American footballs, zero basketball gear, zero text)"
+      );
+    }
+  } else if (domain === "sports" && hasHuman && !isCrowdOnly) {
+    parts.push(
+      "Authentic professional athletic equipment, solid plain competition team kit, zero printed letters, zero numbers on shirts, zero digital scoreboards, zero text"
+    );
   }
 
   // 6. Indoor / Architecture anti-signage guardrail (Eliminates hallucinated text like "SCURIET")
