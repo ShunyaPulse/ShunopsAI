@@ -120,14 +120,14 @@ async function main() {
       const launchOutput = await startVideoJob(finalTopic, minutes, language, trendReason);
       let parsedJob: any = {};
       try { parsedJob = JSON.parse(launchOutput); } catch {}
-      console.log(`\n🎉 [SUCCESS] General Video Job Dispatched: ${parsedJob.jobId || "Active"}`);
+      console.log("\n🎉 [SUCCESS] General Video Job Dispatched: [REDACTED]");
       console.log(`   Kaggle Kernel: ${parsedJob.kernel || "Dispatched"}`);
       console.log(`   Title: "${parsedJob.title || finalTopic}"`);
       console.log(`   Scenes: ${parsedJob.scenes || "N/A"}`);
     }
   } catch (err: any) {
     const cleanError = sanitizePipelineError(err);
-    console.error(`❌ [Cloud Video Dispatch Error at Stage: "${currentStage}"]:\n   [REDACTED]`);
+    console.error('❌ [Cloud Video Dispatch Error at Stage: "[REDACTED]"]:\n   [REDACTED]');
 
     const activeTopic = finalTopic || topicArg || "Autonomous Daily Trend";
     await sendIncidentAlert({

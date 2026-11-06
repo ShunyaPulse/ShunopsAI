@@ -237,7 +237,7 @@ export async function runCloudflareAiInference(
 
         if (!res.ok || !data.success) {
           lastCleanError = sanitizeAiErrorMessage(data.errors || data);
-          console.warn(`[Cloudflare AI Fallback] Account (...${acc.id.slice(-4)}) Model ${model} returned: ${lastCleanError}. Trying next...`);
+          console.warn('[Cloudflare AI Fallback] Account (...[REDACTED]) Model [REDACTED] returned: [REDACTED]. Trying next...');
           continue;
         }
 
