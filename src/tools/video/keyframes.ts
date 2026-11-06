@@ -43,35 +43,40 @@ function buildKeyframePrompt(
   // Blindly prepending characterGrammar to object/architecture/space shots causes wrong
   // attire (e.g. "cleanroom bunny suits") to bleed into corporate or nature scenes.
   // GEMINI.md Rule 13: semantic context wins over blanket injection.
-  const humanPresenceKeywords = /\b(people|person|personnel|engineer|scientist|analyst|executive|researcher|worker|man|woman|crowd|athlete|player|team|humans|characters|character|figure|figures|silhouette|hands|face|group|suit|attire|uniform|bunny suit|cleanroom suit|delegate|official|director|ceo|chairman|employee|staff|audience|spectator|journalist|reporter|professor|student|astronaut|cosmonaut|pilot|soldier|officer|diplomat)\b/i;
-  if (visualBible?.characterGrammar && humanPresenceKeywords.test(scPrompt)) {
-    parts.push(visualBible.characterGrammar.slice(0, 500));
+  const humanPresenceKeywords = /\b(people|person|personnel|engineer|scientist|analyst|executive|researcher|worker|man|woman|crowd|athlete|player|team|humans|characters|character|figure|figures|silhouette|hands|face|group|suit|attire|uniform|bunny suit|cleanroom suit|delegate|official|director|ceo|chairman|employee|staff|audience|spectator|journalist|reporter|professor|student|astronaut|cosmonaut|pilot|soldier|officer|diplomat|batsman|bowler|fielder|wicketkeeper|batter|cricketer)\b/i;
+  const hasHuman = humanPresenceKeywords.test(scPrompt);
+  if (visualBible?.characterGrammar && hasHuman) {
+    // Strip specific person names from character grammar (e.g. "Hero Batter Brendan Taylor:" -> "Hero Batter:")
+    // to eliminate the text prompt trigger that causes FLUX to hallucinate garbled names on jersey fabric.
+    let sanitizedGrammar = visualBible.characterGrammar.slice(0, 500);
+    sanitizedGrammar = sanitizedGrammar.replace(/\b(Hero Batter|Hero Cricketer|Hero Bowler|Hero Player)\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\s*:/g, "$1:");
+    parts.push(sanitizedGrammar);
   }
 
-  // 2. Scene specific visual prompt
-  parts.push(scPrompt);
+  // 2. Scene specific visual prompt — normalize multi-bat phrasing
+  let sanitizedScPrompt = scPrompt
+    .replace(/\braising (?:his )?bat with both hands\b/gi, "raising a single bat aloft in celebration")
+    .replace(/\bholding (?:his )?bat in both hands\b/gi, "holding a single bat with both hands on the handle");
+  parts.push(sanitizedScPrompt);
 
-  // 3. Sport-specific equipment anchors — only for sports/cricket domains.
-  // The Visual Bible's characterGrammar & realWorldGrounding (synthesized by LLM) handle
-  // all sport-specific equipment for cricket; we only add a compact anchor here for
-  // non-cricket sports domains to prevent cross-sport confusion.
-  // Non-sports domains MUST NEVER receive sports/cricket anchors (GEMINI.md Rule 13).
+  // 3. Strict Singular Geometry & Anti-Contamination Invariant (GEMINI.md Rule 12 & 13)
+  // Eliminates duplicate wickets, dual bats (bat in each hand), and jersey text hallucinations.
   const isCricket =
     (domain === "cricket" || domain.includes("cricket")) ||
     (domain === "sports" && (isCricketTopic(scPrompt) || (Boolean(visualBible?.realWorldGrounding) && isCricketTopic(visualBible?.realWorldGrounding || ""))));
   if (isCricket) {
     parts.push(
-      "Authentic cricket equipment: 3 upright wooden stumps with bails, flat-bladed English willow bat, official solid team jersey, protective batting pads and helmet. Zero casual clothes, zero baseball bats, zero digital scoreboards"
+      "Strict singular cricket geometry: solitary single set of three upright wooden stumps on the pitch (strictly zero duplicate wickets, zero extra stumps), single solitary English willow bat (never two bats, never a bat in each hand, zero floating bats). Exactly one active primary player in the foreground matching the action. Solid plain jersey with zero text, zero printed player names, zero numbers on fabric"
     );
   } else if (domain === "sports") {
     parts.push(
-      "Authentic professional athletic equipment, official solid competition team kit, clean arena and circuit lighting. Zero casual streetwear, zero digital scoreboards, zero text"
+      "Authentic professional athletic equipment, solid plain competition team kit, zero printed letters, zero numbers on shirts, zero digital scoreboards, zero text"
     );
   }
 
   // 4. Cinematic optical aesthetic (Positive optical descriptors)
   parts.push(
-    "Cinematic 35mm photography, photorealistic, sharp focus, volumetric lighting, authentic textures, zero text, zero watermarks"
+    "Cinematic 35mm photography, photorealistic, sharp focus, volumetric lighting, authentic textures, completely unbranded clean apparel, zero text, zero watermarks"
   );
 
   const fullPrompt = parts.join(". ").replace(/\s+/g, " ").trim();

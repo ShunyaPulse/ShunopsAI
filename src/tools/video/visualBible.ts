@@ -206,7 +206,7 @@ Live Research Facts: "${liveSearchFacts ? liveSearchFacts.slice(0, 1800) : "N/A"
 
 Extract and return a JSON object with:
 1. "teamsDescription": "Championship cricket match between <Team A> (in solid <KitColor> athletic jersey) and <Team B> (in solid <KitColor> athletic jersey, clean cloth folds, zero text/logos)"
-2. "heroPlayersDNA": "Concrete Character Visual DNA for the notable key players in this match (e.g. Hero Batter <Name>: <exact age/ethnicity, trimmed beard or clean-shaven, hair, athletic build, team kit, batting pads, helmet with steel grille, signature shot and passionate bat-raising celebration>; Hero Partner or Bowler <Name>: <appearance, kit, celebration huddle>). Ensure 100% actor visual consistency across scenes."
+2. "heroPlayersDNA": "Concrete Character Visual DNA for the notable key players in this match (e.g. Hero Batter: <exact age/ethnicity, trimmed beard or clean-shaven, hair, athletic build, team kit solid color, batting pads, helmet with steel grille>; Hero Bowler: <appearance, solid jersey color>). Focus strictly on physical appearance, hair/beard, build, and solid unbranded attire; DO NOT prescribe specific batting strokes, celebration gestures, or multi-hand bat poses (actions are dictated per-scene). Ensure single-player focus and 100% actor visual consistency across scenes."
 
 Return ONLY valid JSON in this structure:
 {

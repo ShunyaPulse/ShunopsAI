@@ -26,10 +26,11 @@ export const CRICKET_LATENT_TRAPS = [
 
   // Malformed equipment & anatomical glitches
   "baseball bat", "round bat", "rolling pin", "flat wooden board", "plank of wood", "flat paddle", "bat looking like a plank", "paddle bat", "hockey stick",
-  "4 stumps", "2 stumps", "5 stumps", "6 stumps", "7 stumps", "multiple stumps", "stumps sprouting from ground", "floating stumps", "floating wickets", "floating bails", "flying stumps while batsman batting",
+  "two bats", "a bat in each hand", "holding two bats", "dual bats", "split bat", "two bats tied together", "two batsmen batting simultaneously",
+  "double wickets", "two sets of stumps", "side-by-side stumps", "4 stumps", "2 stumps", "5 stumps", "6 stumps", "7 stumps", "multiple stumps", "stumps sprouting from ground", "floating stumps", "floating wickets", "floating bails", "flying stumps while batsman batting",
   "plastic wickets", "wire fence on pitch", "holding bat upside down",
   "bat handle separated from blade", "curved tennis racket handle on bat", "three arms on batter",
-  "football goalkeeper gloves on wicketkeeper", "ice hockey helmet", "floating bat", "melting shoulder",
+  "football goalkeeper gloves on wicketkeeper", "ice hockey helmet", "floating bat", "floating severed glove", "floating bat with glove", "giant floating balloon glove", "melting shoulder",
   "fused fingers", "disjointed elbow", "cartoon", "anime", "cgi video game look", "faceless mannequin",
 
   // Inappropriate attire & rogue extra hallucinations
@@ -241,7 +242,7 @@ export function buildCricketVisualBible(params: DynamicCricketParams = {}): Visu
 
   const heroDNA = params.heroPlayersDNA
     ? params.heroPlayersDNA
-    : "Hero International Cricketer: Athletic professional cricketer in prime physical conditioning, wearing team-authentic solid vibrant athletic jersey (clean cloth folds, zero text/logos), protective batting pads, and helmet with steel face grille. Focused competitive gaze, authentic batting stance on the single chalk popping crease, executing crisp cricket strokes with high elbow, and raising bat in triumphant celebration to a standing ovation from 60,000 cheering fans.";
+    : "Hero International Cricketer: Athletic professional cricketer in prime physical conditioning, wearing team-authentic solid vibrant athletic jersey (clean cloth folds, zero text/logos), protective batting pads, and helmet with steel face grille. Focused competitive gaze, authentic batting stance on the single chalk popping crease.";
 
   return {
     realWorldGrounding:
@@ -269,7 +270,7 @@ export function buildCricketVisualBible(params: DynamicCricketParams = {}): Visu
     latentTrapsToBan: CRICKET_LATENT_TRAPS,
 
     characterGrammar:
-      `Authentic athletic cricket cinematography: (1) Hero Character Visual DNA: ${heroDNA}. (2) Dynamic Documentary Action: Active athletic strokeplay with flat-bladed English willow bat, fast bowler in delivery stride, or passionate batsman celebration raising bat and helmet to cheering stadium crowd. (3) Team Kits: Team-authentic solid athletic jerseys (India: Royal Indian Blue jersey and matching blue trousers; opposition in solid dark team kit). Zero gym vests, tank tops, or civilian clothes. (4) Equipment & Grounding: Exactly three vertical wooden stumps with bails, flat-faced English willow bat, four-piece leather ball, stadium floodlights with packed grandstands. Zero giant football trophies.`,
+      `Authentic athletic cricket cinematography: (1) Character Visual DNA: ${heroDNA}. (2) Strict Singular Invariants: Exactly one solitary set of three vertical wooden stumps with bails at the pitch crease (strictly zero duplicate wickets, zero extra stumps). Single flat-bladed English willow bat (never two bats, never a bat in each hand, zero floating bats). Exactly one active primary player in focus matching the scene action. (3) Zero Diffusion Text: Solid plain unbranded jersey panels, clean cloth folds, zero printed player names, zero numbers on shirts or backs, zero logos.`,
 
     zeroTextRules:
       "STRICT ABSOLUTE ZERO SCOREBOARDS OR DIGITAL TEXT: Never render stadium scoreboards, speed guns, or digital time tickers in diffusion latents. Athletic jerseys must feature solid vibrant color panels and clean cloth folds with zero numbers, zero sponsor text, zero letters. All boundary perimeter hoardings must be smooth blurred color gradients with zero legible branding.",
