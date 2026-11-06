@@ -121,13 +121,13 @@ async function main() {
       let parsedJob: any = {};
       try { parsedJob = JSON.parse(launchOutput); } catch {}
       console.log("\n🎉 [SUCCESS] General Video Job Dispatched: [REDACTED]");
-      console.log(`   Kaggle Kernel: ${parsedJob.kernel || "Dispatched"}`);
+      console.log(`   Kaggle Kernel: [REDACTED]`);
       console.log(`   Title: "[REDACTED]"`);
       console.log(`   Scenes: ${parsedJob.scenes || "N/A"}`);
     }
   } catch (err: any) {
     const cleanError = sanitizePipelineError(err);
-    console.error('❌ [Cloud Video Dispatch Error at Stage: "[REDACTED]"]:\n   [REDACTED]');
+    console.error('❌ [Cloud Video Dispatch Error]');
 
     const activeTopic = finalTopic || topicArg || "Autonomous Daily Trend";
     await sendIncidentAlert({

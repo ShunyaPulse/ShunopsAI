@@ -248,7 +248,7 @@ export async function runCloudflareAiInference(
 
         return `Cloudflare AI Response [Model: ${model}, Latency: ${latencyMs}ms]:\n${outputText}`;
       } catch (err: any) {
-        lastCleanError = sanitizeAiErrorMessage(err.message);
+        lastCleanError = sanitizeAiErrorMessage('[REDACTED]');
         console.warn('[Cloudflare AI Fallback] Network issue encountered. Trying next...');
       }
     }
