@@ -16,6 +16,7 @@
 import * as fs from "node:fs/promises";
 import * as fsSync from "node:fs";
 import * as path from "node:path";
+import { randomInt } from "node:crypto";
 
 export interface QualityDefect {
   id: number;
@@ -49,7 +50,7 @@ function geminiKeyPool(): string[] {
 }
 
 // Rule 6: Process-level startup offset initialization to prevent multi-service contention
-let poolPointer = Math.floor(Math.random() * 34);
+let poolPointer = randomInt(0, 34);
 
 function getNextKey(pool: string[]): string {
   if (pool.length === 0) return "";

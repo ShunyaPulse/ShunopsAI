@@ -1,3 +1,5 @@
+import { randomInt } from "node:crypto";
+
 /**
  * Parse the comma-separated GEMINI_API_KEY pool and return an array of trimmed keys.
  */
@@ -32,7 +34,7 @@ const KEY_RETRY_DELAY_MS = 400;
  */
 function pickKeySubset(pool: string[], count: number): string[] {
   if (pool.length <= count) return [...pool];
-  const start = Math.floor(Math.random() * pool.length);
+  const start = randomInt(0, pool.length);
   const subset: string[] = [];
   for (let i = 0; i < count; i++) {
     const k = pool[(start + i) % pool.length];
@@ -50,7 +52,7 @@ function parseEnvKeyPool(...names: string[]): string[] {
 }
 
 function pickRandom<T>(items: T[]): T | undefined {
-  return items.length > 0 ? items[Math.floor(Math.random() * items.length)] : undefined;
+  return items.length > 0 ? items[randomInt(0, items.length)] : undefined;
 }
 
 type GenerationResult = { text: string; modelUsed: string };
