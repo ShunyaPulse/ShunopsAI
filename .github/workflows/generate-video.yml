@@ -1,9 +1,8 @@
 name: "Cloud Video Pipeline (Zero-Laptop Storage)"
 
 on:
-  schedule:
-    # 10:00 UTC = 3:30 PM IST (Daily Autonomous Google Trends Video Generation & Dispatch)
-    - cron: "0 10 * * *"
+  # Primary Trigger: Cloudflare Worker Cron triggers workflow_dispatch at 15:30 IST (10:00 UTC) daily with 0 delay.
+  # Native GitHub schedule is omitted to prevent delayed secondary duplicate runs at night.
   workflow_dispatch:
     inputs:
       topic:
