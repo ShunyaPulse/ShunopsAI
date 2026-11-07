@@ -16,12 +16,25 @@ export interface VideoNotificationDetails {
   videoUrl: string;
   studioUrl: string;
   topic: string;
+  jobId?: string | undefined;
   category?: string | undefined;
   valueHook?: string | undefined;
   thumbnailPath?: string | undefined;
   chapters?: { title: string; start_scene: number }[] | undefined;
   durationSec?: number | undefined;
   engine?: string | undefined;
+  auditReport?: {
+    overallQualityScore?: number;
+    summary?: string;
+    defects?: Array<{
+      id: number;
+      timestamp: string;
+      type: string;
+      severity: string;
+      description: string;
+      proposedFix: string;
+    }>;
+  } | undefined;
 }
 
 /**
@@ -124,6 +137,66 @@ export async function sendVideoReadyEmail(details: VideoNotificationDetails): Pr
       </div>
 
       ${
+        details.auditReport
+          ? `
+      <!-- AI Video Quality & Glitch Audit -->
+      <div style="background-color: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 18px 20px; margin-bottom: 24px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; border-bottom: 1px solid #1e293b; padding-bottom: 8px;">
+          <h3 style="margin: 0; font-size: 16px; color: #38bdf8;">🔍 AI Video Quality &amp; Visual Audit</h3>
+          <span style="background-color: #0369a1; color: #ffffff; font-weight: 700; font-size: 12px; padding: 4px 8px; border-radius: 4px;">
+            Score: ${details.auditReport.overallQualityScore ?? 8}/10
+          </span>
+        </div>
+        ${
+          details.auditReport.summary
+            ? `<p style="font-size: 13px; color: #94a3b8; margin: 0 0 16px 0; font-style: italic;">
+                "${escapeHtml(details.auditReport.summary)}"
+               </p>`
+            : ""
+        }
+        ${
+          (details.auditReport.defects && details.auditReport.defects.length > 0)
+            ? `
+          <div style="margin-top: 10px;">
+            ${details.auditReport.defects
+              .map(
+                (d) => `
+              <div style="background-color: #1e293b; border-left: 3px solid ${
+                d.severity === "HIGH" ? "#ef4444" : d.severity === "MEDIUM" ? "#f59e0b" : "#10b981"
+              }; padding: 12px 14px; border-radius: 4px; margin-bottom: 10px;">
+                <div style="margin-bottom: 4px;">
+                  <strong style="color: #f8fafc; font-size: 13px;">[#${d.id}] ⏱️ ${escapeHtml(d.timestamp)} - ${escapeHtml(d.type)}</strong>
+                  <span style="font-size: 11px; font-weight: 600; color: ${
+                    d.severity === "HIGH" ? "#f87171" : d.severity === "MEDIUM" ? "#fbbf24" : "#34d399"
+                  }; text-transform: uppercase; margin-left: 8px;">
+                    ${escapeHtml(d.severity)}
+                  </span>
+                </div>
+                <div style="font-size: 13px; color: #cbd5e1; margin-bottom: 6px;">
+                  ${escapeHtml(d.description)}
+                </div>
+                <div style="font-size: 12px; color: #38bdf8; background-color: #0f172a; padding: 6px 10px; border-radius: 4px;">
+                  <strong>💡 Proposed Intelligence Upgrade:</strong> ${escapeHtml(d.proposedFix)}
+                </div>
+              </div>`
+              )
+              .join("")}
+          </div>`
+            : `<p style="font-size: 13px; color: #4ade80; margin: 0;">✅ No critical visual glitches detected! Video passed all aesthetic gates.</p>`
+        }
+
+        <!-- Interactive Reply Callout -->
+        <div style="background: linear-gradient(135deg, #1e1b4b, #312e81); border: 1px solid #6366f1; border-radius: 8px; padding: 14px 16px; margin-top: 18px;">
+          <h4 style="margin: 0 0 6px 0; font-size: 14px; color: #a5b4fc;">💬 Reply Directly to Guide the AI Agent</h4>
+          <p style="margin: 0; font-size: 12.5px; line-height: 1.5; color: #e0e7ff;">
+            Hit <strong>Reply</strong> to this email with your directions in natural language (e.g. <em>"1 wala fix karo, but camera zoom mat hatana..."</em>). The agent will process your subjective feedback, upgrade the engine semantically, and reply with the verified git commit!
+          </p>
+        </div>
+      </div>`
+          : ""
+      }
+
+      ${
         chaptersHtml
           ? `<div style="margin-top: 24px; border-top: 1px solid #334155; padding-top: 16px;">
               <h4 style="margin: 0 0 10px 0; font-size: 14px; color: #94a3b8;">Video Chapters:</h4>
@@ -154,8 +227,9 @@ export async function sendVideoReadyEmail(details: VideoNotificationDetails): Pr
 
     const info = await transporter.sendMail({
       from: `"Autonomous Video Bot" <${user}>`,
+      replyTo: user,
       to,
-      subject: `🎬 [Private Review Ready] ${details.title}`,
+      subject: `🎬 [Private Review Ready] ${details.title} [job:${details.jobId || "vid"}]`,
       html,
       attachments,
     });

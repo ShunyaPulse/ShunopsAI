@@ -45,3 +45,4 @@ __pycache__/
 .freebuff/
 .cache/
 temp_*/
+scratch/

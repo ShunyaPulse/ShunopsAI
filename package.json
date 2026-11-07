@@ -13,6 +13,7 @@
     "typecheck": "tsc --noEmit",
     "resolve-alerts": "tsx src/tools/code-scanner-resolver.ts",
     "check:cf": "tsx scripts/check_cloudflare.ts",
+    "video:poll-replies": "tsx src/cron/email-reply-poller.ts",
     "worker:dev": "npx wrangler dev",
     "worker:deploy": "npx wrangler deploy"
   },

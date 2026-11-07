@@ -20,6 +20,7 @@ import * as fs from "node:fs/promises";
 import { Redis } from "ioredis";
 import { manageKaggle, publishJobToYouTube, kaggle, rerunVideoJob } from "../tools/video.js";
 import { sendVideoReadyEmail, sendIncidentAlert } from "../tools/notifier.js";
+import { auditVideoQuality } from "../tools/video/quality-auditor.js";
 
 const STATE_FILE = path.resolve(process.cwd(), ".auditor-state.json");
 const USER = process.env.VIDEO_KAGGLE_USERNAME || process.env.KAGGLE_USERNAME || "shunyapulse";
@@ -337,11 +338,27 @@ export async function sweepAndPublishVideos(): Promise<{ checked: number; publis
         } catch {}
       }
 
+      // Autonomous Gemini Multimodal Video Quality Audit (Zero Laptop Storage)
+      let auditReport: any = undefined;
+      try {
+        console.log(`[Cloud Sweeper] 🔍 Launching Gemini Multimodal Video Quality Audit for job ${jobId}...`);
+        auditReport = await auditVideoQuality(videoFile, {
+          topic: meta.title,
+          description: meta.description,
+        });
+        const auditPath = path.join(destDir, "quality-audit.json");
+        await fs.writeFile(auditPath, JSON.stringify(auditReport, null, 2), "utf-8");
+        console.log(`[Cloud Sweeper] ✅ Video audit saved to ${auditPath}`);
+      } catch (auditErr: any) {
+        console.warn(`[Cloud Sweeper] Non-fatal video audit warning: ${auditErr?.message || auditErr}`);
+      }
+
       await sendVideoReadyEmail({
         title: yt.title,
         videoUrl: yt.videoUrl,
         studioUrl: yt.studioUrl,
         topic: meta.title || "Autonomous Cloud Video",
+        jobId,
         category: meta.category || "Education & Technology",
         valueHook: meta.description || meta.value_hook || "Autonomous video render complete.",
         thumbnailPath: ["thumbnail.jpg", "thumbnail.png", "frame_30s.jpg"]
@@ -350,6 +367,7 @@ export async function sweepAndPublishVideos(): Promise<{ checked: number; publis
         chapters: meta.chapters,
         durationSec: meta.duration_sec,
         engine: meta.engine,
+        auditReport,
       });
 
       publishedCount++;
