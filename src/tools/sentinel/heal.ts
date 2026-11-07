@@ -229,10 +229,18 @@ function cleanDetailsString(text: string): string {
     (() => { const i = s.toLowerCase().indexOf('code'); return i !== -1 && /^["']?\s*:\s*4006/.test(s.slice(i + 4)); })() ||
     /daily quota exhausted/i.test(s)
   ) {
-    s = s.replace(
-      /Cloudflare AI returned error:\s*.*?(\(Trigger|$)/i,
-      "Daily free quota reached (10,000 neurons exhausted for today). $1"
-    );
+    // Safely replace Cloudflare AI error message without using vulnerable regex
+    const cfPrefix = "Cloudflare AI returned error:";
+    const cfIdx = s.toLowerCase().indexOf(cfPrefix.toLowerCase());
+    if (cfIdx !== -1) {
+      const after = s.slice(cfIdx + cfPrefix.length);
+      const triggerPos = after.indexOf("(Trigger");
+      if (triggerPos !== -1) {
+        s = s.slice(0, cfIdx) + "Daily free quota reached (10,000 neurons exhausted for today). (Trigger" + after.slice(triggerPos + "(Trigger".length);
+      } else {
+        s = s.slice(0, cfIdx) + "Daily free quota reached (10,000 neurons exhausted for today). ";
+      }
+    }
   }
 
   return s
