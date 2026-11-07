@@ -11,7 +11,12 @@ import {
   exportUserData,
   revokeAllUserSessions,
 } from "../../db.js";
-import { sendEmailOTP, verifyEmailOTP } from "../../email-otp.js";
+import {
+  sendEmailOTP,
+  verifyEmailOTP,
+  isScannerOrTestProbe,
+  verifyDomainHasDeliverableMx,
+} from "../../email-otp.js";
 import { verifyCloudflareTurnstile } from "../../middleware/bot-shield.js";
 import { getClientIp, getClientSubnet, checkDistributedSubnetQuota } from "../../middleware/ratelimit.js";
 import { COOKIE_NAME, getSessionUser, requireSessionUser, startUserSession, toPublicUser } from "./session.js";
@@ -48,9 +53,10 @@ interface SendOtpBody {
 async function handleSendEmailOtp(req: FastifyRequest, reply: FastifyReply) {
   const { email, purpose, turnstileToken, hp_website } = (req.body as SendOtpBody) || {};
 
+  // Layer 1: Honeypot Silent Tarpit (Deception defense: trap bot without giving 400 error hint)
   if (hp_website) {
-    reply.status(400);
-    return { error: "Verification failed." };
+    await new Promise((r) => setTimeout(r, 400));
+    return { success: true, message: "If an account exists with this email, a 6-digit code has been sent." };
   }
 
   if (!email || typeof email !== "string" || !email.includes("@")) {
@@ -59,18 +65,55 @@ async function handleSendEmailOtp(req: FastifyRequest, reply: FastifyReply) {
   }
 
   const cleanEmail = email.trim().toLowerCase();
+
+  // Layer 5A: Silent Tarpit for RFC Test & Scanner Domains (probe.*, example.com, etc.)
+  if (isScannerOrTestProbe(cleanEmail)) {
+    await new Promise((r) => setTimeout(r, 300));
+    return { success: true, message: "If an account exists with this email, a 6-digit code has been sent." };
+  }
+
+  // Layer 5B: Pre-Flight DNS MX Verification (Rejects undeliverable domains before touching SMTP)
+  const atIdx = cleanEmail.lastIndexOf("@");
+  const domain = cleanEmail.slice(atIdx + 1);
+  const hasMx = await verifyDomainHasDeliverableMx(domain);
+  if (!hasMx) {
+    reply.status(400);
+    return { error: "The provided email domain cannot receive incoming messages." };
+  }
+
   const clientIp = getClientIp(req);
   const clientSubnet = getClientSubnet(clientIp);
 
-  // Rate-limit: 5 OTP sends per 5 minutes per subnet
-  const quota = await checkDistributedSubnetQuota(`otp-send:${clientSubnet}`, 5, 300);
-  if (!quota.allowed) {
+  // Layer 3: Multi-Tier Hierarchical Rate Limiting
+  // 3A. Global velocity limit: max 10 OTP sends / min platform-wide (Anti-Bombing burst defense)
+  const globalQuota = await checkDistributedSubnetQuota("otp-global", 10, 60);
+  if (!globalQuota.allowed) {
+    reply.status(429);
+    return { error: "System is experiencing high verification volume. Please try again shortly." };
+  }
+
+  // 3B. Per-IP limit: max 2 OTP sends / 10 min
+  const ipQuota = await checkDistributedSubnetQuota(`otp-ip:${clientIp}`, 2, 600);
+  if (!ipQuota.allowed) {
+    reply.status(429);
+    return { error: "Too many verification attempts from this IP address. Please wait a few minutes." };
+  }
+
+  // 3C. Subnet limit: max 4 OTP sends / 10 min per /24
+  const subnetQuota = await checkDistributedSubnetQuota(`otp-send:${clientSubnet}`, 4, 600);
+  if (!subnetQuota.allowed) {
     reply.status(429);
     return { error: "Too many OTP requests from this network. Please wait a few minutes." };
   }
 
-  // Always run Turnstile check (passes gracefully when TURNSTILE_SECRET_KEY is not configured;
-  // prevents bypass by omitting turnstileToken when Turnstile IS configured).
+  // 3D. Per-Email 24-Hour Budget: max 3 OTP sends / 24 hours
+  const emailDailyQuota = await checkDistributedSubnetQuota(`otp-email:${cleanEmail}`, 3, 86400);
+  if (!emailDailyQuota.allowed) {
+    reply.status(429);
+    return { error: "Daily verification limit reached for this email. Please try again tomorrow." };
+  }
+
+  // Layer 2: Cloudflare Turnstile & Hardened PoW Shield
   const isHuman = await verifyCloudflareTurnstile(turnstileToken || "", clientIp);
   if (!isHuman) {
     reply.status(403);

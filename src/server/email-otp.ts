@@ -1,6 +1,102 @@
 import crypto from "crypto";
+import dns from "node:dns/promises";
 import nodemailer from "nodemailer";
 import { getSql, memStore } from "./db/store.js";
+
+// In-memory cache for deliverable domain MX records (24 hours TTL)
+const mxDomainCache = new Map<string, { valid: boolean; expiresAt: number }>();
+
+// Pre-seeded high-trust email providers that never require external DNS lookups
+const TRUSTED_EMAIL_DOMAINS = new Set([
+  "gmail.com",
+  "googlemail.com",
+  "yahoo.com",
+  "yahoo.co.in",
+  "outlook.com",
+  "hotmail.com",
+  "live.com",
+  "icloud.com",
+  "proton.me",
+  "protonmail.com",
+  "zoho.com",
+  "aol.com",
+]);
+
+// RFC 2606 and RFC 6761 reserved domains that must never receive external emails
+const RESERVED_DOMAINS = new Set([
+  "example.com",
+  "example.org",
+  "example.net",
+  "example.edu",
+  "test",
+  "invalid",
+  "localhost",
+  "local",
+]);
+
+/**
+ * Checks whether an email address is an RFC test/probe domain or known scanner pattern.
+ * If true, it should be silently tarpitted (fake success without calling SMTP).
+ */
+export function isScannerOrTestProbe(email: string): boolean {
+  const clean = email.trim().toLowerCase();
+  const atIdx = clean.lastIndexOf("@");
+  if (atIdx === -1) return true;
+
+  const localPart = clean.slice(0, atIdx);
+  const domain = clean.slice(atIdx + 1);
+
+  // 1. Reserved / RFC test domains
+  if (
+    RESERVED_DOMAINS.has(domain) ||
+    domain.endsWith(".example") ||
+    domain.endsWith(".test") ||
+    domain.endsWith(".invalid") ||
+    domain.endsWith(".localhost") ||
+    domain.endsWith(".local")
+  ) {
+    return true;
+  }
+
+  // 2. Typical vulnerability probe prefixes: probe.<random>, scan.<random>, test.<random>, pentest.<random>
+  if (/^(probe|scanner?|pentest|dummy|fake|fuzz|vuln|exploit|injected)[\.\-_]?[a-z0-9]*$/i.test(localPart)) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Pre-flight verification that the domain can actually receive mail via DNS MX lookup.
+ * Protects Gmail/SMTP reputation from bounces (Null MX, non-existent domains).
+ */
+export async function verifyDomainHasDeliverableMx(domain: string): Promise<boolean> {
+  const cleanDomain = domain.trim().toLowerCase();
+  if (TRUSTED_EMAIL_DOMAINS.has(cleanDomain)) return true;
+
+  const cached = mxDomainCache.get(cleanDomain);
+  const now = Date.now();
+  if (cached && cached.expiresAt > now) {
+    return cached.valid;
+  }
+
+  try {
+    const records = await dns.resolveMx(cleanDomain);
+    if (!records || records.length === 0) {
+      mxDomainCache.set(cleanDomain, { valid: false, expiresAt: now + 3600_000 });
+      return false;
+    }
+
+    // RFC 7505 Null MX: exchange is "." (or empty) indicating domain explicitly does NOT receive email
+    const hasValidMx = records.some((r) => r.exchange && r.exchange.trim() !== "." && r.exchange.trim() !== "");
+    mxDomainCache.set(cleanDomain, { valid: hasValidMx, expiresAt: now + (hasValidMx ? 86400_000 : 3600_000) });
+    return hasValidMx;
+  } catch {
+    // NXDOMAIN or DNS error -> Domain cannot receive email
+    mxDomainCache.set(cleanDomain, { valid: false, expiresAt: now + 3600_000 });
+    return false;
+  }
+}
 
 let transporter: ReturnType<typeof nodemailer.createTransport> | null = null;
 
@@ -40,15 +136,32 @@ export function generateNumericOTP(): string {
  */
 export async function sendEmailOTP(email: string): Promise<{ success: boolean; message: string }> {
   const cleanEmail = email.trim().toLowerCase();
+
+  // Layer 5A: Silent Tarpit for RFC Test & Scanner Domains (probe.*, example.com, etc.)
+  if (isScannerOrTestProbe(cleanEmail)) {
+    return { success: true, message: "If an account exists with this email, a 6-digit code has been sent." };
+  }
+
+  // Layer 5B: Pre-Flight DNS MX Verification
+  const atIdx = cleanEmail.lastIndexOf("@");
+  if (atIdx === -1) {
+    return { success: false, message: "Valid email address is required." };
+  }
+  const domain = cleanEmail.slice(atIdx + 1);
+  const hasDeliverableMx = await verifyDomainHasDeliverableMx(domain);
+  if (!hasDeliverableMx) {
+    return { success: false, message: "The specified email domain cannot receive incoming messages." };
+  }
+
   const sql = getSql();
   const now = Date.now();
 
   if (!sql) {
     const existing = memStore.emailOtps.get(cleanEmail);
-    if (existing && now - existing.createdAt < 30_000) {
+    if (existing && now - existing.createdAt < 60_000) {
       return {
         success: false,
-        message: "Please wait 30 seconds before requesting another OTP.",
+        message: "Please wait 60 seconds before requesting another OTP.",
       };
     }
     const otp = generateNumericOTP();
@@ -82,17 +195,17 @@ export async function sendEmailOTP(email: string): Promise<{ success: boolean; m
     }
   }
 
-  // Rate limit: 1 OTP request per email per 30 seconds
+  // Rate limit: 1 OTP request per email per 60 seconds
   const recentCheck = await (sql as any).query(
     `SELECT created_at FROM shunops_email_otps 
-     WHERE LOWER(email) = $1 AND created_at > NOW() - INTERVAL '30 seconds'
+     WHERE LOWER(email) = $1 AND created_at > NOW() - INTERVAL '60 seconds'
      LIMIT 1;`,
     [cleanEmail]
   );
   if (recentCheck.length > 0) {
     return {
       success: false,
-      message: "Please wait 30 seconds before requesting another OTP.",
+      message: "Please wait 60 seconds before requesting another OTP.",
     };
   }
 

@@ -17,10 +17,10 @@ export function authPageScripts(isLogin: boolean, turnstileSiteKey: string): str
     async function solveShieldPoW(challenge) {
       if (!challenge || !window.crypto || !window.crypto.subtle) return null;
       const enc = new TextEncoder();
-      const targetDifficulty = challenge.targetDifficulty || 2;
+      const targetDifficulty = challenge.targetDifficulty || 4;
       const targetPrefix = '0'.repeat(targetDifficulty);
       let nonce = 0;
-      while (nonce < 200000) {
+      while (nonce < 1500000) {
         const data = enc.encode(challenge.salt + ':' + nonce);
         const buf = await window.crypto.subtle.digest('SHA-256', data);
         const hex = Array.from(new Uint8Array(buf))

@@ -6,6 +6,7 @@ const MAX_CONSUMED_SALTS = 10_000;
 
 // Bounded replay guard so a solved Proof-of-Work challenge can only be used once
 const consumedShieldSalts = new Map<string, number>();
+const SHIELD_MAX_AGE_MS = 3 * 60 * 1000; // 3-minute challenge validity window
 
 function pruneConsumedSalts(now: number): void {
   if (consumedShieldSalts.size < MAX_CONSUMED_SALTS) return;
@@ -43,16 +44,20 @@ export interface ShieldSolutionPayload {
 
 /**
  * Generate a cryptographically signed puzzle for the client browser.
- * Real browser solves in ~30-50ms via WebCrypto API.
+ * Hardened static difficulty (4 hex zeroes '0000', ~65,536 iterations).
  */
-export function generateShieldChallenge(): ShieldChallenge {
+export function generateShieldChallenge(clientIp?: string): ShieldChallenge {
   const salt = crypto.randomBytes(16).toString("hex");
   const timestamp = Date.now();
-  const targetDifficulty = 2; // '00' prefix requirement
+  const targetDifficulty = 4; // Hardened static '0000' requirement
+
+  const payload = clientIp
+    ? `${salt}:${timestamp}:${targetDifficulty}:${clientIp}`
+    : `${salt}:${timestamp}:${targetDifficulty}`;
 
   const signature = crypto
     .createHmac("sha256", getShieldSecret())
-    .update(`${salt}:${timestamp}:${targetDifficulty}`)
+    .update(payload)
     .digest("hex");
 
   return {
@@ -65,35 +70,50 @@ export function generateShieldChallenge(): ShieldChallenge {
 
 /**
  * Verify that the puzzle solution provided by the client is mathematically valid,
- * solved within a reasonable timeframe (10 minutes), and has not been replayed.
+ * meets the hardened static difficulty, solved within 3 minutes, and has not been replayed.
  */
 export function verifyShieldSolution(
   salt: string,
   timestamp: number,
   targetDifficulty: number,
   signature: string,
-  solution: string
+  solution: string,
+  remoteIp?: string
 ): boolean {
   if (!salt || !timestamp || !signature || !solution) return false;
 
+  // Enforce hardened static difficulty (minimum 4 = '0000')
+  if (targetDifficulty < 4) return false;
+
   const now = Date.now();
-  // Expire challenges older than 10 minutes or timestamps in the future
-  if (now - timestamp > SHIELD_TTL_MS || timestamp > now + 60_000) return false;
+  // Expire challenges older than 3 minutes or timestamps in the future
+  if (now - timestamp > SHIELD_MAX_AGE_MS || timestamp > now + 60_000) return false;
 
   // Reject replayed challenges
   const existingExp = consumedShieldSalts.get(salt);
   if (existingExp && existingExp > now) return false;
 
-  // Verify HMAC signature to prevent client tampering using constant-time comparison
-  const expectedSig = crypto
+  // Verify HMAC signature to prevent client tampering using constant-time comparison.
+  // Checks both IP-bound signature and generic signature for reverse proxy compatibility.
+  const expectedSigIp = crypto
+    .createHmac("sha256", getShieldSecret())
+    .update(`${salt}:${timestamp}:${targetDifficulty}${remoteIp ? `:${remoteIp}` : ""}`)
+    .digest("hex");
+
+  const expectedSigGeneric = crypto
     .createHmac("sha256", getShieldSecret())
     .update(`${salt}:${timestamp}:${targetDifficulty}`)
     .digest("hex");
 
   try {
-    const expectedBuf = Buffer.from(expectedSig, "hex");
     const actualBuf = Buffer.from(signature, "hex");
-    if (expectedBuf.length !== actualBuf.length || !crypto.timingSafeEqual(expectedBuf, actualBuf)) {
+    const sigIpBuf = Buffer.from(expectedSigIp, "hex");
+    const sigGenericBuf = Buffer.from(expectedSigGeneric, "hex");
+
+    const matchIp = sigIpBuf.length === actualBuf.length && crypto.timingSafeEqual(sigIpBuf, actualBuf);
+    const matchGeneric = sigGenericBuf.length === actualBuf.length && crypto.timingSafeEqual(sigGenericBuf, actualBuf);
+
+    if (!matchIp && !matchGeneric) {
       return false;
     }
   } catch {
@@ -146,7 +166,8 @@ export async function verifyCloudflareTurnstile(token: string, remoteIp?: string
         Number(payload.timestamp),
         Number(payload.targetDifficulty),
         payload.signature,
-        String(payload.solution)
+        String(payload.solution),
+        remoteIp
       );
     } catch {
       return false;

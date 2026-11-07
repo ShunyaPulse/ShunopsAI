@@ -264,15 +264,16 @@ async function runSuite() {
     assert.ok(challenge.salt);
     assert.ok(challenge.signature);
 
-    // Solve PoW for targetDifficulty (prefix '00')
+    // Solve PoW for hardened static targetDifficulty
     const crypto = await import("node:crypto");
+    const targetPrefix = "0".repeat(challenge.targetDifficulty);
     let solution = 0;
     while (true) {
       const hash = crypto
         .createHash("sha256")
         .update(`${challenge.salt}:${solution}`)
         .digest("hex");
-      if (hash.startsWith("00")) break;
+      if (hash.startsWith(targetPrefix)) break;
       solution++;
     }
 
@@ -332,13 +333,14 @@ async function runSuite() {
     // Solve valid PoW challenge
     const challenge = generateShieldChallenge();
     const crypto = await import("node:crypto");
+    const targetPrefix = "0".repeat(challenge.targetDifficulty);
     let solution = 0;
     while (true) {
       const hash = crypto
         .createHash("sha256")
         .update(`${challenge.salt}:${solution}`)
         .digest("hex");
-      if (hash.startsWith("00")) break;
+      if (hash.startsWith(targetPrefix)) break;
       solution++;
     }
 
