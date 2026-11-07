@@ -1,4 +1,5 @@
 import * as fs from "node:fs/promises";
+import * as fsSync from "node:fs";
 import * as path from "node:path";
 import { kaggle } from "./kaggle.js";
 import { generateScript } from "./script.js";
@@ -99,9 +100,11 @@ function kernelMetadata(user: string, id: string, title?: string) {
 }
 
 function runtimeConfig(gcpKey?: string) {
+  const resolvedGcpKey = process.env.GCP_TTS_API_KEY || process.env.GOOGLE_TTS_API_KEY || gcpKey || "";
   return {
     hf_token: process.env.HF_TOKEN || process.env.HUGGINGFACE_TOKEN || (process.env.KAGGLE_BUNDLE_HF_TOKEN === "true" ? (process.env.HF_TOKEN || "") : ""),
-    gcp_tts_key: process.env.GCP_TTS_API_KEY || process.env.GOOGLE_TTS_API_KEY || gcpKey || "",
+    gcp_tts_key: resolvedGcpKey,
+    gcp_tts_api_key: resolvedGcpKey,
   };
 }
 
@@ -358,14 +361,33 @@ async function syncJobAudio(dsDir: string): Promise<void> {
 }
 
 /**
+ * Resolves the local job directory for a given `cleanId` (which may be a full slug
+ * like `m9abc123-why-india-built` or a base ID like `m9abc123`).
+ */
+function resolveLocalJobDir(cleanId: string): string {
+  const directDir = path.join(JOBS_DIR, cleanId);
+  if (fsSync.existsSync(directDir)) {
+    return directDir;
+  }
+  const baseId = cleanId.split("-")[0];
+  if (baseId && baseId !== cleanId) {
+    const baseDir = path.join(JOBS_DIR, baseId);
+    if (fsSync.existsSync(baseDir)) {
+      return baseDir;
+    }
+  }
+  return directDir;
+}
+
+/**
  * Reruns an existing video job on Kaggle with the latest patched renderer.
  */
 export async function rerunVideoJob(jobId: string): Promise<string> {
   const user = kaggleUser();
   if (!user) return "Error: KAGGLE_USERNAME not set.";
 
-  const cleanId = jobId.replace(/^video-render-/, "").replace(/^shunyapulse\//, "");
-  const jobDir = path.join(JOBS_DIR, cleanId);
+  const cleanId = jobId.replace(/^[a-zA-Z0-9_-]+\//, "").replace(/^video-render-/, "");
+  const jobDir = resolveLocalJobDir(cleanId);
   const kDir = path.join(jobDir, "kernel");
   const dsDir = path.join(jobDir, "dataset");
   await fs.mkdir(kDir, { recursive: true });
@@ -374,18 +396,37 @@ export async function rerunVideoJob(jobId: string): Promise<string> {
 
   // Copy latest patched render.py into the job kernel directory
   await fs.copyFile(RENDER_SRC, path.join(kDir, "render.py"));
-  await writeJsonFile(path.join(kDir, "kernel-metadata.json"), kernelMetadata(user, cleanId));
+
+  // Preserve existing kernel-metadata.json if present (so dataset_sources slug matches Kaggle);
+  // otherwise reconstruct using cleanId (which already includes any slug suffix).
+  const kMetaPath = path.join(kDir, "kernel-metadata.json");
+  let targetKernelRef = `${user}/video-render-${cleanId}`;
+  if (fsSync.existsSync(kMetaPath)) {
+    try {
+      const existingMeta = JSON.parse(await fs.readFile(kMetaPath, "utf-8"));
+      if (existingMeta?.id) {
+        targetKernelRef = existingMeta.id;
+      }
+    } catch {
+      await writeJsonFile(kMetaPath, kernelMetadata(user, cleanId));
+    }
+  } else {
+    await writeJsonFile(kMetaPath, kernelMetadata(user, cleanId));
+  }
 
   console.log("[Video] Pushing updated kernel to Kaggle...");
   const pushRes = await kaggle(["kernels", "push", "-p", kDir]);
+  if (/400 Client Error|403 Client Error|404 Client Error|Kaggle CLI Error/i.test(pushRes)) {
+    throw new Error(`[Kaggle Kernel Rerun Push Failed] ${pushRes.slice(0, 240)}`);
+  }
   console.log("[Video] Kernel push completed.");
 
-  const statusRes = await kaggle(["kernels", "status", `${user}/video-render-${cleanId}`]);
+  const statusRes = await kaggle(["kernels", "status", targetKernelRef]);
 
   return JSON.stringify(
     {
       jobId: cleanId,
-      kernel: `${user}/video-render-${cleanId}`,
+      kernel: targetKernelRef,
       push: pushRes,
       status: statusRes,
     },

@@ -223,6 +223,15 @@ function isTextOnlyModel(target: ModelTarget): boolean {
   );
 }
 
+function safeParseToolArgs(raw: unknown): unknown {
+  if (typeof raw !== "string") return raw ?? {};
+  try {
+    return JSON.parse(raw || "{}");
+  } catch {
+    return { raw };
+  }
+}
+
 /**
  * Convert OpenAI tool schemas + `role: "tool"` messages into a universal text-based
  * ReAct `<tool_call>` protocol for models/endpoints that do not support native OpenAI `tools`.
@@ -256,7 +265,7 @@ export function buildToolPromptFallbackMessages(
       converted.push(m);
     } else if (m.role === "assistant" && (m as any).tool_calls?.length) {
       const callsText = ((m as any).tool_calls as any[])
-        .map((tc) => `<tool_call>${JSON.stringify({ name: tc.function?.name, arguments: JSON.parse(tc.function?.arguments || "{}") })}</tool_call>`)
+        .map((tc) => `<tool_call>${JSON.stringify({ name: tc.function?.name, arguments: safeParseToolArgs(tc.function?.arguments) })}</tool_call>`)
         .join("\n");
       converted.push({
         role: "assistant",
@@ -277,11 +286,18 @@ export function buildToolPromptFallbackMessages(
     const firstUserIdx = converted.findIndex((m) => m.role === "user");
     if (firstUserIdx >= 0) {
       const existing = converted[firstUserIdx];
-      if (existing && existing.role === "user" && typeof existing.content === "string") {
-        converted[firstUserIdx] = {
-          role: "user",
-          content: `${protocolInstruction}\n\n${existing.content}`,
-        };
+      if (existing && existing.role === "user") {
+        if (typeof existing.content === "string") {
+          converted[firstUserIdx] = {
+            role: "user",
+            content: `${protocolInstruction}\n\n${existing.content}`,
+          };
+        } else if (Array.isArray(existing.content)) {
+          converted[firstUserIdx] = {
+            role: "user",
+            content: [{ type: "text", text: protocolInstruction }, ...existing.content],
+          };
+        }
       }
     }
   }

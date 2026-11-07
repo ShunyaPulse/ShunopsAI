@@ -1106,7 +1106,7 @@ async def main():
 
     cfg = find_config()
     hf_token = cfg.get("hf_token", "").strip()
-    gcp_key = cfg.get("gcp_tts_api_key", "").strip()
+    gcp_key = (cfg.get("gcp_tts_api_key") or cfg.get("gcp_tts_key") or "").strip()
 
     # Phase 1: Audio Acquisition & Metadata Calculation for all scenes
     print("\n[Phase 1/3] Preparing audio & metadata for all scenes...")

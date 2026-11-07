@@ -65,6 +65,7 @@ export async function runAutonomousAgent(
       const priorToolCallSignatures = new Map<string, number>();
       const stepsLog: AgentStepLogEntry[] = [];
       let deliverableVerificationTriggered = false;
+      let forceToolsForVerificationStep = false;
 
       const toolContext: Omit<ToolCallContext, "step"> = {
         scope,
@@ -91,7 +92,10 @@ export async function runAutonomousAgent(
         } catch {}
 
         try {
-          if (step === maxSteps && maxSteps > 1 && stepsLog.length > 0) {
+          const isFinalSynthesisStep =
+            step === maxSteps && maxSteps > 1 && stepsLog.length > 0 && !forceToolsForVerificationStep;
+
+          if (isFinalSynthesisStep) {
             messages.push({
               role: "user",
               content: `[Final Step Alert]: This is your final allowed step (${step}/${maxSteps}). Formulate and deliver your comprehensive final answer to the user now based on the findings above. Do not call any further tools.`,
@@ -99,9 +103,11 @@ export async function runAutonomousAgent(
           }
 
           const stepTools =
-            step === maxSteps && maxSteps > 2 && stepsLog.length >= 2
+            step === maxSteps && maxSteps > 2 && stepsLog.length >= 2 && !forceToolsForVerificationStep
               ? []
               : selectEnergyEfficientToolsForGoal(userGoal, activeTools, step);
+          forceToolsForVerificationStep = false;
+
           const { response, usedModel } = await callChatCompletionWithFailover(
             messages,
             targets,
@@ -167,6 +173,7 @@ export async function runAutonomousAgent(
 
               if (missingPrompts.length > 0) {
                 deliverableVerificationTriggered = true;
+                forceToolsForVerificationStep = true;
                 console.log(
                   `${colors.yellow}[Action Verification Guardrail]${colors.reset} Prompting agent to complete ${missingPrompts.length} unfulfilled action(s).`
                 );
@@ -265,6 +272,15 @@ export async function runAutonomousAgent(
       );
       runSpan.setAttribute("agent.steps_taken", stepsTaken);
       runSpan.setAttribute("agent.max_steps_reached", true);
+
+      // Synchronize active checklist tasks if tools were executed before maxSteps
+      if (stepsLog.length > 0) {
+        autoSyncTasksOnRunCompletion(
+          activeTenantKey,
+          stepsLog.map((s) => s.tool),
+          userGoal
+        );
+      }
 
       // Autonomous Final Synthesis: spend one tools-disabled turn turning the
       // gathered research into a complete answer instead of returning nothing.

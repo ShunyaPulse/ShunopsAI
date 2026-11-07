@@ -82,7 +82,7 @@ export function classifyHeuristic(prompt: string): ComplexityLevel | null {
     return "complex";
   }
 
-  return null; // Ambiguous: defer to Mammoth 1 or lightweight classifier
+  return null;
 }
 
 /**

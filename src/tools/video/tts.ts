@@ -3,6 +3,7 @@ import { promisify } from "node:util";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import * as os from "node:os";
+import { resolvePythonBin } from "../kokoro-tts.js";
 import type { VideoDomain } from "./types.js";
 
 const execFileAsync = promisify(execFile);
@@ -72,7 +73,7 @@ export function sanitizeNarrationForTTS(text: string, language = "Hindi"): strin
 }
 
 /**
- * Pre-synthesizes narration locally using Microsoft Edge-TTS via python -m edge_tts.
+ * Pre-synthesizes narration locally using Microsoft Edge-TTS via python3/python -m edge_tts.
  * Packages ready audio into the Kaggle dataset to bypass Kaggle datacenter IP 403 Forbidden blocks.
  */
 export async function synthesizeLocalEdgeTTS(
@@ -87,8 +88,9 @@ export async function synthesizeLocalEdgeTTS(
   const tmpTxt = path.join(os.tmpdir(), `edge_tts_${Date.now()}_${Math.random().toString(36).slice(2)}.txt`);
   try {
     await fs.writeFile(tmpTxt, sanitizedText, "utf-8");
+    const pyBin = await resolvePythonBin();
     const args = ["-m", "edge_tts", "-f", tmpTxt, "-v", voice, "--pitch", pitch, "--rate", rate, "--write-media", outPath];
-    await execFileAsync("python", args, { timeout: EDGE_TTS_TIMEOUT_MS });
+    await execFileAsync(pyBin, args, { timeout: EDGE_TTS_TIMEOUT_MS });
     const stat = await fs.stat(outPath);
     return stat.size > MIN_AUDIO_BYTES;
   } catch (err: any) {

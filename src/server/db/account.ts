@@ -41,9 +41,15 @@ export async function deleteUserAccount(userId: number): Promise<boolean> {
     for (const [id, task] of memStore.tasks.entries()) {
       if (task.user_id === userId || task.userId === userId) memStore.tasks.delete(id);
     }
+    for (const [id, conv] of memStore.conversations.entries()) {
+      if (conv.userId === userId) memStore.conversations.delete(id);
+    }
     memStore.chatMessages = memStore.chatMessages.filter((m) => m.userId !== userId);
     return true;
   }
+  try {
+    await (sql as any).query(`DELETE FROM shunops_agentic_state WHERE tenant_key = $1;`, [`user:${userId}`]);
+  } catch {}
   const result = await (sql as any).query(`DELETE FROM shunops_users WHERE id = $1 RETURNING id;`, [userId]);
   return result.length > 0;
 }

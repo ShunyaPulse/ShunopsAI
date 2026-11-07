@@ -1223,7 +1223,7 @@ async def main():
 
     cfg = find_config()
     hf_token = cfg.get("hf_token", "").strip()
-    gcp_tts_key = cfg.get("gcp_tts_key", "").strip()
+    gcp_tts_key = (cfg.get("gcp_tts_key") or cfg.get("gcp_tts_api_key") or "").strip()
 
     # Memory Isolation Invariant: Pre-generate ALL missing keyframes with SDXL-Lightning
     # and completely evict SDXL from RAM & VRAM before Wan2.1-VACE or AnimateDiff is initialized.

@@ -1,6 +1,7 @@
 import * as fsSync from "node:fs";
 import * as path from "node:path";
 import { uploadToYouTube } from "../youtube.js";
+import { resolvePythonBin } from "../kokoro-tts.js";
 import { JOBS_DIR } from "./job.js";
 import type { VideoPrivacy } from "./types.js";
 
@@ -56,8 +57,9 @@ async function generateFallbackThumbnail(targetDir: string, videoPath: string): 
   if (!fsSync.existsSync(videoPath)) return undefined;
   try {
     const outThumbPath = path.join(targetDir, "thumbnail.jpg");
+    const pyBin = await resolvePythonBin();
     const { execFileSync } = await import("node:child_process");
-    execFileSync("python", ["-c", THUMBNAIL_GEN_SCRIPT, videoPath, outThumbPath]);
+    execFileSync(pyBin, ["-c", THUMBNAIL_GEN_SCRIPT, videoPath, outThumbPath]);
     return fsSync.existsSync(outThumbPath) ? outThumbPath : undefined;
   } catch (e: any) {
     console.warn(`[Video] Fallback thumbnail generation warning: ${e.message}`);

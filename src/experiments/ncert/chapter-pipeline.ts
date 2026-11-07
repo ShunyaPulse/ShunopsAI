@@ -683,6 +683,10 @@ export async function launchChapterJob(
     path.join(dsDir, "config.json"),
     JSON.stringify({
       hf_token: process.env.HF_TOKEN || process.env.HUGGINGFACE_TOKEN || (process.env.KAGGLE_BUNDLE_HF_TOKEN === "true" ? (process.env.HF_TOKEN || "") : ""),
+      gcp_tts_key:
+        process.env.KAGGLE_BUNDLE_GCP_KEY === "true"
+          ? (options.gcpKey || process.env.GCP_TTS_API_KEY || process.env.GOOGLE_TTS_API_KEY || "")
+          : "",
       gcp_tts_api_key:
         process.env.KAGGLE_BUNDLE_GCP_KEY === "true"
           ? (options.gcpKey || process.env.GCP_TTS_API_KEY || process.env.GOOGLE_TTS_API_KEY || "")
@@ -756,10 +760,16 @@ export async function launchChapterJob(
   console.log(`   ✅ 100% Verified: ${preflight.audioCount} audio tracks, ${preflight.keyframeCount} FLUX keyframes, BGM: OK.`);
 
   console.log(`\n🚀 [Kaggle Dispatch] Uploading dataset with all pre-packaged audio (--dir-mode zip) & kernel for "${script.title}"...`);
-  await kaggle(["datasets", "create", "-p", dsDir, "--dir-mode", "zip"]);
+  const dsRes = await kaggle(["datasets", "create", "-p", dsDir, "--dir-mode", "zip"]);
+  if (/400 Client Error|403 Client Error|404 Client Error|error|must be between|Kaggle CLI Error/i.test(dsRes)) {
+    throw new Error(`[Kaggle Chapter Dataset Create Failed] ${dsRes.slice(0, 240)}`);
+  }
   // Smart polling for Kaggle dataset readiness (instant mount as soon as ready)
   await waitForDatasetReady(`${user}/video-job-${id}`, 30000, 2000);
-  await kaggle(["kernels", "push", "-p", kDir]);
+  const pushRes = await kaggle(["kernels", "push", "-p", kDir]);
+  if (/400 Client Error|403 Client Error|404 Client Error|Kaggle CLI Error/i.test(pushRes)) {
+    throw new Error(`[Kaggle Chapter Kernel Push Failed] ${pushRes.slice(0, 240)}`);
+  }
 
   const kaggleUrl = `https://www.kaggle.com/code/${user}/video-render-${id}`;
   console.log(`\n✅ [Dispatched Successfully!]`);

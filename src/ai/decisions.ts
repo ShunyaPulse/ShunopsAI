@@ -286,7 +286,7 @@ export async function evaluateToolRiskWithFullContext(ctx: {
   if (!decision) return null;
 
   const approvalProb = decision.answers.requires_human_approval?.noul ?? 0;
-  // Note: OpenRouter `score` is 0-indexed continuous in [0.0, 3.0]
+  // OpenRouter `score` is 0-indexed continuous in [0.0, 3.0]
   const rawScore0To3 = decision.answers.severity_score?.score ?? 0;
   const severityScale1To4 = Number((rawScore0To3 + 1).toFixed(2));
   const intentAligned = (decision.answers.intent_aligned?.noul ?? 1) >= 0.45;

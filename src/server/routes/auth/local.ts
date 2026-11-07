@@ -419,6 +419,9 @@ async function handleResetPassword(req: FastifyRequest, reply: FastifyReply) {
 
   const newHash = await bcrypt.hash(newPassword, BCRYPT_COST);
   await updateUserPassword(user.id, newHash);
+  if (user.email && !user.email_verified) {
+    await markEmailAsVerified(user.email);
+  }
   await revokeAllUserSessions(user.id);
 
   return { success: true, message: "Password reset successfully. Please log in with your new password." };

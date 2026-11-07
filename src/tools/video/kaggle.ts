@@ -3,6 +3,7 @@ import { promisify } from "node:util";
 import * as os from "node:os";
 import * as path from "node:path";
 import * as fs from "node:fs";
+import { resolvePythonBin } from "../kokoro-tts.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -67,13 +68,13 @@ function normalizeKaggleArgs(args: string[]): string[] {
   return normalized;
 }
 
-/** Run the Kaggle CLI, falling back to `python -m kaggle` off Windows. */
+/** Run the Kaggle CLI, falling back to `python3 -m kaggle` / `python -m kaggle` off Windows. */
 export async function kaggle(args: string[], timeout = KAGGLE_TIMEOUT_MS): Promise<string> {
   ensureKaggleCredentials();
   const env = kaggleEnv();
   const safeArgs = normalizeKaggleArgs(args);
   const isWin = os.platform() === "win32";
-  const cmd = isWin ? "python" : "kaggle";
+  const cmd = isWin ? await resolvePythonBin() : "kaggle";
   const finalArgs = isWin ? ["-X", "utf8", "-m", "kaggle", ...safeArgs] : safeArgs;
 
   try {
@@ -86,7 +87,8 @@ export async function kaggle(args: string[], timeout = KAGGLE_TIMEOUT_MS): Promi
   } catch (e: any) {
     if (!isWin) {
       try {
-        const { stdout, stderr } = await execFileAsync("python", ["-X", "utf8", "-m", "kaggle", ...safeArgs], {
+        const pyBin = await resolvePythonBin();
+        const { stdout, stderr } = await execFileAsync(pyBin, ["-X", "utf8", "-m", "kaggle", ...safeArgs], {
           env,
           timeout,
           maxBuffer: MAX_BUFFER,

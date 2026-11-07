@@ -214,7 +214,7 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
         let resolvedHistory = history;
         if (!resolvedHistory && authenticatedUser) {
           try {
-            const savedMsgs = await getChatHistory(authenticatedUser.id, 16);
+            const savedMsgs = await getChatHistory(authenticatedUser.id, 16, sessionId || "default");
             if (savedMsgs && savedMsgs.length > 0) {
               resolvedHistory = buildRollingMemory(savedMsgs.map((m) => ({ role: m.role, content: m.message })));
             }
