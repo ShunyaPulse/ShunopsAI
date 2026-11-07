@@ -212,7 +212,7 @@ function cleanDetailsString(text: string): string {
   // If JSON error dumped in details or reason
   if (s.includes('{"message":') || s.includes('[{"message":')) {
     try {
-      const match = s.match(/\[\{.*\}\]|\{.*\}/);
+      const match = s.match(/\[\{[^\[\]]*\}\]|\{[^{}]*\}/);
       if (match) {
         const parsed = JSON.parse(match[0]);
         const cleanMsg = Array.isArray(parsed)
