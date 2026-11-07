@@ -45,7 +45,8 @@ export async function sendVideoReadyEmail(details: VideoNotificationDetails): Pr
   const port = parseInt(process.env.SMTP_PORT || "465", 10);
   const user = process.env.SMTP_USER || "shunyapulse42@gmail.com";
   const pass = process.env.SMTP_PASS;
-  const to = process.env.EMAIL_FROM || process.env.SMTP_USER || "shunyapulse42@gmail.com";
+  const to = process.env.EMAIL_TO || process.env.EMAIL_FROM || "techanics6174@gmail.com";
+  const fromAddress = process.env.SMTP_FROM || `"ShunopsAI Review" <${user}>`;
 
   if (!pass) {
     console.warn("[Notifier] Warning: SMTP_PASS is missing in .env. Skipping email notification.");
@@ -226,7 +227,7 @@ export async function sendVideoReadyEmail(details: VideoNotificationDetails): Pr
     }
 
     const info = await transporter.sendMail({
-      from: `"Autonomous Video Bot" <${user}>`,
+      from: fromAddress,
       replyTo: user,
       to,
       subject: `🎬 [Private Review Ready] ${details.title} [job:${details.jobId || "vid"}]`,
@@ -391,7 +392,8 @@ export async function sendIncidentAlert(alert: IncidentAlertDetails): Promise<{
       const host = process.env.SMTP_HOST || "smtp.gmail.com";
       const port = parseInt(process.env.SMTP_PORT || "465", 10);
       const user = process.env.SMTP_USER || "shunyapulse42@gmail.com";
-      const to = process.env.EMAIL_TO || process.env.SMTP_USER || "shunyapulse42@gmail.com";
+      const to = process.env.EMAIL_TO || "techanics6174@gmail.com";
+      const fromAddress = process.env.SMTP_FROM || `"ShunopsAI Sentinel" <${user}>`;
 
       const transporter = nodemailer.createTransport({
         host,
@@ -401,7 +403,7 @@ export async function sendIncidentAlert(alert: IncidentAlertDetails): Promise<{
       });
 
       await transporter.sendMail({
-        from: `"ShunopsAI Sentinel" <${user}>`,
+        from: fromAddress,
         to,
         subject: `🚨 [SENTINEL ALERT] ${alert.service} is ${alert.status}`,
         text: `${icon} Incident Alert: ${alert.service}\nTitle: ${alert.title}\nStatus: ${alert.status}\nAction Taken: ${alert.actionTaken || "Automated check"}\nDetails: ${cleanDetails || "N/A"}\nTimestamp: ${time}`,
