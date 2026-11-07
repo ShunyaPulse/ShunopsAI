@@ -97,17 +97,42 @@ export function getCloudflareAccountPool(): CloudflareAccountInfo[] {
   return pool;
 }
 
+function getAccountRoleLabel(envKey?: string): string {
+  const k = (envKey || "").toUpperCase();
+  if (k.includes("SHUNYAPULSE") || k === "CLOUDFLARE_ACCOUNT_ID_3") {
+    return "ShunyaPulse (1st Fallback Reserve)";
+  }
+  if (k.includes("SARALGATI")) {
+    return "SaralGati (2nd Fallback Reserve)";
+  }
+  if (k === "CLOUDFLARE_ACCOUNT_ID" || k.includes("WEBSITE")) {
+    return "Primary (Video Pipeline)";
+  }
+  if (k) {
+    const clean = k.replace(/_?(CLOUDFLARE|ACCOUNT|ID|TOKEN)_?/gi, " ").trim();
+    if (clean) return clean;
+  }
+  return "Cloudflare Account";
+}
+
 /**
  * Fetches official account name directly from Cloudflare REST API.
- * Falls back to masked account ID if token lacks Account Read scope.
- * Zero hardcoded names.
+ * Identifies the account role (Primary, ShunyaPulse, SaralGati) and includes masked ID.
+ * Falls back gracefully if token lacks Account Read scope.
  */
-export async function fetchCloudflareAccountName(accountId: string, apiToken: string): Promise<string> {
-  if (accountNameCache.has(accountId)) {
-    return accountNameCache.get(accountId)!;
+export async function fetchCloudflareAccountName(
+  accountId: string,
+  apiToken: string,
+  envKey?: string
+): Promise<string> {
+  const cacheKey = `${accountId}:${envKey || ""}`;
+  if (accountNameCache.has(cacheKey)) {
+    return accountNameCache.get(cacheKey)!;
   }
 
+  const roleLabel = getAccountRoleLabel(envKey);
   const maskedId = `${accountId.slice(0, 4)}...${accountId.slice(-4)}`;
+
   try {
     const res = await fetch(`https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(accountId)}`, {
       headers: { Authorization: `Bearer ${apiToken}` },
@@ -116,15 +141,15 @@ export async function fetchCloudflareAccountName(accountId: string, apiToken: st
     if (res.ok) {
       const data = (await res.json()) as any;
       if (data.success && data.result?.name) {
-        const fetchedName = `${data.result.name} (${maskedId})`;
-        accountNameCache.set(accountId, fetchedName);
+        const fetchedName = `${roleLabel} [${data.result.name} (${maskedId})]`;
+        accountNameCache.set(cacheKey, fetchedName);
         return fetchedName;
       }
     }
   } catch {}
 
-  const fallbackName = `Account (${maskedId})`;
-  accountNameCache.set(accountId, fallbackName);
+  const fallbackName = `${roleLabel} (${maskedId})`;
+  accountNameCache.set(cacheKey, fallbackName);
   return fallbackName;
 }
 
@@ -145,13 +170,32 @@ export function sanitizeAiErrorMessage(raw: any): string {
     msg = String(raw);
   }
 
+  // If msg still contains serialized JSON string, parse it out
+  if (msg.includes('{"message":') || msg.includes('[{"message":')) {
+    try {
+      const jsonMatch = msg.match(/\[\{.*\}\]|\{.*\}/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
+        const extracted = Array.isArray(parsed)
+          ? parsed.map((e: any) => e.message || String(e)).join("; ")
+          : parsed.message || JSON.stringify(parsed);
+        if (extracted) msg = extracted;
+      }
+    } catch {}
+  }
+
   // Professional translation for daily neuron allocation exhausted
-  if (msg.includes("10,000 neurons") || msg.includes("daily free allocation") || /code["']?\s*:\s*4006/i.test(msg)) {
-    return "Daily free quota reached (10,000 neurons exhausted for today)";
+  if (
+    msg.includes("10,000 neurons") ||
+    msg.includes("daily free allocation") ||
+    /code["']?\s*:\s*4006/i.test(msg) ||
+    /daily quota exhausted/i.test(msg)
+  ) {
+    return "Daily free quota reached (10,000 neurons exhausted for today). Resets at 00:00 UTC (05:30 AM IST)";
   }
 
   // Strip duplicate AiError prefixes
-  msg = msg.replace(/\bAiError:\s*AiError:\s*/gi, "AiError: ");
+  msg = msg.replace(/\b(AiError:\s*)+/gi, "");
 
   // Strip Cloudflare internal request UUIDs e.g. (40e5eb0f-ca50-43bf-8462-bbca33abf841)
   msg = msg.replace(/\([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\)/gi, "");
@@ -162,7 +206,7 @@ export function sanitizeAiErrorMessage(raw: any): string {
   // Clean raw JSON wrappers
   msg = msg.replace(/^[\[{\s"']+|[\]}\s"']+$/g, "").trim();
 
-  return msg || "Service temporarily unavailable";
+  return msg || "Daily free quota reached (10,000 neurons exhausted for today).";
 }
 
 /**
@@ -284,7 +328,7 @@ export async function pingCloudflareAi(): Promise<CloudflareProbeResult> {
   const accountResults: CloudflareAccountProbe[] = [];
 
   for (const acc of pool) {
-    const displayName = await fetchCloudflareAccountName(acc.id, acc.token);
+    const displayName = await fetchCloudflareAccountName(acc.id, acc.token, acc.envKey);
     const start = Date.now();
 
     try {

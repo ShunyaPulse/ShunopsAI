@@ -252,6 +252,43 @@ export interface IncidentAlertDetails {
   timestamp?: string;
 }
 
+function cleanAlertDetails(text: string): string {
+  if (!text) return "";
+  let s = text;
+  if (s.includes('{"message":') || s.includes('[{"message":')) {
+    try {
+      const match = s.match(/\[\{.*\}\]|\{.*\}/);
+      if (match) {
+        const parsed = JSON.parse(match[0]);
+        const cleanMsg = Array.isArray(parsed)
+          ? parsed.map((e: any) => e.message || String(e)).join("; ")
+          : parsed.message || JSON.stringify(parsed);
+        s = s.replace(match[0], cleanMsg);
+      }
+    } catch {}
+  }
+
+  if (
+    s.includes("10,000 neurons") ||
+    s.includes("daily free allocation") ||
+    /code["']?\s*:\s*4006/i.test(s) ||
+    /daily quota exhausted/i.test(s)
+  ) {
+    s = s.replace(
+      /(?:Cloudflare AI returned error:\s*)?(?:\[\{.*\}\]|AIError:.*?(?:\.|$))/gi,
+      "Daily free allocation (10,000 neurons) reached for today."
+    );
+  }
+
+  return s
+    .replace(/\b(AIError:\s*)+/gi, "")
+    .replace(/\([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\)/gi, "")
+    .replace(/,?\s*["']?code["']?\s*:\s*\d+/gi, "")
+    .replace(/\[\s*\]/g, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
 /**
  * Broadcast incident & self-healing alerts to Discord, Telegram, Slack, and Email
  */
@@ -265,6 +302,7 @@ export async function sendIncidentAlert(alert: IncidentAlertDetails): Promise<{
   const isOk = alert.status === "HEALED" || alert.status === "INFO";
   const icon = isOk ? "✅" : alert.status === "DOWN" ? "🚨" : "⚠️";
   const color = isOk ? 0x22c55e : alert.status === "DOWN" ? 0xef4444 : 0xf59e0b;
+  const cleanDetails = cleanAlertDetails(alert.details || "");
 
   const results = { discord: false, telegram: false, slack: false, email: false };
 
@@ -286,7 +324,7 @@ export async function sendIncidentAlert(alert: IncidentAlertDetails): Promise<{
                 { name: "Service", value: alert.service, inline: true },
                 { name: "Status", value: alert.status, inline: true },
                 { name: "Action Taken", value: alert.actionTaken || "Autonomous Diagnosis", inline: false },
-                ...(alert.details ? [{ name: "Details", value: alert.details.slice(0, 1000), inline: false }] : []),
+                ...(cleanDetails ? [{ name: "Details", value: cleanDetails.slice(0, 1000), inline: false }] : []),
                 ...(alert.url ? [{ name: "Endpoint", value: alert.url, inline: false }] : []),
               ],
               footer: { text: "ShunopsAI Autonomous Sentinel" },
@@ -306,7 +344,7 @@ export async function sendIncidentAlert(alert: IncidentAlertDetails): Promise<{
   const tgChatId = process.env.TELEGRAM_CHAT_ID;
   if (tgToken && tgChatId) {
     try {
-      const text = `${icon} *[ShunopsAI Sentinel Alert]*\n\n*Status:* \`${alert.status}\`\n*Service:* \`${alert.service}\`\n*Event:* ${alert.title}\n*Action:* ${alert.actionTaken || "Self-healing triggered"}\n${alert.details ? `*Details:* ${alert.details.slice(0, 300)}\n` : ""}${alert.url ? `*URL:* ${alert.url}\n` : ""}*Time:* \`${time}\``;
+      const text = `${icon} *[ShunopsAI Sentinel Alert]*\n\n*Status:* \`${alert.status}\`\n*Service:* \`${alert.service}\`\n*Event:* ${alert.title}\n*Action:* ${alert.actionTaken || "Self-healing triggered"}\n${cleanDetails ? `*Details:* ${cleanDetails.slice(0, 300)}\n` : ""}${alert.url ? `*URL:* ${alert.url}\n` : ""}*Time:* \`${time}\``;
       const res = await fetch(`https://api.telegram.org/bot${tgToken}/sendMessage`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -334,7 +372,7 @@ export async function sendIncidentAlert(alert: IncidentAlertDetails): Promise<{
           attachments: [
             {
               color: isOk ? "good" : "danger",
-              text: `${alert.actionTaken || "Autonomous Sentinel Response"}\n${alert.details || ""}`,
+              text: `${alert.actionTaken || "Autonomous Sentinel Response"}\n${cleanDetails}`,
               ts: Math.floor(Date.now() / 1000),
             },
           ],
@@ -366,7 +404,7 @@ export async function sendIncidentAlert(alert: IncidentAlertDetails): Promise<{
         from: `"ShunopsAI Sentinel" <${user}>`,
         to,
         subject: `🚨 [SENTINEL ALERT] ${alert.service} is ${alert.status}`,
-        text: `${icon} Incident Alert: ${alert.service}\nTitle: ${alert.title}\nStatus: ${alert.status}\nAction Taken: ${alert.actionTaken || "Automated check"}\nDetails: ${alert.details || "N/A"}\nTimestamp: ${time}`,
+        text: `${icon} Incident Alert: ${alert.service}\nTitle: ${alert.title}\nStatus: ${alert.status}\nAction Taken: ${alert.actionTaken || "Automated check"}\nDetails: ${cleanDetails || "N/A"}\nTimestamp: ${time}`,
       });
       results.email = true;
     } catch (e: any) {

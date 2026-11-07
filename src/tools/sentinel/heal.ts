@@ -206,12 +206,52 @@ function unmappedServiceReport(serviceName: string, reason?: string): HealReport
   };
 }
 
+function cleanDetailsString(text: string): string {
+  if (!text) return "";
+  let s = text;
+  // If JSON error dumped in details or reason
+  if (s.includes('{"message":') || s.includes('[{"message":')) {
+    try {
+      const match = s.match(/\[\{.*\}\]|\{.*\}/);
+      if (match) {
+        const parsed = JSON.parse(match[0]);
+        const cleanMsg = Array.isArray(parsed)
+          ? parsed.map((e: any) => e.message || String(e)).join("; ")
+          : parsed.message || JSON.stringify(parsed);
+        s = s.replace(match[0], cleanMsg);
+      }
+    } catch {}
+  }
+
+  if (
+    s.includes("10,000 neurons") ||
+    s.includes("daily free allocation") ||
+    /code["']?\s*:\s*4006/i.test(s) ||
+    /daily quota exhausted/i.test(s)
+  ) {
+    s = s.replace(
+      /Cloudflare AI returned error:\s*.*?(\(Trigger|$)/i,
+      "Daily free quota reached (10,000 neurons exhausted for today). $1"
+    );
+  }
+
+  return s
+    .replace(/\b(AIError:\s*)+/gi, "")
+    .replace(/\([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\)/gi, "")
+    .replace(/,?\s*["']?code["']?\s*:\s*\d+/gi, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
 /** Broadcast incident & self-healing status to Discord / Telegram / Slack / Email. */
 function broadcastHealOutcome(
   serviceName: string,
   reason: string | undefined,
   healReport: HealReport
 ): void {
+  const cleanResult = cleanDetailsString(healReport.result);
+  const cleanReason = cleanDetailsString(reason || "Autonomous Sentinel");
+
   sendIncidentAlert({
     title: healReport.success
       ? `Service Self-Healed: ${serviceName}`
@@ -219,7 +259,7 @@ function broadcastHealOutcome(
     service: serviceName,
     status: healReport.success ? "HEALED" : "DEGRADED",
     actionTaken: healReport.actionTaken,
-    details: `${healReport.result} (Trigger Reason: ${reason || "Autonomous Sentinel"})`,
+    details: `${cleanResult} (Trigger Reason: ${cleanReason})`,
   }).catch(() => {});
 }
 
