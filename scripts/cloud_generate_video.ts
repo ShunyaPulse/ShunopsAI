@@ -123,7 +123,7 @@ async function main() {
       console.log("\n🎉 [SUCCESS] General Video Job Dispatched: [REDACTED]");
       console.log(`   Kaggle Kernel: [REDACTED]`);
       console.log(`   Title: "[REDACTED]"`);
-      console.log(`   Scenes: ${parsedJob.scenes || "N/A"}`);
+      console.log(`   Scenes: ${parsedJob.scenes ? "[REDACTED]" : "N/A"}`);
     }
   } catch (err: any) {
     const cleanError = sanitizePipelineError(err);
