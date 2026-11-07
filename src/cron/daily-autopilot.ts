@@ -15,7 +15,7 @@ import {
 } from "../tools/video.js";
 import { sendVideoReadyEmail, sendIncidentAlert } from "../tools/notifier.js";
 
-import { isAutonomyPaused, getAutonomyStatus } from "../tools/autonomy-state.js";
+import { getAutonomyStatus } from "../tools/autonomy-state.js";
 
 interface AutopilotRunResult {
   ok: boolean;
@@ -45,7 +45,6 @@ async function waitForKaggleKernel(
         `[Autopilot] ${new Date().toLocaleTimeString()} - Status: [REDACTED]`,
       );
 
-      // Fatal errors: kernel does not exist, permission denied, or bad slug -> abort immediately
       if (
         statusOutput.includes("Cannot access kernel") ||
         statusOutput.includes("Permission 'kernels.get' was denied") ||
@@ -58,7 +57,6 @@ async function waitForKaggleKernel(
         return false;
       }
 
-      // Transient CLI errors (e.g. Kaggle CLI network dropouts, 502/503) should retry with bounded count
       if (statusOutput.includes("Kaggle CLI Error")) {
         consecutiveErrors++;
         console.warn(
@@ -87,7 +85,6 @@ async function waitForKaggleKernel(
       console.warn("[Autopilot] Status check warning: transient polling exception encountered");
     }
 
-    // Wait 60 seconds between polling checks
     await new Promise((resolve) => setTimeout(resolve, 60000));
   }
 
@@ -97,10 +94,6 @@ async function waitForKaggleKernel(
   return false;
 }
 
-/**
- * Executes a full autonomous end-to-end cycle:
- * Trend -> Curation -> Kaggle Render -> YouTube Upload (Private) -> Email Review Alert.
- */
 /**
  * Autonomous GitOps Self-Sync:
  * Automatically checks and pulls origin/main before launching the daily video cycle
@@ -128,7 +121,6 @@ async function autoSyncGitRepository(): Promise<void> {
 }
 
 export async function runAutonomousCycle(): Promise<AutopilotRunResult> {
-  // Step 0: Ensure runner is in lockstep with origin/main
   await autoSyncGitRepository();
 
   const autonomy = await getAutonomyStatus();
@@ -148,7 +140,6 @@ export async function runAutonomousCycle(): Promise<AutopilotRunResult> {
   console.log("=======================================================\n");
 
   try {
-    // 1. Fetch Google Trends India Active
     console.log(
       "[Autopilot] Step 1: Fetching Google Trends India active searches...",
     );
@@ -157,7 +148,6 @@ export async function runAutonomousCycle(): Promise<AutopilotRunResult> {
       `[Autopilot] Discovered ${trends.length} active Indian trends.`,
     );
 
-    // 2. Curate high-value-addition topic
     console.log(
       "[Autopilot] Step 2: Curating highest value-addition topic with Gemini...",
     );
@@ -170,7 +160,6 @@ export async function runAutonomousCycle(): Promise<AutopilotRunResult> {
     console.log(`[Autopilot] ⚡ Topic Core Driver: "${curated.trend_reason}"`);
     console.log(`[Autopilot] 💡 Value Hook: ${curated.value_hook}`);
 
-    // 3. Launch Video Job on Kaggle GPU
     console.log(
       `[Autopilot] Step 3: Launching Wan2.1 + RIFE render on Kaggle T4 (${curated.target_duration_minutes} mins, Hindi)...`,
     );
@@ -200,7 +189,6 @@ export async function runAutonomousCycle(): Promise<AutopilotRunResult> {
       `[Autopilot] Dispatched kernel: [REDACTED] (Job ID: [REDACTED])`,
     );
 
-    // 4. Wait for Kaggle GPU execution to complete
     console.log(
       "[Autopilot] Step 4: Waiting for GPU diffusion & ffmpeg mastering to complete...",
     );
@@ -215,12 +203,10 @@ export async function runAutonomousCycle(): Promise<AutopilotRunResult> {
       };
     }
 
-    // 5. Download output files from Kaggle
     console.log("[Autopilot] Step 5: Downloading final video and metadata...");
-    const outputLog = await manageKaggle("output", kernelRef);
+    await manageKaggle("output", kernelRef);
     console.log("[Autopilot] Kaggle output status:", "[REDACTED]");
 
-    // 6. Upload to YouTube as Private
     console.log(
       "[Autopilot] Step 6: Publishing to YouTube as Private with custom thumbnail & SEO...",
     );
@@ -237,7 +223,6 @@ export async function runAutonomousCycle(): Promise<AutopilotRunResult> {
       "[Autopilot] ✅ Video uploaded to YouTube successfully.",
     );
 
-    // 7. Send Email Review Alert
     console.log(
       "[Autopilot] Step 7: Sending review alert to [REDACTED]...",
     );
@@ -255,6 +240,8 @@ export async function runAutonomousCycle(): Promise<AutopilotRunResult> {
       category: curated.category,
       valueHook: curated.value_hook,
       thumbnailPath: [
+        "thumbnail.jpg",
+        "thumbnail.png",
         "frame_30s.jpg",
         "frame_15s.jpg",
         "frame_03s.jpg",
@@ -283,7 +270,6 @@ export async function runAutonomousCycle(): Promise<AutopilotRunResult> {
     };
   } catch (err: any) {
     console.error("[Autopilot] ❌ Autonomous cycle encountered an error");
-    // If error is fixable (e.g. YouTube OAuth expired, Kaggle credentials/quota, or SMTP), send alert email
     const errMsg = String(err?.message || err).toLowerCase();
     const isFixable =
       errMsg.includes("token") ||
@@ -306,7 +292,6 @@ export async function runAutonomousCycle(): Promise<AutopilotRunResult> {
     }
     return { ok: false, error: "Autonomous cycle encountered an error" };
   } finally {
-    // Retain only the most recent 2 video jobs to preserve VM disk space
     await cleanupOldVideoJobs(2);
   }
 }
@@ -346,30 +331,21 @@ async function cleanupOldVideoJobs(maxKeep = 2): Promise<void> {
   }
 }
 
-/**
- * Calculates ms until the next 03:30 PM IST (15:30 IST / 10:00 UTC).
- */
 function msUntilNextRun(targetHourIST = 15, targetMinuteIST = 30): number {
-  const IST_OFFSET_MS = 330 * 60 * 1000; // UTC + 5h30m
+  const IST_OFFSET_MS = 330 * 60 * 1000;
   const DAY_MS = 24 * 60 * 60 * 1000;
 
-  // Work purely in UTC arithmetic so the result is independent of the host
-  // timezone: shift "now" into IST wall-clock epoch milliseconds first.
   const nowIstMs = Date.now() + IST_OFFSET_MS;
   const startOfIstDay = Math.floor(nowIstMs / DAY_MS) * DAY_MS;
 
   let targetIstMs = startOfIstDay + (targetHourIST * 60 + targetMinuteIST) * 60 * 1000;
   if (targetIstMs <= nowIstMs) {
-    // Already passed today in IST, schedule for tomorrow
     targetIstMs += DAY_MS;
   }
 
   return targetIstMs - nowIstMs;
 }
 
-/**
- * Starts recurring daily schedule at 03:30 PM IST.
- */
 export function startDailyScheduler() {
   const scheduleNext = () => {
     const delay = msUntilNextRun(15, 30);
@@ -384,14 +360,13 @@ export function startDailyScheduler() {
       } catch (e: any) {
         console.error("[Scheduler] Run error:", e.message);
       }
-      scheduleNext(); // Schedule the next day's run
+      scheduleNext();
     }, delay);
   };
 
   scheduleNext();
 }
 
-// CLI direct execution
 if (process.argv.includes("--now")) {
   runAutonomousCycle().catch(console.error);
 } else if (process.argv.includes("--schedule")) {

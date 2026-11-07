@@ -50,7 +50,6 @@ export function classifyHeuristic(prompt: string): ComplexityLevel | null {
     return "simple";
   }
 
-  // 2. High-complexity signals (AST, code, security, debugging, stack traces, database schema, math)
   const complexMarkers = [
     /```[\s\S]*```/, // Code blocks
     /\b(stack trace|uncaught exception|typeerror|referenceerror|syntaxerror|nullpointerexception|traceback|panic:)\b/i,
@@ -102,7 +101,6 @@ export async function analyzeTaskComplexity(
     return heuristic;
   }
 
-  // Check cache
   const cacheKey = prompt.trim().slice(0, 160);
   const cached = complexityCache.get(cacheKey);
   if (cached) return cached;
@@ -123,7 +121,6 @@ export async function analyzeTaskComplexity(
     } catch {}
   }
 
-  // 2. Ambiguous prompt fallback: invoke very-lightweight classifier (Groq Qwen 27B or Gemini Flash)
   const classifierTarget: ModelTarget = overrides?.groqApiKey || process.env.GROQ_API_KEY
     ? { provider: "groq", model: "qwen/qwen3.8-27b", name: "Groq Qwen 27B Classifier" }
     : { provider: "gemini", model: "gemini-3.8-flash", name: "Gemini 3.8 Flash Classifier" };
@@ -131,7 +128,6 @@ export async function analyzeTaskComplexity(
   try {
     const client = createClientForTarget(classifierTarget, overrides);
 
-    // Bounded timeout (1500ms max) so classification never introduces noticeable latency
     const abortController = new AbortController();
     const timeout = setTimeout(() => abortController.abort(), 1500);
 
@@ -168,14 +164,10 @@ export async function analyzeTaskComplexity(
 
     return level;
   } catch {
-    // Fail-fast fallback to 'simple' with zero disruption
     return "simple";
   }
 }
 
-/**
- * Deduplicate targets while guaranteeing full fallback coverage across all configured models.
- */
 function dedupeTargets(targets: ModelTarget[]): ModelTarget[] {
   const seen = new Set<string>();
   const out: ModelTarget[] = [];
@@ -186,7 +178,6 @@ function dedupeTargets(targets: ModelTarget[]): ModelTarget[] {
       out.push(t);
     }
   }
-  // Guarantee full fallback coverage: append any model from AGENT_MODELS_CHAIN not yet included
   for (const m of AGENT_MODELS_CHAIN) {
     const key = `${m.provider}:${m.model}`;
     if (!seen.has(key)) {
@@ -197,9 +188,6 @@ function dedupeTargets(targets: ModelTarget[]): ModelTarget[] {
   return out;
 }
 
-/**
- * Build candidate chain prioritized according to task complexity and user preference.
- */
 function buildCandidateChain(
   preference: string,
   complexity: ComplexityLevel
@@ -227,7 +215,6 @@ function buildCandidateChain(
       !m.model.includes("gemma")
   );
 
-  // 1. Fast & Responsive (Quick Q&A, low quota consumption)
   if (preference === "fast" || preference === "gemini-flash") {
     return dedupeTargets([
       ...geminiFlash,
@@ -241,7 +228,6 @@ function buildCandidateChain(
     ]);
   }
 
-  // 2. Deep Reasoning & Math (120B AST, logic puzzles, multi-step deductions)
   if (preference === "deep-reasoning" || preference === "groq-120b") {
     return dedupeTargets([
       ...groq120b,
@@ -255,7 +241,6 @@ function buildCandidateChain(
     ]);
   }
 
-  // 3. Code Architect & Debugging (AST analysis, refactoring, code generation)
   if (preference === "code" || preference === "code-dev") {
     return dedupeTargets([
       ...githubGpt4o,
@@ -268,7 +253,6 @@ function buildCandidateChain(
     ]);
   }
 
-  // 4. Long Context & Research (1M context window, doc analysis, large repo review)
   if (preference === "research" || preference === "research-context") {
     return dedupeTargets([
       ...openRouterLightning,
@@ -281,7 +265,6 @@ function buildCandidateChain(
     ]);
   }
 
-  // 5. Frontier Flagship (Maximum reasoning fidelity & flagship intelligence)
   if (preference === "frontier" || preference === "frontier-master") {
     return dedupeTargets([
       ...githubGpt4o,
@@ -303,7 +286,6 @@ function buildCandidateChain(
     ]);
   }
 
-  // Handle specific model selection: "provider:model"
   if (preference.includes(":")) {
     const colonIndex = preference.indexOf(":");
     const prefProvider = preference.slice(0, colonIndex);
@@ -316,7 +298,6 @@ function buildCandidateChain(
     }
   }
 
-  // 'auto' mode: Smart Adaptive Complexity-Based Priority
   if (complexity === "complex") {
     return dedupeTargets([
       ...groq120b,
@@ -330,7 +311,6 @@ function buildCandidateChain(
     ]);
   }
 
-  // Simple tasks: Fast zero-latency models first
   return dedupeTargets([
     ...geminiFlash,
     ...groq27b,
@@ -341,11 +321,8 @@ function buildCandidateChain(
   ]);
 }
 
-/**
- * Health & Bandit telemetry descriptor for each individual model registered in AGENT_MODELS_CHAIN.
- */
 export interface IndividualModelStatus {
-  id: string; // "provider:model"
+  id: string;
   provider: "groq" | "gemini" | "openrouter" | "github" | "cloudflare";
   model: string;
   name: string;
@@ -359,9 +336,6 @@ export interface IndividualModelStatus {
   banditScore?: number | undefined;
 }
 
-/**
- * Get live circuit-breaker health + Stage 8 EWMA latency & bandit score for each model.
- */
 export async function getModelsHealthStatus(): Promise<IndividualModelStatus[]> {
   const list: IndividualModelStatus[] = [];
   for (const m of AGENT_MODELS_CHAIN) {

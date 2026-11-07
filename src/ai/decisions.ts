@@ -220,10 +220,6 @@ export async function decide<Q extends Record<string, QuestionDef>>(
   return null;
 }
 
-// ==========================================
-// Specialized High-Freedom Decision Helpers
-// ==========================================
-
 export type AgentSafetyVerdict = {
   requiresApproval: boolean;
   approvalProbability: number;
@@ -687,11 +683,6 @@ export async function auditCodePatchWithMammoth(ctx: {
   };
 }
 
-/**
- * Multi-Dimensional Video Editorial Auditor:
- * Evaluates documentary scripts for non-partisan constructive tone (GEMINI.md Rule 11),
- * journalistic quality score, and narrative framing simultaneously.
- */
 export async function auditScriptEditorialWithMammoth(ctx: {
   title: string;
   narrationExcerpt: string;

@@ -41,11 +41,6 @@ export function resolveTargets(options: AgentOptions): ModelTarget[] {
   return AGENT_MODELS_CHAIN;
 }
 
-/**
- * Describe whose accounts this run may touch and which platforms are connected.
- * These lines are untrusted tenant context: they go in the user turn, never the
- * static system prompt.
- */
 function describeScope(scope: ToolScope, dynamicMcpTools: DynamicMcpTool[]): string[] {
   const lines: string[] = [];
   const connected = Object.keys(scope.credentials ?? {});
@@ -102,13 +97,6 @@ function describeScope(scope: ToolScope, dynamicMcpTools: DynamicMcpTool[]): str
   return lines;
 }
 
-/**
- * Build the single user turn that carries all dynamic context.
- *
- * Security Invariant (CodeQL Alert 174 & 175): the system prompt stays strictly
- * static and trusted (`buildSystemPrompt()`). Tenant scope, workspace state,
- * task checklist, memories, and user context are supplied here instead.
- */
 function buildUserTurn(
   userGoal: string,
   options: AgentOptions,
@@ -134,9 +122,6 @@ function buildUserTurn(
   return blocks.join("\n\n");
 }
 
-/**
- * Resolve the run's scope, tools, MCP servers and the initial message list.
- */
 export async function prepareRun(
   userGoal: string,
   options: AgentOptions
@@ -155,7 +140,6 @@ export async function prepareRun(
     targets = routed.targets;
   }
 
-  // Least-privilege: restrict the toolset exposed to the model for this run.
   const scope: ToolScope | undefined = options.scope
     ? {
         ...options.scope,
@@ -171,7 +155,6 @@ export async function prepareRun(
       !disabled.has(t.function.name as ToolName)
   );
 
-  // Discover dynamic MCP tools from active servers (Zero-cost, lightweight JSON-RPC)
   const { mcpRegistry } = await import("../mcp/registry.js");
   const dynamicMcpTools = await mcpRegistry.getActiveTools(scope);
   const mcpToolHandlers = new Map(dynamicMcpTools.map((t) => [t.name, t]));

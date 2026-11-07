@@ -14,9 +14,10 @@ function getGoogleAuth(): GoogleAuth | null {
   if (!credsJson) return null;
 
   try {
-    const credentials = typeof credsJson === "string" && credsJson.trim().startsWith("{")
-      ? JSON.parse(credsJson)
-      : JSON.parse(Buffer.from(credsJson, "base64").toString("utf-8"));
+    const credentials =
+      typeof credsJson === "string" && credsJson.trim().startsWith("{")
+        ? JSON.parse(credsJson)
+        : JSON.parse(Buffer.from(credsJson, "base64").toString("utf-8"));
     cachedAuth = new GoogleAuth({
       credentials,
       scopes: ["https://www.googleapis.com/auth/devstorage.read_write"],
@@ -124,7 +125,6 @@ export async function ensureVaultLifecyclePolicy(
   prefix = "video-vault/"
 ): Promise<boolean> {
   if (lifecycleChecked) return true;
-  lifecycleChecked = true;
 
   const auth = getGoogleAuth();
   if (!auth) return false;
@@ -144,6 +144,7 @@ export async function ensureVaultLifecyclePolicy(
     );
 
     if (hasRule) {
+      lifecycleChecked = true;
       return true;
     }
 
@@ -169,10 +170,12 @@ export async function ensureVaultLifecyclePolicy(
       },
     });
 
-    console.log(`[GCS Vault] Successfully verified/updated 3-day deletion lifecycle rule for prefix '${prefix}' on bucket '${bucket}'.`);
+    lifecycleChecked = true;
+    console.log(
+      `[GCS Vault] Successfully verified/updated 3-day deletion lifecycle rule for prefix '${prefix}' on bucket '${bucket}'.`
+    );
     return true;
   } catch (err: any) {
-    // Non-fatal if service account has read/write permissions but not storage.buckets.update
     console.warn(`[GCS Vault] Notice: Bucket lifecycle policy check skipped: ${err.message}`);
     return false;
   }
@@ -194,14 +197,15 @@ export async function uploadToGCS(
   const auth = getGoogleAuth();
   if (!auth) return false;
 
-  // Lazily ensure 3-day deletion lifecycle rule on the bucket
   if (!lifecycleChecked) {
     ensureVaultLifecyclePolicy(bucket, 3, "video-vault/").catch(() => {});
   }
 
   try {
     const client = await auth.getClient();
-    const uploadUrl = `https://storage.googleapis.com/upload/storage/v1/b/${bucket}/o?uploadType=media&name=${encodeURIComponent(remotePath)}`;
+    const uploadUrl = `https://storage.googleapis.com/upload/storage/v1/b/${bucket}/o?uploadType=media&name=${encodeURIComponent(
+      remotePath
+    )}`;
     const res = await client.request({
       url: uploadUrl,
       method: "POST",

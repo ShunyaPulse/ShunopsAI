@@ -40,10 +40,6 @@ const SPECIALIST_TRIGGERS: Array<{ pattern: RegExp; tools: string[] }> = [
   },
 ];
 
-/**
- * One goal covering any of these areas needs the complete tool surface, so the
- * pruning below returns every active tool unchanged.
- */
 const FULL_SURFACE_PATTERN =
   /\b(?:gcp|google\s*cloud|bigquery|cloud\s*run|compute|vm|cloudflare|worker|sentinel|heal|shell|bash|directory|video|kaggle|youtube|index)\b/;
 

@@ -21,6 +21,20 @@ import {
 let agenticStateTableReady = false;
 const hydratedTenants = new Set<string>();
 
+/**
+ * Returns true if `incomingIso` is a valid timestamp strictly newer than `existingIso`.
+ * Prevents `/api/workspace/agentic-state/sync` from discarding newer client-side edits
+ * when `overwriteExisting` is false.
+ */
+function isIncomingNewer(incomingIso?: string, existingIso?: string): boolean {
+  if (!incomingIso) return false;
+  if (!existingIso) return true;
+  const inMs = Date.parse(incomingIso);
+  const exMs = Date.parse(existingIso);
+  if (Number.isNaN(inMs) || Number.isNaN(exMs)) return false;
+  return inMs > exMs;
+}
+
 async function ensureAgenticStateTable(sql: any): Promise<void> {
   if (agenticStateTableReady || !sql) return;
   try {
@@ -87,7 +101,8 @@ function mergeFiles(
   const fileMap = getOrCreateFileMap(tenantKey);
   for (const f of files) {
     if (!f || typeof f.name !== "string" || !f.name.trim()) continue;
-    if (!overwriteExisting && fileMap.has(f.name)) continue;
+    const existing = fileMap.get(f.name);
+    if (!overwriteExisting && existing && !isIncomingNewer(f.updatedAt, existing.updatedAt)) continue;
     const contentStr = String(f.content ?? "");
     fileMap.set(f.name, {
       name: f.name,
@@ -109,14 +124,15 @@ function mergeTasks(
     if (!t || typeof t.title !== "string" || !t.title.trim()) continue;
     const id = Number(t.id) > 0 ? Number(t.id) : taskState.nextId++;
     if (id >= taskState.nextId) taskState.nextId = id + 1;
-    if (!overwriteExisting && taskState.tasks.has(id)) continue;
+    const existing = taskState.tasks.get(id);
+    if (!overwriteExisting && existing && !isIncomingNewer(t.updatedAt, existing.updatedAt)) continue;
     taskState.tasks.set(id, {
       id,
       title: t.title,
       status: t.status === "completed" || t.status === "in_progress" ? t.status : "pending",
       priority: t.priority === "high" || t.priority === "low" ? t.priority : "medium",
       ...(t.notes ? { notes: String(t.notes) } : {}),
-      createdAt: t.createdAt || new Date().toISOString(),
+      createdAt: t.createdAt || existing?.createdAt || new Date().toISOString(),
       updatedAt: t.updatedAt || new Date().toISOString(),
     });
   }
@@ -130,7 +146,8 @@ function mergeMemories(
   const memMap = getOrCreateMemoryMap(tenantKey);
   for (const m of memories) {
     if (!m || typeof m.key !== "string" || !m.key.trim() || typeof m.fact !== "string") continue;
-    if (!overwriteExisting && memMap.has(m.key)) continue;
+    const existing = memMap.get(m.key);
+    if (!overwriteExisting && existing && !isIncomingNewer(m.updatedAt, existing.updatedAt)) continue;
     memMap.set(m.key, {
       key: m.key,
       fact: m.fact,

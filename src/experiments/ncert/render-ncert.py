@@ -142,6 +142,7 @@ def find_keyframe_image(scene_idx):
         f"/kaggle/input/**/scene_{scene_idx}.png",
         f"/kaggle/input/**/images/scene_{scene_idx:03d}.jpg",
         f"/kaggle/input/**/images/scene_{scene_idx}.jpg",
+        f"{TMP}/kf_{scene_idx:03d}.png",
     ]
     for p in patterns:
         matches = glob.glob(p, recursive=True)
@@ -234,8 +235,30 @@ def normalize_audio_to_44k_stereo(src_path, dst_path):
     """
     # Pre-packaged MP3 from upstream pipeline is already standard 44.1kHz stereo MP3
     if src_path != dst_path and src_path.endswith(".mp3") and os.path.exists(src_path) and os.path.getsize(src_path) > 500:
-        shutil.copyfile(src_path, dst_path)
-        return True
+        try:
+            with open(src_path, "rb") as _af:
+                _hdr = _af.read(4)
+            is_valid_mp3 = (
+                _hdr[:3] == b"ID3"
+                or (len(_hdr) >= 2 and _hdr[0] == 0xFF and (_hdr[1] & 0xE0) == 0xE0)
+            )
+            if is_valid_mp3:
+                shutil.copyfile(src_path, dst_path)
+                return True
+            elif _hdr == b"RIFF":
+                # WAV container saved with .mp3 extension -> transcode via FFmpeg below
+                pass
+            else:
+                # Headerless raw 24kHz 16-bit mono PCM (legacy Gemini TTS fallback) -> transcode explicitly
+                tmp_pcm = f"{dst_path}.pcm.mp3"
+                if run([
+                    "ffmpeg", "-y", "-f", "s16le", "-ar", "24000", "-ac", "1", "-i", src_path,
+                    "-ar", "44100", "-ac", "2", "-c:a", "libmp3lame", "-b:a", "192k", tmp_pcm
+                ]) and os.path.exists(tmp_pcm) and os.path.getsize(tmp_pcm) > 300:
+                    shutil.move(tmp_pcm, dst_path)
+                    return True
+        except Exception:
+            pass
 
     tmp_norm = f"{dst_path}.norm.mp3"
     ok = run([

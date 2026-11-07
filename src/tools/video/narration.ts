@@ -109,12 +109,19 @@ export function resolveTTSPriorityChain(opts: {
   isAutoMode?: boolean;
   isFactHeavyDoc?: boolean;
 }): TTSEngine[] {
-  const { hasGCP, isHindi } = opts;
+  const { hasGCP, isHindi, isAutoMode = false, isFactHeavyDoc = false } = opts;
 
-  // When GCP credentials exist: Use Google Cloud (GCP Gemini-TTS -> Chirp 3 HD) FIRST before AI Studio!
+  // When GCP credentials exist:
+  // - Case 1 & Case 3 (Auto + Fact-heavy doc): Chirp 3 HD (#1) -> Gemini 3.1 (#2) -> [Kokoro] -> Edge
+  // - Sports/General & User-Prompted (Case 2 & Case 4): Gemini 3.1 (#1) -> Chirp 3 HD (#2) -> [Kokoro] -> Edge
   if (hasGCP) {
-    return isHindi
-      ? ["gemini", "chirp", "edge"]
+    if (isHindi) {
+      return isAutoMode && isFactHeavyDoc
+        ? ["chirp", "gemini", "edge"]
+        : ["gemini", "chirp", "edge"];
+    }
+    return isAutoMode && isFactHeavyDoc
+      ? ["chirp", "gemini", "kokoro", "edge"]
       : ["gemini", "chirp", "kokoro", "edge"];
   } else {
     return isHindi

@@ -1,4 +1,15 @@
 import * as crypto from "node:crypto";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import * as fs from "node:fs/promises";
+import * as fsSync from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import { sanitizeNarrationForTTS } from "./video/tts.js";
+import { isSportsOrCricket } from "./video/domain.js";
+
+const execFileAsync = promisify(execFile);
+
 /**
  * ShunopsAI Gemini TTS Engine — 136-Channel Indian-Steered Speech Synthesis
  *
@@ -7,23 +18,7 @@ import * as crypto from "node:crypto";
  * 2. gemini-3.8-flash-lite-tts    (Tier 2: High throughput, separate quota bucket)
  * 3. gemini-3.1-flash-tts-preview (Tier 3: Battle-tested preview fallback)
  * 4. gemini-2.5-flash-preview-tts (Tier 4: Deep legacy fallback)
- *
- * Voice Persona Architecture (Tested & User Verified):
- * - Documentary / Science / Space / History / General -> Aoede (Authentic Indian documentary anchor)
- * - Sports / Action / High-Energy -> Fenrir (Indian sports commentator with breathless excitement)
- *
- * Quota Guardrails (Rule 6 & Rule 1):
- * - 34 keys in GEMINI_KEYS pool.
- * - Random startup offset per process (anti-contention across microservices).
- * - O(1) round-robin key advancement on every scene request (eliminates RPM spikes).
- * - Multi-tier model cascade on 429/quota exhaustion (eliminates RPD exhaustion).
- * - 34 keys × 4 models = 136 independent quota tracks.
  */
-
-import * as fs from "node:fs/promises";
-import * as path from "node:path";
-import { sanitizeNarrationForTTS } from "./video/tts.js";
-import { isSportsOrCricket } from "./video/domain.js";
 
 export const GEMINI_TTS_MODELS = [
   "gemini-3.8-flash-tts",
@@ -33,10 +28,6 @@ export const GEMINI_TTS_MODELS = [
 ] as const;
 
 export type GeminiTTSModel = (typeof GEMINI_TTS_MODELS)[number];
-
-// ---------------------------------------------------------------------------
-// Key Pool & Anti-Contention Invariant (Rule 6)
-// ---------------------------------------------------------------------------
 
 function getKeyPool(): string[] {
   const raw =
@@ -67,19 +58,14 @@ function nextKey(pool: string[]): string {
       return candidate;
     }
   }
-  // If all keys are currently in cooldown, advance round-robin regardless
   const key = pool[_roundRobinIndex % pool.length]!;
   _roundRobinIndex = (_roundRobinIndex + 1) % pool.length;
   return key;
 }
 
-// ---------------------------------------------------------------------------
-// Turn-Level Styling (Acoustic Continuity Layer)
-// ---------------------------------------------------------------------------
-
 interface ToneProfile {
   descriptor: string;
-  energy: number; // 1 = calm/measured, 2 = cinematic/resonant, 3 = high-energy/action
+  energy: number;
 }
 
 const SPORTS_TONE_PROFILES: Record<string, ToneProfile> = {
@@ -98,11 +84,6 @@ const DOC_TONE_PROFILES: Record<string, ToneProfile> = {
   neutral: { descriptor: "natural and conversational with balanced narrative flow and clear articulation", energy: 1 },
 };
 
-/**
- * Acoustic Continuity Layer:
- * Mathematically smoothes emotional transitions between any adjacent tones (prevTone -> currentTone).
- * Eliminates sudden volume or timbre whiplash by modulating energy direction dynamically without hardcoded pairs.
- */
 export function buildStyleDirective(tone: string, prevTone?: string, domain?: string): string {
   const isSports = domain === "sports";
   const persona = isSports
@@ -131,34 +112,21 @@ export function buildStyleDirective(tone: string, prevTone?: string, domain?: st
   return `${persona}, ${transitionClause}${currentProfile.descriptor}, maintaining steady vocal presence, grounded timbre, and consistent volume with zero sudden volume drops.`;
 }
 
-// ---------------------------------------------------------------------------
-// Text Sanitization for High-Fidelity TTS (Anti-Leakage & Indian Phonetics)
-// ---------------------------------------------------------------------------
-
 function sanitizeForTTS(text: string): string {
   let s = text;
-  // 1. Strip stage directions, parentheticals, and bracketed cues (e.g. [excited], (pause))
   s = s.replace(/\[[^\]]*\]/g, " ");
   s = s.replace(/\([^)]*\)/g, " ");
-  // 2. Strip speaker prefixes like "Narrator:", "Anchor:", "Voiceover:"
   s = s.replace(/^(narrator|anchor|voiceover|host|speaker)\s*:\s*/i, "");
-  // 3. Strip markdown symbols but preserve essential emotional punctuation (..., !, ?, —, :)
   s = s.replace(/[*_#`~>\\{}]/g, " ");
-  // 4. Expand acronyms for natural Indian phonetics (AI -> ए-आई, NASA -> नासा, etc.)
   s = sanitizeNarrationForTTS(s, "Hindi");
   return s.replace(/\s+/g, " ").trim();
 }
-
-// ---------------------------------------------------------------------------
-// Voice Selection (Aoede = Documentary / Fenrir = Sports)
-// ---------------------------------------------------------------------------
 
 function resolveGeminiVoice(
   scriptVoice: string | undefined,
   domain: string | undefined,
   topic?: string | undefined
 ): string {
-  // Invariant: Sports and Cricket must strictly use authoritative MALE voice (Fenrir)
   if (domain === "sports" || (topic && isSportsOrCricket(topic))) {
     return "Fenrir";
   }
@@ -172,9 +140,102 @@ function resolveGeminiVoice(
   return "Aoede";
 }
 
-// ---------------------------------------------------------------------------
-// Core Speech Synthesis Engine (Clean Narration, Zero Prompt Leakage)
-// ---------------------------------------------------------------------------
+/**
+ * Checks if buffer already begins with a recognized compressed/container audio header
+ * (RIFF WAV, ID3 MP3, MPEG sync word, or OggS).
+ */
+function hasAudioContainerHeader(buf: Buffer): boolean {
+  if (buf.length < 4) return false;
+  const magic4 = buf.subarray(0, 4).toString("ascii");
+  if (magic4 === "RIFF" || magic4 === "OggS") return true;
+  if (buf.subarray(0, 3).toString("ascii") === "ID3") return true;
+  // MPEG-1/2 Audio Layer III frame sync (0xFF followed by 0xE0..0xFF)
+  if (buf[0] === 0xff && (buf[1]! & 0xe0) === 0xe0) return true;
+  return false;
+}
+
+/**
+ * Wraps raw 16-bit signed little-endian mono PCM (`audio/L16;codec=pcm;rate=24000`)
+ * returned by `generativelanguage.googleapis.com` in a standard 44-byte RIFF WAV header.
+ */
+function wrapRawPcmInWavHeader(pcmBuffer: Buffer, sampleRate = 24000, numChannels = 1, bitsPerSample = 16): Buffer {
+  const byteRate = (sampleRate * numChannels * bitsPerSample) / 8;
+  const blockAlign = (numChannels * bitsPerSample) / 8;
+  const dataSize = pcmBuffer.length;
+  const header = Buffer.alloc(44);
+
+  header.write("RIFF", 0);
+  header.writeUInt32LE(36 + dataSize, 4);
+  header.write("WAVE", 8);
+  header.write("fmt ", 12);
+  header.writeUInt32LE(16, 16); // Subchunk1Size (16 for PCM)
+  header.writeUInt16LE(1, 20);  // AudioFormat (1 = PCM)
+  header.writeUInt16LE(numChannels, 22);
+  header.writeUInt32LE(sampleRate, 24);
+  header.writeUInt32LE(byteRate, 28);
+  header.writeUInt16LE(blockAlign, 32);
+  header.writeUInt16LE(bitsPerSample, 34);
+  header.write("data", 36);
+  header.writeUInt32LE(dataSize, 40);
+
+  return Buffer.concat([header, pcmBuffer]);
+}
+
+/**
+ * Normalizes Gemini TTS output (which defaults to raw 24kHz L16 PCM on the Developer API)
+ * into a standard 44.1kHz stereo MP3 file so downstream `ffprobe` and `shutil.copyfile`
+ * never encounter headerless raw PCM masquerading as `.mp3`.
+ */
+async function persistNormalizedGeminiAudio(
+  rawBuffer: Buffer,
+  mimeType: string | undefined,
+  outPath: string
+): Promise<void> {
+  await fs.mkdir(path.dirname(outPath), { recursive: true });
+
+  const mimeLower = (mimeType || "").toLowerCase();
+  const isRawPcm =
+    mimeLower.includes("pcm") ||
+    mimeLower.includes("l16") ||
+    !hasAudioContainerHeader(rawBuffer);
+
+  let rate = 24000;
+  const rateMatch = mimeLower.match(/rate=(\d+)/);
+  if (rateMatch && rateMatch[1]) {
+    const parsedRate = parseInt(rateMatch[1], 10);
+    if (parsedRate >= 8000 && parsedRate <= 96000) rate = parsedRate;
+  }
+
+  const containerBuffer = isRawPcm ? wrapRawPcmInWavHeader(rawBuffer, rate, 1, 16) : rawBuffer;
+
+  if (outPath.toLowerCase().endsWith(".wav")) {
+    await fs.writeFile(outPath, containerBuffer);
+    return;
+  }
+
+  // Transcode to uniform 44.1kHz stereo 192kbps MP3 via ffmpeg
+  const tmpWav = path.join(
+    os.tmpdir(),
+    `gemini_tts_${Date.now()}_${crypto.randomInt(0, 0xffffff).toString(16)}.wav`
+  );
+  try {
+    await fs.writeFile(tmpWav, containerBuffer);
+    await execFileAsync(
+      "ffmpeg",
+      ["-y", "-i", tmpWav, "-ar", "44100", "-ac", "2", "-c:a", "libmp3lame", "-b:a", "192k", outPath],
+      { timeout: 15000 }
+    );
+    if (fsSync.existsSync(outPath) && fsSync.statSync(outPath).size > 500) {
+      return;
+    }
+  } catch {
+    // Fallback if ffmpeg binary is not installed: write RIFF WAV container (which ffprobe/ffmpeg on Kaggle can still decode via magic bytes)
+  } finally {
+    await fs.unlink(tmpWav).catch(() => {});
+  }
+
+  await fs.writeFile(outPath, containerBuffer);
+}
 
 /**
  * Synthesizes speech using the Gemini TTS model cascade across 34 keys.
@@ -202,13 +263,10 @@ export async function synthesizeGeminiTTS(
   const voiceName = resolveGeminiVoice(scriptVoice, domain, topic);
   const styleDirective = buildStyleDirective(tone, prevTone, domain);
 
-  // Cascade across all 4 models: 3.8-flash -> 3.8-flash-lite -> 3.1-flash -> 2.5-flash
   for (let mIdx = 0; mIdx < GEMINI_TTS_MODELS.length; mIdx++) {
     const model = GEMINI_TTS_MODELS[mIdx]!;
-    // Allow up to 5 keys per model tier across the 34-key pool to maximize Tier 1 retention
     const maxKeyAttempts = Math.min(5, pool.length);
 
-    // Official Gemini 3.8 TTS specification: attach turn-level styling in speech_metadata
     const partPayload: any = { text: cleanText };
     if (!model.includes("2.5")) {
       partPayload.speech_metadata = { style: styleDirective };
@@ -254,7 +312,7 @@ export async function synthesizeGeminiTTS(
             `[Gemini TTS] 429 received on key (indexed cooldown 60s). Backing off ${backoff}ms and advancing to next healthy key...`
           );
           await new Promise((resolve) => setTimeout(resolve, backoff));
-          continue; // advance to next healthy key in pool
+          continue;
         }
 
         if (res.status === 404) {
@@ -268,15 +326,14 @@ export async function synthesizeGeminiTTS(
         }
 
         if (!res.ok) {
-          console.warn(
-            `[Gemini TTS] ${model} HTTP ${res.status} [REDACTED]. Attempting next key/model.`
-          );
+          console.warn(`[Gemini TTS] ${model} HTTP ${res.status} [REDACTED]. Attempting next key/model.`);
           continue;
         }
 
         const data: any = await res.json();
-        const audioBase64: string | undefined =
-          data?.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+        const inlineData = data?.candidates?.[0]?.content?.parts?.[0]?.inlineData;
+        const audioBase64: string | undefined = inlineData?.data;
+        const mimeType: string | undefined = inlineData?.mimeType;
 
         if (!audioBase64 || audioBase64.length < 500) {
           console.warn(`[Gemini TTS] Empty audio content from ${model}. Rotating...`);
@@ -284,19 +341,17 @@ export async function synthesizeGeminiTTS(
         }
 
         const audioBuffer = Buffer.from(audioBase64, "base64");
-        await fs.mkdir(path.dirname(outPath), { recursive: true });
-        await fs.writeFile(outPath, audioBuffer);
+        await persistNormalizedGeminiAudio(audioBuffer, mimeType, outPath);
 
         console.log(
-          `[Gemini TTS] ✅ Synthesized ${audioBuffer.length} bytes via "${model}" -> ${path.basename(outPath)}`
+          `[Gemini TTS] ✅ Synthesized ${audioBuffer.length} raw bytes via "${model}" (normalized 44.1kHz stereo) -> ${path.basename(outPath)}`
         );
         return true;
-      } catch (err: any) {
+      } catch {
         console.warn(`[Gemini TTS] Exception on ${model}: [REDACTED]`);
       }
     }
 
-    // Advance round-robin pointer by a stride when shifting model tiers to pick a fresh key region
     _roundRobinIndex = (_roundRobinIndex + 7) % pool.length;
   }
 

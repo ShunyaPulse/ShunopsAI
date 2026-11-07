@@ -1264,8 +1264,18 @@ async def main():
         print(f"--- [Scene {i+1}/{len(scenes)}] Audio Preparation ---")
         dataset_audio = os.path.join(os.path.dirname(script_path), "audio", f"a{i:03d}.mp3")
         if os.path.exists(dataset_audio) and os.path.getsize(dataset_audio) > 500:
-            shutil.copyfile(dataset_audio, a_path)
-            print(f"[TTS] Using pre-packaged audio ({os.path.getsize(a_path)} bytes, instant zero-transcode reuse).")
+            with open(dataset_audio, "rb") as _af:
+                _hdr = _af.read(4)
+            _is_mp3 = _hdr[:3] == b"ID3" or (len(_hdr) >= 2 and _hdr[0] == 0xFF and (_hdr[1] & 0xE0) == 0xE0)
+            if _is_mp3:
+                shutil.copyfile(dataset_audio, a_path)
+                print(f"[TTS] Using pre-packaged audio ({os.path.getsize(a_path)} bytes, instant zero-transcode reuse).")
+            elif _hdr == b"RIFF":
+                run(["ffmpeg", "-y", "-i", dataset_audio, "-ar", "44100", "-ac", "2", "-c:a", "libmp3lame", "-b:a", "192k", a_path])
+                print(f"[TTS] Transcoded WAV pre-packaged audio to 44.1kHz stereo MP3 ({os.path.getsize(a_path)} bytes).")
+            else:
+                run(["ffmpeg", "-y", "-f", "s16le", "-ar", "24000", "-ac", "1", "-i", dataset_audio, "-ar", "44100", "-ac", "2", "-c:a", "libmp3lame", "-b:a", "192k", a_path])
+                print(f"[TTS] Transcoded raw 24kHz PCM pre-packaged audio to 44.1kHz stereo MP3 ({os.path.getsize(a_path)} bytes).")
             submaker = edge_tts.SubMaker() if edge_tts else None
         else:
             is_hindi = (

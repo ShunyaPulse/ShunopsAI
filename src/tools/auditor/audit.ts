@@ -66,7 +66,7 @@ function resolveStartingBranch(rootDir: string): string {
 
 /**
  * Open a healing branch and PR for applied fixes, then hand it to the
- * dual-model reviewer. Always restores the starting branch.
+ * dual-model reviewer. Always restores the starting branch cleanly.
  */
 async function openHealingPullRequest(
   repoSlug: string,
@@ -133,6 +133,10 @@ async function openHealingPullRequest(
     }
   } catch (gitErr: any) {
     console.error(`GitOps PR creation notice: ${gitErr.message}`);
+    // Clean up any uncommitted/staged state on the temporary branch so checkout back to originalBranch cannot fail
+    try {
+      execFileSync("git", ["reset", "--hard", "HEAD"], { cwd: rootDir, env: authEnv, stdio: "pipe" });
+    } catch {}
   } finally {
     // Always restore the starting branch, even when the PR flow failed.
     try {
@@ -145,6 +149,17 @@ async function openHealingPullRequest(
       console.warn(
         `${colors.yellow}⚠️ Could not restore original branch ${originalBranch}: ${restoreErr.message}${colors.reset}`
       );
+    }
+
+    // If PR creation did not succeed, remove the local orphaned healing branch
+    if (!auditResult.prCreated && branchName !== originalBranch) {
+      try {
+        execFileSync("git", ["branch", "-D", branchName], {
+          cwd: rootDir,
+          env: authEnv,
+          stdio: "pipe",
+        });
+      } catch {}
     }
 
     if (auditResult.prMerged) {
@@ -166,7 +181,8 @@ async function recordAuditState(
   currentCommitSha: string,
   consecutiveRuns: number,
   auditResult: AuditResult,
-  remediatedCount: number
+  remediatedCount: number,
+  createPR: boolean
 ): Promise<void> {
   let finalCommitSha = currentCommitSha;
   try {
@@ -174,12 +190,14 @@ async function recordAuditState(
   } catch {}
 
   if (finalCommitSha) {
+    const remediationDelivered =
+      remediatedCount > 0 && (!createPR || Boolean(auditResult.prCreated || auditResult.prMerged));
     await saveAuditorState(repoSlug, {
       lastAuditedCommitSha: finalCommitSha,
       lastSelfGeneratedCommitSha: auditResult.prMerged ? finalCommitSha : undefined,
       consecutiveRunsOnSameCommit: auditResult.prMerged ? 2 : consecutiveRuns,
       lastAuditedAt: new Date().toISOString(),
-      lastStatus: remediatedCount > 0 ? "remediated" : "clean",
+      lastStatus: remediationDelivered ? "remediated" : "clean",
     });
   }
 }
@@ -250,7 +268,15 @@ export async function auditAndHealRepository(
   }
 
   // Update audit state with the post-merge commit SHA
-  await recordAuditState(repoSlug, rootDir, currentCommitSha, consecutiveRuns, auditResult, remediatedCount);
+  await recordAuditState(
+    repoSlug,
+    rootDir,
+    currentCommitSha,
+    consecutiveRuns,
+    auditResult,
+    remediatedCount,
+    Boolean(options.createPR)
+  );
 
   return auditResult;
 }

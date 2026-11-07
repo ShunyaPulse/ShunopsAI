@@ -12,15 +12,10 @@ export interface ApprovalRequest {
   riskReason: string;
   timestamp: string;
   status: "pending" | "approved" | "rejected";
-  /**
-   * Owning account. `null` means the request belongs to the operator (CLI/cron
-   * or an admin run) and is therefore visible to admins only.
-   */
   userId?: number | null;
   username?: string | null;
 }
 
-/** Who a run belongs to, so approvals can be routed to the right tenant. */
 export interface ApprovalRequester {
   userId?: number | undefined;
   username?: string | undefined;
@@ -110,16 +105,9 @@ async function persistApprovalToRedis(request: ApprovalRequest): Promise<void> {
     const key = `${REDIS_APPROVAL_PREFIX}${request.id}`;
     await redis.set(key, JSON.stringify(request), "EX", 300);
     await redis.sadd(REDIS_ACTIVE_SET, request.id);
-  } catch {
-    // Non-fatal, local memory map continues safely
-  }
+  } catch {}
 }
 
-/**
- * Persist the terminal verdict (`approved` / `rejected`) in Redis with a 60s TTL
- * and remove the ID from the active pending set so any waiting instance polling
- * Redis observes the decision immediately instead of timing out after 5 minutes.
- */
 async function settleApprovalInRedis(request: ApprovalRequest): Promise<void> {
   const redis = getRedisClient();
   if (!redis) return;
@@ -127,12 +115,9 @@ async function settleApprovalInRedis(request: ApprovalRequest): Promise<void> {
     const key = `${REDIS_APPROVAL_PREFIX}${request.id}`;
     await redis.srem(REDIS_ACTIVE_SET, request.id);
     await redis.set(key, JSON.stringify(request), "EX", 60);
-  } catch {
-    // Non-fatal
-  }
+  } catch {}
 }
 
-/** Rehydrate any pending approval requests stored in Redis across instance restarts. */
 export async function rehydratePendingApprovalsFromRedis(): Promise<void> {
   const redis = getRedisClient();
   if (!redis) return;
@@ -158,16 +143,9 @@ export async function rehydratePendingApprovalsFromRedis(): Promise<void> {
         await redis.srem(REDIS_ACTIVE_SET, id);
       }
     }
-  } catch {
-    // Non-fatal
-  }
+  } catch {}
 }
 
-/**
- * Terminal state for an approval request: record the verdict and remove the
- * entry from the pending queue so the maps cannot grow without bound over the
- * lifetime of a long-running server.
- */
 function settleApproval(request: ApprovalRequest, approved: boolean): void {
   request.status = approved ? "approved" : "rejected";
   pendingApprovals.delete(request.id);
@@ -223,14 +201,12 @@ export async function isActionSensitiveAsync(
 }
 
 export function isActionSensitive(command: string): { isSensitive: boolean; reason: string } {
-  // Collapse SQL block/line comments so `DROP/**/TABLE` cannot evade whitespace regexes
   const normalized = command
     .replace(/\/\*[\s\S]*?\*\//g, " ")
     .replace(/--[^\r\n]*/g, " ")
     .trim()
     .toLowerCase();
 
-  // Database sensitive keywords (including Postgres file/program access functions)
   if (
     /\b(drop\s+table|drop\s+database|drop\s+schema|truncate|delete\s+from|alter\s+table|update\s+\w+\s+set\b|grant\s+all|revoke\s+|copy\s+.*\bprogram\b|pg_read_file|pg_read_binary_file|pg_ls_dir|lo_import|lo_export)\b/i.test(
       normalized
@@ -242,7 +218,6 @@ export function isActionSensitive(command: string): { isSensitive: boolean; reas
     };
   }
 
-  // Filesystem and OS destructive patterns
   if (
     /(^|[\s;&|])rm\s+-[a-z]*r[a-z]*f|(^|[\s;&|])rm\s+-[a-z]*f[a-z]*r/.test(normalized) ||
     normalized.includes("rm -rf") ||
@@ -261,7 +236,6 @@ export function isActionSensitive(command: string): { isSensitive: boolean; reas
     };
   }
 
-  // Privilege escalation or permission tampering
   if (
     /(^|[\s;&|])sudo\b/.test(normalized) ||
     /(^|[\s;&|])su\s/.test(normalized) ||
@@ -276,7 +250,6 @@ export function isActionSensitive(command: string): { isSensitive: boolean; reas
     };
   }
 
-  // Remote code execution / pipe-to-shell / encoded payloads / command substitution
   if (
     /\|\s*(sudo\s+)?(ba|z|k)?sh\b/.test(normalized) ||
     /(curl|wget)[^|;&]*\|\s*(sudo\s+)?(ba|z|k)?sh\b/.test(normalized) ||
@@ -294,7 +267,6 @@ export function isActionSensitive(command: string): { isSensitive: boolean; reas
     };
   }
 
-  // Git dangerous commands
   if (
     normalized.includes("git push --force") ||
     normalized.includes("git push -f") ||
@@ -309,7 +281,6 @@ export function isActionSensitive(command: string): { isSensitive: boolean; reas
     };
   }
 
-  // Cloud infrastructure teardown
   if (
     normalized.includes("gcloud run services delete") ||
     normalized.includes("gcloud compute instances delete") ||
@@ -326,7 +297,6 @@ export function isActionSensitive(command: string): { isSensitive: boolean; reas
     };
   }
 
-  // Inline script and language runtime evaluation (bypasses static shell regex)
   if (
     /(^|[\s;&|])node(\.exe)?\s+(-e|--eval)\b/.test(normalized) ||
     /(^|[\s;&|])python[23]?(\.exe)?\s+(-c|-m)\b/.test(normalized) ||
@@ -340,7 +310,6 @@ export function isActionSensitive(command: string): { isSensitive: boolean; reas
     };
   }
 
-  // File search-and-destroy patterns
   if (/(^|[\s;&|])find\s+.*-(delete|exec\s+rm)\b/.test(normalized)) {
     return {
       isSensitive: true,
@@ -348,7 +317,6 @@ export function isActionSensitive(command: string): { isSensitive: boolean; reas
     };
   }
 
-  // Shell evasion ($IFS) and critical path redirections
   if (
     normalized.includes("$ifs") ||
     normalized.includes("${ifs}") ||
@@ -360,7 +328,6 @@ export function isActionSensitive(command: string): { isSensitive: boolean; reas
     };
   }
 
-  // Destructive operations in GitHub, YouTube, Kaggle, Cloudflare tools, and critical workflow/manifest writes
   if (
     /^github\s+(delete_|force_push|destroy)/i.test(normalized) ||
     /^youtube\s+(delete|destroy|remove)/i.test(normalized) ||
@@ -377,9 +344,6 @@ export function isActionSensitive(command: string): { isSensitive: boolean; reas
   return { isSensitive: false, reason: "" };
 }
 
-/**
- * Sends an alert to Telegram if TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID are present
- */
 async function notifyTelegram(request: ApprovalRequest): Promise<void> {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   const chatId = process.env.TELEGRAM_CHAT_ID;
@@ -402,9 +366,6 @@ async function notifyTelegram(request: ApprovalRequest): Promise<void> {
   }
 }
 
-/**
- * Prompt user in CLI or queue for remote approval
- */
 export async function requestHumanApproval(
   action: string,
   commandOrPayload: string,
@@ -442,7 +403,6 @@ export async function requestHumanApproval(
   console.log(`\x1b[33mCommand / Payload:\x1b[0m\n${commandOrPayload}`);
   console.log(`\x1b[31m\x1b[1m========================================================\x1b[0m`);
 
-  // Interactive CLI prompt
   if (process.stdin.isTTY) {
     await telegramAlert;
     const rl = readline.createInterface({ input, output });
@@ -519,9 +479,6 @@ export async function requestHumanApproval(
   });
 }
 
-/**
- * Handle remote approval from API endpoint /api/approve
- */
 export function resolveApproval(
   id: string,
   approved: boolean,
@@ -544,10 +501,6 @@ export function resolveApproval(
   return true;
 }
 
-/**
- * Pending approvals. Pass a userId to get only that account's requests; call
- * with no argument (admin scope) to see everything.
- */
 export function listPendingApprovals(userId?: number): ApprovalRequest[] {
   const pending = Array.from(pendingApprovals.values()).filter((r) => r.status === "pending");
   if (typeof userId === "number") {

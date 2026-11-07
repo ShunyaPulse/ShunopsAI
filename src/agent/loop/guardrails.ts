@@ -25,13 +25,11 @@ export function isErrorToolOutput(result: string): boolean {
 }
 
 interface DeliverableCheck {
-  /** Goal phrasing that requests this deliverable. */
   goalPattern: RegExp;
   /** Semantic Mammoth-1 intake flag corresponding to this deliverable. */
   mammothKey: keyof NonNullable<ReturnType<typeof getCachedTurnIntakeDecision>>["expectedDeliverables"];
   /** Counter field that must have been incremented. */
   counter: keyof FulfilledActionCounts;
-  /** Tool that can fulfil the deliverable. */
   tool: string;
   /** Instruction fed back to the model when the deliverable is missing. */
   instruction: (match: RegExpMatchArray | null, userGoal: string) => string;
@@ -115,10 +113,6 @@ export function findUnfulfilledRequestedActions(
   return missing;
 }
 
-/**
- * Record that a tool call fulfilled one of the trackable deliverables. Only
- * successful calls count; callers must skip error outputs.
- */
 export function recordFulfilledActions(
   toolName: string,
   parsedArgs: Record<string, any>,
@@ -166,10 +160,6 @@ const SANDBOX_REFLEXION_CUE =
 const EMPTY_SEARCH_CUE =
   "\n\n[Autonomous Reflexion Cue]: Search returned 0 results. Reformulate your query: strip special characters, use broader technical synonyms, or inspect an authoritative documentation URL directly using inspect_website.";
 
-/**
- * Append self-correction hints so a weaker model can recover from a failed or
- * repeated tool call instead of looping.
- */
 export function augmentWithReflexionCue(
   toolName: string,
   result: string,

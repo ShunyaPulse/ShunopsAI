@@ -253,24 +253,33 @@ export async function generateScript(
 
   // Stage 1.4: Baseten Mammoth 1 Full-Spectrum Editorial Compliance (GEMINI.md Rule 11)
   try {
-    const narrationSample = script.scenes.slice(0, 6).map((s) => s.narration).join(" ");
+    const narrationSample = script.scenes.slice(0, 8).map((s) => s.narration).join(" ");
     const audit = await auditScriptEditorialWithMammoth({
       title: script.title,
       narrationExcerpt: narrationSample,
       domain,
     });
     if (audit && !audit.isCompliant) {
-      console.warn(
-        `[Video Editorial Guardrail] ⚠️ Mammoth 1 flagged non-compliant framing (${audit.rationale}). Running surgical objective documentary rewrite...`
-      );
-      const rewritePrompt = `${prompt}\n\nCRITICAL EDITORIAL AUDIT CORRECTION REQUIRED:\nBaseten Mammoth 1 flagged the draft as "${audit.editorialCategory}" (${audit.rationale}).\nRewrite the JSON script so it is 100% objective, fact-based, non-partisan, and constructive (strictly following Rule 11 with zero political fault-finding or clickbait sensationalism).`;
-      const { text: rewrittenText } = await geminiGenerate(rewritePrompt, preferredModel);
-      if (rewrittenText) {
-        const rewrittenScript = parseScriptJson(rewrittenText);
-        if (rewrittenScript.scenes?.length) {
-          script = rewrittenScript;
-          console.log(`[Video Editorial Guardrail] ✅ Script surgically remediated to objective documentary standard.`);
+      console.warn(`[Video Editorial Guardrail] ⚠️ Mammoth 1 flagged non-compliant framing (${audit.rationale}). Enforcing surgical objective documentary rewrite...`);
+      try {
+        const repairPrompt = `You are a neutral documentary script editor enforcing GEMINI.md Rule 11 (Zero Partisan Controversy, Zero Search-Metric Leakage, Zero Fourth-Wall Breaking).
+Our editorial guardrail flagged the following issue in this script JSON: "${audit.rationale}".
+Rewrite ONLY any offending title, description, or scene narration/caption lines so they remain 100% objective, constructive, educational, and free of search volume numbers or partisan mudslinging. Keep the exact same JSON structure, scene count, visual_prompts, and language rules.
+Return ONLY the corrected valid JSON object:
+
+${JSON.stringify(script)}`;
+        const { text: repairedText } = await geminiGenerate(repairPrompt, preferredModel);
+        if (repairedText) {
+          const repairedScript = parseScriptJson(repairedText);
+          if (repairedScript.scenes?.length === script.scenes.length) {
+            script.title = repairedScript.title || script.title;
+            script.description = repairedScript.description || script.description;
+            script.scenes = repairedScript.scenes;
+            console.log(`[Video Editorial Guardrail] ✅ Surgical editorial rewrite applied cleanly.`);
+          }
         }
+      } catch (rewriteErr: any) {
+        console.warn(`[Video Editorial Guardrail] Rewrite fallback notice: ${rewriteErr?.message || rewriteErr}`);
       }
     } else if (audit) {
       console.log(`[Video Editorial Guardrail] ✅ ${audit.rationale}`);

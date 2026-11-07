@@ -1,7 +1,4 @@
 import "dotenv/config";
-import * as path from "node:path";
-import * as fs from "node:fs/promises";
-import * as fsSync from "node:fs";
 import {
   researchChapter,
   generateChapterScript,
@@ -71,7 +68,7 @@ async function main() {
   }
 
   console.log(`📋 Parameters: Type='${videoType}', Language='${language}', Duration=${minutes}m`);
-  console.log(`🎯 Target Topic: "${topicArg || '[Auto-Fetch Google Trends India]'}"`);
+  console.log(`🎯 Target Topic: "${topicArg || "[Auto-Fetch Google Trends India]"}"`);
 
   let currentStage = "Pipeline Initialization";
   let finalTopic = topicArg;
@@ -92,10 +89,10 @@ async function main() {
 
       currentStage = "Asset Pre-packaging & Cloud GPU Dispatch";
       console.log(`\n🚀 Phase 3: Synthesizing Audio (Gemini-TTS), Keyframes (Cloudflare FLUX), and Launching to Kaggle GPU...`);
-      const jobId = await launchChapterJob(script);
-      console.log(`\n🎉 [SUCCESS] Chapter Video Job Launched: ${jobId}`);
-      console.log(`   Kaggle Kernel: shunyapulse/video-render-${jobId}`);
-      console.log(`   Kaggle Dataset: shunyapulse/video-job-${jobId}`);
+      const launched = await launchChapterJob(script);
+      console.log(`\n🎉 [SUCCESS] Chapter Video Job Launched: ${launched.jobId}`);
+      console.log(`   Kaggle Kernel: ${launched.kernel}`);
+      console.log(`   Kaggle Dataset: shunyapulse/video-job-${launched.jobId}`);
       console.log(`   The Cloud Video Sweeper will automatically publish to YouTube when rendering completes.`);
     } else {
       let trendReason: string | undefined;
@@ -119,9 +116,11 @@ async function main() {
       console.log(`\n🚀 Launching Autonomous Video Job...`);
       const launchOutput = await startVideoJob(finalTopic, minutes, language, trendReason);
       let parsedJob: any = {};
-      try { parsedJob = JSON.parse(launchOutput); } catch {}
-      console.log("\n🎉 [SUCCESS] General Video Job Dispatched: [REDACTED]");
-      console.log(`   Kaggle Kernel: [REDACTED]`);
+      try {
+        parsedJob = JSON.parse(launchOutput);
+      } catch {}
+      console.log(`\n🎉 [SUCCESS] General Video Job Dispatched: ${parsedJob.jobId || "[REDACTED]"}`);
+      console.log("   Kaggle Kernel: [REDACTED]");
       console.log(`   Title: "[REDACTED]"`);
       console.log(`   Scenes: ${parsedJob.scenes ? "[REDACTED]" : "N/A"}`);
     }

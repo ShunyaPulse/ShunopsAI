@@ -27,7 +27,6 @@ export function parseServiceAccountCredentials(raw: string): Record<string, any>
       return null;
     }
 
-    // Check if base64-encoded JSON service account
     if (/^[A-Za-z0-9+/=\r\n]+$/.test(trimmed) && trimmed.length > 64) {
       const decoded = Buffer.from(trimmed, "base64").toString("utf-8").trim();
       if (decoded.startsWith("{")) {
@@ -43,7 +42,6 @@ export function parseServiceAccountCredentials(raw: string): Record<string, any>
   return null;
 }
 
-
 function getAuthClient(): { auth: GoogleAuth; projectId?: string | undefined } | null {
   if (cachedAuth) return { auth: cachedAuth, projectId: cachedProjectId };
 
@@ -52,9 +50,10 @@ function getAuthClient(): { auth: GoogleAuth; projectId?: string | undefined } |
 
   try {
     if (credsJson) {
-      const credentials = typeof credsJson === "string" && credsJson.trim().startsWith("{")
-        ? JSON.parse(credsJson)
-        : JSON.parse(Buffer.from(credsJson, "base64").toString("utf-8"));
+      const credentials =
+        typeof credsJson === "string" && credsJson.trim().startsWith("{")
+          ? JSON.parse(credsJson)
+          : JSON.parse(Buffer.from(credsJson, "base64").toString("utf-8"));
       cachedProjectId = credentials.project_id;
       cachedAuth = new GoogleAuth({
         credentials,
@@ -95,16 +94,14 @@ export function isGoogleCloudTTSAvailable(customKey?: string): boolean {
  * Curated Google Cloud Text-to-Speech Neural2 / Chirp 3 HD voices (Always Free Tier: 1M chars/mo).
  */
 export const GCP_TTS_VOICES = {
-  // Google Cloud Chirp 3 HD Generative Foundation Voices (Always Free Tier: 1M chars/mo)
-  hindi_male: "hi-IN-Chirp3-HD-Fenrir",        // Dynamic male narrator (Sports/Action)
-  hindi_male_doc: "hi-IN-Chirp3-HD-Alnilam",    // Deep authoritative documentary anchor
-  hindi_female: "hi-IN-Chirp3-HD-Aoede",        // Articulate television documentary anchor
-  hindi_female_soft: "hi-IN-Chirp3-HD-Despina", // Measured, warm narrative voice
-  english_in_male: "en-IN-Chirp3-HD-Fenrir",    // Natural Indian English documentary narrator
-  english_in_female: "en-IN-Chirp3-HD-Aoede",   // Natural Indian English documentary anchor
-  english_us_male: "en-US-Chirp3-HD-Fenrir",    // Classic US documentary narrator
-  english_us_female: "en-US-Chirp3-HD-Aoede",   // Modern US journalistic anchor
-  // Legacy Neural2 Fallbacks
+  hindi_male: "hi-IN-Chirp3-HD-Fenrir",
+  hindi_male_doc: "hi-IN-Chirp3-HD-Alnilam",
+  hindi_female: "hi-IN-Chirp3-HD-Aoede",
+  hindi_female_soft: "hi-IN-Chirp3-HD-Despina",
+  english_in_male: "en-IN-Chirp3-HD-Fenrir",
+  english_in_female: "en-IN-Chirp3-HD-Aoede",
+  english_us_male: "en-US-Chirp3-HD-Fenrir",
+  english_us_female: "en-US-Chirp3-HD-Aoede",
   legacy_hindi_male: "hi-IN-Neural2-B",
   legacy_hindi_doc: "hi-IN-Neural2-C",
 };
@@ -113,7 +110,12 @@ export const GCP_TTS_VOICES = {
  * Maps a generic voice name or language to a top-tier Google Cloud Chirp 3 HD voice.
  */
 export function resolveGCPVoice(requestedVoice?: string, language = "Hindi"): { name: string; languageCode: string } {
-  if (requestedVoice && (requestedVoice.startsWith("hi-IN-Chirp3-HD-") || requestedVoice.startsWith("en-IN-Chirp3-HD-") || requestedVoice.startsWith("en-US-Chirp3-HD-"))) {
+  if (
+    requestedVoice &&
+    (requestedVoice.startsWith("hi-IN-Chirp3-HD-") ||
+      requestedVoice.startsWith("en-IN-Chirp3-HD-") ||
+      requestedVoice.startsWith("en-US-Chirp3-HD-"))
+  ) {
     return { name: requestedVoice, languageCode: requestedVoice.slice(0, 5) };
   }
   if (requestedVoice && requestedVoice.startsWith("hi-IN-Neural2-")) {
@@ -130,22 +132,28 @@ export function resolveGCPVoice(requestedVoice?: string, language = "Hindi"): { 
     /hindi/i.test(language) ||
     Boolean(requestedVoice && (/hindi/i.test(requestedVoice) || requestedVoice.toLowerCase().startsWith("hi-")));
   if (isHindi) {
-    if (requestedVoice && (requestedVoice.toLowerCase().includes("female") || requestedVoice.toLowerCase().includes("swara") || requestedVoice.toLowerCase().includes("aoede"))) {
+    if (
+      requestedVoice &&
+      (requestedVoice.toLowerCase().includes("female") ||
+        requestedVoice.toLowerCase().includes("swara") ||
+        requestedVoice.toLowerCase().includes("aoede"))
+    ) {
       return { name: GCP_TTS_VOICES.hindi_female, languageCode: "hi-IN" };
     }
     return { name: GCP_TTS_VOICES.hindi_male, languageCode: "hi-IN" };
   }
 
-  if (requestedVoice && (requestedVoice.toLowerCase().includes("female") || requestedVoice.toLowerCase().includes("neerja") || requestedVoice.toLowerCase().includes("aoede"))) {
+  if (
+    requestedVoice &&
+    (requestedVoice.toLowerCase().includes("female") ||
+      requestedVoice.toLowerCase().includes("neerja") ||
+      requestedVoice.toLowerCase().includes("aoede"))
+  ) {
     return { name: GCP_TTS_VOICES.english_in_female, languageCode: "en-IN" };
   }
 
   return { name: GCP_TTS_VOICES.english_in_male, languageCode: "en-IN" };
 }
-
-// ---------------------------------------------------------------------------
-// Google Cloud Gemini-TTS Style Prompts
-// ---------------------------------------------------------------------------
 
 const GCP_GEMINI_STYLE_PROMPTS: Record<string, string> = {
   excited:
@@ -160,14 +168,6 @@ const GCP_GEMINI_STYLE_PROMPTS: Record<string, string> = {
     "You are an authentic Indian documentary anchor. Speak with natural Indian cadence, clear articulation, and engaging warmth.",
 };
 
-// ---------------------------------------------------------------------------
-// SSML Tone Wrapper for Chirp 3 HD Emotion (Natural Pitch, Anti-Robotic)
-// ---------------------------------------------------------------------------
-
-/**
- * Wraps narration text in SSML prosody tags matching the scene emotional tone.
- * Pitch calibrated to +0st on excited to avoid robotic chipmunk artifacts.
- */
 export function buildSSMLWithTone(text: string, tone: string): string | undefined {
   const escaped = text
     .replace(/&/g, "&amp;")
@@ -185,12 +185,11 @@ export function buildSSMLWithTone(text: string, tone: string): string | undefine
     case "somber":
       return `<speak><prosody rate="90%" pitch="-1st" volume="-1dB">${escaped}</prosody></speak>`;
     default:
-      return undefined; // neutral: plain text, no SSML
+      return undefined;
   }
 }
 
 async function callGCPTTS(payload: any, customKey: string | undefined): Promise<Buffer | null> {
-  // Mode A: Service Account OAuth Token (Preferred: supports Vertex AI & Google Cloud Gemini-TTS)
   const customSa = customKey ? parseServiceAccountCredentials(customKey) : null;
   const authInfo = customSa
     ? {
@@ -237,18 +236,25 @@ async function callGCPTTS(payload: any, customKey: string | undefined): Promise<
     }
   }
 
-  // Mode B: Direct API Key
-  const apiKey = (customKey && !customKey.startsWith("{")) ? customKey : (process.env.GCP_TTS_API_KEY || process.env.GOOGLE_TTS_API_KEY);
+  const apiKey =
+    customKey && !customKey.startsWith("{")
+      ? customKey
+      : process.env.GCP_TTS_API_KEY || process.env.GOOGLE_TTS_API_KEY;
   if (apiKey) {
-    const res = await fetch(`https://texttospeech.googleapis.com/v1/text:synthesize?key=${encodeURIComponent(apiKey)}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(25000),
-    });
+    const res = await fetch(
+      `https://texttospeech.googleapis.com/v1/text:synthesize?key=${encodeURIComponent(apiKey)}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(25000),
+      }
+    );
     if (res.status === 429) {
       gcpCloudGeminiCooloffUntil = Date.now() + 45_000;
-      console.warn("[GCP TTS] ⚠️ 429 Rate-limit encountered on Google Cloud TTS endpoint (API Key mode). Activating 45s cooloff window.");
+      console.warn(
+        "[GCP TTS] ⚠️ 429 Rate-limit encountered on Google Cloud TTS endpoint (API Key mode). Activating 45s cooloff window."
+      );
     }
     if (res.ok) {
       const data: any = await res.json();
@@ -258,14 +264,6 @@ async function callGCPTTS(payload: any, customKey: string | undefined): Promise<
 
   return null;
 }
-
-/**
- * Synthesizes speech using Google Cloud Text-to-Speech API.
- * Cascade order for Google Cloud users:
- * 1. Google Cloud Gemini-TTS ("gemini-3.1-flash-tts-preview" with { prompt, text })
- * 2. Google Cloud Chirp 3 HD ("hi-IN-Chirp3-HD-Aoede" / "Fenrir" with SSML)
- * Always Free Tier gives 1,000,000 characters/month free.
- */
 
 /**
  * Splits long text into chunks under Google Cloud TTS's 5000-byte UTF-8 input limit.
@@ -290,7 +288,6 @@ export function chunkTextByByteLimit(text: string, maxBytes = 4200): string[] {
       if (Buffer.byteLength(sentence, "utf-8") <= maxBytes) {
         current = sentence;
       } else {
-        // Hard split by words if a single sentence exceeds maxBytes
         const words = sentence.split(/\s+/);
         let wordChunk = "";
         for (const w of words) {
@@ -310,6 +307,24 @@ export function chunkTextByByteLimit(text: string, maxBytes = 4200): string[] {
   return chunks;
 }
 
+/**
+ * Synthesizes a list of UTF-8 byte-bounded text chunks via `callGCPTTS` and concatenates the MP3 buffers.
+ */
+async function callGCPTTSChunked(
+  textChunks: string[],
+  buildPayload: (chunk: string) => any,
+  customKey: string | undefined
+): Promise<Buffer | null> {
+  if (textChunks.length === 0) return null;
+  const buffers: Buffer[] = [];
+  for (const chunk of textChunks) {
+    const partBuf = await callGCPTTS(buildPayload(chunk), customKey);
+    if (!partBuf) return null;
+    buffers.push(partBuf);
+  }
+  return Buffer.concat(buffers);
+}
+
 export async function synthesizeGoogleCloudTTS(
   text: string,
   outPath: string,
@@ -326,42 +341,47 @@ export async function synthesizeGoogleCloudTTS(
   const speakingRate = options?.speakingRate ?? 1.0;
   const stylePrompt = GCP_GEMINI_STYLE_PROMPTS[options?.tone ?? "neutral"] ?? GCP_GEMINI_STYLE_PROMPTS["neutral"]!;
   const geminiVoiceName = /fenrir/i.test(voiceMeta.name) ? "Fenrir" : "Aoede";
+  const textChunks = chunkTextByByteLimit(text, 4200);
+  if (textChunks.length === 0) return false;
+
+  const buildGeminiPayload = (chunk: string) => ({
+    input: {
+      prompt: stylePrompt,
+      text: chunk,
+    },
+    voice: {
+      languageCode: voiceMeta.languageCode,
+      name: geminiVoiceName,
+      model_name: "gemini-3.1-flash-tts-preview",
+    },
+    audioConfig: {
+      audioEncoding: "MP3",
+      speakingRate,
+      sampleRateHertz: 44100,
+    },
+  });
 
   try {
-    // Tier 1: Try Google Cloud Gemini-TTS with official { prompt, text } separation
-    const gcpGeminiPayload = {
-      input: {
-        prompt: stylePrompt,
-        text: text,
-      },
-      voice: {
-        languageCode: voiceMeta.languageCode,
-        name: geminiVoiceName,
-        model_name: "gemini-3.1-flash-tts-preview",
-      },
-      audioConfig: {
-        audioEncoding: "MP3",
-        speakingRate,
-        sampleRateHertz: 44100,
-      },
-    };
-
+    // Tier 1: Try Google Cloud Gemini-TTS with byte-bounded chunks
     let buf: Buffer | null = null;
     if (Date.now() > gcpCloudGeminiCooloffUntil) {
-      buf = await callGCPTTS(gcpGeminiPayload, customKey);
+      buf = await callGCPTTSChunked(textChunks, buildGeminiPayload, customKey);
     } else {
       const remainingSec = Math.max(1, Math.round((gcpCloudGeminiCooloffUntil - Date.now()) / 1000));
-      console.log(`[GCP TTS] ⏱️ Cloud Gemini-TTS in rate-limit cooloff (${remainingSec}s remaining). Directly routing to AI Studio Gemini-TTS pool.`);
+      console.log(
+        `[GCP TTS] ⏱️ Cloud Gemini-TTS in rate-limit cooloff (${remainingSec}s remaining). Directly routing to AI Studio Gemini-TTS pool.`
+      );
     }
     if (buf) {
       await fs.mkdir(path.dirname(outPath), { recursive: true });
       await fs.writeFile(outPath, buf);
-      console.log(`[GCP TTS] ✅ Synthesized ${buf.length} bytes via Google Cloud Gemini-TTS ("gemini-3.1-flash-tts-preview", voice: ${geminiVoiceName})`);
+      console.log(
+        `[GCP TTS] ✅ Synthesized ${buf.length} bytes via Google Cloud Gemini-TTS ("gemini-3.1-flash-tts-preview", voice: ${geminiVoiceName})`
+      );
       return true;
     }
 
-    // Tier 1.5: If Cloud Gemini-TTS is rate-limited (429) or in cooloff, try AI Studio Gemini-TTS (34-key pool) first
-    // to preserve unbroken Gemini voice persona (Aoede/Fenrir) across the video with zero wait time.
+    // Tier 1.5: Try AI Studio Gemini-TTS (34-key pool)
     try {
       const aiStudioOk = await synthesizeGeminiTTS(
         text,
@@ -373,28 +393,27 @@ export async function synthesizeGoogleCloudTTS(
       if (aiStudioOk) {
         return true;
       }
-    } catch {
-      // AI Studio didn't succeed, proceed to wait/refill check
-    }
+    } catch {}
 
-    // Tier 1.8: Invariant - Wait 45s cooloff window before shifting to Chirp
-    // If Cloud Gemini-TTS is currently in cooloff, wait out the remaining time until the 45s window elapses!
+    // Tier 1.8: Wait out remaining 45s cooloff window if active
     const remainingCooldownMs = gcpCloudGeminiCooloffUntil - Date.now();
     if (remainingCooldownMs > 0) {
       const waitSec = Math.ceil(remainingCooldownMs / 1000);
-      console.log(`[GCP TTS] ⏱️ Cloud Gemini-TTS in rate-limit cooloff. Waiting ${waitSec}s for quota to refill before degrading to Chirp...`);
+      console.log(
+        `[GCP TTS] ⏱️ Cloud Gemini-TTS in rate-limit cooloff. Waiting ${waitSec}s for quota to refill before degrading to Chirp...`
+      );
       await new Promise((resolve) => setTimeout(resolve, remainingCooldownMs + 1000));
 
-      // Quota refill retry: try Cloud Gemini-TTS again now that the 45s cooloff has elapsed
-      buf = await callGCPTTS(gcpGeminiPayload, customKey);
+      buf = await callGCPTTSChunked(textChunks, buildGeminiPayload, customKey);
       if (buf) {
         await fs.mkdir(path.dirname(outPath), { recursive: true });
         await fs.writeFile(outPath, buf);
-        console.log(`[GCP TTS] ✅ Synthesized ${buf.length} bytes via Google Cloud Gemini-TTS after cooloff refill! ("gemini-3.1-flash-tts-preview", voice: ${geminiVoiceName})`);
+        console.log(
+          `[GCP TTS] ✅ Synthesized ${buf.length} bytes via Google Cloud Gemini-TTS after cooloff refill! ("gemini-3.1-flash-tts-preview", voice: ${geminiVoiceName})`
+        );
         return true;
       }
 
-      // Also retry AI Studio Gemini-TTS pool once after wait
       try {
         const aiStudioRetryOk = await synthesizeGeminiTTS(
           text,
@@ -409,23 +428,27 @@ export async function synthesizeGoogleCloudTTS(
       } catch {}
     }
 
-    // Tier 2: ONLY after 45s cooloff wait has elapsed and Cloud Gemini STILL did not refill, shift to Google Cloud Chirp 3 HD
-    console.warn(`[GCP TTS] ⚠️ Cloud Gemini-TTS quota did not refill after cooloff wait. Shifting to Google Cloud Chirp 3 HD ("${voiceMeta.name}").`);
-    const ssml = options?.tone ? buildSSMLWithTone(text, options.tone) : undefined;
-    const chirpPayload = {
-      input: ssml ? { ssml } : { text },
-      voice: {
-        languageCode: voiceMeta.languageCode,
-        name: voiceMeta.name,
-      },
-      audioConfig: {
-        audioEncoding: "MP3",
-        speakingRate,
-        sampleRateHertz: 44100,
-      },
+    // Tier 2: Shift to Google Cloud Chirp 3 HD with byte-bounded chunks
+    console.warn(
+      `[GCP TTS] ⚠️ Cloud Gemini-TTS quota did not refill after cooloff wait. Shifting to Google Cloud Chirp 3 HD ("${voiceMeta.name}").`
+    );
+    const buildChirpPayload = (chunk: string) => {
+      const ssml = options?.tone ? buildSSMLWithTone(chunk, options.tone) : undefined;
+      return {
+        input: ssml ? { ssml } : { text: chunk },
+        voice: {
+          languageCode: voiceMeta.languageCode,
+          name: voiceMeta.name,
+        },
+        audioConfig: {
+          audioEncoding: "MP3",
+          speakingRate,
+          sampleRateHertz: 44100,
+        },
+      };
     };
 
-    buf = await callGCPTTS(chirpPayload, customKey);
+    buf = await callGCPTTSChunked(textChunks, buildChirpPayload, customKey);
     if (buf) {
       await fs.mkdir(path.dirname(outPath), { recursive: true });
       await fs.writeFile(outPath, buf);
