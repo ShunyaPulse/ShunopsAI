@@ -91,7 +91,7 @@ async function main() {
       console.log(`\n🚀 Phase 3: Synthesizing Audio (Gemini-TTS), Keyframes (Cloudflare FLUX), and Launching to Kaggle GPU...`);
       const launched = await launchChapterJob(script);
       console.log(`\n🎉 [SUCCESS] Chapter Video Job Launched: ${launched.jobId}`);
-      console.log(`   Kaggle Kernel: ${launched.kernel}`);
+      console.log(`   Kaggle Kernel: [REDACTED]`);
       console.log(`   Kaggle Dataset: shunyapulse/video-job-${launched.jobId}`);
       console.log(`   The Cloud Video Sweeper will automatically publish to YouTube when rendering completes.`);
     } else {
@@ -119,7 +119,7 @@ async function main() {
       try {
         parsedJob = JSON.parse(launchOutput);
       } catch {}
-      console.log(`\n🎉 [SUCCESS] General Video Job Dispatched: ${parsedJob.jobId || "[REDACTED]"}`);
+      console.log(`\n🎉 [SUCCESS] General Video Job Dispatched: [REDACTED]`);
       console.log("   Kaggle Kernel: [REDACTED]");
       console.log(`   Title: "[REDACTED]"`);
       console.log(`   Scenes: ${parsedJob.scenes ? "[REDACTED]" : "N/A"}`);

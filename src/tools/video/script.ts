@@ -279,7 +279,7 @@ ${JSON.stringify(script)}`;
           }
         }
       } catch (rewriteErr: any) {
-        console.warn(`[Video Editorial Guardrail] Rewrite fallback notice: ${rewriteErr?.message || rewriteErr}`);
+        console.warn('[Video Editorial Guardrail] Rewrite fallback notice: [REDACTED]');
       }
     } else if (audit) {
       console.log(`[Video Editorial Guardrail] ✅ ${audit.rationale}`);
