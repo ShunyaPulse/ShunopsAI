@@ -158,10 +158,10 @@ export async function sendEmailOTP(email: string): Promise<{ success: boolean; m
 
   if (!sql) {
     const existing = memStore.emailOtps.get(cleanEmail);
-    if (existing && now - existing.createdAt < 60_000) {
+    if (existing && now - existing.createdAt < 30_000) {
       return {
         success: false,
-        message: "Please wait 60 seconds before requesting another OTP.",
+        message: "Please wait 30 seconds before requesting another OTP.",
       };
     }
     const otp = generateNumericOTP();
@@ -195,17 +195,17 @@ export async function sendEmailOTP(email: string): Promise<{ success: boolean; m
     }
   }
 
-  // Rate limit: 1 OTP request per email per 60 seconds
+  // Rate limit: 1 OTP request per email per 30 seconds
   const recentCheck = await (sql as any).query(
     `SELECT created_at FROM shunops_email_otps 
-     WHERE LOWER(email) = $1 AND created_at > NOW() - INTERVAL '60 seconds'
+     WHERE LOWER(email) = $1 AND created_at > NOW() - INTERVAL '30 seconds'
      LIMIT 1;`,
     [cleanEmail]
   );
   if (recentCheck.length > 0) {
     return {
       success: false,
-      message: "Please wait 60 seconds before requesting another OTP.",
+      message: "Please wait 30 seconds before requesting another OTP.",
     };
   }
 

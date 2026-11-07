@@ -85,28 +85,21 @@ async function handleSendEmailOtp(req: FastifyRequest, reply: FastifyReply) {
   const clientSubnet = getClientSubnet(clientIp);
 
   // Layer 3: Multi-Tier Hierarchical Rate Limiting
-  // 3A. Global velocity limit: max 10 OTP sends / min platform-wide (Anti-Bombing burst defense)
-  const globalQuota = await checkDistributedSubnetQuota("otp-global", 10, 60);
-  if (!globalQuota.allowed) {
-    reply.status(429);
-    return { error: "System is experiencing high verification volume. Please try again shortly." };
-  }
-
-  // 3B. Per-IP limit: max 2 OTP sends / 10 min
+  // 3A. Per-IP limit: max 2 OTP sends / 10 min
   const ipQuota = await checkDistributedSubnetQuota(`otp-ip:${clientIp}`, 2, 600);
   if (!ipQuota.allowed) {
     reply.status(429);
     return { error: "Too many verification attempts from this IP address. Please wait a few minutes." };
   }
 
-  // 3C. Subnet limit: max 4 OTP sends / 10 min per /24
+  // 3B. Subnet limit: max 4 OTP sends / 10 min per /24
   const subnetQuota = await checkDistributedSubnetQuota(`otp-send:${clientSubnet}`, 4, 600);
   if (!subnetQuota.allowed) {
     reply.status(429);
     return { error: "Too many OTP requests from this network. Please wait a few minutes." };
   }
 
-  // 3D. Per-Email 24-Hour Budget: max 3 OTP sends / 24 hours
+  // 3C. Per-Email 24-Hour Budget: max 3 OTP sends / 24 hours
   const emailDailyQuota = await checkDistributedSubnetQuota(`otp-email:${cleanEmail}`, 3, 86400);
   if (!emailDailyQuota.allowed) {
     reply.status(429);
