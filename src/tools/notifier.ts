@@ -43,13 +43,13 @@ export interface VideoNotificationDetails {
 export async function sendVideoReadyEmail(details: VideoNotificationDetails): Promise<boolean> {
   const host = process.env.SMTP_HOST || "smtp.gmail.com";
   const port = parseInt(process.env.SMTP_PORT || "465", 10);
-  const user = process.env.SMTP_USER || "shunyapulse42@gmail.com";
+  const user = process.env.SMTP_USER;
   const pass = process.env.SMTP_PASS;
-  const to = process.env.EMAIL_TO || process.env.EMAIL_FROM || "techanics6174@gmail.com";
-  const fromAddress = process.env.SMTP_FROM || `"ShunopsAI Review" <${user}>`;
+  const to = process.env.EMAIL_TO || process.env.EMAIL_FROM || user;
+  const fromAddress = process.env.SMTP_FROM || (user ? `"ShunopsAI Review" <${user}>` : "");
 
-  if (!pass) {
-    console.warn("[Notifier] Warning: SMTP_PASS is missing in .env. Skipping email notification.");
+  if (!pass || !user || !to) {
+    console.warn("[Notifier] Warning: SMTP credentials or recipient (EMAIL_TO / SMTP_USER) missing. Skipping email notification.");
     return false;
   }
 
@@ -391,9 +391,14 @@ export async function sendIncidentAlert(alert: IncidentAlertDetails): Promise<{
     try {
       const host = process.env.SMTP_HOST || "smtp.gmail.com";
       const port = parseInt(process.env.SMTP_PORT || "465", 10);
-      const user = process.env.SMTP_USER || "shunyapulse42@gmail.com";
-      const to = process.env.EMAIL_TO || "techanics6174@gmail.com";
-      const fromAddress = process.env.SMTP_FROM || `"ShunopsAI Sentinel" <${user}>`;
+      const user = process.env.SMTP_USER;
+      const to = process.env.EMAIL_TO || user;
+      const fromAddress = process.env.SMTP_FROM || (user ? `"ShunopsAI Sentinel" <${user}>` : "");
+
+      if (!user || !to) {
+        console.warn("[Notifier] Warning: Neither EMAIL_TO nor SMTP_USER is configured. Skipping alert email.");
+        return results;
+      }
 
       const transporter = nodemailer.createTransport({
         host,
