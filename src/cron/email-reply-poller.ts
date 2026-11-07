@@ -57,7 +57,7 @@ export async function pollVideoEmailReplies(): Promise<{ processed: number }> {
   console.log(`[Email Poller] Connecting to ${host}:${port} for ${user}...`);
 
   return new Promise((resolve) => {
-    const socket = tls.connect(port, host, { rejectUnauthorized: false }, async () => {
+    const socket = tls.connect(port, host, { rejectUnauthorized: true, minVersion: 'TLSv1.2' }, async () => {
       let processedCount = 0;
       try {
         // Step 1: Wait for greeting
