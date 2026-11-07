@@ -226,7 +226,7 @@ function cleanDetailsString(text: string): string {
   if (
     s.includes("10,000 neurons") ||
     s.includes("daily free allocation") ||
-    /code["']?\s*:\s*4006/i.test(s) ||
+    (() => { const i = s.toLowerCase().indexOf('code'); return i !== -1 && /^["']?\s*:\s*4006/.test(s.slice(i + 4)); })() ||
     /daily quota exhausted/i.test(s)
   ) {
     s = s.replace(
@@ -236,7 +236,7 @@ function cleanDetailsString(text: string): string {
   }
 
   return s
-    .replace(/\b(AIError:\s*)+/gi, "")
+    .replace(/\bAIError:\s*/gi, "")
     .replace(/\([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\)/gi, "")
     .replace(/,?\s*["']?code["']?\s*:\s*\d+/gi, "")
     .replace(/\s{2,}/g, " ")
