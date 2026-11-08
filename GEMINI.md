@@ -178,14 +178,17 @@
 - **Zero Imaginary Capabilities in Architectural Documentation:**
   - Never describe or market the system with exaggerated, scientifically false claims (e.g. claiming FLUX generates 8K images when its native tensor capacity is $1024 \times 1024$). Technical documentation and developer communications must strictly reflect true tensor limits and model capabilities.
 
-## 18. Strict Prohibition on Unconfirmed Cloud Resource Deletion & Job Termination
-- **Zero Unprompted Resource Deletion:**
+## 18. Strict Prohibition on Unconfirmed Cloud Actions, Job Termination & Git Reverts
+- **Zero Unprompted Resource Deletion or Termination:**
   - NEVER delete, cancel, abort, stop, or kill any cloud job, Kaggle kernel, Kaggle dataset, or rendered artifact without explicit, direct user instruction.
   - Even if a job or dataset appears redundant, unexpected, unprompted, or failed:
     1. Report the resource ID, status, and details clearly to the user.
     2. Wait for the user's explicit confirmation or command before issuing any `delete`, `stop`, or cleanup call.
+- **Zero Unprompted Git Reverts & Kernel Re-Dispatch:**
+  - NEVER automatically revert code commits or push/re-dispatch new Kaggle kernel versions without first reporting the exact root cause, presenting the fix proposal, and obtaining the user's explicit permission.
+  - Always communicate the diagnostic findings to the user and wait for their confirmation before making destructive git branch changes or launching cloud GPU runs.
 - **Data & GPU Quota Respect:**
-  - Running and queued GPU jobs represent valuable compute time and quota. Premature cancellation without user consent is strictly forbidden.
+  - Running and queued GPU jobs represent valuable compute time and quota. Premature cancellation or redundant kernel pushes without user consent are strictly forbidden.
 
 ## 19. Dual-Pipeline Synchronization & Mandatory Pre-Flight Verification Lock
 - **Core Technology & Tool Parity (`chapter-pipeline.ts` <-> `job.ts` <-> `cricketTemplate.ts`):**
