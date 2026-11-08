@@ -29,6 +29,7 @@ export interface KeyframeAuditResult {
   rootCause?: string;
   refinedVisualPrompt?: string;
   modelUsed?: string;
+  cached?: boolean;
 }
 
 export interface KeyframeHealSummary {
@@ -348,15 +349,44 @@ export async function auditSceneKeyframe(
 }
 
 /**
+ * Executes async tasks with a bounded concurrency pool.
+ */
+async function runConcurrent<T, R>(
+  items: T[],
+  concurrency: number,
+  workerFn: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let nextIndex = 0;
+
+  const workerCount = Math.max(1, Math.min(items.length, concurrency));
+  const workers = Array.from({ length: workerCount }, async () => {
+    while (nextIndex < items.length) {
+      const idx = nextIndex++;
+      results[idx] = await workerFn(items[idx]!, idx);
+    }
+  });
+
+  await Promise.all(workers);
+  return results;
+}
+
+/**
  * Orchestrates pre-render keyframe auditing and self-healing for an entire video script.
- * Enforces Zero Data Loss by maintaining non-destructive backups before any regeneration.
+ * Features:
+ * 1. Delta Caching: Skips already-verified PASS keyframes across subsequent runs.
+ * 2. Parallel Multimodal Auditing: Audits pending keyframes concurrently across the 34 Gemini keys.
+ * 3. Targeted Self-Healing: Selectively regenerates and re-audits only flagged scenes.
+ * 4. Zero Data Loss Guarantee: Non-destructive backups (.backup/) protect every asset.
  */
 export async function auditAndHealKeyframes(
   script: VideoScript,
   imagesDir: string,
-  options: { maxHealingAttempts?: number } = {}
+  options: { maxHealingAttempts?: number; concurrency?: number } = {}
 ): Promise<KeyframeHealSummary> {
   const maxAttempts = options.maxHealingAttempts ?? 2;
+  const pool = geminiKeyPool();
+  const concurrency = options.concurrency ?? Math.max(1, Math.min(pool.length > 0 ? pool.length : 4, 6));
   const backupDir = path.join(imagesDir, ".backup");
   await fs.mkdir(backupDir, { recursive: true });
 
@@ -365,9 +395,31 @@ export async function auditAndHealKeyframes(
   let healedCount = 0;
   let retainedOriginalCount = 0;
   const healedScenes: number[] = [];
-  const reports: KeyframeAuditResult[] = [];
+  const reportsByScene: Map<number, KeyframeAuditResult> = new Map();
 
-  console.log(`[Keyframe Auditor] 🔍 Launching Autonomous Multimodal Quality Audit across ${totalAudited} scene keyframes...`);
+  // Load previous audit cache if available (Delta Caching)
+  const datasetDir = path.dirname(imagesDir);
+  const auditReportPath = path.join(datasetDir, "keyframe-audit.json");
+  const cachedReportMap: Map<number, KeyframeAuditResult> = new Map();
+
+  if (fsSync.existsSync(auditReportPath)) {
+    try {
+      const raw = await fs.readFile(auditReportPath, "utf-8");
+      const prevData = JSON.parse(raw);
+      if (Array.isArray(prevData.reports)) {
+        for (const rep of prevData.reports) {
+          if (typeof rep.sceneIndex === "number" && rep.verdict === "PASS") {
+            cachedReportMap.set(rep.sceneIndex, rep);
+          }
+        }
+      }
+    } catch {
+      // Ignore unparseable or outdated cache
+    }
+  }
+
+  // Identify scenes that need audit vs scenes that can be skipped via cache
+  const scenesToAudit: number[] = [];
 
   for (let i = 0; i < totalAudited; i++) {
     const scene = script.scenes[i];
@@ -384,78 +436,127 @@ export async function auditAndHealKeyframes(
       } catch {}
     }
 
-    // Step 1: Initial Multimodal Audit
-    let auditResult = await auditSceneKeyframe(imgPath, scene, script, i);
-
-    if (auditResult.verdict === "PASS") {
+    const cached = cachedReportMap.get(i);
+    if (cached && fsSync.existsSync(imgPath) && fsSync.statSync(imgPath).size >= 5000) {
+      // Scene already verified PASS in previous audit and image file is valid!
+      console.log(`[Keyframe Auditor] ⚡ Scene ${i + 1}/${totalAudited} previously verified PASS. Skipping vision API.`);
+      reportsByScene.set(i, { ...cached, cached: true });
       passedInitially++;
-      reports.push(auditResult);
-      continue;
-    }
-
-    // Step 2: Self-Healing Loop for Flagged Scenes
-    console.warn(
-      `[Keyframe Auditor] ⚠️ Scene ${i + 1}/${totalAudited} flagged [${auditResult.modelUsed}]: ${auditResult.detectedAnomalies.join("; ")}`
-    );
-
-    let healedSuccessfully = false;
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      if (!auditResult.refinedVisualPrompt || auditResult.refinedVisualPrompt.trim().length === 0) {
-        break;
-      }
-
-      console.log(
-        `[Keyframe Healer] 🩹 Repairing Scene ${i + 1} (Attempt ${attempt}/${maxAttempts}) with refined prompt...`
-      );
-
-      // Apply refined prompt to script scene
-      scene.visual_prompt = auditResult.refinedVisualPrompt;
-
-      // Selectively regenerate ONLY this scene via Cloudflare FLUX
-      try {
-        await generateSceneKeyframes(script, imagesDir, {
-          sceneIndices: [i],
-          forceRegenerate: true,
-        });
-      } catch (regenErr: any) {
-        console.warn(`[Keyframe Healer] FLUX regeneration attempt ${attempt} warning: ${regenErr?.message || regenErr}`);
-      }
-
-      // Re-verify that image exists and has valid size
-      if (!fsSync.existsSync(imgPath) || fsSync.statSync(imgPath).size < 5000) {
-        console.warn(`[Keyframe Healer] Regenerated image failed threshold. Restoring from backup...`);
-        if (fsSync.existsSync(backupPath)) {
-          await fs.copyFile(backupPath, imgPath);
-        }
-        break;
-      }
-
-      // Re-audit newly regenerated keyframe
-      const reAudit = await auditSceneKeyframe(imgPath, scene, script, i);
-      if (reAudit.verdict === "PASS") {
-        console.log(`[Keyframe Healer] ✅ Scene ${i + 1} successfully healed! Passed all aesthetic gates.`);
-        healedSuccessfully = true;
-        healedCount++;
-        healedScenes.push(i);
-        reports.push(reAudit);
-        break;
-      } else {
-        auditResult = reAudit;
-      }
-    }
-
-    if (!healedSuccessfully) {
-      retainedOriginalCount++;
-      reports.push(auditResult);
-      console.warn(
-        `[Keyframe Healer] ⚠️ Scene ${i + 1} could not be fully perfected after ${maxAttempts} attempts. Retaining best asset to preserve pre-flight integrity.`
-      );
+    } else {
+      scenesToAudit.push(i);
     }
   }
 
+  if (scenesToAudit.length === 0) {
+    console.log(`[Keyframe Auditor] 🎯 All ${totalAudited} scene keyframes previously passed audit! 100% delta cache hit.`);
+  } else {
+    console.log(
+      `[Keyframe Auditor] 🔍 Launching Parallel Multimodal Quality Audit on ${scenesToAudit.length}/${totalAudited} scenes (${concurrency}x concurrency across key pool)...`
+    );
+
+    // Parallel Vision Audit Pass
+    const auditResults = await runConcurrent(
+      scenesToAudit,
+      concurrency,
+      async (sceneIdx) => {
+        const scene = script.scenes[sceneIdx]!;
+        const imgFileName = `scene_${String(sceneIdx).padStart(3, "0")}.png`;
+        const imgPath = path.join(imagesDir, imgFileName);
+        return await auditSceneKeyframe(imgPath, scene, script, sceneIdx);
+      }
+    );
+
+    // Process audit verdicts
+    const flaggedScenes: { sceneIdx: number; auditResult: KeyframeAuditResult }[] = [];
+
+    for (let k = 0; k < scenesToAudit.length; k++) {
+      const sceneIdx = scenesToAudit[k]!;
+      const result = auditResults[k]!;
+      reportsByScene.set(sceneIdx, result);
+
+      if (result.verdict === "PASS") {
+        passedInitially++;
+      } else {
+        flaggedScenes.push({ sceneIdx, auditResult: result });
+      }
+    }
+
+    // Step 2: Self-Healing Loop for Flagged Scenes
+    for (const { sceneIdx, auditResult: initialAudit } of flaggedScenes) {
+      let auditResult = initialAudit;
+      const scene = script.scenes[sceneIdx]!;
+      const imgFileName = `scene_${String(sceneIdx).padStart(3, "0")}.png`;
+      const imgPath = path.join(imagesDir, imgFileName);
+      const backupPath = path.join(backupDir, `${path.parse(imgFileName).name}_orig.png`);
+
+      console.warn(
+        `[Keyframe Auditor] ⚠️ Scene ${sceneIdx + 1}/${totalAudited} flagged [${auditResult.modelUsed}]: ${auditResult.detectedAnomalies.join("; ")}`
+      );
+
+      let healedSuccessfully = false;
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        if (!auditResult.refinedVisualPrompt || auditResult.refinedVisualPrompt.trim().length === 0) {
+          break;
+        }
+
+        console.log(
+          `[Keyframe Healer] 🩹 Repairing Scene ${sceneIdx + 1} (Attempt ${attempt}/${maxAttempts}) with refined prompt...`
+        );
+
+        // Apply refined prompt to script scene
+        scene.visual_prompt = auditResult.refinedVisualPrompt;
+
+        // Selectively regenerate ONLY this scene via Cloudflare FLUX
+        try {
+          await generateSceneKeyframes(script, imagesDir, {
+            sceneIndices: [sceneIdx],
+            forceRegenerate: true,
+          });
+        } catch (regenErr: any) {
+          console.warn(`[Keyframe Healer] FLUX regeneration attempt ${attempt} warning: ${regenErr?.message || regenErr}`);
+        }
+
+        // Re-verify that image exists and has valid size
+        if (!fsSync.existsSync(imgPath) || fsSync.statSync(imgPath).size < 5000) {
+          console.warn(`[Keyframe Healer] Regenerated image failed threshold. Restoring from backup...`);
+          if (fsSync.existsSync(backupPath)) {
+            await fs.copyFile(backupPath, imgPath);
+          }
+          break;
+        }
+
+        // Re-audit newly regenerated keyframe
+        const reAudit = await auditSceneKeyframe(imgPath, scene, script, sceneIdx);
+        if (reAudit.verdict === "PASS") {
+          console.log(`[Keyframe Healer] ✅ Scene ${sceneIdx + 1} successfully healed! Passed all aesthetic gates.`);
+          healedSuccessfully = true;
+          healedCount++;
+          healedScenes.push(sceneIdx);
+          reportsByScene.set(sceneIdx, reAudit);
+          break;
+        } else {
+          auditResult = reAudit;
+        }
+      }
+
+      if (!healedSuccessfully) {
+        retainedOriginalCount++;
+        reportsByScene.set(sceneIdx, auditResult);
+        console.warn(
+          `[Keyframe Healer] ⚠️ Scene ${sceneIdx + 1} could not be fully perfected after ${maxAttempts} attempts. Retaining best asset to preserve pre-flight integrity.`
+        );
+      }
+    }
+  }
+
+  // Compile sorted reports in order of sceneIndex
+  const reports: KeyframeAuditResult[] = [];
+  for (let i = 0; i < totalAudited; i++) {
+    const r = reportsByScene.get(i);
+    if (r) reports.push(r);
+  }
+
   // Save audit report in dataset root directory
-  const datasetDir = path.dirname(imagesDir);
-  const auditReportPath = path.join(datasetDir, "keyframe-audit.json");
   const summary: KeyframeHealSummary = {
     totalAudited,
     passedInitially,
@@ -467,7 +568,7 @@ export async function auditAndHealKeyframes(
 
   try {
     await fs.writeFile(auditReportPath, JSON.stringify(summary, null, 2), "utf-8");
-    console.log(`[Keyframe Auditor] 📋 Full Keyframe Audit Report saved to [REDACTED]`);
+    console.log(`[Keyframe Auditor] 📋 Full Keyframe Audit Report saved to ${auditReportPath}`);
   } catch {}
 
   console.log(
