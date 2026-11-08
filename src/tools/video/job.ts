@@ -5,6 +5,7 @@ import { kaggle } from "./kaggle.js";
 import { generateScript } from "./script.js";
 import { healMissingNarration, synthesizeNarration } from "./narration.js";
 import { generateSceneKeyframes } from "./keyframes.js";
+import { auditAndHealKeyframes } from "./keyframe-auditor.js";
 import { isSportsOrCricket } from "./domain.js";
 import { resolveAndDownloadCloudBgm, searchAndDownloadSFX } from "./dynamicSound.js";
 import { verifyPreFlightDataset } from "./preflight.js";
@@ -211,6 +212,16 @@ export async function startVideoJob(
   script.keyframes_summary = `${keyframes.successCount}/${keyframes.totalScenes} via ${keyframes.modelUsed}`;
   console.log(`[Video] 🎨 Keyframe packaging complete: ${script.keyframes_summary}`);
 
+  // Stage 1.2: Autonomous Multimodal Keyframe Audit & Self-Healing Loop (Zero Defective Keyframes)
+  try {
+    const auditSummary = await auditAndHealKeyframes(script, imagesDir);
+    if (auditSummary.healedCount > 0) {
+      console.log(`[Video] 🩹 Self-healed ${auditSummary.healedCount} keyframes before dataset packaging.`);
+    }
+  } catch (auditErr: any) {
+    console.warn(`[Video] Keyframe audit notice: ${auditErr?.message || auditErr}`);
+  }
+
   // Stage 1.5: Stream domain BGM directly into dataset/audio (Zero Laptop Storage)
   const soundscape =
     (script as any).visual_bible?.soundscapeProfile ||
@@ -348,6 +359,7 @@ async function syncJobAudio(dsDir: string): Promise<void> {
     await fs.mkdir(imagesDir, { recursive: true });
     const keyframes = await generateSceneKeyframes(script, imagesDir);
     if (keyframes.successCount > 0) {
+      await auditAndHealKeyframes(script, imagesDir).catch(() => {});
       script.keyframes_summary = `${keyframes.successCount}/${keyframes.totalScenes} via ${keyframes.modelUsed}`;
       await writeJsonFile(scriptFile, script);
       dsUpdated = true;

@@ -20,6 +20,7 @@ import {
 } from "../../tools/kokoro-tts.js";
 import { synthesizeGeminiTTS } from "../../tools/gemini-tts.js";
 import { generateSceneKeyframes } from "../../tools/video/keyframes.js";
+import { auditAndHealKeyframes } from "../../tools/video/keyframe-auditor.js";
 import { searchAndDownloadSFX, resolveAndDownloadCloudBgm } from "../../tools/video/dynamicSound.js";
 import { verifyPreFlightDataset } from "../../tools/video/preflight.js";
 import { waitForDatasetReady } from "../../tools/video/job.js";
@@ -668,6 +669,16 @@ export async function launchChapterJob(
   const keyframes = await generateSceneKeyframes(script as any, imagesDir);
   (script as any).keyframes_summary = `${keyframes.successCount}/${keyframes.totalScenes} via ${keyframes.modelUsed}`;
   console.log(`🎨 [Keyframe Pre-Packaging] Complete: ${(script as any).keyframes_summary}`);
+
+  // Stage 1.2: Autonomous Multimodal Keyframe Audit & Self-Healing
+  try {
+    const auditSummary = await auditAndHealKeyframes(script as any, imagesDir);
+    if (auditSummary.healedCount > 0) {
+      console.log(`🎨 [Keyframe Pre-Packaging] 🩹 Self-healed ${auditSummary.healedCount} keyframes.`);
+    }
+  } catch (auditErr: any) {
+    console.warn(`🎨 [Keyframe Pre-Packaging] Audit warning: ${auditErr?.message || auditErr}`);
+  }
 
   await fs.writeFile(path.join(dsDir, "script.json"), JSON.stringify(script, null, 2));
   await fs.writeFile(
