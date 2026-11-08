@@ -108,7 +108,7 @@ jobs:
 
       - name: Upload Video Assets Artifact (Safety Net)
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: video-assets-${{ github.run_id }}
           path: jobs/
