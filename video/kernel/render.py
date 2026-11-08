@@ -1782,6 +1782,7 @@ async def main():
         "tags": script.get("tags"),
         "chapters": script.get("chapters"),
         "language": script.get("language") or ("Hindi" if "hi-IN" in voice else "English"),
+        "voice": voice,
         "engine": diffusion.engine_name,
         "motion_interpolation": "RIFE / MCI",
         "subtitles": "Edge-TTS WordBoundary",

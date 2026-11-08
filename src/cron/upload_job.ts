@@ -48,6 +48,8 @@ async function main() {
     studioUrl: ytResult.studioUrl,
     topic: meta.title || "Autonomous Video Project",
     category: meta.category || "Science & Technology",
+    language: meta.language,
+    voice: meta.voice,
     valueHook: meta.description || meta.value_hook || "Autonomous AI video production render.",
     thumbnailPath: ["thumbnail.jpg", "thumbnail.png", "frame_30s.jpg", "frame_15s.jpg", "frame_03s.jpg", "frame_45s.jpg"]
       .map((f) => path.join(destDir, f))

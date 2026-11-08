@@ -238,6 +238,8 @@ export async function runAutonomousCycle(): Promise<AutopilotRunResult> {
       studioUrl: ytResult.studioUrl,
       topic: curated.documentary_topic,
       category: curated.category,
+      language: meta.language,
+      voice: meta.voice,
       valueHook: curated.value_hook,
       thumbnailPath: [
         "thumbnail.jpg",

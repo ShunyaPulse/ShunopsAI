@@ -19,11 +19,14 @@ export interface VideoNotificationDetails {
   jobId?: string | undefined;
   category?: string | undefined;
   valueHook?: string | undefined;
+  language?: string | undefined;
+  voice?: string | undefined;
   thumbnailPath?: string | undefined;
   chapters?: { title: string; start_scene: number }[] | undefined;
   durationSec?: number | undefined;
   engine?: string | undefined;
   auditReport?: {
+    ok?: boolean;
     overallQualityScore?: number;
     summary?: string;
     defects?: Array<{
@@ -64,13 +67,20 @@ export async function sendVideoReadyEmail(details: VideoNotificationDetails): Pr
   const durationMin = details.durationSec ? `${(details.durationSec / 60).toFixed(1)} mins` : "3.0 mins";
   const safeTitle = escapeHtml(details.title);
   const safeCategory = escapeHtml(details.category || "General Curiosity");
-  const safeValueHook = details.valueHook ? escapeHtml(details.valueHook) : "";
+  const safeLanguage = escapeHtml(details.language || "Hindi");
+  const safeVoice = details.voice ? escapeHtml(details.voice) : "";
   const safeEngine = escapeHtml(details.engine || "Wan2.1 DiT + RIFE");
   const safeVideoUrl = /^https:\/\//i.test(details.videoUrl) ? escapeHtml(details.videoUrl) : "#";
   const safeStudioUrl = /^https:\/\//i.test(details.studioUrl) ? escapeHtml(details.studioUrl) : "#";
   const chaptersHtml = (details.chapters || [])
     .map((c) => `<li style="margin-bottom: 4px;"><strong>Scene ${Number(c.start_scene) + 1}:</strong> ${escapeHtml(c.title)}</li>`)
     .join("");
+
+  const isAuditConducted = Boolean(
+    details.auditReport &&
+      details.auditReport.ok !== false &&
+      (details.auditReport.overallQualityScore ?? 0) > 0
+  );
 
   const html = `
 <!DOCTYPE html>
@@ -102,18 +112,10 @@ export async function sendVideoReadyEmail(details: VideoNotificationDetails): Pr
         <h2 style="margin: 6px 0 0 0; font-size: 18px; color: #f8fafc; line-height: 1.4;">${safeTitle}</h2>
       </div>
 
-      ${
-        details.valueHook
-          ? `<p style="font-size: 14px; line-height: 1.6; color: #cbd5e1; margin-bottom: 20px;">
-              <strong>💡 Value Addition:</strong> ${safeValueHook}
-             </p>`
-          : ""
-      }
-
       <div style="background-color: #0f172a; padding: 16px; border-radius: 8px; margin-bottom: 24px; font-size: 13px; color: #94a3b8;">
         <table style="width: 100%; border-collapse: collapse;">
           <tr>
-            <td style="padding: 4px 0;"><strong>Language:</strong> Hindi (hi-IN-MadhurNeural)</td>
+            <td style="padding: 4px 0;"><strong>Language:</strong> ${safeLanguage}${safeVoice ? ` (${safeVoice})` : ""}</td>
             <td style="padding: 4px 0;"><strong>Visibility:</strong> <span style="color: #4ade80;">Private</span></td>
           </tr>
           <tr>
@@ -121,8 +123,8 @@ export async function sendVideoReadyEmail(details: VideoNotificationDetails): Pr
             <td style="padding: 4px 0;"><strong>AI Disclosure:</strong> Yes</td>
           </tr>
           <tr>
-            <td style="padding: 4px 0;"><strong>Likes Visible:</strong> Off</td>
             <td style="padding: 4px 0;"><strong>Engine:</strong> ${safeEngine}</td>
+            <td style="padding: 4px 0;"></td>
           </tr>
         </table>
       </div>
@@ -144,8 +146,8 @@ export async function sendVideoReadyEmail(details: VideoNotificationDetails): Pr
       <div style="background-color: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 18px 20px; margin-bottom: 24px;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; border-bottom: 1px solid #1e293b; padding-bottom: 8px;">
           <h3 style="margin: 0; font-size: 16px; color: #38bdf8;">🔍 AI Video Quality &amp; Visual Audit</h3>
-          <span style="background-color: #0369a1; color: #ffffff; font-weight: 700; font-size: 12px; padding: 4px 8px; border-radius: 4px;">
-            Score: ${details.auditReport.overallQualityScore ?? 8}/10
+          <span style="background-color: ${isAuditConducted ? "#0369a1" : "#475569"}; color: #ffffff; font-weight: 700; font-size: 12px; padding: 4px 8px; border-radius: 4px;">
+            ${isAuditConducted ? `Score: ${details.auditReport.overallQualityScore}/10` : "Status: Skipped"}
           </span>
         </div>
         ${
@@ -156,7 +158,9 @@ export async function sendVideoReadyEmail(details: VideoNotificationDetails): Pr
             : ""
         }
         ${
-          (details.auditReport.defects && details.auditReport.defects.length > 0)
+          !isAuditConducted
+            ? ""
+            : (details.auditReport.defects && details.auditReport.defects.length > 0)
             ? `
           <div style="margin-top: 10px;">
             ${details.auditReport.defects

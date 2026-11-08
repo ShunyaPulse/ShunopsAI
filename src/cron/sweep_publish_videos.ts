@@ -329,7 +329,7 @@ export async function sweepAndPublishVideos(): Promise<{ checked: number; publis
       console.log(`[Cloud Sweeper] ✅ Published to YouTube: ${yt.videoUrl}`);
       await markJobAsPublished(jobId, yt.videoId || "unknown", yt.videoUrl);
 
-      // Read metadata for notification email
+      // Read metadata & script for notification email
       let meta: any = {};
       const metaPath = path.join(destDir, "meta.json");
       if (fsSync.existsSync(metaPath)) {
@@ -337,6 +337,23 @@ export async function sweepAndPublishVideos(): Promise<{ checked: number; publis
           meta = JSON.parse(await fs.readFile(metaPath, "utf-8"));
         } catch {}
       }
+
+      let scriptJson: any = {};
+      const scriptCandidates = [
+        path.join(destDir, "script.json"),
+        path.join(JOBS_DIR, jobId, "dataset", "script.json"),
+        path.join(JOBS_DIR, jobId.split("-")[0]!, "dataset", "script.json"),
+      ];
+      for (const sc of scriptCandidates) {
+        if (fsSync.existsSync(sc)) {
+          try {
+            scriptJson = JSON.parse(await fs.readFile(sc, "utf-8"));
+            break;
+          } catch {}
+        }
+      }
+      const voice = meta.voice || scriptJson.voice;
+      const language = meta.language || scriptJson.language || "Hindi";
 
       // Autonomous Gemini Multimodal Video Quality Audit (Zero Laptop Storage)
       let auditReport: any = undefined;
@@ -360,6 +377,8 @@ export async function sweepAndPublishVideos(): Promise<{ checked: number; publis
         topic: meta.title || "Autonomous Cloud Video",
         jobId,
         category: meta.category || "Education & Technology",
+        language,
+        voice,
         valueHook: meta.description || meta.value_hook || "Autonomous video render complete.",
         thumbnailPath: ["thumbnail.jpg", "thumbnail.png", "frame_30s.jpg"]
           .map((f) => path.join(destDir, f))
