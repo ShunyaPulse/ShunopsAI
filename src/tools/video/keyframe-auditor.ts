@@ -467,7 +467,7 @@ export async function auditAndHealKeyframes(
 
   try {
     await fs.writeFile(auditReportPath, JSON.stringify(summary, null, 2), "utf-8");
-    console.log(`[Keyframe Auditor] 📋 Full Keyframe Audit Report saved to ${auditReportPath}`);
+    console.log(`[Keyframe Auditor] 📋 Full Keyframe Audit Report saved to [REDACTED]`);
   } catch {}
 
   console.log(
