@@ -10,15 +10,18 @@ Features:
   7. Modern 1080p Digital  -> Lanczos 1080p scaling, subtle unsharp clarity, vibrant documentary digital color grade
 """
 import asyncio
+import contextlib
 import gc
 import glob
 import json
 import math
 import os
+import queue
 import re
 import shutil
 import subprocess
 import sys
+import threading
 import time
 import warnings
 
@@ -526,6 +529,14 @@ class WanT4OptimizedEngine:
         self.hf_token = hf_token
         self.device = device
         self.engine_name = "Wan2.1-VACE-1.3B"
+        self.num_gpus = torch.cuda.device_count() if torch.cuda.is_available() else 0
+        self.prompt_cache = {}
+        self.default_cached_embed = None
+        self.worker_pipes = {}
+        self.workers_initialized = False
+        self._assembly_lock = threading.Lock()
+        self.model_id = "Wan-AI/Wan2.1-VACE-1.3B-diffusers"
+        self.PipelineClass = None
         self._init_model()
 
     def _init_model(self):
@@ -533,6 +544,7 @@ class WanT4OptimizedEngine:
             raise RuntimeError("CRITICAL ERROR: CUDA is not available! Kaggle kernel must have GPU enabled.")
 
         num_gpus = torch.cuda.device_count()
+        self.num_gpus = num_gpus
         dev_idx = 0
         if ":" in str(self.device):
             try: dev_idx = int(str(self.device).split(":")[1])
@@ -545,15 +557,14 @@ class WanT4OptimizedEngine:
             for g_i in range(num_gpus):
                 g_name = torch.cuda.get_device_name(g_i)
                 g_vram = torch.cuda.get_device_properties(g_i).total_memory / (1024 ** 3)
-                print(f"[Wan2.1 Hardware] GPU {g_i}: {g_name} ({g_vram:.1f} GB VRAM)")
+                print(f"[Wan2.1 Hardware] GPU {g_i} (cuda:{g_i}): {g_name} ({g_vram:.1f} GB VRAM)")
 
         if self.hf_token:
             os.environ["HF_TOKEN"] = self.hf_token
             os.environ["HUGGING_FACE_HUB_TOKEN"] = self.hf_token
 
-        # Load Alibaba Wan2.1 1.3B DiT in FP16 (T4 Turing SM 7.5 Native Tensor Cores)
+        # Load Alibaba Wan2.1-VACE-1.3B-diffusers in FP16 on Worker 0
         try:
-            from diffusers import WanPipeline
             try:
                 from diffusers import WanVACEPipeline
                 PipelineClass = WanVACEPipeline
@@ -562,55 +573,25 @@ class WanT4OptimizedEngine:
                 PipelineClass = DiffusionPipeline
 
             model_id = "Wan-AI/Wan2.1-VACE-1.3B-diffusers"
+            self.model_id = model_id
+            self.PipelineClass = PipelineClass
 
-            # -----------------------------------------------------------------
-            # Strategy A: Multi-GPU Model Sharding (device_map="balanced")
-            # Locks model in VRAM across both GPUs (Zero CPU-offload latency bottleneck).
-            # -----------------------------------------------------------------
-            if num_gpus >= 2:
-                print(f"[Wan2.1-VACE] 🚀 Multi-GPU Model Sharding Active: Distributing layers across {num_gpus} GPUs (device_map='balanced')...")
+            print(f"[Wan2.1-VACE] Loading {model_id} in float16 for isolated multi-GPU worker execution...")
+            self.pipe = PipelineClass.from_pretrained(
+                model_id,
+                torch_dtype=torch.float16,
+                low_cpu_mem_usage=True,
+                token=self.hf_token if self.hf_token else None
+            )
+
+            # Keep text_encoder on cuda:0 so prompt pre-encoding runs at maximum speed
+            if hasattr(self.pipe, "text_encoder") and self.pipe.text_encoder is not None:
                 try:
-                    self.pipe = PipelineClass.from_pretrained(
-                        model_id,
-                        torch_dtype=torch.float16,
-                        device_map="balanced",
-                        low_cpu_mem_usage=True,
-                        token=self.hf_token if self.hf_token else None
-                    )
-                    print(f"[Wan2.1-VACE] ✅ Model Sharding successful across {num_gpus} GPUs! Zero CPU-offload bottleneck.")
-                except Exception as shard_err:
-                    print(f"[Wan2.1-VACE] ⚠️ device_map='balanced' encountered notice ({shard_err}); falling back to single GPU CPU-offload...")
-                    self.pipe = None
+                    self.pipe.text_encoder.to("cuda:0", dtype=torch.float16)
+                except Exception:
+                    pass
 
-            # -----------------------------------------------------------------
-            # Strategy B: Single GPU with CPU Offloading (Fallback)
-            # -----------------------------------------------------------------
-            if self.pipe is None:
-                print(f"[Wan2.1] Loading Alibaba Wan2.1 1.3B DiT: {model_id} in float16 (Single GPU / CPU offload)...")
-                self.pipe = PipelineClass.from_pretrained(
-                    model_id,
-                    torch_dtype=torch.float16,  # float16 natively supported on Turing SM 7.5
-                    low_cpu_mem_usage=True,
-                    token=self.hf_token if self.hf_token else None
-                )
-
-                # Native attention slicing: divides computation into temporal slices (drops VRAM from 48 GB -> ~7-9 GB)
-                if hasattr(self.pipe, "enable_attention_slicing"):
-                    self.pipe.enable_attention_slicing(slice_size="max")
-                    print("[Wan2.1] Native Diffusers attention slicing enabled (slice_size='max')!")
-
-                # Model CPU offload: swaps modules to host RAM to keep active VRAM under 9 GB on T4
-                if hasattr(self.pipe, "enable_model_cpu_offload"):
-                    print(f"[Wan2.1] Enabling model CPU offload on GPU {dev_idx}...")
-                    try:
-                        self.pipe.enable_model_cpu_offload(gpu_id=dev_idx)
-                    except Exception:
-                        self.pipe.enable_model_cpu_offload()
-                else:
-                    self.pipe = self.pipe.to(self.device)
-
-            # VAE latent tiling and slicing: prevents VAE decoding VRAM spikes in both modes
-            # Strict Invariant: VAE must remain in float32 to eliminate neon/psychedelic numerical overflow
+            # Strict Invariant: VAE must remain strictly in float32 to eliminate neon/psychedelic numerical overflow
             if hasattr(self.pipe, "vae") and self.pipe.vae is not None:
                 if hasattr(self.pipe.vae, "to"):
                     try:
@@ -621,13 +602,199 @@ class WanT4OptimizedEngine:
                     self.pipe.vae.enable_tiling()
                 if hasattr(self.pipe.vae, "enable_slicing"):
                     self.pipe.vae.enable_slicing()
-                print("[Wan2.1] VAE FP32 precision + tiling and slicing enabled!")
+                print("[Wan2.1-VACE] VAE FP32 precision + tiling and slicing enabled!")
 
             self.engine_name = "Wan2.1-VACE-1.3B"
-            print("[Wan2.1-VACE] Wan2.1-VACE-1.3B online with FP16 Cutlass + Character Lock!")
+            print("[Wan2.1-VACE] Worker 0 loaded successfully in FP16 (Ready for Prompt Pre-Encoding & Multi-GPU Provisioning).")
             return
         except Exception as wan_err:
-            print(f"[Wan2.1 Warning] Could not initialize WanPipeline ({wan_err}). Preparing fallback...")
+            print(f"[Wan2.1-VACE Warning] Could not initialize WanVACEPipeline ({wan_err}). Trying WanPipeline T2V...")
+            try:
+                from diffusers import WanPipeline
+                self.PipelineClass = WanPipeline
+                self.model_id = "Wan-AI/Wan2.1-T2V-1.3B-Diffusers"
+                self.pipe = WanPipeline.from_pretrained(
+                    self.model_id,
+                    torch_dtype=torch.float16,
+                    low_cpu_mem_usage=True,
+                    token=self.hf_token if self.hf_token else None
+                )
+                if hasattr(self.pipe, "text_encoder") and self.pipe.text_encoder is not None:
+                    try:
+                        self.pipe.text_encoder.to("cuda:0", dtype=torch.float16)
+                    except Exception:
+                        pass
+                if hasattr(self.pipe, "vae") and self.pipe.vae is not None:
+                    if hasattr(self.pipe.vae, "to"):
+                        try:
+                            self.pipe.vae.to(dtype=torch.float32)
+                        except Exception:
+                            pass
+                    if hasattr(self.pipe.vae, "enable_tiling"):
+                        self.pipe.vae.enable_tiling()
+                    if hasattr(self.pipe.vae, "enable_slicing"):
+                        self.pipe.vae.enable_slicing()
+                self.engine_name = "Wan2.1-T2V-1.3B"
+                print("[Wan2.1] Wan2.1-T2V-1.3B initialized successfully.")
+                return
+            except Exception as t2v_err:
+                print(f"[Wan2.1 Warning] T2V fallback failed ({t2v_err}). Preparing AnimateDiff-Lightning...")
+
+        self._init_fallback_engine()
+
+    def _ensure_workers_ready(self, prompt_pairs):
+        """
+        1. Pre-encodes all unique (clean_prompt, neg_prompt) pairs on cuda:0 using UMT5 text_encoder
+           via native diffusers pipe.encode_prompt and stores FP16 tensors in CPU RAM.
+        2. Evicts the 9.5 GB UMT5 text_encoder and tokenizer from VRAM & Host RAM.
+        3. Provisions isolated per-GPU workers:
+           - Worker 0: locks transformer (FP16) + VAE (FP32) onto cuda:0.
+           - Worker 1 (if 2+ GPUs): loads fresh pipeline from local HF cache onto cuda:1 (text_encoder=None).
+        """
+        if self.pipe is None:
+            return
+
+        # Step 1: Pre-encode any new prompt pairs while text_encoder is on cuda:0
+        missing_pairs = [
+            (p, n) for (p, n) in prompt_pairs
+            if p and (p, n) not in self.prompt_cache
+        ]
+        if missing_pairs and getattr(self.pipe, "text_encoder", None) is not None:
+            t0 = time.time()
+            print(f"[Wan2.1 Pre-Encoder] 🧠 Batch pre-encoding {len(missing_pairs)} unique shot prompts on cuda:0...")
+            with torch.cuda.device(0), torch.inference_mode():
+                for p_text, n_text in missing_pairs:
+                    if (p_text, n_text) in self.prompt_cache:
+                        continue
+                    try:
+                        prompt_embeds, negative_prompt_embeds = self.pipe.encode_prompt(
+                            prompt=p_text,
+                            negative_prompt=n_text,
+                            do_classifier_free_guidance=True,
+                            num_videos_per_prompt=1,
+                            device=torch.device("cuda:0"),
+                            dtype=torch.float16,
+                        )
+                    except TypeError:
+                        enc_out = self.pipe.encode_prompt(
+                            prompt=p_text,
+                            negative_prompt=n_text,
+                            device=torch.device("cuda:0")
+                        )
+                        if isinstance(enc_out, (tuple, list)):
+                            prompt_embeds, negative_prompt_embeds = enc_out[0], enc_out[1]
+                        else:
+                            prompt_embeds, negative_prompt_embeds = enc_out, None
+
+                    p_cpu = prompt_embeds.detach().to("cpu", dtype=torch.float16).contiguous()
+                    n_cpu = negative_prompt_embeds.detach().to("cpu", dtype=torch.float16).contiguous() if negative_prompt_embeds is not None else None
+                    self.prompt_cache[(p_text, n_text)] = (p_cpu, n_cpu)
+                    if self.default_cached_embed is None:
+                        self.default_cached_embed = (p_cpu, n_cpu)
+            print(f"[Wan2.1 Pre-Encoder] ✅ Pre-encoded {len(self.prompt_cache)} prompts in {time.time() - t0:.1f}s.")
+
+        if self.workers_initialized:
+            return
+
+        # Step 2: Evict 9.5 GB UMT5 text_encoder & tokenizer from VRAM and Host RAM
+        if getattr(self.pipe, "text_encoder", None) is not None and len(self.prompt_cache) > 0:
+            print("[Wan2.1 Memory Optimization] 🧹 Evicting 9.5 GB UMT5 text_encoder & tokenizer...")
+            try:
+                self.pipe.text_encoder.to("cpu")
+            except Exception:
+                pass
+            del self.pipe.text_encoder
+            del self.pipe.tokenizer
+            if hasattr(self.pipe, "register_modules"):
+                try:
+                    self.pipe.register_modules(text_encoder=None, tokenizer=None)
+                except Exception:
+                    pass
+            self.pipe.text_encoder = None
+            self.pipe.tokenizer = None
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            print("[Wan2.1 Memory Optimization] ✅ 9.5 GB UMT5 text_encoder evicted successfully!")
+
+        # Step 3: Configure Worker 0 on cuda:0
+        pipe_0 = self.pipe
+        with torch.cuda.device(0):
+            if hasattr(pipe_0, "transformer") and pipe_0.transformer is not None:
+                pipe_0.transformer.to("cuda:0", dtype=torch.float16)
+            if hasattr(pipe_0, "vae") and pipe_0.vae is not None:
+                pipe_0.vae.to("cuda:0", dtype=torch.float32)  # STRICTLY FP32!
+                if hasattr(pipe_0.vae, "enable_tiling"):
+                    pipe_0.vae.enable_tiling()
+                if hasattr(pipe_0.vae, "enable_slicing"):
+                    pipe_0.vae.enable_slicing()
+            if hasattr(pipe_0, "image_encoder") and pipe_0.image_encoder is not None:
+                pipe_0.image_encoder.to("cuda:0", dtype=torch.float16)
+            if hasattr(pipe_0, "enable_attention_slicing"):
+                pipe_0.enable_attention_slicing(slice_size="max")
+
+        self.worker_pipes[0] = pipe_0
+
+        # Step 4: Configure Worker 1 on cuda:1 (if 2+ GPUs available)
+        if self.num_gpus >= 2 and len(self.prompt_cache) > 0 and self.PipelineClass is not None:
+            print("[Wan2.1 Dual-GPU] 🚀 Provisioning Worker 1 on cuda:1 fresh from local disk cache...")
+            try:
+                try:
+                    pipe_1 = self.PipelineClass.from_pretrained(
+                        self.model_id,
+                        text_encoder=None,
+                        tokenizer=None,
+                        torch_dtype=torch.float16,
+                        low_cpu_mem_usage=True,
+                        token=self.hf_token if self.hf_token else None
+                    )
+                except TypeError:
+                    pipe_1 = self.PipelineClass.from_pretrained(
+                        self.model_id,
+                        torch_dtype=torch.float16,
+                        low_cpu_mem_usage=True,
+                        token=self.hf_token if self.hf_token else None
+                    )
+                    if hasattr(pipe_1, "text_encoder"):
+                        del pipe_1.text_encoder
+                        pipe_1.text_encoder = None
+                    if hasattr(pipe_1, "tokenizer"):
+                        del pipe_1.tokenizer
+                        pipe_1.tokenizer = None
+
+                with torch.cuda.device(1):
+                    if hasattr(pipe_1, "transformer") and pipe_1.transformer is not None:
+                        pipe_1.transformer.to("cuda:1", dtype=torch.float16)
+                    if hasattr(pipe_1, "vae") and pipe_1.vae is not None:
+                        pipe_1.vae.to("cuda:1", dtype=torch.float32)  # STRICTLY FP32!
+                        if hasattr(pipe_1.vae, "enable_tiling"):
+                            pipe_1.vae.enable_tiling()
+                        if hasattr(pipe_1.vae, "enable_slicing"):
+                            pipe_1.vae.enable_slicing()
+                    if hasattr(pipe_1, "image_encoder") and pipe_1.image_encoder is not None:
+                        pipe_1.image_encoder.to("cuda:1", dtype=torch.float16)
+                    if hasattr(pipe_1, "enable_attention_slicing"):
+                        pipe_1.enable_attention_slicing(slice_size="max")
+
+                # Verify clean device placement
+                for p in pipe_0.transformer.parameters():
+                    if p.device != torch.device("cuda:0"):
+                        raise RuntimeError(f"Worker 0 param on {p.device} instead of cuda:0")
+                for p in pipe_1.transformer.parameters():
+                    if p.device != torch.device("cuda:1"):
+                        raise RuntimeError(f"Worker 1 param on {p.device} instead of cuda:1")
+
+                self.worker_pipes[1] = pipe_1
+                print("[Wan2.1 Dual-GPU] ✅ Dual-GPU Workers initialized: Worker 0 (cuda:0) + Worker 1 (cuda:1) ready for 2x parallel throughput!")
+            except Exception as w1_err:
+                print(f"[Wan2.1 Dual-GPU Warning] Worker 1 initialization notice ({w1_err}). Operating in single GPU mode on cuda:0.")
+                if 1 in self.worker_pipes:
+                    del self.worker_pipes[1]
+                gc.collect()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+
+        self.workers_initialized = True
 
         self._init_fallback_engine()
 
@@ -673,6 +840,219 @@ class WanT4OptimizedEngine:
             except Exception:
                 pass
 
+    def _render_single_shot_on_worker(self, gpu_id, shot_spec):
+        """
+        Executes diffusion inference for a single shot on `cuda:{gpu_id}` using native prompt_embeds.
+        Zero monkey-patching, zero text encoding overhead, zero cross-GPU contention.
+        """
+        scene_idx = shot_spec["scene_idx"]
+        s_idx = shot_spec["shot_idx"]
+        num_shots = shot_spec["total_shots"]
+        shot_dur = shot_spec["shot_dur"]
+        clean_prompt = shot_spec["clean_prompt"]
+        neg_prompt = shot_spec["neg_prompt"]
+        seed = shot_spec["seed"]
+        kf_path = shot_spec.get("kf_path")
+        sub_clip = shot_spec["sub_clip"]
+
+        pipe = self.worker_pipes.get(gpu_id, self.pipe)
+        target_dev = f"cuda:{gpu_id}" if torch.cuda.is_available() else "cpu"
+        generator = torch.Generator(target_dev).manual_seed(seed) if torch.cuda.is_available() else torch.Generator().manual_seed(seed)
+
+        print(f"[{self.engine_name}] Scene {scene_idx+1} [Shot {s_idx+1}/{num_shots}]: Starting diffusion on GPU {gpu_id} ({target_dev})...")
+
+        # Keyframe conditioning (Tarika 2)
+        ref_image = None
+        if kf_path and os.path.exists(kf_path):
+            try:
+                from diffusers.utils import load_image
+                ref_image = load_image(kf_path).convert("RGB").resize((640, 384))
+            except Exception as img_err:
+                print(f"[Wan2.1-VACE Warning] Scene {scene_idx+1} Shot {s_idx+1} could not load keyframe image: {img_err}")
+
+        # Retrieve precomputed prompt embeddings from cache
+        cached = self.prompt_cache.get((clean_prompt, neg_prompt))
+        if cached is None:
+            cached = self.default_cached_embed
+
+        p_gpu = None
+        n_gpu = None
+        if cached is not None:
+            p_cpu, n_cpu = cached
+            p_gpu = p_cpu.to(target_dev, dtype=torch.float16)
+            n_gpu = n_cpu.to(target_dev, dtype=torch.float16) if n_cpu is not None else None
+
+        frames = None
+        fps_base = 16
+
+        with torch.cuda.device(gpu_id) if torch.cuda.is_available() else contextlib.nullcontext():
+            try:
+                call_kwargs = {
+                    "height": 384,
+                    "width": 640,
+                    "num_frames": 33,
+                    "num_inference_steps": 25,
+                    "guidance_scale": 3.8,
+                    "generator": generator
+                }
+                if p_gpu is not None:
+                    call_kwargs["prompt_embeds"] = p_gpu
+                    if n_gpu is not None:
+                        call_kwargs["negative_prompt_embeds"] = n_gpu
+                else:
+                    call_kwargs["prompt"] = clean_prompt
+                    call_kwargs["negative_prompt"] = neg_prompt
+
+                if ref_image is not None:
+                    if "VACE" in type(pipe).__name__ or "WanVACE" in str(type(pipe)):
+                        call_kwargs["reference_images"] = [ref_image]
+                    else:
+                        call_kwargs["image"] = ref_image
+
+                try:
+                    output = pipe(**call_kwargs)
+                except TypeError as te:
+                    arg_err = str(te)
+                    if ("image" in arg_err or "reference_images" in arg_err or "unexpected keyword argument" in arg_err) and ref_image is not None:
+                        call_kwargs.pop("image", None)
+                        call_kwargs.pop("first_image", None)
+                        call_kwargs.pop("reference_images", None)
+                        tried_ok = False
+                        for param_name, param_val in [
+                            ("reference_images", [ref_image]),
+                            ("reference_images", [[ref_image]]),
+                            ("image", ref_image),
+                            ("first_image", ref_image)
+                        ]:
+                            try:
+                                call_kwargs[param_name] = param_val
+                                output = pipe(**call_kwargs)
+                                tried_ok = True
+                                break
+                            except TypeError:
+                                call_kwargs.pop(param_name, None)
+                                continue
+                        if not tried_ok:
+                            output = pipe(**call_kwargs)
+                    else:
+                        raise te
+
+                frames = output.frames[0]
+                fps_base = 16
+            except Exception as diff_err:
+                print(f"[Wan2.1 Notice] Scene {scene_idx+1} Shot {s_idx+1} on GPU {gpu_id} encountered notice ({diff_err}).")
+                frames = None
+            finally:
+                if p_gpu is not None:
+                    del p_gpu
+                if n_gpu is not None:
+                    del n_gpu
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+
+        # If diffusion output was not produced, fallback to keyframe Ken Burns or fallback pipeline
+        if frames is None:
+            if kf_path and os.path.exists(kf_path):
+                print(f"[Fallback 🛡️] Scene {scene_idx+1} Shot {s_idx+1}: Rendering subpixel Ken Burns from keyframe...")
+                shot_frames = max(24, int(shot_dur * 24))
+                zoom_cmd = "min(zoom+0.0008,1.15)" if s_idx == 0 else "max(1.15-0.0008*on,1.0)"
+                run([
+                    "ffmpeg", "-y", "-loop", "1", "-i", kf_path,
+                    "-vf", f"zoompan=z='{zoom_cmd}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d={shot_frames}:s=1920x1080:fps=24,unsharp=3:3:0.3:3:3:0.1,eq=contrast=1.02:brightness=0.0:saturation=1.02,format=yuv420p",
+                    "-r", "24", "-t", f"{shot_dur:.3f}",
+                    *get_best_video_encoder_args(), sub_clip
+                ])
+                return sub_clip
+            else:
+                raise RuntimeError(f"Scene {scene_idx+1} Shot {s_idx+1} could not generate frames or find keyframe.")
+
+        # Export raw frames to video
+        raw_clip = f"{TMP}/raw_{scene_idx}_{s_idx}.mp4"
+        try:
+            from diffusers.utils import export_to_video
+            export_to_video(frames, raw_clip, fps=fps_base)
+        except Exception:
+            import numpy as np
+            from PIL import Image
+            frame_dir = f"{TMP}/frames_{scene_idx}_{s_idx}"
+            os.makedirs(frame_dir, exist_ok=True)
+            for f_idx, frame in enumerate(frames):
+                if isinstance(frame, np.ndarray):
+                    if frame.dtype in (np.float32, np.float16) or frame.max() <= 1.0:
+                        img = Image.fromarray((frame * 255).astype(np.uint8))
+                    else:
+                        img = Image.fromarray(frame.astype(np.uint8))
+                    img.save(f"{frame_dir}/f_{f_idx:04d}.png")
+                elif hasattr(frame, "save"):
+                    frame.save(f"{frame_dir}/f_{f_idx:04d}.png")
+            run([
+                "ffmpeg", "-y", "-framerate", str(fps_base), "-i", f"{frame_dir}/f_%04d.png",
+                "-c:v", "libx264", "-pix_fmt", "yuv420p", raw_clip
+            ])
+            shutil.rmtree(frame_dir, ignore_errors=True)
+
+        raw_d = duration(raw_clip)
+        pts_mult = shot_dur / max(raw_d, 0.4)
+
+        # Frame Blend Interpolation + Clean Balanced Digital Cinema Grade (contrast 1.02, saturation 1.02)
+        vf_pipeline = (
+            f"setpts={pts_mult:.4f}*PTS,"
+            f"minterpolate=fps=24:mi_mode=blend,"
+            f"scale=1920:1080:force_original_aspect_ratio=increase:flags=lanczos,crop=1920:1080,"
+            f"unsharp=3:3:0.3:3:3:0.1,"
+            f"eq=contrast=1.02:brightness=0.0:saturation=1.02,"
+            f"format=yuv420p"
+        )
+        run([
+            "ffmpeg", "-y", "-i", raw_clip,
+            "-vf", vf_pipeline,
+            "-r", "24", "-t", f"{shot_dur:.3f}",
+            *get_best_video_encoder_args(), sub_clip
+        ])
+
+        # Luma Verification Gate: Prevent true pitch-black latent collapse (YAVG < 25.0)
+        is_pitch_black = False
+        try:
+            sample_ss = str(round(min(0.5, max(0.0, shot_dur / 2.0)), 2))
+            luma_cmd = [
+                "ffmpeg", "-y", "-ss", sample_ss, "-i", sub_clip,
+                "-vframes", "5",
+                "-vf", "signalstats,metadata=print:key=lavfi.signalstats.YAVG:file=-",
+                "-f", "null", "-"
+            ]
+            luma_run = subprocess.run(luma_cmd, capture_output=True, text=True, timeout=8)
+            y_matches = re.findall(r"lavfi\.signalstats\.YAVG=([0-9\.]+)", luma_run.stdout + luma_run.stderr)
+            if y_matches:
+                avg_y = sum(float(y) for y in y_matches) / len(y_matches)
+                if avg_y < 25.0:
+                    is_pitch_black = True
+                    print(f"[Luma Gate ⚠️] Scene {scene_idx+1} Shot {s_idx+1} collapsed to pitch black (YAVG={avg_y:.1f} < 25.0).")
+        except Exception as e:
+            print(f"[Luma Gate Warning] Could not probe luminance: {e}")
+
+        if is_pitch_black:
+            print(f"[Luma Gate 🛡️] Executing pristine keyframe Ken Burns dynamic rescue for Scene {scene_idx+1} Shot {s_idx+1}...")
+            rescue_kf = kf_path if (kf_path and os.path.exists(kf_path)) else None
+            if not rescue_kf:
+                for alt_idx in [scene_idx, max(0, scene_idx - 1), 0]:
+                    alt_kf = find_keyframe_image(alt_idx)
+                    if alt_kf and os.path.exists(alt_kf):
+                        rescue_kf = alt_kf
+                        break
+            if rescue_kf:
+                shot_frames = max(24, int(shot_dur * 24))
+                zoom_cmd = "min(zoom+0.0008,1.15)" if s_idx == 0 else "max(1.15-0.0008*on,1.0)"
+                run([
+                    "ffmpeg", "-y", "-loop", "1", "-i", rescue_kf,
+                    "-vf", f"zoompan=z='{zoom_cmd}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d={shot_frames}:s=1920x1080:fps=24,unsharp=3:3:0.3:3:3:0.1,eq=contrast=1.02:brightness=0.0:saturation=1.02,format=yuv420p",
+                    "-r", "24", "-t", f"{shot_dur:.3f}",
+                    *get_best_video_encoder_args(), sub_clip
+                ])
+                print(f"[Luma Gate ✅] Scene {scene_idx+1} Shot {s_idx+1} successfully rescued with high-definition Ken Burns keyframe motion.")
+
+        print(f"[Wan2.1 Done] Scene {scene_idx+1} Shot {s_idx+1} finished on GPU {gpu_id} -> {sub_clip}")
+        return sub_clip
+
     def generate_scene_montage(self, prompt, target_dur, out_mp4, scene_idx, domain="general"):
         """
         Generates continuous, non-repeating video for a scene with Wan2.1 DiT.
@@ -695,236 +1075,59 @@ class WanT4OptimizedEngine:
         else:
             domain_neg = "baseball helmet, american football helmet, cartoon, anime, "
 
-        # Keyframe Acquisition: Tarika 2 (Pre-packaged Cloudflare FLUX) -> Tarika 1 (Kaggle SDXL-Lightning Fallback)
+        # Context-calibrated interior architectural negative prompts
+        spatial_neg = "warehouse, airplane hangar, modern factory, industrial hall, industrial interior, modern architecture, "
+
+        neg_prompt = (
+            f"{domain_neg}"
+            f"{spatial_neg}"
+            "horror, choking, strangling, neck grabbing, violence, assault, aggression, threat, painful grimace, distress, screaming, blood, "
+            "inconsistent face, multiple different faces, female model, woman reading magazine, modern clothing, casual clothing, t-shirt, jeans, hoodie, "
+            "mutated hands, extra fingers, missing fingers, fused fingers, distorted hands, morphing face, melting skin, warped anatomy, "
+            "text, letters, words, writing, numbers, labels, charts, line graphs, pseudo-code, glyphs, bullet points, presentation slide, document, page with text, "
+            "garbled ui, blurry text, watermarks, symbols, subtitles, hud text, "
+            "temporal morphing, surface rippling, breathing walls, gelatinous motion, boiling edges, "
+            "whip pan, fast zoom, motion smear, extreme motion blur, "
+            "blown-out highlights, clipped cyan, hyper-neon blue glare, "
+            "vintage, old, grainy, sepia, retro, 8mm, 16mm, vhs, noisy, dusty, antique, "
+            "cartoon, anime, 3d render, cgi, plastic skin, distorted, blurry, bad anatomy, deformed"
+        )
+
         kf_path = find_keyframe_image(scene_idx)
         if not kf_path or not os.path.exists(kf_path):
-            print(f"[Keyframe Fallback] Scene {scene_idx+1} keyframe not found in dataset. Triggering Tarika 1 SDXL-Lightning...")
             fallback_kf = f"{TMP}/kf_{scene_idx:03d}.png"
-            kf_gen = KaggleKeyframeFallback(hf_token=self.hf_token)
-            kf_prompt = f"{prompt[:240]}, modern documentary cinema, sharp focus, zero text"
-            kf_path = kf_gen.generate(kf_prompt, fallback_kf)
-            kf_gen.release_vram()
+            if os.path.exists(fallback_kf):
+                kf_path = fallback_kf
 
-        ref_image = None
-        if kf_path and os.path.exists(kf_path):
-            try:
-                from diffusers.utils import load_image
-                ref_image = load_image(kf_path).convert("RGB").resize((640, 384))
-                print(f"[Wan2.1-VACE] Scene {scene_idx+1} conditioned on keyframe: {os.path.basename(kf_path)} (100% Character Lock Active)")
-            except Exception as img_err:
-                print(f"[Wan2.1-VACE Warning] Could not load keyframe image: {img_err}")
-
+        prompt_pairs = []
+        specs = []
         for s_idx in range(num_shots):
             var_text, seed = shot_variations[s_idx]
             sub_clip = f"{TMP}/sub_{scene_idx}_{s_idx}.mp4"
-
             clean_prompt = (
                 f"{prompt[:240]}, {var_text}, modern digital cinema, sharp high-definition focus, "
                 f"sharp crystal clear focus, vivid natural colors, documentary broadcast quality, "
                 f"subtle natural character breathing, stable non-morphing walls, rigid background structures, "
                 f"unlabeled telemetry displays, zero text, zero letters, zero numbers"
             )
-            neg_prompt = (
-                f"{domain_neg}"
-                "horror, choking, strangling, neck grabbing, violence, assault, aggression, threat, painful grimace, distress, screaming, blood, "
-                "warehouse, airplane hangar, modern factory, industrial hall, industrial interior, modern architecture, "
-                "inconsistent face, multiple different faces, female model, woman reading magazine, modern clothing, casual clothing, t-shirt, jeans, hoodie, "
-                "mutated hands, extra fingers, missing fingers, fused fingers, distorted hands, morphing face, melting skin, warped anatomy, "
-                "text, letters, words, writing, numbers, labels, charts, line graphs, pseudo-code, glyphs, bullet points, presentation slide, document, page with text, "
-                "garbled ui, blurry text, watermarks, symbols, subtitles, hud text, "
-                "temporal morphing, surface rippling, breathing walls, gelatinous motion, boiling edges, "
-                "whip pan, fast zoom, motion smear, extreme motion blur, "
-                "blown-out highlights, clipped cyan, hyper-neon blue glare, "
-                "vintage, old, grainy, sepia, retro, 8mm, 16mm, vhs, noisy, dusty, antique, "
-                "cartoon, anime, 3d render, cgi, plastic skin, distorted, blurry, bad anatomy, deformed"
-            )
+            prompt_pairs.append((clean_prompt, neg_prompt))
+            specs.append({
+                "scene_idx": scene_idx,
+                "shot_idx": s_idx,
+                "total_shots": num_shots,
+                "shot_dur": shot_dur,
+                "clean_prompt": clean_prompt,
+                "neg_prompt": neg_prompt,
+                "seed": seed,
+                "kf_path": kf_path,
+                "sub_clip": sub_clip
+            })
 
-            print(f"[{self.engine_name}] Scene {scene_idx+1} [Shot {s_idx+1}/{num_shots}]: Generating motion on {self.device}...")
-            generator = torch.Generator(self.device).manual_seed(seed)
-            frames = None
-            fps_base = 16
+        self._ensure_workers_ready(prompt_pairs)
 
-            # Priority: Wan2.1 1.3B DiT in FP16 with Attention Slicing
-            # Priority 1: Wan2.1-VACE 1.3B I2V in FP16 with Attention Slicing & 100% Character Lock
-            if self.engine_name == "Wan2.1-VACE-1.3B" and self.pipe is not None:
-                try:
-                    call_kwargs = {
-                        "prompt": clean_prompt,
-                        "negative_prompt": neg_prompt,
-                        "height": 384,
-                        "width": 640,
-                        "num_frames": 33,
-                        "num_inference_steps": 25,
-                        "guidance_scale": 5.0,
-                        "generator": generator
-                    }
-                    if ref_image is not None:
-                        # Diffusers WanVACEPipeline natively expects reference_images=[ref_image] (R2V mode)
-                        # WanImageToVideoPipeline expects image=ref_image
-                        if "VACE" in type(self.pipe).__name__ or "WanVACE" in str(type(self.pipe)):
-                            call_kwargs["reference_images"] = [ref_image]
-                        else:
-                            call_kwargs["image"] = ref_image
-
-                    try:
-                        output = self.pipe(**call_kwargs)
-                    except TypeError as te:
-                        arg_err = str(te)
-                        if ("image" in arg_err or "reference_images" in arg_err or "unexpected keyword argument" in arg_err) and ref_image is not None:
-                            # Attempt parameter variants: reference_images=[ref_image] -> [[ref_image]] -> image=ref_image
-                            call_kwargs.pop("image", None)
-                            call_kwargs.pop("first_image", None)
-                            call_kwargs.pop("reference_images", None)
-
-                            tried_ok = False
-                            for param_name, param_val in [
-                                ("reference_images", [ref_image]),
-                                ("reference_images", [[ref_image]]),
-                                ("image", ref_image),
-                                ("first_image", ref_image)
-                            ]:
-                                try:
-                                    call_kwargs[param_name] = param_val
-                                    output = self.pipe(**call_kwargs)
-                                    tried_ok = True
-                                    break
-                                except TypeError:
-                                    call_kwargs.pop(param_name, None)
-                                    continue
-
-                            if not tried_ok:
-                                print(f"[Wan2.1 Warning] Pipeline does not accept reference image arguments ({te}). Falling back to text-guided motion.")
-                                output = self.pipe(**call_kwargs)
-                        else:
-                            raise te
-
-                    frames = output.frames[0]
-                    fps_base = 16
-                except Exception as wan_err:
-                    print(f"[Wan2.1-VACE Notice] Shot encountered error ({wan_err}). Falling back to AnimateDiff...")
-                    self._init_fallback_engine()
-            elif self.engine_name == "Wan2.1-T2V-1.3B" and self.pipe is not None:
-                try:
-                    # 640x384 16:9 widescreen, 33 frames = ~30,720 tokens (comfortably fits T4 16GB VRAM)
-                    output = self.pipe(
-                        prompt=clean_prompt,
-                        negative_prompt=neg_prompt,
-                        height=384,
-                        width=640,
-                        num_frames=33,
-                        num_inference_steps=25,
-                        guidance_scale=5.0,
-                        generator=generator
-                    )
-                    frames = output.frames[0]
-                    fps_base = 16
-                except Exception as wan_err:
-                    print(f"[Wan2.1 Notice] Shot encountered error ({wan_err}). Falling back to AnimateDiff...")
-                    self._init_fallback_engine()
-
-            # Fail-safe Fallback: AnimateDiff-Lightning
-            if frames is None:
-                if self.fallback_pipe is None:
-                    self._init_fallback_engine()
-                output = self.fallback_pipe(
-                    prompt=clean_prompt,
-                    negative_prompt=neg_prompt,
-                    guidance_scale=1.2,
-                    num_inference_steps=4,
-                    num_frames=16,
-                    width=512,
-                    height=512,
-                    generator=generator
-                )
-                frames = output.frames[0]
-                fps_base = 8
-
-            raw_clip = f"{TMP}/raw_{scene_idx}_{s_idx}.mp4"
-            try:
-                from diffusers.utils import export_to_video
-                export_to_video(frames, raw_clip, fps=fps_base)
-            except Exception:
-                import numpy as np
-                from PIL import Image
-                frame_dir = f"{TMP}/frames_{scene_idx}_{s_idx}"
-                os.makedirs(frame_dir, exist_ok=True)
-                for f_idx, frame in enumerate(frames):
-                    if isinstance(frame, np.ndarray):
-                        if frame.dtype in (np.float32, np.float16) or frame.max() <= 1.0:
-                            img = Image.fromarray((frame * 255).astype(np.uint8))
-                        else:
-                            img = Image.fromarray(frame.astype(np.uint8))
-                        img.save(f"{frame_dir}/f_{f_idx:04d}.png")
-                    elif hasattr(frame, "save"):
-                        frame.save(f"{frame_dir}/f_{f_idx:04d}.png")
-                run([
-                    "ffmpeg", "-y", "-framerate", str(fps_base), "-i", f"{frame_dir}/f_%04d.png",
-                    "-c:v", "libx264", "-pix_fmt", "yuv420p", raw_clip
-                ])
-                shutil.rmtree(frame_dir, ignore_errors=True)
-
-            raw_d = duration(raw_clip)
-            pts_mult = shot_dur / max(raw_d, 0.4)
-
-            vf_pipeline = (
-                f"setpts={pts_mult:.4f}*PTS,"
-                f"minterpolate=fps=24:mi_mode=blend,"
-                f"scale=1920:1080:force_original_aspect_ratio=increase:flags=lanczos,crop=1920:1080,"
-                f"unsharp=3:3:0.3:3:3:0.1,"
-                f"eq=contrast=1.02:brightness=0.0:saturation=1.02,"
-                f"format=yuv420p"
-            )
-
-            run([
-                "ffmpeg", "-y", "-i", raw_clip,
-                "-vf", vf_pipeline,
-                "-r", "24", "-t", f"{shot_dur:.3f}",
-                *get_best_video_encoder_args(), sub_clip
-            ])
-
-            # Luma Verification Gate: Prevent pitch-black dead screen (YAVG < 25.0)
-            # Uses direct lightweight ffmpeg signalstats sample (5 frames at mid-shot) without brittle movie= filter escaping
-            is_pitch_black = False
-            avg_y = None
-            try:
-                sample_ss = str(round(min(0.5, max(0.0, shot_dur / 2.0)), 2))
-                luma_cmd = [
-                    "ffmpeg", "-y", "-ss", sample_ss, "-i", sub_clip,
-                    "-vframes", "5",
-                    "-vf", "signalstats,metadata=print:key=lavfi.signalstats.YAVG:file=-",
-                    "-f", "null", "-"
-                ]
-                luma_run = subprocess.run(luma_cmd, capture_output=True, text=True, timeout=8)
-                y_matches = re.findall(r"lavfi\.signalstats\.YAVG=([0-9\.]+)", luma_run.stdout + luma_run.stderr)
-                if y_matches:
-                    avg_y = sum(float(y) for y in y_matches) / len(y_matches)
-                    if avg_y < 25.0:
-                        is_pitch_black = True
-                        print(f"[Luma Gate ⚠️] Scene {scene_idx+1} Shot {s_idx+1} collapsed to pitch black (YAVG={avg_y:.1f} < 25.0).")
-            except Exception as e:
-                print(f"[Luma Gate Warning] Could not probe luminance: {e}")
-
-            if is_pitch_black:
-                print(f"[Luma Gate 🛡️] Executing pristine keyframe Ken Burns dynamic rescue for Scene {scene_idx+1} Shot {s_idx+1}...")
-                rescue_kf = kf_path if (kf_path and os.path.exists(kf_path)) else None
-                if not rescue_kf:
-                    for alt_idx in [scene_idx, max(0, scene_idx - 1), 0]:
-                        alt_kf = find_keyframe_image(alt_idx)
-                        if alt_kf and os.path.exists(alt_kf):
-                            rescue_kf = alt_kf
-                            break
-                if rescue_kf:
-                    shot_frames = max(24, int(shot_dur * 24))
-                    zoom_cmd = "min(zoom+0.0008,1.15)" if s_idx == 0 else "max(1.15-0.0008*on,1.0)"
-                    run([
-                        "ffmpeg", "-y", "-loop", "1", "-i", rescue_kf,
-                        "-vf", f"zoompan=z='{zoom_cmd}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d={shot_frames}:s=1920x1080:fps=24,unsharp=3:3:0.3:3:3:0.1,eq=contrast=1.02:brightness=0.0:saturation=1.02,format=yuv420p",
-                        "-r", "24", "-t", f"{shot_dur:.3f}",
-                        *get_best_video_encoder_args(), sub_clip
-                    ])
-                    print(f"[Luma Gate ✅] Scene {scene_idx+1} Shot {s_idx+1} successfully rescued with high-definition Ken Burns keyframe motion.")
-
-            shot_files.append(sub_clip)
+        for spec in specs:
+            shot_clip = self._render_single_shot_on_worker(0, spec)
+            shot_files.append(shot_clip)
 
         if len(shot_files) == 1:
             shutil.copyfile(shot_files[0], out_mp4)
@@ -938,6 +1141,175 @@ class WanT4OptimizedEngine:
 
         if not os.path.exists(out_mp4) or os.path.getsize(out_mp4) < 1000:
             raise RuntimeError(f"Failed to produce video clip for {out_mp4}")
+        return True
+
+    def render_all_scenes_parallel(self, scene_items, domain="general"):
+        """
+        Orchestrates full video generation across dual GPUs with parallel shot workers.
+        1. Compiles shot specifications and prompts for all scenes.
+        2. Pre-encodes all unique prompts on Worker 0 and evicts the 9.5GB text encoder.
+        3. Provisions Worker 1 on cuda:1 fresh from local disk cache.
+        4. Distributes shots to workers via a thread-safe Queue across available GPUs.
+        5. Assembles each scene's shots as they complete.
+        """
+        all_shot_specs = []
+        prompt_pairs = []
+
+        if domain in ["science", "space", "technology", "nature", "history"]:
+            domain_neg = "sports, stadium, athletics, cricket, football, soccer, baseball helmet, american football helmet, sports jersey, scoreboard, crowd cheering, referee, match, ball, bat, pads, wickets, "
+        elif domain == "sports":
+            domain_neg = "baseball helmet, american football helmet, cartoon, anime, manga, comic, caricature, "
+        else:
+            domain_neg = "baseball helmet, american football helmet, cartoon, anime, "
+
+        spatial_neg = "warehouse, airplane hangar, modern factory, industrial hall, industrial interior, modern architecture, "
+
+        neg_prompt = (
+            f"{domain_neg}"
+            f"{spatial_neg}"
+            "horror, choking, strangling, neck grabbing, violence, assault, aggression, threat, painful grimace, distress, screaming, blood, "
+            "inconsistent face, multiple different faces, female model, woman reading magazine, modern clothing, casual clothing, t-shirt, jeans, hoodie, "
+            "mutated hands, extra fingers, missing fingers, fused fingers, distorted hands, morphing face, melting skin, warped anatomy, "
+            "text, letters, words, writing, numbers, labels, charts, line graphs, pseudo-code, glyphs, bullet points, presentation slide, document, page with text, "
+            "garbled ui, blurry text, watermarks, symbols, subtitles, hud text, "
+            "temporal morphing, surface rippling, breathing walls, gelatinous motion, boiling edges, "
+            "whip pan, fast zoom, motion smear, extreme motion blur, "
+            "blown-out highlights, clipped cyan, hyper-neon blue glare, "
+            "vintage, old, grainy, sepia, retro, 8mm, 16mm, vhs, noisy, dusty, antique, "
+            "cartoon, anime, 3d render, cgi, plastic skin, distorted, blurry, bad anatomy, deformed"
+        )
+
+        shot_variations = [
+            ("wide establishing shot, slow steady cinematic dolly forward on track, locked solid background geometry, modern documentary", 3),
+            ("close-up detailed perspective, gentle optical push-in, rigid stable architecture, modern cinema", 7),
+        ]
+
+        scene_shots_map = {}
+
+        for item in scene_items:
+            scene_idx = item["idx"]
+            prompt = item["scene"]["visual_prompt"]
+            target_dur = item["dur"]
+            out_mp4 = item["v_path"]
+
+            num_shots = 2 if target_dur > 3.0 else 1
+            shot_dur = target_dur / num_shots
+
+            kf_path = find_keyframe_image(scene_idx)
+            if not kf_path or not os.path.exists(kf_path):
+                fallback_kf = f"{TMP}/kf_{scene_idx:03d}.png"
+                if os.path.exists(fallback_kf):
+                    kf_path = fallback_kf
+
+            scene_shots_map[scene_idx] = {
+                "num_shots": num_shots,
+                "out_mp4": out_mp4,
+                "shots": []
+            }
+
+            for s_idx in range(num_shots):
+                var_text, seed_offset = shot_variations[s_idx]
+                seed = scene_idx * 19 + seed_offset
+                sub_clip = f"{TMP}/sub_{scene_idx}_{s_idx}.mp4"
+
+                clean_prompt = (
+                    f"{prompt[:240]}, {var_text}, modern digital cinema, sharp high-definition focus, "
+                    f"sharp crystal clear focus, vivid natural colors, documentary broadcast quality, "
+                    f"subtle natural character breathing, stable non-morphing walls, rigid background structures, "
+                    f"unlabeled telemetry displays, zero text, zero letters, zero numbers"
+                )
+
+                prompt_pairs.append((clean_prompt, neg_prompt))
+
+                spec = {
+                    "scene_idx": scene_idx,
+                    "shot_idx": s_idx,
+                    "total_shots": num_shots,
+                    "shot_dur": shot_dur,
+                    "clean_prompt": clean_prompt,
+                    "neg_prompt": neg_prompt,
+                    "seed": seed,
+                    "kf_path": kf_path,
+                    "sub_clip": sub_clip,
+                }
+                all_shot_specs.append(spec)
+                scene_shots_map[scene_idx]["shots"].append(spec)
+
+        # 1. Pre-encode prompts and provision workers
+        self._ensure_workers_ready(prompt_pairs)
+
+        available_gpus = sorted(list(self.worker_pipes.keys()))
+        if not available_gpus:
+            available_gpus = [0]
+
+        print(f"\n[Parallel Video Dispatcher] 🎬 Distributing {len(all_shot_specs)} shots across GPUs: {available_gpus}...")
+
+        shot_queue = queue.Queue()
+        for spec in all_shot_specs:
+            shot_queue.put(spec)
+
+        completed_subclips = {}
+        queue_errors = []
+
+        def worker_loop(gpu_id):
+            while True:
+                try:
+                    spec = shot_queue.get_nowait()
+                except queue.Empty:
+                    break
+                try:
+                    clip_path = self._render_single_shot_on_worker(gpu_id, spec)
+                    key = (spec["scene_idx"], spec["shot_idx"])
+                    completed_subclips[key] = clip_path
+                except Exception as ex:
+                    print(f"[Worker Error] GPU {gpu_id} failed on Scene {spec['scene_idx']+1} Shot {spec['shot_idx']+1}: {ex}")
+                    queue_errors.append((spec, ex))
+                finally:
+                    shot_queue.task_done()
+
+        threads = []
+        for gid in available_gpus:
+            t = threading.Thread(target=worker_loop, args=(gid,), daemon=True)
+            t.start()
+            threads.append(t)
+
+        for t in threads:
+            t.join()
+
+        if queue_errors:
+            print(f"[Parallel Dispatcher Warning] {len(queue_errors)} shots encountered errors. Attempting fallback on GPU 0...")
+            for spec, _ in queue_errors:
+                key = (spec["scene_idx"], spec["shot_idx"])
+                if key not in completed_subclips:
+                    clip_path = self._render_single_shot_on_worker(0, spec)
+                    completed_subclips[key] = clip_path
+
+        # Assemble shots for each scene
+        print("\n[Parallel Video Dispatcher] 📦 Assembling completed shots into scene videos...")
+        for scene_idx, sdata in scene_shots_map.items():
+            out_mp4 = sdata["out_mp4"]
+            shot_files = [
+                completed_subclips.get((scene_idx, s_idx))
+                for s_idx in range(sdata["num_shots"])
+            ]
+            if any(f is None or not os.path.exists(f) for f in shot_files):
+                raise RuntimeError(f"Missing shot files for Scene {scene_idx+1}: {shot_files}")
+
+            if len(shot_files) == 1:
+                shutil.copyfile(shot_files[0], out_mp4)
+            else:
+                s_list = f"{TMP}/slist_{scene_idx}.txt"
+                open(s_list, "w").write("".join(f"file '{s}'\n" for s in shot_files))
+                run([
+                    "ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", s_list,
+                    "-c", "copy", out_mp4
+                ])
+
+            if not os.path.exists(out_mp4) or os.path.getsize(out_mp4) < 1000:
+                raise RuntimeError(f"Failed to produce video clip for Scene {scene_idx+1}: {out_mp4}")
+            print(f"[Scene Assembly ✅] Scene {scene_idx+1} successfully assembled -> {out_mp4}")
+
+        print(f"\n[Parallel Video Dispatcher] 🚀 All {len(scene_items)} scenes rendered and assembled successfully!")
         return True
 
     def generate_hero_thumbnail_diffusion(self, visual_prompt, out_jpg, domain="general"):
@@ -1187,20 +1559,15 @@ async def main():
         })
         raw_submakers.append(submaker)
 
-    # Phase 2: Video Diffusion on GPU (Single Engine on cuda:0 to preserve 30GB Host RAM limit)
+    # Phase 2: Video Diffusion on GPU (Clean Dual-GPU Parallel Worker Dispatcher)
     num_gpus = torch.cuda.device_count() if torch.cuda.is_available() else 0
     target_device = "cuda:0" if num_gpus > 0 else "cpu"
-    print(f"\n[Phase 2/3] Rendering Video Clips on {target_device}...")
+    print(f"\n[Phase 2/3] Rendering Video Clips (Dual-GPU Parallel Dispatcher on {num_gpus} GPUs)...")
     diffusion = WanT4OptimizedEngine(hf_token=hf_token, device=target_device)
-    for item in scene_items:
-        print(f"\n--- [Scene {item['idx']+1}/{len(scenes)}] Rendering on {target_device} ---")
-        diffusion.generate_scene_montage(
-            item["scene"]["visual_prompt"],
-            item["dur"],
-            item["v_path"],
-            scene_idx=item["idx"],
-            domain=domain
-        )
+    diffusion.render_all_scenes_parallel(
+        scene_items,
+        domain=domain
+    )
 
     # Phase 3: Alignment, Audio-Video Duration Sync & Subtitle Cues Assembly
     print("\n[Phase 3/3] Synchronizing audio-video timing & assembling subtitles...")
@@ -1342,13 +1709,13 @@ async def main():
         "-ar", "44100", "-ac", "2", "-c:a", "libmp3lame", "-b:a", "192k", f"{TMP}/narration.mp3"
     ])
 
-    # Synchronize total durations so -shortest never prematurely cuts dialogue or holds
+    # Hard-lock target_master_dur strictly to dialogue conclusion + 3.0 seconds (Invariant 12)
     v_raw_dur = duration(f"{TMP}/video_raw.mp4")
     a_raw_dur = duration(f"{TMP}/narration.mp3")
-    print(f"Master assembly duration check: Video = {v_raw_dur:.2f}s, Audio = {a_raw_dur:.2f}s")
-    target_master_dur = max(v_raw_dur, a_raw_dur, round(speech_end_time + 3.0, 2))
+    target_master_dur = round(speech_end_time + 3.0, 2)
+    print(f"Master assembly duration lock: Video = {v_raw_dur:.2f}s, Audio = {a_raw_dur:.2f}s -> Hard-locked Target = {target_master_dur:.2f}s (Dialogue end = {speech_end_time:.2f}s)")
 
-    if target_master_dur > a_raw_dur + 0.05:
+    if a_raw_dur < target_master_dur - 0.05:
         a_matched = f"{TMP}/narration_matched.mp3"
         run([
             "ffmpeg", "-y", "-i", f"{TMP}/narration.mp3",
@@ -1359,7 +1726,7 @@ async def main():
             shutil.move(a_matched, f"{TMP}/narration.mp3")
             a_raw_dur = duration(f"{TMP}/narration.mp3")
 
-    if target_master_dur > v_raw_dur + 0.05:
+    if v_raw_dur < target_master_dur - 0.05:
         v_matched = f"{TMP}/video_raw_matched.mp4"
         run([
             "ffmpeg", "-y", "-i", f"{TMP}/video_raw.mp4",
