@@ -21,6 +21,11 @@ import shutil
 import subprocess
 import sys
 import time
+import warnings
+
+# Suppress harmless syntax warnings from third-party libraries (e.g. mistune / nbconvert)
+warnings.filterwarnings("ignore", category=SyntaxWarning)
+warnings.filterwarnings("ignore", message=".*invalid escape sequence.*")
 
 # Prevent PyTorch memory fragmentation on 16GB GPUs
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
@@ -571,12 +576,18 @@ class WanT4OptimizedEngine:
                     self.pipe = self.pipe.to(self.device)
 
             # VAE latent tiling and slicing: prevents VAE decoding VRAM spikes in both modes
-            if hasattr(self.pipe, "vae"):
+            # Strict Invariant: VAE must remain in float32 to eliminate neon/psychedelic numerical overflow
+            if hasattr(self.pipe, "vae") and self.pipe.vae is not None:
+                if hasattr(self.pipe.vae, "to"):
+                    try:
+                        self.pipe.vae.to(dtype=torch.float32)
+                    except Exception:
+                        pass
                 if hasattr(self.pipe.vae, "enable_tiling"):
                     self.pipe.vae.enable_tiling()
                 if hasattr(self.pipe.vae, "enable_slicing"):
                     self.pipe.vae.enable_slicing()
-                print("[Wan2.1-VACE] VAE tiling and slicing enabled!")
+                print("[Wan2.1-VACE] VAE FP32 precision + tiling and slicing enabled!")
 
             self.engine_name = "Wan2.1-VACE-1.3B"
             print("[Wan2.1-VACE] Wan2.1-VACE-1.3B online with FP16 Cutlass + Character Lock!")
@@ -716,7 +727,7 @@ class WanT4OptimizedEngine:
 
             run([
                 "ffmpeg", "-y", "-i", temp_raw,
-                "-vf", "unsharp=5:5:0.5:5:5:0.2,eq=contrast=1.06:brightness=0.01:saturation=1.12,format=yuv420p",
+                "-vf", "unsharp=3:3:0.3:3:3:0.1,eq=contrast=1.02:brightness=0.0:saturation=1.02,format=yuv420p",
                 "-r", "24", "-t", f"{duration_sec:.3f}",
                 *get_best_video_encoder_args(), out_clip_path
             ])
@@ -727,7 +738,7 @@ class WanT4OptimizedEngine:
             print(f"[Ken Burns Warning] OpenCV subpixel render failed ({e}), falling back to FFmpeg Lanczos 1080p...")
             run([
                 "ffmpeg", "-y", "-loop", "1", "-i", img_path,
-                "-vf", "scale=1920:1080:force_original_aspect_ratio=increase:flags=lanczos,crop=1920:1080,unsharp=5:5:0.5:5:5:0.2,eq=contrast=1.06:brightness=0.01:saturation=1.12,format=yuv420p",
+                "-vf", "scale=1920:1080:force_original_aspect_ratio=increase:flags=lanczos,crop=1920:1080,unsharp=3:3:0.3:3:3:0.1,eq=contrast=1.02:brightness=0.0:saturation=1.02,format=yuv420p",
                 "-r", "24", "-t", f"{duration_sec:.3f}",
                 *get_best_video_encoder_args(), out_clip_path
             ])
@@ -940,18 +951,18 @@ class WanT4OptimizedEngine:
             raw_d = duration(raw_clip)
             pts_mult = shot_dur / max(raw_d, 0.4)
 
-            # Frame Blend Interpolation + Modern Digital Cinema Grade:
+            # Frame Blend Interpolation + Clean Balanced Digital Cinema Grade:
             # 1. Linear Frame Blend Interpolation (minterpolate mi_mode=blend):
             #    converts frames to smooth 24 FPS without block-matching optical-flow skin/hand morphing.
             # 2. Modern 1080p Lanczos Scaling: 1920x1080
-            # 3. Clean digital edge enhancement: unsharp
-            # 4. Filmic dynamic color space: contrast 1.06, saturation 1.12
+            # 3. Clean digital edge enhancement: subtle unsharp
+            # 4. Balanced dynamic color space: contrast 1.02, saturation 1.02 (Prevents neon/solarized clipping)
             vf_pipeline = (
                 f"setpts={pts_mult:.4f}*PTS,"
                 f"minterpolate=fps=24:mi_mode=blend,"
                 f"scale=1920:1080:force_original_aspect_ratio=increase:flags=lanczos,crop=1920:1080,"
-                f"unsharp=5:5:0.5:5:5:0.2,"
-                f"eq=contrast=1.06:brightness=0.01:saturation=1.12,"
+                f"unsharp=3:3:0.3:3:3:0.1,"
+                f"eq=contrast=1.02:brightness=0.0:saturation=1.02,"
                 f"format=yuv420p"
             )
 
@@ -1350,8 +1361,13 @@ async def main():
         eng_caption = sc.get("caption", "").strip()
         if eng_caption:
             words = eng_caption.split()
-            chunk_size = 7
-            chunks = [" ".join(words[j:j+chunk_size]) for j in range(0, len(words), chunk_size)]
+            total_w = len(words)
+            if total_w <= 7:
+                chunks = [eng_caption]
+            else:
+                num_chunks = max(2, (total_w + 4) // 5)
+                chunk_size = (total_w + num_chunks - 1) // num_chunks
+                chunks = [" ".join(words[j:j+chunk_size]) for j in range(0, total_w, chunk_size)]
             if not chunks:
                 chunks = [eng_caption]
             chunk_dur = d / len(chunks)
@@ -1395,38 +1411,27 @@ async def main():
         raise RuntimeError("No scenes were rendered!")
 
     # Robust Cinematic Outro Buffer:
-    # 1. Determine exact timestamp where narration speech completes
+    # Invariant 12: Hold screen 100% bright for exactly 2.0s AFTER dialogue ends, then 1.0s cinematic fade to black.
     speech_end_time = master_cues[-1]["end"] if master_cues else sum(duration(f) for f in narr_files)
-    print(f"[Outro] Spoken narration dialogue concludes at {speech_end_time:.2f}s.")
+    target_master_dur = round(speech_end_time + 3.0, 2)
+    fade_start = round(speech_end_time + 2.0, 2)
+    fade_dur = 1.0
+    print(f"[Outro] Dialogue completes at {speech_end_time:.2f}s. Target master duration locked to {target_master_dur:.2f}s (Fade starts {fade_start:.2f}s).")
 
-    # 2. Add guaranteed 3.5s freeze buffer to final video clip
-    print("\nAdding 3.5s cinematic outro freeze buffer to final video clip...")
-    last_v = clips[-1]
-    padded_v = f"{TMP}/v_final_padded.mp4"
-    ok_v = run([
-        "ffmpeg", "-y", "-i", last_v,
-        "-vf", "tpad=stop_mode=clone:stop_duration=3.5",
-        "-c:v", "libx264", "-preset", "veryfast", padded_v
-    ])
-    if not (ok_v and os.path.exists(padded_v) and os.path.getsize(padded_v) > 1000):
-        # Bulletproof fallback: extract last frame and generate freeze loop clip
-        freeze_img = f"{TMP}/outro_last_frame.png"
-        run(["ffmpeg", "-y", "-sseof", "-0.1", "-i", last_v, "-frames:v", "1", "-update", "1", freeze_img])
-        freeze_clip = f"{TMP}/outro_freeze_clip.mp4"
-        ok_freeze = run([
-            "ffmpeg", "-y", "-loop", "1", "-i", freeze_img,
-            "-c:v", "libx264", "-t", "3.5", "-pix_fmt", "yuv420p", "-r", "24", freeze_clip
+    # If video scenes are shorter than target duration, pad final clip to match
+    v_cum_dur = sum(duration(c) for c in clips)
+    if v_cum_dur < target_master_dur:
+        needed_pad = round(target_master_dur - v_cum_dur + 0.1, 3)
+        print(f"[Outro] Padding final clip with {needed_pad:.2f}s hold to reach target duration...")
+        last_v = clips[-1]
+        padded_v = f"{TMP}/v_final_padded.mp4"
+        ok_v = run([
+            "ffmpeg", "-y", "-i", last_v,
+            "-vf", f"tpad=stop_mode=clone:stop_duration={needed_pad:.3f}",
+            "-c:v", "libx264", "-preset", "veryfast", padded_v
         ])
-        if ok_freeze and os.path.exists(freeze_clip):
-            sub_list = f"{TMP}/outro_sublist.txt"
-            open(sub_list, "w").write(f"file '{last_v}'\nfile '{freeze_clip}'\n")
-            run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", sub_list, "-c", "copy", padded_v])
-
-    if os.path.exists(padded_v) and os.path.getsize(padded_v) > 1000:
-        clips[-1] = padded_v
-        print("[Outro] Final video clip padded with 3.5s freeze hold.")
-    else:
-        print("[Warning] Outro video padding failed, keeping original final clip.")
+        if ok_v and os.path.exists(padded_v) and os.path.getsize(padded_v) > 1000:
+            clips[-1] = padded_v
 
     # 3. Pre-normalize all narration tracks to uniform 44.1kHz stereo PCM for glitch-free concat
     # Crucial Invariant: Eliminates demuxer format mismatch (mixing WAV PCM with MP3) which causes digital static bursts!
@@ -1641,17 +1646,14 @@ async def main():
     # Pristine 1080p Digital Cinema clarity with clean typography and smooth outro fade
     # Anti-Premature Fade: Screen remains 100% bright for 2.0s AFTER speech completes before 1.0s fade-out
     style = (
-        "FontName=DejaVu Sans,FontSize=20,Bold=1,"
+        "FontName=DejaVu Sans,FontSize=26,Bold=1,"
         "PrimaryColour=&H00FFFFFF,SecondaryColour=&H0000FFFF,"
         "OutlineColour=&H00000000,BackColour=&H80000000,"
-        "BorderStyle=1,Outline=2,Shadow=1,Alignment=2,MarginV=42"
+        "BorderStyle=1,Outline=3,Shadow=1,Alignment=2,MarginV=50"
     )
     print("Mastering final crisp modern video with burn-in captions and cinematic outro fade...")
-    fade_start = round(max(speech_end_time + 2.0, v_raw_dur - 1.2), 2)
+    fade_start = round(speech_end_time + 2.0, 2)
     fade_dur = 1.0
-    if fade_start + fade_dur > v_raw_dur:
-        fade_start = max(speech_end_time + 0.5, v_raw_dur - 1.0)
-        fade_dur = max(0.5, v_raw_dur - fade_start)
 
     master_vf = (
         f"fade=t=out:st={fade_start:.2f}:d={fade_dur:.2f},"
@@ -1663,8 +1665,9 @@ async def main():
         "-vf", master_vf,
         "-af", master_af,
         "-map", "0:v", "-map", "1:a",
+        "-t", f"{target_master_dur:.3f}",
         *get_best_video_encoder_args(),
-        "-c:a", "aac", "-b:a", "192k", "-shortest", f"{OUT}/video.mp4"
+        "-c:a", "aac", "-b:a", "192k", f"{OUT}/video.mp4"
     ])
 
     final_dur = duration(f"{OUT}/video.mp4") if ok else 0
