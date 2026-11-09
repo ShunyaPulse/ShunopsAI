@@ -33,7 +33,7 @@ async function main() {
   const ytResult = JSON.parse(ytResultRaw);
 
   if (!ytResult.ok || !ytResult.videoUrl) {
-    throw new Error(`Upload failed: ${ytResultRaw}`);
+    throw new Error(`Upload failed: [REDACTED]`);
   }
 
   let meta: any = {};
