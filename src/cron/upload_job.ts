@@ -18,7 +18,7 @@ async function main() {
     const status = await manageKaggle("status", kernelRef);
     console.log("[Upload] Kaggle Kernel Status: [REDACTED]");
 
-    console.log(`[Upload] Downloading artifacts from Kaggle kernel ${kernelRef}...`);
+    console.log(`[Upload] Downloading artifacts from Kaggle kernel...`);
     const downloadLog = await manageKaggle("output", kernelRef);
     console.log(`[Upload] Kaggle download completed.`);
   }
