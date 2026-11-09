@@ -24,7 +24,7 @@ async function main() {
   }
 
   if (!fsSync.existsSync(videoFile)) {
-    throw new Error(`Video file still not found at: [REDACTED]. Please check Kaggle kernel status or logs.`);
+    throw new Error('Video file not found.');
   }
 
   console.log(`[Upload] Publishing job "${jobId}" from ${destDir} to YouTube...`);
