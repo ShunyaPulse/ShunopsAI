@@ -19,7 +19,7 @@ const OUTPUT_TIMEOUT_MS = 600000;
 const LOG_TAIL_CHARS = 1500;
 
 function kaggleUser(): string {
-  return process.env.VIDEO_KAGGLE_USERNAME || process.env.KAGGLE_USERNAME || "shunyapulse";
+  return process.env.VIDEO_KAGGLE_USERNAME || process.env.KAGGLE_USERNAME || "techanicspro";
 }
 
 async function writeJsonFile(filePath: string, value: unknown, mode?: number): Promise<void> {

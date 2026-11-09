@@ -7,13 +7,14 @@ import { sendVideoReadyEmail } from "../tools/notifier.js";
 
 async function main() {
   const rawArg = process.argv[2] || "mutpcenl";
-  const jobId = rawArg.replace(/^shunyapulse\//, "").replace(/^video-render-/, "");
+  const user = process.env.VIDEO_KAGGLE_USERNAME || process.env.KAGGLE_USERNAME || "techanicspro";
+  const jobId = rawArg.replace(/^[^/]+\//, "").replace(/^video-render-/, "");
   const destDir = path.resolve(process.cwd(), "jobs", jobId, "output");
   const videoFile = path.join(destDir, "video.mp4");
 
   if (!fsSync.existsSync(videoFile)) {
     console.log(`[Upload] Artifacts not found locally at ${videoFile}. Checking Kaggle kernel...`);
-    const kernelRef = `shunyapulse/video-render-${jobId}`;
+    const kernelRef = `${user}/video-render-${jobId}`;
     const status = await manageKaggle("status", kernelRef);
     console.log("[Upload] Kaggle Kernel Status: [REDACTED]");
 

@@ -430,7 +430,7 @@ export async function launchChapterJob(
   input: string | ChapterScript,
   options: PipelineOptions = {}
 ): Promise<{ jobId: string; kernel: string; title: string; scenes: number; kaggleUrl?: string }> {
-  const user = process.env.VIDEO_KAGGLE_USERNAME || process.env.KAGGLE_USERNAME || "shunyapulse";
+  const user = process.env.VIDEO_KAGGLE_USERNAME || process.env.KAGGLE_USERNAME || "techanicspro";
   if (!user && !options.dryRun) {
     throw new Error("KAGGLE_USERNAME is not set in environment.");
   }

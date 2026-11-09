@@ -23,7 +23,7 @@ import { sendVideoReadyEmail, sendIncidentAlert } from "../tools/notifier.js";
 import { auditVideoQuality } from "../tools/video/quality-auditor.js";
 
 const STATE_FILE = path.resolve(process.cwd(), ".auditor-state.json");
-const USER = process.env.VIDEO_KAGGLE_USERNAME || process.env.KAGGLE_USERNAME || "shunyapulse";
+const USER = process.env.VIDEO_KAGGLE_USERNAME || process.env.KAGGLE_USERNAME || "techanicspro";
 const JOBS_DIR = path.resolve(process.cwd(), "jobs");
 
 function getRedis(): Redis | null {
