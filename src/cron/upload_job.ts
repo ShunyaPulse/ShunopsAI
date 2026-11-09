@@ -13,7 +13,7 @@ async function main() {
   const videoFile = path.join(destDir, "video.mp4");
 
   if (!fsSync.existsSync(videoFile)) {
-    console.log(`[Upload] Artifacts not found locally at ${videoFile}. Checking Kaggle kernel...`);
+    console.log(`[Upload] Artifacts not found locally. Checking Kaggle kernel...`);
     const kernelRef = `${user}/video-render-${jobId}`;
     const status = await manageKaggle("status", kernelRef);
     console.log("[Upload] Kaggle Kernel Status: [REDACTED]");
