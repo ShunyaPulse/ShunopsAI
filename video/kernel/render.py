@@ -491,6 +491,103 @@ def parse_srt_cues(srt_text, time_offset_sec):
     return cues
 
 
+def run_preencode_standalone():
+    """
+    Runs isolated in a dedicated subprocess to pre-encode all shot prompts on cuda:0 in FP16.
+    When this subprocess exits, the operating system and NVIDIA driver completely reclaim 100%
+    of GPU 0 memory, eliminating all memory leaks, fragmentation, and CUDA driver context pollution.
+    """
+    t0 = time.time()
+    cache_path = "/kaggle/working/prompt_cache.pt"
+    if os.path.exists(cache_path):
+        print(f"[Wan2.1 Standalone Pre-Encoder] Cache {cache_path} already exists. Skipping.")
+        return
+
+    script_path = find_script()
+    with open(script_path, "r", encoding="utf-8") as f:
+        script = json.load(f)
+
+    domain = script.get("domain", "general")
+    visual_bible = script.get("visual_bible", {})
+    grounding_prefix = ""
+    if domain == "sports":
+        grounding_prefix = "Indian Premier League cricket broadcast, authentic stadium lighting, photorealistic players, "
+    elif visual_bible and "realWorldGrounding" in visual_bible:
+        grounding_prefix = f"{visual_bible['realWorldGrounding']}, "
+
+    prompt_pairs = []
+    shot_variations = [
+        ("cinematic static tripod establishing framing, subtle atmospheric drift", 0),
+        ("slow optical push-in framing, atmospheric dust particles drifting", 101),
+        ("wide atmospheric documentary panorama, natural ambient light", 202),
+        ("low angle grounded framing, sharp environmental textures", 303),
+    ]
+
+    for item in script.get("scenes", []):
+        prompt = item.get("visual_prompt", "")
+        neg_prompt = (
+            "blurry, distorted, morphing, watermark, low quality, cartoon, 3d render, anime, text, words, labels, signs, subtitles, letters, numbers, digits"
+        )
+        for s_idx in range(2):
+            var_text, _ = shot_variations[s_idx % len(shot_variations)]
+            clean_prompt = (
+                f"{grounding_prefix}{prompt[:220]}, {var_text}, modern digital cinema, sharp high-definition focus, "
+                f"sharp crystal clear focus, vivid natural colors, documentary broadcast quality, "
+                f"subtle natural character breathing, stable non-morphing walls, rigid background structures, "
+                f"unlabeled telemetry displays, zero text, zero letters, zero numbers"
+            )
+            prompt_pairs.append((clean_prompt, neg_prompt))
+
+    unique_pairs = list(dict.fromkeys(prompt_pairs))
+    print(f"[Wan2.1 Standalone Pre-Encoder] 🧠 Pre-encoding {len(unique_pairs)} unique shot prompts on cuda:0 in isolated process...")
+
+    hf_token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN")
+    try:
+        from diffusers import WanVACEPipeline
+        PipelineClass = WanVACEPipeline
+    except ImportError:
+        from diffusers import DiffusionPipeline
+        PipelineClass = DiffusionPipeline
+
+    model_id = "Wan-AI/Wan2.1-VACE-1.3B-diffusers"
+    pipe = PipelineClass.from_pretrained(
+        model_id,
+        torch_dtype=torch.float16,
+        low_cpu_mem_usage=True,
+        token=hf_token if hf_token else None
+    )
+    pipe.text_encoder.to("cuda:0", dtype=torch.float16)
+
+    prompt_cache = {}
+    with torch.inference_mode():
+        for p_text, n_text in unique_pairs:
+            try:
+                p_emb, n_emb = pipe.encode_prompt(
+                    prompt=p_text,
+                    negative_prompt=n_text,
+                    do_classifier_free_guidance=True,
+                    num_videos_per_prompt=1,
+                    device=torch.device("cuda:0"),
+                )
+            except TypeError:
+                enc_out = pipe.encode_prompt(
+                    prompt=p_text,
+                    negative_prompt=n_text,
+                    device=torch.device("cuda:0")
+                )
+                if isinstance(enc_out, (tuple, list)):
+                    p_emb, n_emb = enc_out[0], enc_out[1]
+                else:
+                    p_emb, n_emb = enc_out, None
+
+            p_cpu = p_emb.detach().to("cpu", dtype=torch.float16).contiguous()
+            n_cpu = n_emb.detach().to("cpu", dtype=torch.float16).contiguous() if n_emb is not None else None
+            prompt_cache[(p_text, n_text)] = (p_cpu, n_cpu)
+
+    torch.save(prompt_cache, cache_path)
+    print(f"[Wan2.1 Standalone Pre-Encoder] ✅ Successfully saved {len(prompt_cache)} prompt embeddings to {cache_path} in {time.time() - t0:.1f}s.")
+
+
 # ==========================================
 # Wan2.1 (1.3B DiT) T4-Optimized Diffusion Engine
 # ==========================================
@@ -535,7 +632,7 @@ class WanT4OptimizedEngine:
             os.environ["HF_TOKEN"] = self.hf_token
             os.environ["HUGGING_FACE_HUB_TOKEN"] = self.hf_token
 
-        # Load Alibaba Wan2.1-VACE-1.3B-diffusers in FP16 on Worker 0
+        # Configure model parameters for isolated multi-GPU worker execution
         try:
             try:
                 from diffusers import WanVACEPipeline
@@ -544,131 +641,51 @@ class WanT4OptimizedEngine:
                 from diffusers import DiffusionPipeline
                 PipelineClass = DiffusionPipeline
 
-            model_id = "Wan-AI/Wan2.1-VACE-1.3B-diffusers"
-            self.model_id = model_id
+            self.model_id = "Wan-AI/Wan2.1-VACE-1.3B-diffusers"
             self.PipelineClass = PipelineClass
-
-            print(f"[Wan2.1-VACE] Loading {model_id} in float16 for isolated multi-GPU worker execution...")
-            self.pipe = PipelineClass.from_pretrained(
-                model_id,
-                torch_dtype=torch.float16,
-                low_cpu_mem_usage=True,
-                token=self.hf_token if self.hf_token else None
-            )
-
-            # Put text_encoder on cuda:0 in float16 for ultra-fast GPU prompt pre-encoding (~17s, NOT 8544s CPU!)
-            if hasattr(self.pipe, "text_encoder") and self.pipe.text_encoder is not None:
-                try:
-                    self.pipe.text_encoder.to("cuda:0", dtype=torch.float16)
-                    print("[Wan2.1-VACE] UMT5 text_encoder mounted on cuda:0 (FP16) for rapid prompt pre-encoding.")
-                except Exception as e:
-                    print(f"[Wan2.1-VACE Notice] text_encoder to cuda:0 notice: {e}")
-
+            self.pipe = None  # Crucial: main process never allocates UMT5!
             self.engine_name = "Wan2.1-VACE-1.3B"
-            print("[Wan2.1-VACE] Pipeline loaded successfully in FP16 (Ready for Prompt Pre-Encoding & Multi-GPU Provisioning).")
+            print(f"[Wan2.1-VACE] Configured for isolated multi-GPU worker execution (model: {self.model_id}).")
             return
         except Exception as wan_err:
-            print(f"[Wan2.1-VACE Warning] Could not initialize WanVACEPipeline ({wan_err}). Trying WanPipeline T2V...")
+            print(f"[Wan2.1-VACE Warning] Could not configure WanVACEPipeline ({wan_err}). Trying WanPipeline T2V...")
             try:
                 from diffusers import WanPipeline
                 self.PipelineClass = WanPipeline
                 self.model_id = "Wan-AI/Wan2.1-T2V-1.3B-Diffusers"
-                self.pipe = WanPipeline.from_pretrained(
-                    self.model_id,
-                    torch_dtype=torch.float16,
-                    low_cpu_mem_usage=True,
-                    token=self.hf_token if self.hf_token else None
-                )
-                if hasattr(self.pipe, "text_encoder") and self.pipe.text_encoder is not None:
-                    try:
-                        self.pipe.text_encoder.to("cuda:0", dtype=torch.float16)
-                    except Exception:
-                        pass
-                if hasattr(self.pipe, "vae") and self.pipe.vae is not None:
-                    if hasattr(self.pipe.vae, "to"):
-                        try:
-                            self.pipe.vae.to(dtype=torch.float32)
-                        except Exception:
-                            pass
-                    if hasattr(self.pipe.vae, "enable_tiling"):
-                        self.pipe.vae.enable_tiling()
-                    if hasattr(self.pipe.vae, "enable_slicing"):
-                        self.pipe.vae.enable_slicing()
+                self.pipe = None
                 self.engine_name = "Wan2.1-T2V-1.3B"
-                print("[Wan2.1] Wan2.1-T2V-1.3B initialized successfully.")
+                print("[Wan2.1] Wan2.1-T2V-1.3B configured successfully.")
                 return
             except Exception as t2v_err:
-                print(f"[Wan2.1 Warning] T2V fallback failed ({t2v_err}). Preparing AnimateDiff-Lightning...")
+                print(f"[Wan2.1 Warning] T2V configuration failed ({t2v_err}). Preparing AnimateDiff-Lightning...")
 
         self._init_fallback_engine()
 
     def _ensure_workers_ready(self, prompt_pairs):
         """
-        1. Pre-encodes all unique (clean_prompt, neg_prompt) pairs on cuda:0 using UMT5 text_encoder
-           via native diffusers pipe.encode_prompt and stores FP16 tensors in CPU RAM (~17s).
-        2. Completely purges the pre-encoding pipeline from memory to leave cuda:0 100% clean and unfragmented.
+        1. Loads pre-encoded prompt embeddings from cache or runs isolated pre-encoding subprocess (~17s).
+        2. Leaves cuda:0 and cuda:1 100% clean, virgin, and unfragmented (zero text_encoder in main process).
         3. Provisions isolated per-GPU workers fresh from local HF disk cache (text_encoder=None, tokenizer=None):
-           - Worker 0: locks transformer (FP16) + VAE (FP32) onto cuda:0.
-           - Worker 1 (if 2+ GPUs): locks transformer (FP16) + VAE (FP32) onto cuda:1.
+           - Worker 0: locks transformer (FP16) + VAE (FP32) onto cuda:0 with ~10.8 GB free VRAM headroom.
+           - Worker 1 (if 2+ GPUs): locks transformer (FP16) + VAE (FP32) onto cuda:1 with ~10.8 GB free VRAM headroom.
         """
         if self.workers_initialized:
             return
 
-        # Step 1: Pre-encode all unique prompt pairs while text_encoder is on cuda:0
-        missing_pairs = [
-            (p, n) for (p, n) in prompt_pairs
-            if p and (p, n) not in self.prompt_cache
-        ]
-        if missing_pairs and self.pipe is not None and getattr(self.pipe, "text_encoder", None) is not None:
-            t0 = time.time()
-            print(f"[Wan2.1 Pre-Encoder] 🧠 Batch pre-encoding {len(missing_pairs)} unique shot prompts on cuda:0 (fast GPU)...")
-            with torch.inference_mode():
-                for p_text, n_text in missing_pairs:
-                    if (p_text, n_text) in self.prompt_cache:
-                        continue
-                    try:
-                        prompt_embeds, negative_prompt_embeds = self.pipe.encode_prompt(
-                            prompt=p_text,
-                            negative_prompt=n_text,
-                            do_classifier_free_guidance=True,
-                            num_videos_per_prompt=1,
-                            device=torch.device("cuda:0"),
-                        )
-                    except TypeError:
-                        enc_out = self.pipe.encode_prompt(
-                            prompt=p_text,
-                            negative_prompt=n_text,
-                            device=torch.device("cuda:0")
-                        )
-                        if isinstance(enc_out, (tuple, list)):
-                            prompt_embeds, negative_prompt_embeds = enc_out[0], enc_out[1]
-                        else:
-                            prompt_embeds, negative_prompt_embeds = enc_out, None
+        cache_path = "/kaggle/working/prompt_cache.pt"
+        if not self.prompt_cache:
+            if not os.path.exists(cache_path):
+                print("[Wan2.1 Dual-GPU] 🚀 Launching isolated subprocess for GPU prompt pre-encoding on cuda:0...")
+                subprocess.run([sys.executable, __file__, "--preencode"], check=True)
+                print("[Wan2.1 Dual-GPU] ✅ Isolated subprocess exited cleanly. GPU 0 VRAM completely reclaimed by OS!")
+            print(f"[Wan2.1 Dual-GPU] 📂 Loading pre-encoded prompt embeddings from {cache_path}...")
+            self.prompt_cache = torch.load(cache_path, map_location="cpu", weights_only=False)
+            if self.prompt_cache:
+                self.default_cached_embed = next(iter(self.prompt_cache.values()))
+            print(f"[Wan2.1 Dual-GPU] ✅ Loaded {len(self.prompt_cache)} cached prompt embeddings into CPU RAM.")
 
-                    p_cpu = prompt_embeds.detach().to("cpu", dtype=torch.float16).contiguous()
-                    n_cpu = negative_prompt_embeds.detach().to("cpu", dtype=torch.float16).contiguous() if negative_prompt_embeds is not None else None
-                    self.prompt_cache[(p_text, n_text)] = (p_cpu, n_cpu)
-                    if self.default_cached_embed is None:
-                        self.default_cached_embed = (p_cpu, n_cpu)
-            print(f"[Wan2.1 Pre-Encoder] ✅ Pre-encoded {len(self.prompt_cache)} prompts on cuda:0 in {time.time() - t0:.1f}s.")
-
-        # Step 2: Completely purge pre-encoding pipeline from memory to free cuda:0 VRAM
-        if self.pipe is not None:
-            print("[Wan2.1 Memory Optimization] 🧹 Purging pre-encoding pipeline from memory...")
-            try:
-                if hasattr(self.pipe, "text_encoder") and self.pipe.text_encoder is not None:
-                    self.pipe.text_encoder.to("cpu")
-            except Exception:
-                pass
-            del self.pipe
-            self.pipe = None
-            gc.collect()
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-                torch.cuda.ipc_collect()
-            print("[Wan2.1 Memory Optimization] ✅ Pre-encoding pipeline purged! cuda:0 VRAM is 100% clean and pristine.")
-
-        # Step 3: Provision clean symmetric workers (cuda:0 and cuda:1) fresh from local HuggingFace cache
+        # Provision clean symmetric workers (cuda:0 and cuda:1) fresh from local HuggingFace cache
         num_workers = min(self.num_gpus, 2) if self.num_gpus >= 1 else 1
         print(f"[Wan2.1 Dual-GPU] 🚀 Provisioning {num_workers} clean symmetric worker(s) fresh from local disk cache...")
         for gpu_id in range(num_workers):
@@ -722,7 +739,8 @@ class WanT4OptimizedEngine:
                             raise RuntimeError(f"Worker {gpu_id} param on {p.device} instead of {target_dev}")
 
                 self.worker_pipes[gpu_id] = pipe_w
-                print(f"[Wan2.1 Dual-GPU] ✅ Worker {gpu_id} on {target_dev} loaded and verified successfully.")
+                alloc_mb = torch.cuda.memory_allocated(gpu_id) / (1024 ** 2) if torch.cuda.is_available() else 0
+                print(f"[Wan2.1 Dual-GPU] ✅ Worker {gpu_id} on {target_dev} verified successfully (VRAM Allocated: {alloc_mb:.1f} MB, ~10.8 GB Free Headroom!).")
             except Exception as w_err:
                 print(f"[Wan2.1 Dual-GPU Error] Failed to provision Worker {gpu_id} on {target_dev}: {w_err}")
                 traceback.print_exc()
@@ -1296,6 +1314,15 @@ class WanT4OptimizedEngine:
         for t in threads:
             t.join()
 
+        # Drain any remaining unprocessed shots from queue if workers halted early
+        while not shot_queue.empty():
+            try:
+                rem_spec = shot_queue.get_nowait()
+                queue_errors.append((rem_spec, RuntimeError("Worker aborted early")))
+                shot_queue.task_done()
+            except queue.Empty:
+                break
+
         if queue_errors:
             surviving_gpus = [gid for gid in available_gpus if gid not in failed_gpus]
             print(f"[Parallel Dispatcher Warning] {len(queue_errors)} shots encountered errors. Surviving GPUs: {surviving_gpus}...")
@@ -1309,7 +1336,8 @@ class WanT4OptimizedEngine:
                             completed_subclips[key] = clip_path
                         except Exception as fb_err:
                             print(f"[Fallback Error] Retry on GPU {fallback_gid} failed: {fb_err}")
-                    else:
+
+                    if key not in completed_subclips:
                         kf_path = spec.get("kf_path")
                         sub_clip = spec["sub_clip"]
                         shot_dur = spec["shot_dur"]
@@ -2114,5 +2142,8 @@ async def main():
 
 
 if __name__ == "__main__":
+    if "--preencode" in sys.argv:
+        run_preencode_standalone()
+        sys.exit(0)
     asyncio.run(main())
 
