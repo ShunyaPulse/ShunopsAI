@@ -8,7 +8,7 @@ const EXPERIMENT_RENDER_SRC = path.resolve(process.cwd(), "src", "experiments", 
 const JOBS_DIR = path.resolve(process.cwd(), "jobs");
 
 export async function launchNCERTJob(): Promise<{ jobId: string; kernel: string; title: string; scenes: number }> {
-  const user = process.env.VIDEO_KAGGLE_USERNAME || process.env.KAGGLE_USERNAME || "techanicspro";
+  const user = process.env.VIDEO_KAGGLE_USERNAME || process.env.KAGGLE_USERNAME || "romomaxer";
   if (!user) throw new Error("KAGGLE_USERNAME is not set in environment.");
 
   console.log("[NCERT Launch] Generating authentic NCERT script with Gemini...");

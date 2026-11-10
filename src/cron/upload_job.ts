@@ -7,7 +7,7 @@ import { sendVideoReadyEmail } from "../tools/notifier.js";
 
 async function main() {
   const rawArg = process.argv[2] || "mutpcenl";
-  const user = process.env.VIDEO_KAGGLE_USERNAME || process.env.KAGGLE_USERNAME || "techanicspro";
+  const user = process.env.VIDEO_KAGGLE_USERNAME || process.env.KAGGLE_USERNAME || "romomaxer";
   const jobId = rawArg.replace(/^[^/]+\//, "").replace(/^video-render-/, "");
   const destDir = path.resolve(process.cwd(), "jobs", jobId, "output");
   const videoFile = path.join(destDir, "video.mp4");

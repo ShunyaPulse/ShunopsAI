@@ -15,7 +15,7 @@ const MAX_BUFFER = 1024 * 1024 * 5;
  * Prevents CLI authentication failures on cloud runners where secrets are provided as env vars.
  */
 function ensureKaggleCredentials(): void {
-  const user = process.env.VIDEO_KAGGLE_USERNAME || process.env.KAGGLE_USERNAME || "techanicspro";
+  const user = process.env.VIDEO_KAGGLE_USERNAME || process.env.KAGGLE_USERNAME || "romomaxer";
   const key = process.env.VIDEO_TOKEN || process.env.KAGGLE_KEY || process.env.KAGGLE_API_TOKEN;
   if (!user || !key) return;
 
@@ -30,7 +30,7 @@ function ensureKaggleCredentials(): void {
 }
 
 function kaggleEnv(): NodeJS.ProcessEnv {
-  const user = process.env.VIDEO_KAGGLE_USERNAME || process.env.KAGGLE_USERNAME || "techanicspro";
+  const user = process.env.VIDEO_KAGGLE_USERNAME || process.env.KAGGLE_USERNAME || "romomaxer";
   const key = process.env.VIDEO_TOKEN || process.env.KAGGLE_KEY || process.env.KAGGLE_API_TOKEN;
   const kaggleDir = path.join(os.homedir(), ".kaggle");
   const pathSep = os.platform() === "win32" ? ";" : ":";
