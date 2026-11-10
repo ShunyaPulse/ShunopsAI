@@ -556,28 +556,16 @@ class WanT4OptimizedEngine:
                 token=self.hf_token if self.hf_token else None
             )
 
-            # Keep text_encoder on CPU so cuda:0 remains 100% clean and unfragmented
+            # Put text_encoder on cuda:0 in float16 for ultra-fast GPU prompt pre-encoding (~17s, NOT 8544s CPU!)
             if hasattr(self.pipe, "text_encoder") and self.pipe.text_encoder is not None:
                 try:
-                    self.pipe.text_encoder.to("cpu")
-                except Exception:
-                    pass
-
-            # Strict Invariant: VAE must remain strictly in float32 to eliminate neon/psychedelic numerical overflow
-            if hasattr(self.pipe, "vae") and self.pipe.vae is not None:
-                if hasattr(self.pipe.vae, "to"):
-                    try:
-                        self.pipe.vae.to(dtype=torch.float32)
-                    except Exception:
-                        pass
-                if hasattr(self.pipe.vae, "enable_tiling"):
-                    self.pipe.vae.enable_tiling()
-                if hasattr(self.pipe.vae, "enable_slicing"):
-                    self.pipe.vae.enable_slicing()
-                print("[Wan2.1-VACE] VAE FP32 precision + tiling and slicing enabled!")
+                    self.pipe.text_encoder.to("cuda:0", dtype=torch.float16)
+                    print("[Wan2.1-VACE] UMT5 text_encoder mounted on cuda:0 (FP16) for rapid prompt pre-encoding.")
+                except Exception as e:
+                    print(f"[Wan2.1-VACE Notice] text_encoder to cuda:0 notice: {e}")
 
             self.engine_name = "Wan2.1-VACE-1.3B"
-            print("[Wan2.1-VACE] Worker 0 loaded successfully in FP16 (Ready for Prompt Pre-Encoding & Multi-GPU Provisioning).")
+            print("[Wan2.1-VACE] Pipeline loaded successfully in FP16 (Ready for Prompt Pre-Encoding & Multi-GPU Provisioning).")
             return
         except Exception as wan_err:
             print(f"[Wan2.1-VACE Warning] Could not initialize WanVACEPipeline ({wan_err}). Trying WanPipeline T2V...")
@@ -617,23 +605,23 @@ class WanT4OptimizedEngine:
     def _ensure_workers_ready(self, prompt_pairs):
         """
         1. Pre-encodes all unique (clean_prompt, neg_prompt) pairs on cuda:0 using UMT5 text_encoder
-           via native diffusers pipe.encode_prompt and stores FP16 tensors in CPU RAM.
-        2. Evicts the 9.5 GB UMT5 text_encoder and tokenizer from VRAM & Host RAM.
-        3. Provisions isolated per-GPU workers:
+           via native diffusers pipe.encode_prompt and stores FP16 tensors in CPU RAM (~17s).
+        2. Completely purges the pre-encoding pipeline from memory to leave cuda:0 100% clean and unfragmented.
+        3. Provisions isolated per-GPU workers fresh from local HF disk cache (text_encoder=None, tokenizer=None):
            - Worker 0: locks transformer (FP16) + VAE (FP32) onto cuda:0.
-           - Worker 1 (if 2+ GPUs): loads fresh pipeline from local HF cache onto cuda:1 (text_encoder=None).
+           - Worker 1 (if 2+ GPUs): locks transformer (FP16) + VAE (FP32) onto cuda:1.
         """
-        if self.pipe is None:
+        if self.workers_initialized:
             return
 
-        # Step 1: Pre-encode any new prompt pairs while text_encoder is on cuda:0
+        # Step 1: Pre-encode all unique prompt pairs while text_encoder is on cuda:0
         missing_pairs = [
             (p, n) for (p, n) in prompt_pairs
             if p and (p, n) not in self.prompt_cache
         ]
-        if missing_pairs and getattr(self.pipe, "text_encoder", None) is not None:
+        if missing_pairs and self.pipe is not None and getattr(self.pipe, "text_encoder", None) is not None:
             t0 = time.time()
-            print(f"[Wan2.1 Pre-Encoder] 🧠 Batch pre-encoding {len(missing_pairs)} unique shot prompts on CPU (preserving pristine VRAM on cuda:0)...")
+            print(f"[Wan2.1 Pre-Encoder] 🧠 Batch pre-encoding {len(missing_pairs)} unique shot prompts on cuda:0 (fast GPU)...")
             with torch.inference_mode():
                 for p_text, n_text in missing_pairs:
                     if (p_text, n_text) in self.prompt_cache:
@@ -644,13 +632,13 @@ class WanT4OptimizedEngine:
                             negative_prompt=n_text,
                             do_classifier_free_guidance=True,
                             num_videos_per_prompt=1,
-                            device=torch.device("cpu"),
+                            device=torch.device("cuda:0"),
                         )
                     except TypeError:
                         enc_out = self.pipe.encode_prompt(
                             prompt=p_text,
                             negative_prompt=n_text,
-                            device=torch.device("cpu")
+                            device=torch.device("cuda:0")
                         )
                         if isinstance(enc_out, (tuple, list)):
                             prompt_embeds, negative_prompt_embeds = enc_out[0], enc_out[1]
@@ -662,59 +650,33 @@ class WanT4OptimizedEngine:
                     self.prompt_cache[(p_text, n_text)] = (p_cpu, n_cpu)
                     if self.default_cached_embed is None:
                         self.default_cached_embed = (p_cpu, n_cpu)
-            print(f"[Wan2.1 Pre-Encoder] ✅ Pre-encoded {len(self.prompt_cache)} prompts on CPU in {time.time() - t0:.1f}s.")
+            print(f"[Wan2.1 Pre-Encoder] ✅ Pre-encoded {len(self.prompt_cache)} prompts on cuda:0 in {time.time() - t0:.1f}s.")
 
-        if self.workers_initialized:
-            return
-
-        # Step 2: Evict 9.5 GB UMT5 text_encoder & tokenizer from VRAM and Host RAM
-        if getattr(self.pipe, "text_encoder", None) is not None and len(self.prompt_cache) > 0:
-            print("[Wan2.1 Memory Optimization] 🧹 Evicting 9.5 GB UMT5 text_encoder & tokenizer...")
+        # Step 2: Completely purge pre-encoding pipeline from memory to free cuda:0 VRAM
+        if self.pipe is not None:
+            print("[Wan2.1 Memory Optimization] 🧹 Purging pre-encoding pipeline from memory...")
             try:
-                self.pipe.text_encoder.to("cpu")
+                if hasattr(self.pipe, "text_encoder") and self.pipe.text_encoder is not None:
+                    self.pipe.text_encoder.to("cpu")
             except Exception:
                 pass
-            del self.pipe.text_encoder
-            del self.pipe.tokenizer
-            if hasattr(self.pipe, "register_modules"):
-                try:
-                    self.pipe.register_modules(text_encoder=None, tokenizer=None)
-                except Exception:
-                    pass
-            self.pipe.text_encoder = None
-            self.pipe.tokenizer = None
+            del self.pipe
+            self.pipe = None
             gc.collect()
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
-            print("[Wan2.1 Memory Optimization] ✅ 9.5 GB UMT5 text_encoder evicted successfully!")
+                torch.cuda.ipc_collect()
+            print("[Wan2.1 Memory Optimization] ✅ Pre-encoding pipeline purged! cuda:0 VRAM is 100% clean and pristine.")
 
-        # Step 3: Configure Worker 0 on cuda:0 (clean 100% VRAM, matching Worker 1)
-        print("[Wan2.1 Dual-GPU] 🚀 Provisioning Worker 0 on cuda:0 (clean 100% VRAM)...")
-        pipe_0 = self.pipe
-        with torch.cuda.device(0):
-            if hasattr(pipe_0, "transformer") and pipe_0.transformer is not None:
-                pipe_0.transformer.to("cuda:0", dtype=torch.float16)
-            if hasattr(pipe_0, "vae") and pipe_0.vae is not None:
-                pipe_0.vae.to("cuda:0", dtype=torch.float32)  # STRICTLY FP32!
-                if hasattr(pipe_0.vae, "enable_tiling"):
-                    pipe_0.vae.enable_tiling()
-                if hasattr(pipe_0.vae, "enable_slicing"):
-                    pipe_0.vae.enable_slicing()
-            if hasattr(pipe_0, "image_encoder") and pipe_0.image_encoder is not None:
-                pipe_0.image_encoder.to("cuda:0", dtype=torch.float16)
-            if hasattr(pipe_0, "enable_attention_slicing"):
-                pipe_0.enable_attention_slicing(slice_size="max")
-            torch.cuda.synchronize(0)
-            torch.cuda.empty_cache()
-
-        self.worker_pipes[0] = pipe_0
-
-        # Step 4: Configure Worker 1 on cuda:1 (if 2+ GPUs available)
-        if self.num_gpus >= 2 and len(self.prompt_cache) > 0 and self.PipelineClass is not None:
-            print("[Wan2.1 Dual-GPU] 🚀 Provisioning Worker 1 on cuda:1 fresh from local disk cache...")
+        # Step 3: Provision clean symmetric workers (cuda:0 and cuda:1) fresh from local HuggingFace cache
+        num_workers = min(self.num_gpus, 2) if self.num_gpus >= 1 else 1
+        print(f"[Wan2.1 Dual-GPU] 🚀 Provisioning {num_workers} clean symmetric worker(s) fresh from local disk cache...")
+        for gpu_id in range(num_workers):
+            target_dev = f"cuda:{gpu_id}" if torch.cuda.is_available() else "cpu"
+            print(f"[Wan2.1 Dual-GPU] 📦 Provisioning Worker {gpu_id} on {target_dev} (text_encoder=None, tokenizer=None)...")
             try:
                 try:
-                    pipe_1 = self.PipelineClass.from_pretrained(
+                    pipe_w = self.PipelineClass.from_pretrained(
                         self.model_id,
                         text_encoder=None,
                         tokenizer=None,
@@ -723,50 +685,53 @@ class WanT4OptimizedEngine:
                         token=self.hf_token if self.hf_token else None
                     )
                 except TypeError:
-                    pipe_1 = self.PipelineClass.from_pretrained(
+                    pipe_w = self.PipelineClass.from_pretrained(
                         self.model_id,
                         torch_dtype=torch.float16,
                         low_cpu_mem_usage=True,
                         token=self.hf_token if self.hf_token else None
                     )
-                    if hasattr(pipe_1, "text_encoder"):
-                        del pipe_1.text_encoder
-                        pipe_1.text_encoder = None
-                    if hasattr(pipe_1, "tokenizer"):
-                        del pipe_1.tokenizer
-                        pipe_1.tokenizer = None
+                    if hasattr(pipe_w, "text_encoder"):
+                        del pipe_w.text_encoder
+                        pipe_w.text_encoder = None
+                    if hasattr(pipe_w, "tokenizer"):
+                        del pipe_w.tokenizer
+                        pipe_w.tokenizer = None
 
-                with torch.cuda.device(1):
-                    if hasattr(pipe_1, "transformer") and pipe_1.transformer is not None:
-                        pipe_1.transformer.to("cuda:1", dtype=torch.float16)
-                    if hasattr(pipe_1, "vae") and pipe_1.vae is not None:
-                        pipe_1.vae.to("cuda:1", dtype=torch.float32)  # STRICTLY FP32!
-                        if hasattr(pipe_1.vae, "enable_tiling"):
-                            pipe_1.vae.enable_tiling()
-                        if hasattr(pipe_1.vae, "enable_slicing"):
-                            pipe_1.vae.enable_slicing()
-                    if hasattr(pipe_1, "image_encoder") and pipe_1.image_encoder is not None:
-                        pipe_1.image_encoder.to("cuda:1", dtype=torch.float16)
-                    if hasattr(pipe_1, "enable_attention_slicing"):
-                        pipe_1.enable_attention_slicing(slice_size="max")
+                if torch.cuda.is_available():
+                    with torch.cuda.device(gpu_id):
+                        if hasattr(pipe_w, "transformer") and pipe_w.transformer is not None:
+                            pipe_w.transformer.to(target_dev, dtype=torch.float16)
+                        if hasattr(pipe_w, "vae") and pipe_w.vae is not None:
+                            pipe_w.vae.to(target_dev, dtype=torch.float32)  # STRICTLY FP32!
+                            if hasattr(pipe_w.vae, "enable_tiling"):
+                                pipe_w.vae.enable_tiling()
+                            if hasattr(pipe_w.vae, "enable_slicing"):
+                                pipe_w.vae.enable_slicing()
+                        if hasattr(pipe_w, "image_encoder") and pipe_w.image_encoder is not None:
+                            pipe_w.image_encoder.to(target_dev, dtype=torch.float16)
+                        if hasattr(pipe_w, "enable_attention_slicing"):
+                            pipe_w.enable_attention_slicing(slice_size="max")
+                        torch.cuda.synchronize(gpu_id)
+                        torch.cuda.empty_cache()
 
                 # Verify clean device placement
-                for p in pipe_0.transformer.parameters():
-                    if p.device != torch.device("cuda:0"):
-                        raise RuntimeError(f"Worker 0 param on {p.device} instead of cuda:0")
-                for p in pipe_1.transformer.parameters():
-                    if p.device != torch.device("cuda:1"):
-                        raise RuntimeError(f"Worker 1 param on {p.device} instead of cuda:1")
+                if torch.cuda.is_available() and hasattr(pipe_w, "transformer") and pipe_w.transformer is not None:
+                    for p in pipe_w.transformer.parameters():
+                        if p.device != torch.device(target_dev):
+                            raise RuntimeError(f"Worker {gpu_id} param on {p.device} instead of {target_dev}")
 
-                self.worker_pipes[1] = pipe_1
-                print("[Wan2.1 Dual-GPU] ✅ Dual-GPU Workers initialized: Worker 0 (cuda:0) + Worker 1 (cuda:1) ready for 2x parallel throughput!")
-            except Exception as w1_err:
-                print(f"[Wan2.1 Dual-GPU Warning] Worker 1 initialization notice ({w1_err}). Operating in single GPU mode on cuda:0.")
-                if 1 in self.worker_pipes:
-                    del self.worker_pipes[1]
-                gc.collect()
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
+                self.worker_pipes[gpu_id] = pipe_w
+                print(f"[Wan2.1 Dual-GPU] ✅ Worker {gpu_id} on {target_dev} loaded and verified successfully.")
+            except Exception as w_err:
+                print(f"[Wan2.1 Dual-GPU Error] Failed to provision Worker {gpu_id} on {target_dev}: {w_err}")
+                traceback.print_exc()
+
+        if not self.worker_pipes:
+            print("[Wan2.1 Dual-GPU Warning] No workers could be provisioned. Falling back to AnimateDiff-Lightning...")
+            self._init_fallback_engine()
+        else:
+            print(f"[Wan2.1 Dual-GPU] 🎯 Active workers: {list(self.worker_pipes.keys())}")
 
         self.workers_initialized = True
 
@@ -977,6 +942,9 @@ class WanT4OptimizedEngine:
             except Exception as diff_err:
                 print(f"[Wan2.1 Notice] Scene {scene_idx+1} Shot {s_idx+1} on GPU {gpu_id} encountered notice ({diff_err}).")
                 frames = None
+                err_msg = str(diff_err).lower()
+                if "cuda error" in err_msg or "acceleratorerror" in err_msg or "cudart" in err_msg or "illegal memory access" in err_msg:
+                    raise diff_err
             finally:
                 if p_gpu is not None:
                     del p_gpu
@@ -1293,6 +1261,7 @@ class WanT4OptimizedEngine:
 
         completed_subclips = {}
         queue_errors = []
+        failed_gpus = set()
 
         def worker_loop(gpu_id):
             while True:
@@ -1300,6 +1269,7 @@ class WanT4OptimizedEngine:
                     spec = shot_queue.get_nowait()
                 except queue.Empty:
                     break
+                is_fatal = False
                 try:
                     clip_path = self._render_single_shot_on_worker(gpu_id, spec)
                     key = (spec["scene_idx"], spec["shot_idx"])
@@ -1307,8 +1277,15 @@ class WanT4OptimizedEngine:
                 except Exception as ex:
                     print(f"[Worker Error] GPU {gpu_id} failed on Scene {spec['scene_idx']+1} Shot {spec['shot_idx']+1}: {ex}")
                     queue_errors.append((spec, ex))
+                    err_msg = str(ex).lower()
+                    if "cuda error" in err_msg or "acceleratorerror" in err_msg or "cudart" in err_msg or "illegal memory access" in err_msg:
+                        print(f"[Worker Fatal] GPU {gpu_id} encountered unrecoverable CUDA state. Halting worker {gpu_id}.")
+                        failed_gpus.add(gpu_id)
+                        is_fatal = True
                 finally:
                     shot_queue.task_done()
+                if is_fatal:
+                    break
 
         threads = []
         for gid in available_gpus:
@@ -1320,12 +1297,27 @@ class WanT4OptimizedEngine:
             t.join()
 
         if queue_errors:
-            print(f"[Parallel Dispatcher Warning] {len(queue_errors)} shots encountered errors. Attempting fallback on GPU 0...")
+            surviving_gpus = [gid for gid in available_gpus if gid not in failed_gpus]
+            print(f"[Parallel Dispatcher Warning] {len(queue_errors)} shots encountered errors. Surviving GPUs: {surviving_gpus}...")
             for spec, _ in queue_errors:
                 key = (spec["scene_idx"], spec["shot_idx"])
                 if key not in completed_subclips:
-                    clip_path = self._render_single_shot_on_worker(0, spec)
-                    completed_subclips[key] = clip_path
+                    if surviving_gpus:
+                        fallback_gid = surviving_gpus[0]
+                        try:
+                            clip_path = self._render_single_shot_on_worker(fallback_gid, spec)
+                            completed_subclips[key] = clip_path
+                        except Exception as fb_err:
+                            print(f"[Fallback Error] Retry on GPU {fallback_gid} failed: {fb_err}")
+                    else:
+                        kf_path = spec.get("kf_path")
+                        sub_clip = spec["sub_clip"]
+                        shot_dur = spec["shot_dur"]
+                        s_idx = spec["shot_idx"]
+                        if kf_path and os.path.exists(kf_path):
+                            print(f"[Emergency Fallback 🛡️] Rendering subpixel Ken Burns for Scene {spec['scene_idx']+1} Shot {s_idx+1}...")
+                            self.render_subpixel_ken_burns(kf_path, sub_clip, shot_dur, shot_idx=s_idx)
+                            completed_subclips[key] = sub_clip
 
         # Assemble shots for each scene
         print("\n[Parallel Video Dispatcher] 📦 Assembling completed shots into scene videos...")
