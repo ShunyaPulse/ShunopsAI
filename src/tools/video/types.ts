@@ -5,6 +5,12 @@ export interface VisualBible {
   organicSettings: string[];
   latentTrapsToBan: string[];
   characterGrammar: string;
+  demographicGrammar?: string;
+  geographicGrounding?: {
+    isLocationBound: boolean;
+    locationContext: string;
+    demographicProfile: string;
+  };
   zeroTextRules: string;
   soundscapeProfile: {
     energyLevel: "high" | "measured" | "contemplative" | "dramatic";

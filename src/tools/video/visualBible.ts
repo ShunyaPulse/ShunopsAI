@@ -28,6 +28,7 @@ export function getFallbackVisualBible(topic: string, domain: VideoDomain): Visu
         "cricket bats in non-cricket sports", "wooden wickets", "casual street clothes",
         "mutated anatomy", "floating gear", "distorted hands", "cartoon characters"
       ],
+      demographicGrammar: "Authentic professional athletes matching the national/regional context of the sport, solid unbranded kit.",
       characterGrammar: "Frame athletes in authentic action poses with locked aerodynamic/athletic kit, focused facial expressions, 35mm shallow depth of field.",
       zeroTextRules: "Zero digital leaderboards, scoreboards, or sponsor typography. Depict motion, lighting, and physical equipment without legible text.",
       soundscapeProfile: {
@@ -55,7 +56,8 @@ export function getFallbackVisualBible(topic: string, domain: VideoDomain): Visu
         "cartoon aliens", "hacker green terminal screens", "office cubicles", "shattered glass",
         "mutated hands", "gibberish code lines"
       ],
-      characterGrammar: "Frame researchers in medium to wide shots, cleanroom bunny suits from behind, or silhouetted against glowing volumetric instrumentation. Ban macro facial close-ups.",
+      demographicGrammar: "Cosmopolitan international scientists and researchers, diverse demographics, zero forced stereotypes.",
+      characterGrammar: "Frame researchers in medium to wide shots, authentic lab attire from behind, or silhouetted against glowing volumetric instrumentation. Ban macro facial close-ups.",
       zeroTextRules: "All computer readouts, telemetry consoles, and spectrometer charts must feature unlabeled glowing abstract panels, clean cyan/amber HUD glows, and zero legible letters or numbers.",
       soundscapeProfile: {
         energyLevel: "measured",
@@ -81,6 +83,7 @@ export function getFallbackVisualBible(topic: string, domain: VideoDomain): Visu
         "sports gear", "red desert sandstone in tropical zones", "cartographic lines", "fantasy maps",
         "extruded rubber water cylinders", "plastic foliage", "floating ships on land"
       ],
+      demographicGrammar: "Authentic local field researchers or expedition naturalists, natural outdoor clothing, or zero human figures focusing on wildlife and terrain.",
       characterGrammar: "Prioritize natural physical environments, wildlife in natural motion, or expedition researchers in wide panoramic framing. Zero facial close-ups.",
       zeroTextRules: "Zero digital map outlines, zero boundary lines, zero latitude numbers in image generation.",
       soundscapeProfile: {
@@ -106,6 +109,7 @@ export function getFallbackVisualBible(topic: string, domain: VideoDomain): Visu
       "fantasy castles", "futuristic neon grids", "floating text in mid-air", "random crowd extras looking at camera",
       "unrelated residential bedrooms", "hallucinated brand logos"
     ],
+    demographicGrammar: "Authentic subjects native to the specific real-world event or diverse international professionals.",
     characterGrammar: "Documentary observational camera framing: athletic or professional subjects in authentic field gear, natural non-deformed anatomy, dynamic motion matching the topic. Zero distorted faces.",
     zeroTextRules: "Zero legible letters, zero hallucinated English words on walls, banners, screens, or uniforms. Clean physical textures only.",
     soundscapeProfile: {
@@ -121,39 +125,41 @@ export function getFallbackVisualBible(topic: string, domain: VideoDomain): Visu
 const VISUAL_BIBLE_PROMPT = (topic: string, trendReason?: string, domain?: VideoDomain) => `You are an elite Hollywood production designer and visual director.
 Analyze this video topic: "${topic}" ${trendReason ? `(Trend Context: ${trendReason})` : ""} (Domain: ${domain || "general"}).
 
-STEP 0 — IDENTIFY THE NARRATIVE ANGLE (do this before anything else):
-Determine the topic's primary narrative lens from these categories:
-- "business_finance": Corporate mergers, acquisitions, IPOs, market crashes, company rivalries, boardroom decisions, billion-dollar deals, funding rounds
-- "hardware_engineering": Semiconductor fabrication, chip design, wafer lithography, factory robotics, materials science, circuit manufacturing, cleanroom processes
-- "consumer_tech": Software products, apps, smartphones, AI assistants, consumer devices, OS launches, tech product reveals
-- "policy_geopolitics": Government regulation, international treaties, sanctions, geopolitical tech rivalry, diplomatic summits
-- "deep_science": Physics discoveries, biology, astronomy, pure research, lab experiments, particle physics, genomics
-- "infrastructure_megaproject": Bridges, power grids, railways, satellites, data centers, undersea cables, space launch infrastructure
-- "sports": Athletic competitions, matches, tournaments, championships, records, sports careers
-- "history": Ancient civilizations, historical events, dynasties, archaeological discoveries, heritage
-- "nature_earth": Wildlife, ecosystems, geology, oceans, climate, natural phenomena
+STEP 0 — FIRST PRINCIPLES SEMANTIC GROUNDING (ZERO HARDCODED PRESETS):
+Do NOT use rigid presets (do NOT force boardrooms, cleanrooms, generic office cubicles, or domestic spaces).
+Reason dynamically from first principles based on the true physical reality of this specific subject:
 
-Based on this Narrative Angle, your characterGrammar, realWorldGrounding, and organicSettings MUST reflect the authentic physical world of that angle:
-- "business_finance" → Tailored dark suits and business formal attire, modern minimalist glass-and-steel boardrooms, trading floors with live ticker displays (no legible text), executive corridors, rooftop helipads, shareholder meeting halls. NEVER cleanroom bunny suits, lab coats, or sports gear.
-- "hardware_engineering" → ISO-standard cleanroom bunny suits with full-face shields, robotic handlers, UV lithography chambers, silicon wafer inspection stages, cleanroom environments with blue-white fluorescent lighting.
-- "consumer_tech" → Business casual smart attire, modern open-plan office campuses, product demo stages with dramatic spot lighting, design studios, tech keynote arenas.
-- "policy_geopolitics" → Formal diplomatic attire, conference halls with national flags, legislative chambers, situation rooms with large maps, ministerial corridors.
-- "deep_science" → Lab coats and safety goggles, university research labs, particle accelerator corridors, telescope domes, cryogenic chambers, electron microscope rooms.
-- "infrastructure_megaproject" → Hard hats and high-visibility vests, active construction sites, control rooms with engineering schematics, aerial survey landscapes.
-- "sports" → Official team athletic kits, stadiums, arenas, tracks, sports venues, locker rooms.
-- "history" → Period-accurate garments, archaeological excavation sites, ancient architecture, museum galleries.
-- "nature_earth" → No human attire focus; authentic natural landscapes, wildlife habitats, geological formations.
+1. DYNAMIC GEOGRAPHIC & DEMOGRAPHIC GROUNDING:
+Categorize the topic dynamically into one of two fundamental categories:
+- Category 1: Location / Culture Bound (e.g. events, historical figures, local crises, regional tournaments, or geography-specific phenomena like Delhi AQI, Sediqullah Atal in Kabul/Dubai, Nelson Mandela in South Africa, Arsenal vs Everton in the UK, Bay of Bengal cyclone).
+  - Deduce the authentic geographic region, native human demographics (skin tones, facial features, authentic local clothing).
+  - Crucially: Identify diffusion model LATENT BIAS TRAPS for this topic. For example:
+    * For air pollution / smog with face masks: diffusion models suffer from East Asian latent bias (hallucinating Beijing/Tokyo faces or Japanese kanji). Explicitly detect and ban these in "latentTrapsToBan" and ground in the authentic native demographic!
+    * For historical or regional struggles: ban inappropriate Western/modern apparel or colonial architectural tropes.
+    * For sports: ban cross-sport equipment (e.g. cricket pads in football or vice versa).
+- Category 2: Non-Place-Bound / Universal / Institutional (e.g. Marvell semiconductor merger, Microsoft corporate debt, Voyager 1 interstellar mission, deep quantum mechanics, oceanic biology).
+  - Ground the setting in the organic physical or cosmic environment native to that functional reality (deep space vacuum, high-tech manufacturing, corporate financial strategy, open ocean, etc.).
+  - Demographics (if humans are present) must be cosmopolitan, internationally diverse professionals, or machine/hardware-focused with zero forced regional stereotyping.
+
+2. PHYSICAL SETTINGS & LIGHTING:
+Dynamically deduce 6-10 authentic physical venues, architectural environments, natural terrain, or instrument stages where this topic actually unfolds in the real world.
 
 Synthesize an exact, non-hallucinatory Visual & Acoustic Production Bible tailored to this topic.
 Your output will be used to steer image diffusion (FLUX.1-schnell) and video motion models (Wan2.1-VACE).
 
 Return a JSON object with:
-1. "realWorldGrounding": A precise 2-sentence description of the authentic physical venue/stage where this event occurs. Strictly forbid colonial mansions, british palaces, havelis, luxury resort gardens, or domestic rooms for technical, military, space, and sports topics.
+1. "realWorldGrounding": A precise 2-sentence description of the authentic physical stage/environment where this subject actually exists in the real world or cosmos.
 2. "organicSettings": An array of 6-10 authentic scene settings physically native to this topic.
-3. "latentTrapsToBan": An array of 20-30 specific negative prompt strings that generative models frequently hallucinate for this topic (e.g. cross-sport equipment, incorrect period architecture, distorted text, scoreboard traps, malformed anatomy, and unintended religious, esoteric, or mystical geometric symbols that diffusion models confuse with architectural or corporate insignias).
-4. "characterGrammar": Strict cinematic rules for human anatomy, camera angles, lighting, motion safety, authentic uniforms/clothing, and architectural motifs appropriate for this topic.
-5. "zeroTextRules": Explicit rules ensuring zero legible scoreboards, ticker text, digital numbers, or hallucinatory brand insignias appear in generated latents. Emphasize clean physical architectural textures, minimalist geometry, and real tactile materials native to this domain.
-6. "soundscapeProfile": {
+3. "demographicGrammar": A concise, explicit demographic descriptor for any human figures in this topic (e.g. "Authentic North Indian citizens with natural South Asian facial features and local everyday attire" OR "Internationally diverse team of senior engineers and executives with cosmopolitan attire" OR "Zero human presence — deep space telemetry and robotic probes").
+4. "geographicGrounding": {
+  "isLocationBound": true or false,
+  "locationContext": "Specific city/country/region OR Universal/Cosmic",
+  "demographicProfile": "Specific native ethnicity/demographic OR Cosmopolitan/Diverse/None"
+},
+5. "latentTrapsToBan": An array of 20-30 specific negative prompt strings that generative models frequently hallucinate for this topic (including diffusion demographic biases, cross-domain equipment, corrupt text, and unwanted geometric/religious symbols).
+6. "characterGrammar": Strict cinematic rules for human anatomy, camera angles (35mm shallow depth of field), natural lighting, authentic kit/attire, and camera framing appropriate for this topic.
+7. "zeroTextRules": Explicit rules ensuring zero legible scoreboards, digital ticker text, written letters, or hallucinatory brand logos appear in generated latents. Emphasize clean physical architectural textures, minimalist geometry, and real tactile materials native to this domain.
+8. "soundscapeProfile": {
   "energyLevel": "high" | "measured" | "contemplative" | "dramatic",
   "ambientBedStyle": "stadium" | "industrial" | "nature" | "orchestral" | "drone",
   "bgmGenre": "inspirational_cello" | "dramatic_strings" | "triumphant_brass" | "epic_orchestral" | "warm_serenade" | "gentle_acoustic" | "uplifting_documentary" | "contemplative_piano" | "solemn_history" | "heroic_adventure",
@@ -161,8 +167,8 @@ Return a JSON object with:
   "foleyCues": ["string"]
 }
 BGM Genre Guidance:
-- "inspirational_cello": Hardware engineering, silicon chips, deep tech architecture, calm analytical focus (e.g. Apple Silicon, GPU architectures, advanced computing)
-- "dramatic_strings": High-stakes corporate debt races, severe financial tension, corporate battles, market crises, urgent suspense (e.g. tech debt borrowing, Wall Street crises)
+- "inspirational_cello": Hardware engineering, silicon chips, deep tech architecture, calm analytical focus
+- "dramatic_strings": High-stakes corporate debt races, severe financial tension, corporate battles, market crises, urgent suspense
 - "triumphant_brass": Sports victories, championship finals, gold medals, athletic triumphs, celebrations
 - "epic_orchestral": Deep space missions, planetary probes, cosmic discoveries, massive monumental engineering
 - "warm_serenade": Human-interest stories, uplifting community achievements, peaceful cultural transitions
@@ -176,12 +182,18 @@ Return ONLY raw JSON in this structure:
 {
   "realWorldGrounding": "string",
   "organicSettings": ["string"],
+  "demographicGrammar": "string",
+  "geographicGrounding": {
+    "isLocationBound": true,
+    "locationContext": "string",
+    "demographicProfile": "string"
+  },
   "latentTrapsToBan": ["string"],
   "characterGrammar": "string",
   "zeroTextRules": "string",
   "soundscapeProfile": {
     "energyLevel": "high",
-    "ambientBedStyle": "stadium",
+    "ambientBedStyle": "industrial",
     "bgmGenre": "inspirational_cello",
     "dominantFrequencies": [60, 120],
     "foleyCues": ["string"]

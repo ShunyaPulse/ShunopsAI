@@ -82,7 +82,8 @@ const AUDIT_SYSTEM_PROMPT = (
   sceneNarration: string,
   sceneCaption: string,
   currentVisualPrompt: string,
-  visualBibleGrounding?: string
+  visualBibleGrounding?: string,
+  demographicGrammar?: string
 ) => `
 You are the Autonomous Multimodal Vision Director for high-end cinematic documentary production.
 Your mandate is to perform an uncompromising visual quality audit on this keyframe image before it is rendered into video.
@@ -91,6 +92,7 @@ DOCUMENTARY CONTEXT (Universally Dynamic - Derive context purely from these spec
 - Title: "${topicTitle}"
 - Context/Overview: "${topicDesc}"
 - Real-World Setting / Grounding: "${visualBibleGrounding || "Authentic real-world environment native to the subject"}"
+${demographicGrammar ? `- Target Demographics & Cultural Grammar: "${demographicGrammar}"` : ""}
 
 SCENE BEING AUDITED:
 - Narration: "${sceneNarration}"
@@ -101,7 +103,9 @@ Perform a rigorous evaluation across these 5 non-negotiable gates:
 1. THEMATIC RELEVANCE: Does this image directly depict what is happening in the narration and topic? Reject generic, unrelated stock filler (e.g. sterile server racks for stock markets, medical surgery rooms for finance, disco nightclub dance floors for business).
 2. ZERO-DIFFUSION TEXT RULE: Check for corrupt AI letters, hallucinated gibberish glyphs, foreign characters (e.g. Chinese/Japanese kanji when topic is not East Asian), or blurry floating signs/tickers. If text is needed, it must be clean in post-production, NEVER in diffusion latents.
 3. ANATOMICAL & PHYSICAL SANITY: Check for grotesque artifacts, decapitated/headless bodies, melting/extra fingers, disfigured faces, floating objects, or plastic toy miniature cities.
-4. CULTURAL & PERIOD AUTHENTICITY: Ensure all architecture, garments, objects, and props match the true geographic, cultural, and historical era of the topic (e.g. traditional ledger books vs blank xerox paper; authentic skyscrapers vs miniature scale models).
+4. CULTURAL & DEMOGRAPHIC AUTHENTICITY: Ensure all human demographics, facial features, skin tones, architecture, garments, objects, and props match the true geographic and cultural context of the topic.
+- If topic is location-bound (e.g. Delhi, Kabul, Robben Island, London), strictly reject images showing discordant foreign demographics (e.g. East Asian faces in Delhi air pollution scenes, or Western extras in historical African struggles).
+- If topic is universal/institutional (e.g. semiconductor research, corporate finance, deep space), ensure diverse cosmopolitan or machine/probe framing without forced stereotypes.
 5. CINEMATIC COMPOSITION: Ensure sharp 35mm optical framing with a clear focal point suitable for motion interpolation.
 
 RESPONSE FORMAT:
@@ -167,7 +171,8 @@ export async function auditSceneKeyframe(
     scene.narration,
     scene.caption || "",
     scene.visual_prompt,
-    script.visual_bible?.realWorldGrounding
+    script.visual_bible?.realWorldGrounding,
+    script.visual_bible?.demographicGrammar
   );
 
   // -------------------------------------------------------------

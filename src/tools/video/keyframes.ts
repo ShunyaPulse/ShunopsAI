@@ -51,6 +51,11 @@ export function buildKeyframePrompt(
   const humanPresenceKeywords = /\b(people|person|personnel|engineer|scientist|analyst|executive|researcher|worker|man|woman|athlete|player|team|humans|characters|character|figure|figures|silhouette|hands|face|group|suit|attire|uniform|bunny suit|cleanroom suit|delegate|official|director|ceo|chairman|employee|staff|journalist|reporter|professor|student|astronaut|cosmonaut|pilot|soldier|officer|diplomat|batsman|bowler|fielder|wicketkeeper|batter|cricketer)\b/i;
   const hasHuman = humanPresenceKeywords.test(scPrompt);
 
+  // Demographic Grounding lock — guarantees authentic regional or diverse demographics
+  if (visualBible?.demographicGrammar && hasHuman && !isCrowdOnly) {
+    parts.push(visualBible.demographicGrammar.slice(0, 300));
+  }
+
   // Character Visual DNA lock — ONLY inject when scene actually depicts individual humans/athletes and is NOT a crowd-only shot
   if (visualBible?.characterGrammar && hasHuman && !isCrowdOnly) {
     let sanitizedGrammar = visualBible.characterGrammar.slice(0, 500);
@@ -133,7 +138,18 @@ export function buildKeyframePrompt(
     );
   }
 
-  // 8. Cinematic optical aesthetic (Positive optical descriptors)
+  // 8. Dynamic Latent Traps Negative Enforcement (strictly zero banned diffusion traps)
+  if (visualBible?.latentTrapsToBan && visualBible.latentTrapsToBan.length > 0) {
+    const topTraps = visualBible.latentTrapsToBan
+      .filter((t) => typeof t === "string" && t.trim().length > 0)
+      .slice(0, 8)
+      .join(", strictly zero ");
+    if (topTraps) {
+      parts.push(`strictly zero ${topTraps}`);
+    }
+  }
+
+  // 9. Cinematic optical aesthetic (Positive optical descriptors)
   parts.push(
     "Cinematic 35mm photography, photorealistic, sharp focus, volumetric lighting, authentic tactile textures, completely unbranded clean surfaces, zero text, zero watermarks"
   );
