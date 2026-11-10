@@ -680,7 +680,7 @@ class WanT4OptimizedEngine:
                 subprocess.run([sys.executable, __file__, "--preencode"], check=True)
                 print("[Wan2.1 Dual-GPU] ✅ Isolated subprocess exited cleanly. GPU 0 VRAM completely reclaimed by OS!")
             print(f"[Wan2.1 Dual-GPU] 📂 Loading pre-encoded prompt embeddings from {cache_path}...")
-            self.prompt_cache = torch.load(cache_path, map_location="cpu", weights_only=False)
+            self.prompt_cache = torch.load(cache_path, map_location="cpu", weights_only=True)
             if self.prompt_cache:
                 self.default_cached_embed = next(iter(self.prompt_cache.values()))
             print(f"[Wan2.1 Dual-GPU] ✅ Loaded {len(self.prompt_cache)} cached prompt embeddings into CPU RAM.")
