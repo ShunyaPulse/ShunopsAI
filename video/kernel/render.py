@@ -684,7 +684,7 @@ class WanT4OptimizedEngine:
             assert os.path.abspath(cache_path).startswith(os.path.abspath("/kaggle/working/")), "Untrusted cache path"
             # Safely load only tensor weights after verifying file extension
             assert cache_path.endswith('.pt'), "Untrusted cache file type"
-            self.prompt_cache = torch.load(cache_path, map_location="cpu", weights_only=True)
+            self.prompt_cache = torch.load(cache_path, map_location="cpu", weights_only=True)  # safe load with weights_only to prevent pickle execution
             if self.prompt_cache:
                 self.default_cached_embed = next(iter(self.prompt_cache.values()))
             print(f"[Wan2.1 Dual-GPU] ✅ Loaded {len(self.prompt_cache)} cached prompt embeddings into CPU RAM.")
