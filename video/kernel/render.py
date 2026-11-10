@@ -584,7 +584,7 @@ def run_preencode_standalone():
             n_cpu = n_emb.detach().to("cpu", dtype=torch.float16).contiguous() if n_emb is not None else None
             prompt_cache[(p_text, n_text)] = (p_cpu, n_cpu)
 
-    torch.save(prompt_cache, cache_path)
+    torch.save(prompt_cache, cache_path, _use_new_zipfile_serialization=True)
     print(f"[Wan2.1 Standalone Pre-Encoder] ✅ Successfully saved {len(prompt_cache)} prompt embeddings to {cache_path} in {time.time() - t0:.1f}s.")
 
 
