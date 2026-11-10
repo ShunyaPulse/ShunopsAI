@@ -680,6 +680,8 @@ class WanT4OptimizedEngine:
                 subprocess.run([sys.executable, __file__, "--preencode"], check=True)
                 print("[Wan2.1 Dual-GPU] ✅ Isolated subprocess exited cleanly. GPU 0 VRAM completely reclaimed by OS!")
             print(f"[Wan2.1 Dual-GPU] 📂 Loading pre-encoded prompt embeddings from {cache_path}...")
+            # Ensure cache file is from trusted location before loading
+            assert os.path.abspath(cache_path).startswith(os.path.abspath("/kaggle/working/")), "Untrusted cache path"
             self.prompt_cache = torch.load(cache_path, map_location="cpu", weights_only=True)
             if self.prompt_cache:
                 self.default_cached_embed = next(iter(self.prompt_cache.values()))
