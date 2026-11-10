@@ -763,8 +763,6 @@ class WanT4OptimizedEngine:
 
         self.workers_initialized = True
 
-        self._init_fallback_engine()
-
     def _init_fallback_engine(self):
         if self.pipe is not None:
             del self.pipe
