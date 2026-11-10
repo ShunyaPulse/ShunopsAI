@@ -607,7 +607,7 @@ import torch
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 if torch.cuda.is_available():
     torch.backends.cudnn.benchmark = False
-    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.deterministic = False
     try:
         if hasattr(torch.backends.cuda, "enable_flash_sdp"):
             torch.backends.cuda.enable_flash_sdp(False)
@@ -727,24 +727,17 @@ def main():
 
     # CRITICAL FIX 1: Call .to(local_dev) WITHOUT `dtype=torch.float16`!
     # Preserves float32 on ['rope', 'time_embedder', 'scale_shift_table', 'norm1', 'norm2', 'norm3']
+    # and keeps AutoencoderKLWan in native float16 (Turing SM 7.5 Tensor Cores: 0.4s encode, 19s decode, zero FP32 5D buffer overflow).
     pipe.to(local_dev)
 
-    # CRITICAL FIX 2: Keep 3D Causal VAE (AutoencoderKLWan) in float32 with full-frame 640x384 tile alignment!
-    # AutoencoderKLWan is only ~250MB, and float32 + aligned tiling eliminates Turing SM 7.5 cuDNN 3D Conv `cudaErrorIllegalAddress`!
+    if hasattr(pipe, "enable_attention_slicing"):
+        pipe.enable_attention_slicing(slice_size="max")
+
     if hasattr(pipe, "vae") and pipe.vae is not None:
-        pipe.vae.to(device=local_dev, dtype=torch.float32)
+        if hasattr(pipe.vae, "enable_tiling"):
+            pipe.vae.enable_tiling()
         if hasattr(pipe.vae, "enable_slicing"):
             pipe.vae.enable_slicing()
-        if hasattr(pipe.vae, "enable_tiling"):
-            try:
-                pipe.vae.enable_tiling(
-                    tile_sample_min_height=384,
-                    tile_sample_min_width=640,
-                    tile_sample_stride_height=320,
-                    tile_sample_stride_width=576,
-                )
-            except TypeError:
-                pipe.vae.enable_tiling()
 
     def _isolated_encode_prompt(
         prompt=None,
@@ -776,7 +769,7 @@ def main():
 
     alloc_mb = torch.cuda.memory_allocated(0) / (1024 ** 2)
     free_gb = (torch.cuda.get_device_properties(0).total_memory - torch.cuda.memory_allocated(0)) / (1024 ** 3)
-    print(f"[Wan2.1 Worker GPU {phys_gpu}] ✅ Online on physical GPU {phys_gpu} (cuda:{phys_gpu}) — VRAM Allocated: {alloc_mb:.1f} MB (~{free_gb:.1f} GB Free Headroom, float32 VAE + RoPE active!).", flush=True)
+    print(f"[Wan2.1 Worker GPU {phys_gpu}] ✅ Online on physical GPU {phys_gpu} (cuda:{phys_gpu}) — VRAM Allocated: {alloc_mb:.1f} MB (~{free_gb:.1f} GB Free Headroom, float16 VAE + float32 RoPE/Norm active!).", flush=True)
 
     for shot in shots:
         shot_global_idx = shot["shot_global_idx"]
@@ -1203,7 +1196,7 @@ class WanT4OptimizedEngine:
            100% of UMT5 VRAM & Host RAM is reclaimed by the OS.
         2. Spawns 2 completely separate OS worker processes (`CUDA_VISIBLE_DEVICES=0` and
            `CUDA_VISIBLE_DEVICES=1`), each with its own private CUDA context, private cuDNN handle,
-           `float32` preserved on `rope`/`norm1-3`/`scale_shift_table`, and `float32` 3D Causal VAE.
+           `float32` preserved on `rope`/`norm1-3`/`scale_shift_table`, and native `float16` 3D Causal VAE with attention/VAE slicing & tiling.
         3. If a worker subprocess ever hits a CUDA error on any shot, it rescues that shot and exits
            with code 42 so the parent automatically respawns a fresh subprocess with a clean CUDA context.
         """

@@ -79,7 +79,7 @@ if torch.cuda.is_available():
     # cuDNN Stability Invariant (T4 Turing Architecture):
     # Disabling cuDNN benchmarking prevents workspace memory allocation collisions and illegal memory access during 3D causal convolutions
     torch.backends.cudnn.benchmark = False
-    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.deterministic = False
 
 W, H, FPS = 1920, 1080, 24
 OUT = "/kaggle/working"
@@ -491,121 +491,431 @@ def parse_srt_cues(srt_text, time_offset_sec):
     return cues
 
 
-def run_preencode_standalone():
-    """
-    Runs isolated in a dedicated subprocess to pre-encode all shot prompts on cuda:0 in FP16.
-    When this subprocess exits, the operating system and NVIDIA driver completely reclaim 100%
-    of GPU 0 memory, eliminating all memory leaks, fragmentation, and CUDA driver context pollution.
-    """
-    t0 = time.time()
-    cache_path = "/kaggle/working/prompt_cache.pt"
-    if os.path.exists(cache_path):
-        print(f"[Wan2.1 Standalone Pre-Encoder] Cache {cache_path} already exists. Skipping.")
-        return
-
-    script_path = find_script()
-    with open(script_path, "r", encoding="utf-8") as f:
-        script = json.load(f)
-
-    domain = script.get("domain", "general")
-    visual_bible = script.get("visual_bible", {})
-    grounding_prefix = ""
-    if domain == "sports":
-        grounding_prefix = "Indian Premier League cricket broadcast, authentic stadium lighting, photorealistic players, "
-    elif visual_bible and "realWorldGrounding" in visual_bible:
-        grounding_prefix = f"{visual_bible['realWorldGrounding']}, "
-
-    prompt_pairs = []
-    shot_variations = [
-        ("cinematic static tripod establishing framing, subtle atmospheric drift", 0),
-        ("slow optical push-in framing, atmospheric dust particles drifting", 101),
-        ("wide atmospheric documentary panorama, natural ambient light", 202),
-        ("low angle grounded framing, sharp environmental textures", 303),
-    ]
-
-    for item in script.get("scenes", []):
-        prompt = item.get("visual_prompt", "")
-        neg_prompt = (
-            "blurry, distorted, morphing, watermark, low quality, cartoon, 3d render, anime, text, words, labels, signs, subtitles, letters, numbers, digits"
-        )
-        for s_idx in range(2):
-            var_text, _ = shot_variations[s_idx % len(shot_variations)]
-            clean_prompt = (
-                f"{grounding_prefix}{prompt[:220]}, {var_text}, modern digital cinema, sharp high-definition focus, "
-                f"sharp crystal clear focus, vivid natural colors, documentary broadcast quality, "
-                f"subtle natural character breathing, stable non-morphing walls, rigid background structures, "
-                f"unlabeled telemetry displays, zero text, zero letters, zero numbers"
-            )
-            prompt_pairs.append((clean_prompt, neg_prompt))
-
-    unique_pairs = list(dict.fromkeys(prompt_pairs))
-    print(f"[Wan2.1 Standalone Pre-Encoder] 🧠 Pre-encoding {len(unique_pairs)} unique shot prompts on cuda:0 in isolated process...")
-
-    hf_token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN")
-    try:
-        from diffusers import WanVACEPipeline
-        PipelineClass = WanVACEPipeline
-    except ImportError:
-        from diffusers import DiffusionPipeline
-        PipelineClass = DiffusionPipeline
-
-    model_id = "Wan-AI/Wan2.1-VACE-1.3B-diffusers"
-    pipe = PipelineClass.from_pretrained(
-        model_id,
-        torch_dtype=torch.float16,
-        low_cpu_mem_usage=True,
-        token=hf_token if hf_token else None
-    )
-    pipe.text_encoder.to("cuda:0", dtype=torch.float16)
-
-    prompt_cache = {}
-    with torch.inference_mode():
-        for p_text, n_text in unique_pairs:
-            try:
-                p_emb, n_emb = pipe.encode_prompt(
-                    prompt=p_text,
-                    negative_prompt=n_text,
-                    do_classifier_free_guidance=True,
-                    num_videos_per_prompt=1,
-                    device=torch.device("cuda:0"),
-                )
-            except TypeError:
-                enc_out = pipe.encode_prompt(
-                    prompt=p_text,
-                    negative_prompt=n_text,
-                    device=torch.device("cuda:0")
-                )
-                if isinstance(enc_out, (tuple, list)):
-                    p_emb, n_emb = enc_out[0], enc_out[1]
-                else:
-                    p_emb, n_emb = enc_out, None
-
-            p_cpu = p_emb.detach().to("cpu", dtype=torch.float16).contiguous()
-            n_cpu = n_emb.detach().to("cpu", dtype=torch.float16).contiguous() if n_emb is not None else None
-            prompt_cache[(p_text, n_text)] = (p_cpu, n_cpu)
-
-    torch.save(prompt_cache, cache_path, _use_new_zipfile_serialization=True)
-    print(f"[Wan2.1 Standalone Pre-Encoder] ✅ Successfully saved {len(prompt_cache)} prompt embeddings to {cache_path} in {time.time() - t0:.1f}s.")
-
-
 # ==========================================
 # Wan2.1 (1.3B DiT) T4-Optimized Diffusion Engine
+# True OS-Subprocess Isolated Dual-GPU Architecture (CUDA_VISIBLE_DEVICES=0 / 1)
+# Eliminates `cudaErrorIllegalAddress` from multi-threaded cuDNN/Cutlass contention
 # ==========================================
+import contextlib
+import threading
+
+PREENCODER_SUBPROCESS_SCRIPT = r"""
+import gc, json, os, sys, time
+import torch
+
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+
+def main():
+    payload_path = sys.argv[1]
+    out_cache_path = sys.argv[2]
+    with open(payload_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    model_id = data["model_id"]
+    hf_token = data.get("hf_token") or None
+    prompt_pairs = data["prompt_pairs"]
+
+    if hf_token:
+        os.environ["HF_TOKEN"] = hf_token
+        os.environ["HUGGING_FACE_HUB_TOKEN"] = hf_token
+
+    try:
+        from diffusers import WanVACEPipeline as PipelineClass
+    except ImportError:
+        from diffusers import DiffusionPipeline as PipelineClass
+
+    t0 = time.time()
+    print(f"[Wan2.1 Standalone Pre-Encoder] 🧠 Pre-encoding {len(prompt_pairs)} unique shot prompts on cuda:0 in isolated OS process...", flush=True)
+
+    pipe = None
+    try:
+        pipe = PipelineClass.from_pretrained(
+            model_id,
+            transformer=None,
+            vae=None,
+            torch_dtype=torch.float16,
+            low_cpu_mem_usage=True,
+            token=hf_token,
+        )
+    except Exception:
+        pipe = PipelineClass.from_pretrained(
+            model_id,
+            torch_dtype=torch.float16,
+            low_cpu_mem_usage=True,
+            token=hf_token,
+        )
+
+    pipe.text_encoder.to("cuda:0")
+    cache = {}
+    with torch.inference_mode():
+        for idx, pair in enumerate(prompt_pairs):
+            p_text, n_text = pair[0], pair[1]
+            key = f"{p_text}|||{n_text}"
+            if key in cache:
+                continue
+            enc_out = pipe.encode_prompt(
+                prompt=p_text,
+                negative_prompt=n_text,
+                do_classifier_free_guidance=True,
+                num_videos_per_prompt=1,
+                device=torch.device("cuda:0"),
+                dtype=torch.float16,
+            )
+            if isinstance(enc_out, (tuple, list)):
+                p_emb, n_emb = enc_out[0], enc_out[1]
+            else:
+                p_emb, n_emb = enc_out, None
+            cache[key] = (
+                p_emb.detach().to("cpu", dtype=torch.float16).contiguous(),
+                n_emb.detach().to("cpu", dtype=torch.float16).contiguous() if n_emb is not None else None,
+            )
+
+    torch.save(cache, out_cache_path)
+    print(f"[Wan2.1 Standalone Pre-Encoder] ✅ Saved {len(cache)} prompt embeddings to {out_cache_path} in {time.time() - t0:.1f}s.", flush=True)
+
+if __name__ == "__main__":
+    main()
+"""
+
+WORKER_SUBPROCESS_SCRIPT = r"""
+import gc, json, math, os, re, shutil, subprocess, sys, time
+import torch
+
+# Critical Turing T4 (SM 7.5) Stability Guards:
+# 1. Expandable segments prevents allocator fragmentation
+# 2. Disabling cuDNN benchmark & enabling deterministic 3D Conv prevents cuDNN FP16/FP32 workspace illegal memory access
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+if torch.cuda.is_available():
+    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.deterministic = False
+    try:
+        if hasattr(torch.backends.cuda, "enable_flash_sdp"):
+            torch.backends.cuda.enable_flash_sdp(False)
+        if hasattr(torch.backends.cuda, "enable_mem_efficient_sdp"):
+            torch.backends.cuda.enable_mem_efficient_sdp(True)
+    except Exception:
+        pass
+
+def run_cmd(cmd):
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    return r.returncode == 0
+
+def clip_duration(path):
+    r = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=nw=1:nk=1", path],
+        capture_output=True, text=True
+    )
+    try:
+        return float(r.stdout.strip() or 0.0)
+    except Exception:
+        return 0.0
+
+def render_subpixel_kb(img_path, out_clip_path, duration_sec, shot_idx, encoder_args):
+    try:
+        import cv2
+        import numpy as np
+        img = cv2.imread(img_path)
+        if img is None:
+            raise ValueError(f"Cannot read {img_path}")
+        h, w = img.shape[:2]
+        target_ar = 16.0 / 9.0
+        cur_ar = w / float(h)
+        if cur_ar > target_ar:
+            new_w = int(round(h * target_ar))
+            sx = (w - new_w) // 2
+            img = img[:, sx:sx + new_w]
+        else:
+            new_h = int(round(w / target_ar))
+            sy = (h - new_h) // 2
+            img = img[sy:sy + new_h, :]
+        h, w = img.shape[:2]
+        fps = 24
+        total_frames = max(24, int(round(duration_sec * fps)))
+        temp_raw = f"{out_clip_path}.raw.mp4"
+        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+        vw = cv2.VideoWriter(temp_raw, fourcc, fps, (1920, 1080))
+        zoom_in = (shot_idx == 0)
+        center = (w / 2.0, h / 2.0)
+        for i in range(total_frames):
+            progress = i / float(total_frames)
+            ease = 0.5 * (1.0 - math.cos(progress * math.pi))
+            scale = (1.0 + 0.08 * ease) if zoom_in else (1.08 - 0.08 * ease)
+            M = cv2.getRotationMatrix2D(center, 0.0, scale)
+            M[0, 2] += (1920.0 / 2.0) - center[0]
+            M[1, 2] += (1080.0 / 2.0) - center[1]
+            frame = cv2.warpAffine(img, M, (1920, 1080), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REFLECT)
+            vw.write(frame)
+        vw.release()
+        run_cmd([
+            "ffmpeg", "-y", "-i", temp_raw,
+            "-vf", "unsharp=3:3:0.3:3:3:0.1,eq=contrast=1.02:brightness=0.0:saturation=1.02,format=yuv420p",
+            "-r", "24", "-t", f"{duration_sec:.3f}",
+            *encoder_args, out_clip_path
+        ])
+        if os.path.exists(temp_raw):
+            os.remove(temp_raw)
+        return True
+    except Exception:
+        run_cmd([
+            "ffmpeg", "-y", "-loop", "1", "-i", img_path,
+            "-vf", "scale=1920:1080:force_original_aspect_ratio=increase:flags=lanczos,crop=1920:1080,unsharp=3:3:0.3:3:3:0.1,eq=contrast=1.02:brightness=0.0:saturation=1.02,format=yuv420p",
+            "-r", "24", "-t", f"{duration_sec:.3f}",
+            *encoder_args, out_clip_path
+        ])
+        return True
+
+def main():
+    tasks_path = sys.argv[1]
+    cache_path = sys.argv[2]
+    phys_gpu = int(sys.argv[3])
+
+    with open(tasks_path, "r", encoding="utf-8") as f:
+        meta = json.load(f)
+
+    model_id = meta["model_id"]
+    hf_token = meta.get("hf_token") or None
+    tmp_dir = meta["tmp_dir"]
+    encoder_args = meta["encoder_args"]
+    shots = meta["shots"]
+
+    if hf_token:
+        os.environ["HF_TOKEN"] = hf_token
+        os.environ["HUGGING_FACE_HUB_TOKEN"] = hf_token
+
+    # Because CUDA_VISIBLE_DEVICES is set to phys_gpu before this process booted,
+    # local device 0 ("cuda:0") is 100% isolated to physical GPU `phys_gpu`!
+    local_dev = torch.device("cuda:0")
+    torch.cuda.set_device(0)
+
+    prompt_cache = torch.load(cache_path, map_location="cpu", weights_only=False)
+    default_embed = next(iter(prompt_cache.values())) if prompt_cache else None
+
+    try:
+        from diffusers import WanVACEPipeline as PipelineClass
+    except ImportError:
+        from diffusers import DiffusionPipeline as PipelineClass
+
+    print(f"[Wan2.1 Worker GPU {phys_gpu}] 📦 Loading isolated pipeline on physical GPU {phys_gpu} (text_encoder=None, tokenizer=None)...", flush=True)
+    pipe = PipelineClass.from_pretrained(
+        model_id,
+        text_encoder=None,
+        tokenizer=None,
+        torch_dtype=torch.float16,
+        low_cpu_mem_usage=True,
+        token=hf_token,
+    )
+
+    # CRITICAL FIX 1: Call .to(local_dev) WITHOUT `dtype=torch.float16`!
+    # Preserves float32 on ['rope', 'time_embedder', 'scale_shift_table', 'norm1', 'norm2', 'norm3']
+    # and keeps AutoencoderKLWan in native float16 (Turing SM 7.5 Tensor Cores: 0.4s encode, 19s decode, zero FP32 5D buffer overflow).
+    pipe.to(local_dev)
+
+    if hasattr(pipe, "enable_attention_slicing"):
+        pipe.enable_attention_slicing(slice_size="max")
+
+    if hasattr(pipe, "vae") and pipe.vae is not None:
+        if hasattr(pipe.vae, "enable_tiling"):
+            pipe.vae.enable_tiling()
+        if hasattr(pipe.vae, "enable_slicing"):
+            pipe.vae.enable_slicing()
+
+    def _isolated_encode_prompt(
+        prompt=None,
+        negative_prompt=None,
+        do_classifier_free_guidance=True,
+        num_videos_per_prompt=1,
+        prompt_embeds=None,
+        negative_prompt_embeds=None,
+        max_sequence_length=512,
+        device=None,
+        dtype=None,
+        **kwargs
+    ):
+        out_dtype = dtype or torch.float16
+        if prompt_embeds is not None:
+            p_g = prompt_embeds.to(device=local_dev, dtype=out_dtype, copy=True)
+            n_g = negative_prompt_embeds.to(device=local_dev, dtype=out_dtype, copy=True) if negative_prompt_embeds is not None else None
+            return p_g, n_g
+        p_str = prompt[0] if isinstance(prompt, list) else (prompt or "")
+        n_str = negative_prompt[0] if isinstance(negative_prompt, list) else (negative_prompt or "")
+        pair = prompt_cache.get(f"{p_str}|||{n_str}") or default_embed
+        p_cpu, n_cpu = pair
+        return (
+            p_cpu.to(device=local_dev, dtype=out_dtype, copy=True),
+            n_cpu.to(device=local_dev, dtype=out_dtype, copy=True) if n_cpu is not None else None,
+        )
+
+    pipe.encode_prompt = _isolated_encode_prompt
+
+    alloc_mb = torch.cuda.memory_allocated(0) / (1024 ** 2)
+    free_gb = (torch.cuda.get_device_properties(0).total_memory - torch.cuda.memory_allocated(0)) / (1024 ** 3)
+    print(f"[Wan2.1 Worker GPU {phys_gpu}] ✅ Online on physical GPU {phys_gpu} (cuda:{phys_gpu}) — VRAM Allocated: {alloc_mb:.1f} MB (~{free_gb:.1f} GB Free Headroom, float16 VAE + float32 RoPE/Norm active!).", flush=True)
+
+    for shot in shots:
+        shot_global_idx = shot["shot_global_idx"]
+        done_marker = os.path.join(tmp_dir, f"shot_done_{shot_global_idx}.ok")
+        claim_lock = os.path.join(tmp_dir, f"shot_claim_{shot_global_idx}.lock")
+
+        if os.path.exists(done_marker):
+            continue
+
+        # Atomic kernel-level work-stealing claim
+        try:
+            fd = os.open(claim_lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            os.write(fd, str(phys_gpu).encode("utf-8"))
+            os.close(fd)
+        except FileExistsError:
+            continue
+
+        scene_idx = shot["scene_idx"]
+        s_idx = shot["s_idx"]
+        num_shots = shot["num_shots"]
+        shot_dur = shot["shot_dur"]
+        sub_clip = shot["sub_clip"]
+        clean_prompt = shot["clean_prompt"]
+        neg_prompt = shot["neg_prompt"]
+        seed = shot["seed"]
+        kf_path = shot.get("kf_path")
+
+        t_shot = time.time()
+        print(f"[Wan2.1-VACE-1.3B] Scene {scene_idx+1} [Shot {s_idx+1}/{num_shots}]: Generating motion on GPU {phys_gpu} (cuda:{phys_gpu})...", flush=True)
+
+        ref_image = None
+        if kf_path and os.path.exists(kf_path):
+            try:
+                from diffusers.utils import load_image
+                ref_image = load_image(kf_path).convert("RGB").resize((640, 384))
+            except Exception:
+                ref_image = None
+
+        try:
+            if hasattr(pipe, "vae") and hasattr(pipe.vae, "clear_cache"):
+                try:
+                    pipe.vae.clear_cache()
+                except Exception:
+                    pass
+            elif hasattr(pipe, "vae") and hasattr(pipe.vae, "_clear_cache"):
+                try:
+                    pipe.vae._clear_cache()
+                except Exception:
+                    pass
+            torch.cuda.empty_cache()
+
+            with torch.inference_mode():
+                generator = torch.Generator(device=local_dev).manual_seed(seed)
+                call_kwargs = {
+                    "prompt": clean_prompt,
+                    "negative_prompt": neg_prompt,
+                    "height": 384,
+                    "width": 640,
+                    "num_frames": 33,
+                    "num_inference_steps": 25,
+                    "guidance_scale": 3.8,
+                    "generator": generator,
+                }
+                if ref_image is not None:
+                    if "VACE" in type(pipe).__name__ or "WanVACE" in str(type(pipe)):
+                        call_kwargs["reference_images"] = [ref_image]
+                    else:
+                        call_kwargs["image"] = ref_image
+
+                try:
+                    output = pipe(**call_kwargs)
+                except TypeError as te:
+                    if ref_image is not None:
+                        call_kwargs.pop("image", None)
+                        call_kwargs.pop("reference_images", None)
+                        output = pipe(**call_kwargs)
+                    else:
+                        raise te
+
+                frames = output.frames[0]
+                torch.cuda.synchronize(local_dev)
+
+            raw_clip = os.path.join(tmp_dir, f"raw_{scene_idx}_{s_idx}.mp4")
+            try:
+                from diffusers.utils import export_to_video
+                export_to_video(frames, raw_clip, fps=16)
+            except Exception:
+                import numpy as np
+                from PIL import Image
+                fdir = os.path.join(tmp_dir, f"frames_{scene_idx}_{s_idx}")
+                os.makedirs(fdir, exist_ok=True)
+                for f_i, fr in enumerate(frames):
+                    if isinstance(fr, np.ndarray):
+                        arr = (fr * 255).astype(np.uint8) if (fr.dtype in (np.float32, np.float16) or fr.max() <= 1.0) else fr.astype(np.uint8)
+                        Image.fromarray(arr).save(f"{fdir}/f_{f_i:04d}.png")
+                    elif hasattr(fr, "save"):
+                        fr.save(f"{fdir}/f_{f_i:04d}.png")
+                run_cmd(["ffmpeg", "-y", "-framerate", "16", "-i", f"{fdir}/f_%04d.png", "-c:v", "libx264", "-pix_fmt", "yuv420p", raw_clip])
+                shutil.rmtree(fdir, ignore_errors=True)
+
+            raw_d = clip_duration(raw_clip)
+            pts_mult = shot_dur / max(raw_d, 0.4)
+            vf_pipeline = (
+                f"setpts={pts_mult:.4f}*PTS,"
+                f"minterpolate=fps=24:mi_mode=blend,"
+                f"scale=1920:1080:force_original_aspect_ratio=increase:flags=lanczos,crop=1920:1080,"
+                f"unsharp=3:3:0.3:3:3:0.1,"
+                f"eq=contrast=1.02:brightness=0.0:saturation=1.02,"
+                f"format=yuv420p"
+            )
+            run_cmd(["ffmpeg", "-y", "-i", raw_clip, "-vf", vf_pipeline, "-r", "24", "-t", f"{shot_dur:.3f}", *encoder_args, sub_clip])
+
+            # Luma Gate Check (YAVG < 10.0)
+            is_pitch_black = False
+            try:
+                sample_ss = str(round(min(0.5, max(0.0, shot_dur / 2.0)), 2))
+                luma_run = subprocess.run(
+                    ["ffmpeg", "-y", "-ss", sample_ss, "-i", sub_clip, "-vframes", "5", "-vf", "signalstats,metadata=print:key=lavfi.signalstats.YAVG:file=-", "-f", "null", "-"],
+                    capture_output=True, text=True, timeout=8
+                )
+                y_matches = re.findall(r"lavfi\.signalstats\.YAVG=([0-9\.]+)", luma_run.stdout + luma_run.stderr)
+                if y_matches and (sum(float(y) for y in y_matches) / len(y_matches)) < 10.0:
+                    is_pitch_black = True
+            except Exception:
+                pass
+
+            if is_pitch_black and kf_path and os.path.exists(kf_path):
+                print(f"[Luma Gate 🛡️] Rescuing Scene {scene_idx+1} Shot {s_idx+1} on GPU {phys_gpu} with subpixel Ken Burns...", flush=True)
+                render_subpixel_kb(kf_path, sub_clip, shot_dur, s_idx, encoder_args)
+
+            with open(done_marker, "w", encoding="utf-8") as df:
+                df.write("ok")
+            print(f"[Wan2.1 Done ✅] Scene {scene_idx+1} [Shot {s_idx+1}/{num_shots}] finished on GPU {phys_gpu} (cuda:{phys_gpu}) in {time.time() - t_shot:.1f}s -> {sub_clip}", flush=True)
+
+        except Exception as shot_err:
+            print(f"[Wan2.1 Worker GPU {phys_gpu} Notice] Scene {scene_idx+1} Shot {s_idx+1} encountered error ({shot_err}).", flush=True)
+            # Rescue this specific shot with subpixel Ken Burns so the scene is never missing
+            if kf_path and os.path.exists(kf_path):
+                render_subpixel_kb(kf_path, sub_clip, shot_dur, s_idx, encoder_args)
+                if os.path.exists(sub_clip) and os.path.getsize(sub_clip) > 1000:
+                    with open(done_marker, "w", encoding="utf-8") as df:
+                        df.write("rescued")
+                    print(f"[Wan2.1 Worker GPU {phys_gpu} 🛡️] Rescued Scene {scene_idx+1} Shot {s_idx+1} via subpixel Ken Burns.", flush=True)
+            else:
+                try:
+                    os.remove(claim_lock)
+                except Exception:
+                    pass
+            # If CUDA error occurred, exit with code 42 so parent orchestrator respawns a fresh subprocess with a clean CUDA context!
+            if "CUDA error" in str(shot_err) or "illegal memory access" in str(shot_err):
+                print(f"[Wan2.1 Worker GPU {phys_gpu}] 🔄 Exiting subprocess to reset clean OS CUDA context on GPU {phys_gpu}...", flush=True)
+                sys.exit(42)
+
+if __name__ == "__main__":
+    main()
+"""
+
 class WanT4OptimizedEngine:
     def __init__(self, hf_token=None, device="cuda"):
         self.pipe = None
         self.fallback_pipe = None
         self.hf_token = hf_token
         self.device = device
+        self.model_id = "Wan-AI/Wan2.1-VACE-1.3B-diffusers"
         self.engine_name = "Wan2.1-VACE-1.3B"
         self.num_gpus = torch.cuda.device_count() if torch.cuda.is_available() else 0
-        self.prompt_cache = {}
-        self.default_cached_embed = None
-        self.worker_pipes = {}
-        self.workers_initialized = False
-        self._assembly_lock = threading.Lock()
-        self.model_id = "Wan-AI/Wan2.1-VACE-1.3B-diffusers"
-        self.PipelineClass = None
         self._init_model()
 
     def _init_model(self):
@@ -616,8 +926,10 @@ class WanT4OptimizedEngine:
         self.num_gpus = num_gpus
         dev_idx = 0
         if ":" in str(self.device):
-            try: dev_idx = int(str(self.device).split(":")[1])
-            except Exception: dev_idx = 0
+            try:
+                dev_idx = int(str(self.device).split(":")[1])
+            except Exception:
+                dev_idx = 0
 
         gpu_name = torch.cuda.get_device_name(dev_idx)
         vram_gb = torch.cuda.get_device_properties(dev_idx).total_memory / (1024 ** 3)
@@ -632,137 +944,17 @@ class WanT4OptimizedEngine:
             os.environ["HF_TOKEN"] = self.hf_token
             os.environ["HUGGING_FACE_HUB_TOKEN"] = self.hf_token
 
-        # Configure model parameters for isolated multi-GPU worker execution
-        try:
-            try:
-                from diffusers import WanVACEPipeline
-                PipelineClass = WanVACEPipeline
-            except ImportError:
-                from diffusers import DiffusionPipeline
-                PipelineClass = DiffusionPipeline
-
-            self.model_id = "Wan-AI/Wan2.1-VACE-1.3B-diffusers"
-            self.PipelineClass = PipelineClass
-            self.pipe = None  # Crucial: main process never allocates UMT5!
-            self.engine_name = "Wan2.1-VACE-1.3B"
-            print(f"[Wan2.1-VACE] Configured for isolated multi-GPU worker execution (model: {self.model_id}).")
-            return
-        except Exception as wan_err:
-            print(f"[Wan2.1-VACE Warning] Could not configure WanVACEPipeline ({wan_err}). Trying WanPipeline T2V...")
-            try:
-                from diffusers import WanPipeline
-                self.PipelineClass = WanPipeline
-                self.model_id = "Wan-AI/Wan2.1-T2V-1.3B-Diffusers"
-                self.pipe = None
-                self.engine_name = "Wan2.1-T2V-1.3B"
-                print("[Wan2.1] Wan2.1-T2V-1.3B configured successfully.")
-                return
-            except Exception as t2v_err:
-                print(f"[Wan2.1 Warning] T2V configuration failed ({t2v_err}). Preparing AnimateDiff-Lightning...")
-
-        self._init_fallback_engine()
-
-    def _ensure_workers_ready(self, prompt_pairs):
-        """
-        1. Loads pre-encoded prompt embeddings from cache or runs isolated pre-encoding subprocess (~17s).
-        2. Leaves cuda:0 and cuda:1 100% clean, virgin, and unfragmented (zero text_encoder in main process).
-        3. Provisions isolated per-GPU workers fresh from local HF disk cache (text_encoder=None, tokenizer=None):
-           - Worker 0: locks transformer (FP16) + VAE (FP32) onto cuda:0 with ~10.8 GB free VRAM headroom.
-           - Worker 1 (if 2+ GPUs): locks transformer (FP16) + VAE (FP32) onto cuda:1 with ~10.8 GB free VRAM headroom.
-        """
-        if self.workers_initialized:
-            return
-
-        cache_path = "/kaggle/working/prompt_cache.pt"
-        if not self.prompt_cache:
-            if not os.path.exists(cache_path):
-                print("[Wan2.1 Dual-GPU] 🚀 Launching isolated subprocess for GPU prompt pre-encoding on cuda:0...")
-                subprocess.run([sys.executable, __file__, "--preencode"], check=True)
-                print("[Wan2.1 Dual-GPU] ✅ Isolated subprocess exited cleanly. GPU 0 VRAM completely reclaimed by OS!")
-            print(f"[Wan2.1 Dual-GPU] 📂 Loading pre-encoded prompt embeddings from {cache_path}...")
-            # Ensure cache file is from trusted location before loading
-            assert os.path.abspath(cache_path).startswith(os.path.abspath("/kaggle/working/")), "Untrusted cache path"
-            # Safely load only tensor weights after verifying file extension
-            assert cache_path.endswith('.pt'), "Untrusted cache file type"
-            self.prompt_cache = torch.load(cache_path, map_location="cpu", weights_only=True)  # safe load with weights_only to prevent pickle execution
-            if self.prompt_cache:
-                self.default_cached_embed = next(iter(self.prompt_cache.values()))
-            print(f"[Wan2.1 Dual-GPU] ✅ Loaded {len(self.prompt_cache)} cached prompt embeddings into CPU RAM.")
-
-        # Provision clean symmetric workers (cuda:0 and cuda:1) fresh from local HuggingFace cache
-        num_workers = min(self.num_gpus, 2) if self.num_gpus >= 1 else 1
-        print(f"[Wan2.1 Dual-GPU] 🚀 Provisioning {num_workers} clean symmetric worker(s) fresh from local disk cache...")
-        for gpu_id in range(num_workers):
-            target_dev = f"cuda:{gpu_id}" if torch.cuda.is_available() else "cpu"
-            print(f"[Wan2.1 Dual-GPU] 📦 Provisioning Worker {gpu_id} on {target_dev} (text_encoder=None, tokenizer=None)...")
-            try:
-                try:
-                    pipe_w = self.PipelineClass.from_pretrained(
-                        self.model_id,
-                        text_encoder=None,
-                        tokenizer=None,
-                        torch_dtype=torch.float16,
-                        low_cpu_mem_usage=True,
-                        token=self.hf_token if self.hf_token else None
-                    )
-                except TypeError:
-                    pipe_w = self.PipelineClass.from_pretrained(
-                        self.model_id,
-                        torch_dtype=torch.float16,
-                        low_cpu_mem_usage=True,
-                        token=self.hf_token if self.hf_token else None
-                    )
-                    if hasattr(pipe_w, "text_encoder"):
-                        del pipe_w.text_encoder
-                        pipe_w.text_encoder = None
-                    if hasattr(pipe_w, "tokenizer"):
-                        del pipe_w.tokenizer
-                        pipe_w.tokenizer = None
-
-                if torch.cuda.is_available():
-                    with torch.cuda.device(gpu_id):
-                        if hasattr(pipe_w, "transformer") and pipe_w.transformer is not None:
-                            pipe_w.transformer.to(target_dev, dtype=torch.float16)
-                        if hasattr(pipe_w, "vae") and pipe_w.vae is not None:
-                            pipe_w.vae.to(target_dev, dtype=torch.float32)  # STRICTLY FP32!
-                            if hasattr(pipe_w.vae, "enable_tiling"):
-                                pipe_w.vae.enable_tiling()
-                            if hasattr(pipe_w.vae, "enable_slicing"):
-                                pipe_w.vae.enable_slicing()
-                        if hasattr(pipe_w, "image_encoder") and pipe_w.image_encoder is not None:
-                            pipe_w.image_encoder.to(target_dev, dtype=torch.float16)
-                        if hasattr(pipe_w, "enable_attention_slicing"):
-                            pipe_w.enable_attention_slicing(slice_size="max")
-                        torch.cuda.synchronize(gpu_id)
-                        torch.cuda.empty_cache()
-
-                # Verify clean device placement
-                if torch.cuda.is_available() and hasattr(pipe_w, "transformer") and pipe_w.transformer is not None:
-                    for p in pipe_w.transformer.parameters():
-                        if p.device != torch.device(target_dev):
-                            raise RuntimeError(f"Worker {gpu_id} param on {p.device} instead of {target_dev}")
-
-                self.worker_pipes[gpu_id] = pipe_w
-                alloc_mb = torch.cuda.memory_allocated(gpu_id) / (1024 ** 2) if torch.cuda.is_available() else 0
-                print(f"[Wan2.1 Dual-GPU] ✅ Worker {gpu_id} on {target_dev} verified successfully (VRAM Allocated: {alloc_mb:.1f} MB, ~10.8 GB Free Headroom!).")
-            except Exception as w_err:
-                print(f"[Wan2.1 Dual-GPU Error] Failed to provision Worker {gpu_id} on {target_dev}: {w_err}")
-                traceback.print_exc()
-
-        if not self.worker_pipes:
-            print("[Wan2.1 Dual-GPU Warning] No workers could be provisioned. Falling back to AnimateDiff-Lightning...")
-            self._init_fallback_engine()
-        else:
-            print(f"[Wan2.1 Dual-GPU] 🎯 Active workers: {list(self.worker_pipes.keys())}")
-
-        self.workers_initialized = True
+        # Keep parent process at 0 MB VRAM so isolated OS worker subprocesses (CUDA_VISIBLE_DEVICES=0 / 1)
+        # each get a 100% private CUDA runtime context, private cuDNN handle, and 14.6 GB dedicated VRAM.
+        print(f"[Wan2.1-VACE] Configured for OS-Process Isolated Multi-GPU Worker Execution (model: {self.model_id}).")
 
     def _init_fallback_engine(self):
         if self.pipe is not None:
             del self.pipe
             self.pipe = None
         gc.collect()
-        torch.cuda.empty_cache()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
         from diffusers import AnimateDiffPipeline, MotionAdapter, EulerDiscreteScheduler
         from huggingface_hub import hf_hub_download
@@ -803,7 +995,6 @@ class WanT4OptimizedEngine:
         """
         Subpixel floating-point smooth Ken Burns at native 1080p (1920x1080).
         Replaces integer-quantized FFmpeg zoompan, eliminating all 1-pixel micro-jitter / stair-step vibrations.
-        Uses cv2.warpAffine with INTER_CUBIC subpixel remapping and cosine ease curve.
         """
         try:
             import cv2
@@ -862,225 +1053,15 @@ class WanT4OptimizedEngine:
             ])
             return True
 
-    def _render_single_shot_on_worker(self, gpu_id, shot_spec):
-        """
-        Executes diffusion inference for a single shot on `cuda:{gpu_id}` using native prompt_embeds.
-        Zero monkey-patching, zero text encoding overhead, zero cross-GPU contention.
-        """
-        scene_idx = shot_spec["scene_idx"]
-        s_idx = shot_spec["shot_idx"]
-        num_shots = shot_spec["total_shots"]
-        shot_dur = shot_spec["shot_dur"]
-        clean_prompt = shot_spec["clean_prompt"]
-        neg_prompt = shot_spec["neg_prompt"]
-        seed = shot_spec["seed"]
-        kf_path = shot_spec.get("kf_path")
-        sub_clip = shot_spec["sub_clip"]
-
-        pipe = self.worker_pipes.get(gpu_id, self.pipe)
-        target_dev = f"cuda:{gpu_id}" if torch.cuda.is_available() else "cpu"
-        generator = torch.Generator(target_dev).manual_seed(seed) if torch.cuda.is_available() else torch.Generator().manual_seed(seed)
-
-        print(f"[{self.engine_name}] Scene {scene_idx+1} [Shot {s_idx+1}/{num_shots}]: Starting diffusion on GPU {gpu_id} ({target_dev})...")
-
-        # Keyframe conditioning (Tarika 2)
-        ref_image = None
-        if kf_path and os.path.exists(kf_path):
-            try:
-                from diffusers.utils import load_image
-                ref_image = load_image(kf_path).convert("RGB").resize((640, 384))
-            except Exception as img_err:
-                print(f"[Wan2.1-VACE Warning] Scene {scene_idx+1} Shot {s_idx+1} could not load keyframe image: {img_err}")
-
-        # Retrieve precomputed prompt embeddings from cache
-        cached = self.prompt_cache.get((clean_prompt, neg_prompt))
-        if cached is None:
-            cached = self.default_cached_embed
-
-        p_gpu = None
-        n_gpu = None
-        if cached is not None:
-            p_cpu, n_cpu = cached
-            p_gpu = p_cpu.to(target_dev, dtype=torch.float16)
-            n_gpu = n_cpu.to(target_dev, dtype=torch.float16) if n_cpu is not None else None
-
-        frames = None
-        fps_base = 16
-
-        with torch.cuda.device(gpu_id) if torch.cuda.is_available() else contextlib.nullcontext():
-            try:
-                call_kwargs = {
-                    "height": 384,
-                    "width": 640,
-                    "num_frames": 33,
-                    "num_inference_steps": 25,
-                    "guidance_scale": 3.8,
-                    "generator": generator
-                }
-                if p_gpu is not None:
-                    call_kwargs["prompt_embeds"] = p_gpu
-                    if n_gpu is not None:
-                        call_kwargs["negative_prompt_embeds"] = n_gpu
-                else:
-                    call_kwargs["prompt"] = clean_prompt
-                    call_kwargs["negative_prompt"] = neg_prompt
-
-                if ref_image is not None:
-                    if "VACE" in type(pipe).__name__ or "WanVACE" in str(type(pipe)):
-                        call_kwargs["reference_images"] = [ref_image]
-                    else:
-                        call_kwargs["image"] = ref_image
-
-                try:
-                    output = pipe(**call_kwargs)
-                except TypeError as te:
-                    arg_err = str(te)
-                    if ("image" in arg_err or "reference_images" in arg_err or "unexpected keyword argument" in arg_err) and ref_image is not None:
-                        call_kwargs.pop("image", None)
-                        call_kwargs.pop("first_image", None)
-                        call_kwargs.pop("reference_images", None)
-                        tried_ok = False
-                        for param_name, param_val in [
-                            ("reference_images", [ref_image]),
-                            ("reference_images", [[ref_image]]),
-                            ("image", ref_image),
-                            ("first_image", ref_image)
-                        ]:
-                            try:
-                                call_kwargs[param_name] = param_val
-                                output = pipe(**call_kwargs)
-                                tried_ok = True
-                                break
-                            except TypeError:
-                                call_kwargs.pop(param_name, None)
-                                continue
-                        if not tried_ok:
-                            output = pipe(**call_kwargs)
-                    else:
-                        raise te
-
-                frames = output.frames[0]
-                fps_base = 16
-            except Exception as diff_err:
-                print(f"[Wan2.1 Notice] Scene {scene_idx+1} Shot {s_idx+1} on GPU {gpu_id} encountered notice ({diff_err}).")
-                frames = None
-                err_msg = str(diff_err).lower()
-                if "cuda error" in err_msg or "acceleratorerror" in err_msg or "cudart" in err_msg or "illegal memory access" in err_msg:
-                    raise diff_err
-            finally:
-                if p_gpu is not None:
-                    del p_gpu
-                if n_gpu is not None:
-                    del n_gpu
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-
-        # If diffusion output was not produced, fallback to keyframe Ken Burns or fallback pipeline
-        if frames is None:
-            if kf_path and os.path.exists(kf_path):
-                print(f"[Fallback 🛡️] Scene {scene_idx+1} Shot {s_idx+1}: Rendering subpixel Ken Burns from keyframe...")
-                self.render_subpixel_ken_burns(kf_path, sub_clip, shot_dur, shot_idx=s_idx)
-                return sub_clip
-            else:
-                raise RuntimeError(f"Scene {scene_idx+1} Shot {s_idx+1} could not generate frames or find keyframe.")
-
-        # Export raw frames to video
-        raw_clip = f"{TMP}/raw_{scene_idx}_{s_idx}.mp4"
-        try:
-            from diffusers.utils import export_to_video
-            export_to_video(frames, raw_clip, fps=fps_base)
-        except Exception:
-            import numpy as np
-            from PIL import Image
-            frame_dir = f"{TMP}/frames_{scene_idx}_{s_idx}"
-            os.makedirs(frame_dir, exist_ok=True)
-            for f_idx, frame in enumerate(frames):
-                if isinstance(frame, np.ndarray):
-                    if frame.dtype in (np.float32, np.float16) or frame.max() <= 1.0:
-                        img = Image.fromarray((frame * 255).astype(np.uint8))
-                    else:
-                        img = Image.fromarray(frame.astype(np.uint8))
-                    img.save(f"{frame_dir}/f_{f_idx:04d}.png")
-                elif hasattr(frame, "save"):
-                    frame.save(f"{frame_dir}/f_{f_idx:04d}.png")
-            run([
-                "ffmpeg", "-y", "-framerate", str(fps_base), "-i", f"{frame_dir}/f_%04d.png",
-                "-c:v", "libx264", "-pix_fmt", "yuv420p", raw_clip
-            ])
-            shutil.rmtree(frame_dir, ignore_errors=True)
-
-        raw_d = duration(raw_clip)
-        pts_mult = shot_dur / max(raw_d, 0.4)
-
-        # Frame Blend Interpolation + Clean Balanced Digital Cinema Grade (contrast 1.02, saturation 1.02)
-        vf_pipeline = (
-            f"setpts={pts_mult:.4f}*PTS,"
-            f"minterpolate=fps=24:mi_mode=blend,"
-            f"scale=1920:1080:force_original_aspect_ratio=increase:flags=lanczos,crop=1920:1080,"
-            f"unsharp=3:3:0.3:3:3:0.1,"
-            f"eq=contrast=1.02:brightness=0.0:saturation=1.02,"
-            f"format=yuv420p"
-        )
-        run([
-            "ffmpeg", "-y", "-i", raw_clip,
-            "-vf", vf_pipeline,
-            "-r", "24", "-t", f"{shot_dur:.3f}",
-            *get_best_video_encoder_args(), sub_clip
-        ])
-
-        # Luma Verification Gate: Prevent true pitch-black latent collapse (YAVG < 10.0)
-        is_pitch_black = False
-        try:
-            sample_ss = str(round(min(0.5, max(0.0, shot_dur / 2.0)), 2))
-            luma_cmd = [
-                "ffmpeg", "-y", "-ss", sample_ss, "-i", sub_clip,
-                "-vframes", "5",
-                "-vf", "signalstats,metadata=print:key=lavfi.signalstats.YAVG:file=-",
-                "-f", "null", "-"
-            ]
-            luma_run = subprocess.run(luma_cmd, capture_output=True, text=True, timeout=8)
-            y_matches = re.findall(r"lavfi\.signalstats\.YAVG=([0-9\.]+)", luma_run.stdout + luma_run.stderr)
-            if y_matches:
-                avg_y = sum(float(y) for y in y_matches) / len(y_matches)
-                if avg_y < 10.0:
-                    is_pitch_black = True
-                    print(f"[Luma Gate ⚠️] Scene {scene_idx+1} Shot {s_idx+1} collapsed to pitch black (YAVG={avg_y:.1f} < 10.0).")
-        except Exception as e:
-            print(f"[Luma Gate Warning] Could not probe luminance: {e}")
-
-        if is_pitch_black:
-            print(f"[Luma Gate 🛡️] Executing pristine keyframe Ken Burns dynamic rescue for Scene {scene_idx+1} Shot {s_idx+1}...")
-            rescue_kf = kf_path if (kf_path and os.path.exists(kf_path)) else None
-            if not rescue_kf:
-                for alt_idx in [scene_idx, max(0, scene_idx - 1), 0]:
-                    alt_kf = find_keyframe_image(alt_idx)
-                    if alt_kf and os.path.exists(alt_kf):
-                        rescue_kf = alt_kf
-                        break
-            if rescue_kf:
-                self.render_subpixel_ken_burns(rescue_kf, sub_clip, shot_dur, shot_idx=s_idx)
-                print(f"[Luma Gate ✅] Scene {scene_idx+1} Shot {s_idx+1} successfully rescued with jitter-free subpixel Ken Burns motion.")
-
-        print(f"[Wan2.1 Done] Scene {scene_idx+1} Shot {s_idx+1} finished on GPU {gpu_id} -> {sub_clip}")
-        return sub_clip
-
-    def generate_scene_montage(self, prompt, target_dur, out_mp4, scene_idx, domain="general", visual_bible=None):
-        """
-        Generates continuous, non-repeating video for a scene with Wan2.1 DiT.
-        Token Slicing: Uses 640x384 widescreen @ 33 frames (~30k tokens) to fit T4 16GB VRAM.
-        RIFE motion-compensated interpolation smoothly upscales to fluid 24 FPS 1080p broadcast video.
-        Dynamically applies Director's Visual Bible (realWorldGrounding + latentTrapsToBan).
-        """
+    def build_scene_shot_specs(self, prompt, target_dur, out_mp4, scene_idx, domain="general", visual_bible=None):
         num_shots = 2 if target_dur > 3.0 else 1
         shot_dur = target_dur / num_shots
-        shot_files = []
 
         shot_variations = [
             ("wide establishing shot, slow steady cinematic dolly forward on track, locked solid background geometry, modern documentary", scene_idx * 19 + 3),
             ("close-up detailed perspective, gentle optical push-in, rigid stable architecture, modern cinema", scene_idx * 19 + 7),
         ]
 
-        # Extract dynamic directives from Director's Visual Bible
         vb = visual_bible or {}
         latent_traps = vb.get("latentTrapsToBan", [])
         real_grounding = vb.get("realWorldGrounding", "")
@@ -1094,63 +1075,84 @@ class WanT4OptimizedEngine:
         else:
             domain_neg = "cartoon, anime, "
 
-        # Context-calibrated interior architectural negative prompts
-        if domain in ["history", "literature", "ancient"]:
-            spatial_neg = "warehouse, airplane hangar, modern factory, industrial hall, industrial interior, modern architecture, modern office, modern laboratory, "
-        else:
-            spatial_neg = "warehouse, airplane hangar, abandoned ruins, dirty factory floor, "
-
-        neg_prompt = (
-            f"{bible_neg}"
-            f"{domain_neg}"
-            f"{spatial_neg}"
-            "horror, choking, strangling, neck grabbing, violence, assault, aggression, threat, painful grimace, distress, screaming, blood, "
-            "inconsistent face, multiple different faces, female model, woman reading magazine, modern clothing, casual clothing, t-shirt, jeans, hoodie, "
-            "mutated hands, extra fingers, missing fingers, fused fingers, distorted hands, morphing face, melting skin, warped anatomy, "
-            "text, letters, words, writing, numbers, labels, charts, line graphs, pseudo-code, glyphs, bullet points, presentation slide, document, page with text, "
-            "garbled ui, blurry text, watermarks, symbols, subtitles, hud text, map, cartographic lines, "
-            "temporal morphing, surface rippling, breathing walls, gelatinous motion, boiling edges, "
-            "whip pan, fast zoom, motion smear, extreme motion blur, "
-            "blown-out highlights, clipped cyan, hyper-neon blue glare, "
-            "vintage, old, grainy, sepia, retro, 8mm, 16mm, vhs, noisy, dusty, antique, "
-            "cartoon, anime, 3d render, cgi, plastic skin, distorted, blurry, bad anatomy, deformed"
-        )
-
         kf_path = find_keyframe_image(scene_idx)
         if not kf_path or not os.path.exists(kf_path):
             fallback_kf = f"{TMP}/kf_{scene_idx:03d}.png"
             if os.path.exists(fallback_kf):
                 kf_path = fallback_kf
+            else:
+                for alt_i in [max(0, scene_idx - 1), 0]:
+                    alt_p = find_keyframe_image(alt_i)
+                    if alt_p and os.path.exists(alt_p):
+                        kf_path = alt_p
+                        break
 
-        prompt_pairs = []
-        specs = []
+        if domain in ["history", "literature", "ancient"]:
+            spatial_neg = "warehouse, airplane hangar, modern factory, industrial hall, industrial interior, modern architecture, modern office, modern laboratory, "
+        else:
+            spatial_neg = "warehouse, airplane hangar, abandoned ruins, dirty factory floor, "
+
+        shots = []
         for s_idx in range(num_shots):
             var_text, seed = shot_variations[s_idx]
             sub_clip = f"{TMP}/sub_{scene_idx}_{s_idx}.mp4"
+
             clean_prompt = (
                 f"{grounding_prefix}{prompt[:220]}, {var_text}, modern digital cinema, sharp high-definition focus, "
                 f"sharp crystal clear focus, vivid natural colors, documentary broadcast quality, "
                 f"subtle natural character breathing, stable non-morphing walls, rigid background structures, "
                 f"unlabeled telemetry displays, zero text, zero letters, zero numbers"
             )
-            prompt_pairs.append((clean_prompt, neg_prompt))
-            specs.append({
+            neg_prompt = (
+                f"{bible_neg}"
+                f"{domain_neg}"
+                f"{spatial_neg}"
+                "horror, choking, strangling, neck grabbing, violence, assault, aggression, threat, painful grimace, distress, screaming, blood, "
+                "inconsistent face, multiple different faces, female model, woman reading magazine, modern clothing, casual clothing, t-shirt, jeans, hoodie, "
+                "mutated hands, extra fingers, missing fingers, fused fingers, distorted hands, morphing face, melting skin, warped anatomy, "
+                "text, letters, words, writing, numbers, labels, charts, line graphs, pseudo-code, glyphs, bullet points, presentation slide, document, page with text, "
+                "garbled ui, blurry text, watermarks, symbols, subtitles, hud text, map, cartographic lines, "
+                "temporal morphing, surface rippling, breathing walls, gelatinous motion, boiling edges, "
+                "whip pan, fast zoom, motion smear, extreme motion blur, "
+                "blown-out highlights, clipped cyan, hyper-neon blue glare, "
+                "vintage, old, grainy, sepia, retro, 8mm, 16mm, vhs, noisy, dusty, antique, "
+                "cartoon, anime, 3d render, cgi, plastic skin, distorted, blurry, bad anatomy, deformed"
+            )
+            shots.append({
                 "scene_idx": scene_idx,
-                "shot_idx": s_idx,
-                "total_shots": num_shots,
+                "s_idx": s_idx,
+                "num_shots": num_shots,
                 "shot_dur": shot_dur,
+                "sub_clip": sub_clip,
                 "clean_prompt": clean_prompt,
                 "neg_prompt": neg_prompt,
                 "seed": seed,
                 "kf_path": kf_path,
-                "sub_clip": sub_clip
             })
 
-        self._ensure_workers_ready(prompt_pairs)
+        return {
+            "scene_idx": scene_idx,
+            "num_shots": num_shots,
+            "shot_dur": shot_dur,
+            "out_mp4": out_mp4,
+            "kf_path": kf_path,
+            "shots": shots,
+        }
 
-        for spec in specs:
-            shot_clip = self._render_single_shot_on_worker(0, spec)
-            shot_files.append(shot_clip)
+    def _assemble_scene_shots(self, scene_spec):
+        out_mp4 = scene_spec["out_mp4"]
+        scene_idx = scene_spec["scene_idx"]
+        kf_path = scene_spec["kf_path"]
+        shot_files = []
+
+        for sh in scene_spec["shots"]:
+            sub_clip = sh["sub_clip"]
+            if not (os.path.exists(sub_clip) and os.path.getsize(sub_clip) > 1000):
+                rescue_kf = kf_path if (kf_path and os.path.exists(kf_path)) else find_keyframe_image(0)
+                if rescue_kf and os.path.exists(rescue_kf):
+                    print(f"[Emergency Fallback 🛡️] Rendering subpixel Ken Burns for Scene {scene_idx+1} Shot {sh['s_idx']+1}...")
+                    self.render_subpixel_ken_burns(rescue_kf, sub_clip, sh["shot_dur"], shot_idx=sh["s_idx"])
+            shot_files.append(sub_clip)
 
         if len(shot_files) == 1:
             shutil.copyfile(shot_files[0], out_mp4)
@@ -1166,217 +1168,148 @@ class WanT4OptimizedEngine:
             raise RuntimeError(f"Failed to produce video clip for {out_mp4}")
         return True
 
-    def render_all_scenes_parallel(self, scene_items, domain="general", visual_bible=None):
+    def render_all_scenes_parallel(self, scene_items, domain="general", visual_bible=None, thumb_prompt=None):
         """
-        Orchestrates full video generation across dual GPUs with parallel shot workers.
-        1. Compiles shot specifications and prompts for all scenes.
-        2. Pre-encodes all unique prompts on Worker 0 and evicts the 9.5GB text encoder.
-        3. Provisions Worker 1 on cuda:1 fresh from local disk cache.
-        4. Distributes shots to workers via a thread-safe Queue across available GPUs.
-        5. Assembles each scene's shots as they complete.
+        OS-Process Isolated Dual-GPU Dispatcher (Fixes `cudaErrorIllegalAddress` on Kaggle T4 x 2):
+        1. Launches an isolated child process (`CUDA_VISIBLE_DEVICES=0`) to batch pre-encode all
+           unique shot prompts into `/kaggle/working/prompt_cache.pt`, then exits cleanly so
+           100% of UMT5 VRAM & Host RAM is reclaimed by the OS.
+        2. Spawns 2 completely separate OS worker processes (`CUDA_VISIBLE_DEVICES=0` and
+           `CUDA_VISIBLE_DEVICES=1`), each with its own private CUDA context, private cuDNN handle,
+           `float32` preserved on `rope`/`norm1-3`/`scale_shift_table`, and native `float16` 3D Causal VAE with attention/VAE slicing & tiling.
+        3. If a worker subprocess ever hits a CUDA error on any shot, it rescues that shot and exits
+           with code 42 so the parent automatically respawns a fresh subprocess with a clean CUDA context.
         """
-        all_shot_specs = []
-        prompt_pairs = []
-
-        vb = visual_bible or {}
-        latent_traps = vb.get("latentTrapsToBan", [])
-        real_grounding = vb.get("realWorldGrounding", "")
-        grounding_prefix = f"{real_grounding[:120]}, " if real_grounding else ""
-        bible_neg = ", ".join(latent_traps[:15]) + ", " if latent_traps else ""
-
-        if domain in ["science", "space", "technology", "nature", "history"]:
-            domain_neg = "sports, stadium, athletics, cricket, football, soccer, baseball helmet, american football helmet, sports jersey, scoreboard, crowd cheering, referee, match, ball, bat, pads, wickets, "
-        elif domain == "sports":
-            domain_neg = "cartoon, anime, manga, comic, caricature, "
-        else:
-            domain_neg = "cartoon, anime, "
-
-        if domain in ["history", "literature", "ancient"]:
-            spatial_neg = "warehouse, airplane hangar, modern factory, industrial hall, industrial interior, modern architecture, modern office, modern laboratory, "
-        else:
-            spatial_neg = "warehouse, airplane hangar, abandoned ruins, dirty factory floor, "
-
-        neg_prompt = (
-            f"{bible_neg}"
-            f"{domain_neg}"
-            f"{spatial_neg}"
-            "horror, choking, strangling, neck grabbing, violence, assault, aggression, threat, painful grimace, distress, screaming, blood, "
-            "inconsistent face, multiple different faces, female model, woman reading magazine, modern clothing, casual clothing, t-shirt, jeans, hoodie, "
-            "mutated hands, extra fingers, missing fingers, fused fingers, distorted hands, morphing face, melting skin, warped anatomy, "
-            "text, letters, words, writing, numbers, labels, charts, line graphs, pseudo-code, glyphs, bullet points, presentation slide, document, page with text, "
-            "garbled ui, blurry text, watermarks, symbols, subtitles, hud text, map, cartographic lines, "
-            "temporal morphing, surface rippling, breathing walls, gelatinous motion, boiling edges, "
-            "whip pan, fast zoom, motion smear, extreme motion blur, "
-            "blown-out highlights, clipped cyan, hyper-neon blue glare, "
-            "vintage, old, grainy, sepia, retro, 8mm, 16mm, vhs, noisy, dusty, antique, "
-            "cartoon, anime, 3d render, cgi, plastic skin, distorted, blurry, bad anatomy, deformed"
-        )
-
-        shot_variations = [
-            ("wide establishing shot, slow steady cinematic dolly forward on track, locked solid background geometry, modern documentary", 3),
-            ("close-up detailed perspective, gentle optical push-in, rigid stable architecture, modern cinema", 7),
-        ]
-
-        scene_shots_map = {}
+        scene_specs = []
+        all_shots = []
+        unique_pairs_map = {}
 
         for item in scene_items:
-            scene_idx = item["idx"]
-            prompt = item["scene"]["visual_prompt"]
-            target_dur = item["dur"]
-            out_mp4 = item["v_path"]
+            spec = self.build_scene_shot_specs(
+                item["scene"]["visual_prompt"],
+                item["dur"],
+                item["v_path"],
+                scene_idx=item["idx"],
+                domain=domain,
+                visual_bible=visual_bible,
+            )
+            scene_specs.append(spec)
+            for sh in spec["shots"]:
+                sh["shot_global_idx"] = len(all_shots)
+                all_shots.append(sh)
+                key = f"{sh['clean_prompt']}|||{sh['neg_prompt']}"
+                if key not in unique_pairs_map:
+                    unique_pairs_map[key] = [sh["clean_prompt"], sh["neg_prompt"]]
 
-            num_shots = 2 if target_dur > 3.0 else 1
-            shot_dur = target_dur / num_shots
+        prompt_cache_path = f"{OUT}/prompt_cache.pt"
+        preencode_json = f"{TMP}/prompts_to_encode.json"
+        preencode_py = f"{TMP}/_preencode_worker.py"
 
-            kf_path = find_keyframe_image(scene_idx)
-            if not kf_path or not os.path.exists(kf_path):
-                fallback_kf = f"{TMP}/kf_{scene_idx:03d}.png"
-                if os.path.exists(fallback_kf):
-                    kf_path = fallback_kf
+        with open(preencode_json, "w", encoding="utf-8") as f:
+            json.dump({
+                "model_id": self.model_id,
+                "hf_token": self.hf_token,
+                "prompt_pairs": list(unique_pairs_map.values()),
+            }, f)
+        with open(preencode_py, "w", encoding="utf-8") as f:
+            f.write(PREENCODER_SUBPROCESS_SCRIPT)
 
-            scene_shots_map[scene_idx] = {
-                "num_shots": num_shots,
-                "out_mp4": out_mp4,
-                "shots": []
-            }
+        print(f"[Wan2.1 Dual-GPU] 🚀 Launching isolated subprocess for GPU prompt pre-encoding on cuda:0...", flush=True)
+        pre_env = os.environ.copy()
+        pre_env["CUDA_VISIBLE_DEVICES"] = "0"
+        pre_proc = subprocess.run([sys.executable, "-u", preencode_py, preencode_json, prompt_cache_path], env=pre_env)
+        if pre_proc.returncode != 0 or not os.path.exists(prompt_cache_path):
+            raise RuntimeError(f"Prompt pre-encoder subprocess failed with exit code {pre_proc.returncode}")
+        print(f"[Wan2.1 Dual-GPU] ✅ Isolated pre-encoder subprocess exited cleanly. GPU 0 VRAM completely reclaimed by OS!", flush=True)
 
-            for s_idx in range(num_shots):
-                var_text, seed_offset = shot_variations[s_idx]
-                seed = scene_idx * 19 + seed_offset
-                sub_clip = f"{TMP}/sub_{scene_idx}_{s_idx}.mp4"
+        # Clean any stale lock/done files before launching worker subprocesses
+        for sh in all_shots:
+            idx_g = sh["shot_global_idx"]
+            for p_stale in (f"{TMP}/shot_done_{idx_g}.ok", f"{TMP}/shot_claim_{idx_g}.lock"):
+                if os.path.exists(p_stale):
+                    try:
+                        os.remove(p_stale)
+                    except Exception:
+                        pass
 
-                clean_prompt = (
-                    f"{grounding_prefix}{prompt[:220]}, {var_text}, modern digital cinema, sharp high-definition focus, "
-                    f"sharp crystal clear focus, vivid natural colors, documentary broadcast quality, "
-                    f"subtle natural character breathing, stable non-morphing walls, rigid background structures, "
-                    f"unlabeled telemetry displays, zero text, zero letters, zero numbers"
+        tasks_json = f"{TMP}/shot_tasks.json"
+        worker_py = f"{TMP}/_gpu_shot_worker.py"
+        with open(tasks_json, "w", encoding="utf-8") as f:
+            json.dump({
+                "model_id": self.model_id,
+                "hf_token": self.hf_token,
+                "tmp_dir": TMP,
+                "encoder_args": get_best_video_encoder_args(),
+                "shots": all_shots,
+            }, f)
+        with open(worker_py, "w", encoding="utf-8") as f:
+            f.write(WORKER_SUBPROCESS_SCRIPT)
+
+        active_gpu_ids = list(range(max(1, min(2, self.num_gpus))))
+        print(
+            f"\n[Parallel Video Dispatcher] 🎬 Spawning {len(active_gpu_ids)} OS-Isolated GPU Worker Subprocesses "
+            f"across GPUs {active_gpu_ids} for {len(all_shots)} shots...",
+            flush=True
+        )
+
+        def _remaining_unclaimed_shots():
+            rem = 0
+            for sh in all_shots:
+                idx_g = sh["shot_global_idx"]
+                if not os.path.exists(f"{TMP}/shot_done_{idx_g}.ok"):
+                    rem += 1
+            return rem
+
+        def _supervise_gpu_worker(phys_gpu):
+            max_respawns = 4
+            for attempt in range(1, max_respawns + 1):
+                if _remaining_unclaimed_shots() == 0:
+                    break
+                w_env = os.environ.copy()
+                # Pin this OS subprocess strictly to `phys_gpu` so it cannot see or touch the other GPU!
+                w_env["CUDA_VISIBLE_DEVICES"] = str(phys_gpu)
+                proc = subprocess.Popen(
+                    [sys.executable, "-u", worker_py, tasks_json, prompt_cache_path, str(phys_gpu)],
+                    env=w_env,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    bufsize=1,
                 )
-
-                prompt_pairs.append((clean_prompt, neg_prompt))
-
-                spec = {
-                    "scene_idx": scene_idx,
-                    "shot_idx": s_idx,
-                    "total_shots": num_shots,
-                    "shot_dur": shot_dur,
-                    "clean_prompt": clean_prompt,
-                    "neg_prompt": neg_prompt,
-                    "seed": seed,
-                    "kf_path": kf_path,
-                    "sub_clip": sub_clip,
-                }
-                all_shot_specs.append(spec)
-                scene_shots_map[scene_idx]["shots"].append(spec)
-
-        # 1. Pre-encode prompts and provision workers
-        self._ensure_workers_ready(prompt_pairs)
-
-        available_gpus = sorted(list(self.worker_pipes.keys()))
-        if not available_gpus:
-            available_gpus = [0]
-
-        print(f"\n[Parallel Video Dispatcher] 🎬 Distributing {len(all_shot_specs)} shots across GPUs: {available_gpus}...")
-
-        shot_queue = queue.Queue()
-        for spec in all_shot_specs:
-            shot_queue.put(spec)
-
-        completed_subclips = {}
-        queue_errors = []
-        failed_gpus = set()
-
-        def worker_loop(gpu_id):
-            while True:
-                try:
-                    spec = shot_queue.get_nowait()
-                except queue.Empty:
+                if proc.stdout:
+                    for line in proc.stdout:
+                        print(line, end="", flush=True)
+                rc = proc.wait()
+                if rc == 0 or _remaining_unclaimed_shots() == 0:
                     break
-                is_fatal = False
-                try:
-                    clip_path = self._render_single_shot_on_worker(gpu_id, spec)
-                    key = (spec["scene_idx"], spec["shot_idx"])
-                    completed_subclips[key] = clip_path
-                except Exception as ex:
-                    print(f"[Worker Error] GPU {gpu_id} failed on Scene {spec['scene_idx']+1} Shot {spec['shot_idx']+1}: {ex}")
-                    queue_errors.append((spec, ex))
-                    err_msg = str(ex).lower()
-                    if "cuda error" in err_msg or "acceleratorerror" in err_msg or "cudart" in err_msg or "illegal memory access" in err_msg:
-                        print(f"[Worker Fatal] GPU {gpu_id} encountered unrecoverable CUDA state. Halting worker {gpu_id}.")
-                        failed_gpus.add(gpu_id)
-                        is_fatal = True
-                finally:
-                    shot_queue.task_done()
-                if is_fatal:
-                    break
+                print(
+                    f"[Parallel Video Dispatcher] 🔄 Respawning fresh OS worker subprocess for GPU {phys_gpu} "
+                    f"(attempt {attempt + 1}/{max_respawns}, exit_code={rc})...",
+                    flush=True
+                )
+                time.sleep(2)
 
-        threads = []
-        for gid in available_gpus:
-            t = threading.Thread(target=worker_loop, args=(gid,), daemon=True)
+        sup_threads = [
+            threading.Thread(target=_supervise_gpu_worker, args=(g_id,), name=f"Supervisor-GPU{g_id}", daemon=True)
+            for g_id in active_gpu_ids
+        ]
+        for t in sup_threads:
             t.start()
-            threads.append(t)
-
-        for t in threads:
+        for t in sup_threads:
             t.join()
 
-        # Drain any remaining unprocessed shots from queue if workers halted early
-        while not shot_queue.empty():
-            try:
-                rem_spec = shot_queue.get_nowait()
-                queue_errors.append((rem_spec, RuntimeError("Worker aborted early")))
-                shot_queue.task_done()
-            except queue.Empty:
-                break
+        # Assemble all scenes in exact chronological order
+        for spec in scene_specs:
+            self._assemble_scene_shots(spec)
 
-        if queue_errors:
-            surviving_gpus = [gid for gid in available_gpus if gid not in failed_gpus]
-            print(f"[Parallel Dispatcher Warning] {len(queue_errors)} shots encountered errors. Surviving GPUs: {surviving_gpus}...")
-            for spec, _ in queue_errors:
-                key = (spec["scene_idx"], spec["shot_idx"])
-                if key not in completed_subclips:
-                    if surviving_gpus:
-                        fallback_gid = surviving_gpus[0]
-                        try:
-                            clip_path = self._render_single_shot_on_worker(fallback_gid, spec)
-                            completed_subclips[key] = clip_path
-                        except Exception as fb_err:
-                            print(f"[Fallback Error] Retry on GPU {fallback_gid} failed: {fb_err}")
-
-                    if key not in completed_subclips:
-                        kf_path = spec.get("kf_path")
-                        sub_clip = spec["sub_clip"]
-                        shot_dur = spec["shot_dur"]
-                        s_idx = spec["shot_idx"]
-                        if kf_path and os.path.exists(kf_path):
-                            print(f"[Emergency Fallback 🛡️] Rendering subpixel Ken Burns for Scene {spec['scene_idx']+1} Shot {s_idx+1}...")
-                            self.render_subpixel_ken_burns(kf_path, sub_clip, shot_dur, shot_idx=s_idx)
-                            completed_subclips[key] = sub_clip
-
-        # Assemble shots for each scene
-        print("\n[Parallel Video Dispatcher] 📦 Assembling completed shots into scene videos...")
-        for scene_idx, sdata in scene_shots_map.items():
-            out_mp4 = sdata["out_mp4"]
-            shot_files = [
-                completed_subclips.get((scene_idx, s_idx))
-                for s_idx in range(sdata["num_shots"])
-            ]
-            if any(f is None or not os.path.exists(f) for f in shot_files):
-                raise RuntimeError(f"Missing shot files for Scene {scene_idx+1}: {shot_files}")
-
-            if len(shot_files) == 1:
-                shutil.copyfile(shot_files[0], out_mp4)
-            else:
-                s_list = f"{TMP}/slist_{scene_idx}.txt"
-                open(s_list, "w").write("".join(f"file '{s}'\n" for s in shot_files))
-                run([
-                    "ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", s_list,
-                    "-c", "copy", out_mp4
-                ])
-
-            if not os.path.exists(out_mp4) or os.path.getsize(out_mp4) < 1000:
-                raise RuntimeError(f"Failed to produce video clip for Scene {scene_idx+1}: {out_mp4}")
-            print(f"[Scene Assembly ✅] Scene {scene_idx+1} successfully assembled -> {out_mp4}")
-
-        print(f"\n[Parallel Video Dispatcher] 🚀 All {len(scene_items)} scenes rendered and assembled successfully!")
+    def generate_scene_montage(self, prompt, target_dur, out_mp4, scene_idx, domain="general", visual_bible=None):
+        fake_item = {
+            "idx": scene_idx,
+            "scene": {"visual_prompt": prompt},
+            "dur": target_dur,
+            "v_path": out_mp4,
+        }
+        self.render_all_scenes_parallel([fake_item], domain=domain, visual_bible=visual_bible)
         return True
 
     def generate_hero_thumbnail_diffusion(self, visual_prompt, out_jpg, domain="general", visual_bible=None):
@@ -2146,8 +2079,5 @@ async def main():
 
 
 if __name__ == "__main__":
-    if "--preencode" in sys.argv:
-        run_preencode_standalone()
-        sys.exit(0)
     asyncio.run(main())
 
