@@ -76,6 +76,11 @@ if torch.cuda.is_available():
     except Exception as sdp_e:
         print(f"[SDPA Config] Notice: {sdp_e}")
 
+    # cuDNN Stability Invariant (T4 Turing Architecture):
+    # Disabling cuDNN benchmarking prevents workspace memory allocation collisions and illegal memory access during 3D causal convolutions
+    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.deterministic = True
+
 W, H, FPS = 1920, 1080, 24
 OUT = "/kaggle/working"
 TMP = "/kaggle/working/tmp"
@@ -551,10 +556,10 @@ class WanT4OptimizedEngine:
                 token=self.hf_token if self.hf_token else None
             )
 
-            # Keep text_encoder on cuda:0 so prompt pre-encoding runs at maximum speed
+            # Keep text_encoder on CPU so cuda:0 remains 100% clean and unfragmented
             if hasattr(self.pipe, "text_encoder") and self.pipe.text_encoder is not None:
                 try:
-                    self.pipe.text_encoder.to("cuda:0", dtype=torch.float16)
+                    self.pipe.text_encoder.to("cpu")
                 except Exception:
                     pass
 
@@ -628,8 +633,8 @@ class WanT4OptimizedEngine:
         ]
         if missing_pairs and getattr(self.pipe, "text_encoder", None) is not None:
             t0 = time.time()
-            print(f"[Wan2.1 Pre-Encoder] 🧠 Batch pre-encoding {len(missing_pairs)} unique shot prompts on cuda:0...")
-            with torch.cuda.device(0), torch.inference_mode():
+            print(f"[Wan2.1 Pre-Encoder] 🧠 Batch pre-encoding {len(missing_pairs)} unique shot prompts on CPU (preserving pristine VRAM on cuda:0)...")
+            with torch.inference_mode():
                 for p_text, n_text in missing_pairs:
                     if (p_text, n_text) in self.prompt_cache:
                         continue
@@ -639,14 +644,13 @@ class WanT4OptimizedEngine:
                             negative_prompt=n_text,
                             do_classifier_free_guidance=True,
                             num_videos_per_prompt=1,
-                            device=torch.device("cuda:0"),
-                            dtype=torch.float16,
+                            device=torch.device("cpu"),
                         )
                     except TypeError:
                         enc_out = self.pipe.encode_prompt(
                             prompt=p_text,
                             negative_prompt=n_text,
-                            device=torch.device("cuda:0")
+                            device=torch.device("cpu")
                         )
                         if isinstance(enc_out, (tuple, list)):
                             prompt_embeds, negative_prompt_embeds = enc_out[0], enc_out[1]
@@ -658,7 +662,7 @@ class WanT4OptimizedEngine:
                     self.prompt_cache[(p_text, n_text)] = (p_cpu, n_cpu)
                     if self.default_cached_embed is None:
                         self.default_cached_embed = (p_cpu, n_cpu)
-            print(f"[Wan2.1 Pre-Encoder] ✅ Pre-encoded {len(self.prompt_cache)} prompts in {time.time() - t0:.1f}s.")
+            print(f"[Wan2.1 Pre-Encoder] ✅ Pre-encoded {len(self.prompt_cache)} prompts on CPU in {time.time() - t0:.1f}s.")
 
         if self.workers_initialized:
             return
@@ -684,7 +688,8 @@ class WanT4OptimizedEngine:
                 torch.cuda.empty_cache()
             print("[Wan2.1 Memory Optimization] ✅ 9.5 GB UMT5 text_encoder evicted successfully!")
 
-        # Step 3: Configure Worker 0 on cuda:0
+        # Step 3: Configure Worker 0 on cuda:0 (clean 100% VRAM, matching Worker 1)
+        print("[Wan2.1 Dual-GPU] 🚀 Provisioning Worker 0 on cuda:0 (clean 100% VRAM)...")
         pipe_0 = self.pipe
         with torch.cuda.device(0):
             if hasattr(pipe_0, "transformer") and pipe_0.transformer is not None:
@@ -699,6 +704,8 @@ class WanT4OptimizedEngine:
                 pipe_0.image_encoder.to("cuda:0", dtype=torch.float16)
             if hasattr(pipe_0, "enable_attention_slicing"):
                 pipe_0.enable_attention_slicing(slice_size="max")
+            torch.cuda.synchronize(0)
+            torch.cuda.empty_cache()
 
         self.worker_pipes[0] = pipe_0
 
