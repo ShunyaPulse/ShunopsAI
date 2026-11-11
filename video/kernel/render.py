@@ -568,7 +568,7 @@ def precache_sr_rife_weights(weights_dir=None):
                         raise ValueError("Insecure URL scheme")
                     if not url.startswith('https://'):
                         raise ValueError("Insecure URL scheme")
-                    with urllib.request.urlopen(url, timeout=30) as resp, open(tmp_zip, "wb") as out_f:
+                    with urllib.request.urlopen(req, timeout=30) as resp, open(tmp_zip, "wb") as out_f:
                         shutil.copyfileobj(resp, out_f)
                     with zipfile.ZipFile(tmp_zip, "r") as zf:
                         for member in zf.namelist():
@@ -582,6 +582,8 @@ def precache_sr_rife_weights(weights_dir=None):
                         pass
                 else:
                     tmp_part = f"{dest}.part"
+                    if not req.full_url.startswith("https://"):
+                        raise ValueError("Insecure URL scheme")
                     with urllib.request.urlopen(req, timeout=30) as resp, open(tmp_part, "wb") as out_f:
                         shutil.copyfileobj(resp, out_f)
                     if os.path.exists(tmp_part) and os.path.getsize(tmp_part) >= min_b:
