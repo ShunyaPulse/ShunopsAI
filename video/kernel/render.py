@@ -997,7 +997,7 @@ def render_sr_rife_nvenc_shot(
     import cv2
     import numpy as np
 
-    if sr_model is None or rife_model is None or not frames or len(frames) < 2:
+    if sr_model is None or rife_model is None or frames is None or len(frames) < 2:
         return False
 
     # 1. Convert diffusers output frames to uint8 RGB numpy arrays (640x384)
