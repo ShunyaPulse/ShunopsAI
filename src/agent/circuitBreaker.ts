@@ -298,11 +298,16 @@ export function purgeExpiredMemoryCooldowns(): void {
 export async function getTiersHealthStatus(): Promise<TierHealthStatus[]> {
   purgeExpiredMemoryCooldowns();
 
-  // Tier 1: Gemini 3.8 Flash
+  // Tier 1: Gemini 3.8 Flash / 3.6 Flash / 3 Flash Preview
   const flashPrimary = await getModelDegradedInfo("gemini", "gemini-3.8-flash");
+  const flash36 = await getModelDegradedInfo("gemini", "gemini-3.6-flash");
   const flashPreview = await getModelDegradedInfo("gemini", "gemini-3-flash-preview");
-  const isFlashDegraded = flashPrimary.degraded && flashPreview.degraded;
-  const flashCooldown = Math.max(flashPrimary.remainingSeconds || 0, flashPreview.remainingSeconds || 0);
+  const isFlashDegraded = flashPrimary.degraded && flash36.degraded && flashPreview.degraded;
+  const flashCooldown = Math.max(
+    flashPrimary.remainingSeconds || 0,
+    flash36.remainingSeconds || 0,
+    flashPreview.remainingSeconds || 0
+  );
 
   // Tier 2: Groq GPT-OSS 120B (High Reasoning)
   const groq120b = await getModelDegradedInfo("groq", "openai/gpt-oss-120b");

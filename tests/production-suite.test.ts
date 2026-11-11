@@ -394,6 +394,7 @@ async function runSuite() {
   await test("Task Complexity Routing: Heuristics and circuit-breaker-aware prioritizing", async () => {
     // Reset circuit breaker state for clean deterministic testing
     await recordCircuitBreakerSuccess("gemini", "gemini-3.8-flash");
+    await recordCircuitBreakerSuccess("gemini", "gemini-3.6-flash");
     await recordCircuitBreakerSuccess("gemini", "gemini-3-flash-preview");
 
     // 1. Heuristic classifications
@@ -434,6 +435,7 @@ async function runSuite() {
     );
     // Cleanup
     await recordCircuitBreakerSuccess("gemini", "gemini-3.8-flash");
+    await recordCircuitBreakerSuccess("gemini", "gemini-3.6-flash");
   });
 
   await test("API Endpoints: /api/models/status returns live tier health without probes", async () => {

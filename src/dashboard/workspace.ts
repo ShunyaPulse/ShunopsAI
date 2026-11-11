@@ -111,6 +111,7 @@ ${WORKSPACE_STYLES}
             </optgroup>
             <optgroup label="─── Google Gemini (Active Pool) ───">
               <option value="gemini:gemini-3.8-flash">Gemini 3.8 Flash (Active 1/5 🟢)</option>
+              <option value="gemini:gemini-3.6-flash">Gemini 3.6 Flash (Active 1/5 🟢)</option>
               <option value="gemini:gemini-3-flash-preview">Gemini 3 Flash Preview (🟢)</option>
             </optgroup>
             <optgroup label="─── Groq Ultra-Fast LPUs ───">
@@ -222,6 +223,7 @@ ${WORKSPACE_STYLES}
               </optgroup>
               <optgroup label="─── Google Gemini (Active Pool) ───">
                 <option value="gemini:gemini-3.8-flash">Gemini 3.8 Flash (Active 1/5 🟢)</option>
+                <option value="gemini:gemini-3.6-flash">Gemini 3.6 Flash (Active 1/5 🟢)</option>
                 <option value="gemini:gemini-3-flash-preview">Gemini 3 Flash Preview (🟢)</option>
               </optgroup>
               <optgroup label="─── Groq Ultra-Fast LPUs ───">

@@ -73,6 +73,7 @@ function getOpenRouterKeys(): string[] {
 
 const AUDIT_MODELS_QUALITY_ORDER = [
   "gemini-3.8-flash",
+  "gemini-3.6-flash",
   "gemini-3-flash-preview",
 ];
 

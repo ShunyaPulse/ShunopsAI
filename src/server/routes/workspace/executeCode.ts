@@ -153,6 +153,8 @@ async function generateSandboxCode(
     isGuest
       ? [
           { provider: "gemini" as const, model: "gemini-3.8-flash", name: "Gemini 3.8 Flash (Guest Active)" },
+          { provider: "gemini" as const, model: "gemini-3.6-flash", name: "Gemini 3.6 Flash (Guest Fallback)" },
+          { provider: "gemini" as const, model: "gemini-3-flash-preview", name: "Gemini 3 Flash Preview (Guest Fallback)" },
           { provider: "groq" as const, model: "qwen/qwen3.8-27b", name: "Groq Qwen 27B (Guest Active)" },
         ]
       : AGENT_MODELS_CHAIN,

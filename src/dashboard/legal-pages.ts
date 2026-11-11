@@ -342,6 +342,7 @@ export function getAboutHtml(): string {
         </p>
         <ul style="font-size:12px; margin-left:16px; margin-bottom:0;">
           <li><span class="code-tag">gemini-3.8-flash</span> (Primary Active)</li>
+          <li><span class="code-tag">gemini-3.6-flash</span></li>
           <li><span class="code-tag">gemini-3-flash-preview</span></li>
         </ul>
       </div>

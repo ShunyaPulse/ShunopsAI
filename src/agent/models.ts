@@ -20,8 +20,9 @@ export interface ModelTarget {
 }
 
 export const AGENT_MODELS_CHAIN: ModelTarget[] = [
-  // 1. Google AI Studio Primary (Active Gemini 3.8 Flash; 3.5/3.6/3.7 deprecated & routed to 3.8)
+  // 1. Google AI Studio Primary (Active Gemini 3.8 Flash; 3.6 Flash & 3 Flash Preview Fallbacks)
   { provider: "gemini", model: "gemini-3.8-flash", name: "Gemini 3.8 Flash (Active 1/5)" },
+  { provider: "gemini", model: "gemini-3.6-flash", name: "Gemini 3.6 Flash (Active 1/5)" },
   { provider: "gemini", model: "gemini-3-flash-preview", name: "Gemini 3 Flash Preview (Active 1/5)" },
 
   // 2. Groq Fallback (Ultra-Fast Zero-Lag LPU Execution)

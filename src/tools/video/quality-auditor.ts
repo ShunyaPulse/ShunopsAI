@@ -6,7 +6,7 @@
  * Invariant Guarantees:
  * 1. Zero Laptop Overhead: Executes 100% inside Cloud VMs / GitHub Actions.
  * 2. Deterministic Key Pool: Uses 34-key GEMINI_KEYS pool with O(1) round-robin pointer & 429 rotation.
- * 3. Multi-Model Fallback: gemini-3.8-flash -> gemini-3-flash-preview.
+ * 3. Multi-Model Fallback: gemini-3.8-flash -> gemini-3.6-flash -> gemini-3-flash-preview.
  * 4. Zero Cloudflare Workers AI for text/reasoning (used exclusively for image generation).
  * 5. Rule 12 & Rule 13 Grounding: Pinpoints face melting, character identity drift, hand distortion,
  *    and frame interpolation warping with exact timestamps.
@@ -61,6 +61,7 @@ function getNextKey(pool: string[]): string {
 
 const AUDIT_MODELS_QUALITY_ORDER = [
   "gemini-3.8-flash",
+  "gemini-3.6-flash",
   "gemini-3-flash-preview",
 ];
 
