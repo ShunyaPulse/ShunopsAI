@@ -561,7 +561,7 @@ def precache_sr_rife_weights(weights_dir=None):
                 req = urllib.request.Request(url, headers={"User-Agent": "ShunopsAI-Kaggle-Renderer/1.0"})
                 if url.endswith(".zip"):
                     tmp_zip = f"{dest}.tmp.zip"
-                    with urllib.request.urlopen(req, timeout=30) as resp, open(tmp_zip, "wb") as out_f:
+                    with urllib.request.build_opener(urllib.request.HTTPSHandler()).open(req, timeout=30) as resp, open(tmp_zip, "wb") as out_f:
                         shutil.copyfileobj(resp, out_f)
                     with zipfile.ZipFile(tmp_zip, "r") as zf:
                         for member in zf.namelist():
@@ -581,7 +581,9 @@ def precache_sr_rife_weights(weights_dir=None):
                     parsed_url = urllib.parse.urlparse(req.full_url)
                     if parsed_url.scheme != "https":
                         raise ValueError("Insecure URL scheme")
-                    with urllib.request.urlopen(req.full_url, timeout=30, context=__import__('ssl').create_default_context()) as resp, open(tmp_part, "wb") as out_f:
+                    https_handler = urllib.request.HTTPSHandler(context=__import__('ssl').create_default_context())
+                    opener = urllib.request.build_opener(https_handler)
+                    with opener.open(req.full_url, timeout=30) as resp, open(tmp_part, "wb") as out_f:
                         shutil.copyfileobj(resp, out_f)
                     if os.path.exists(tmp_part) and os.path.getsize(tmp_part) >= min_b:
                         shutil.move(tmp_part, dest)
