@@ -31,6 +31,7 @@ export function getFallbackVisualBible(topic: string, domain: VideoDomain): Visu
       demographicGrammar: "Authentic professional athletes matching the national/regional context of the sport, solid unbranded kit.",
       characterGrammar: "Frame athletes in authentic action poses with locked aerodynamic/athletic kit, focused facial expressions, 35mm shallow depth of field.",
       zeroTextRules: "Zero digital leaderboards, scoreboards, or sponsor typography. Depict motion, lighting, and physical equipment without legible text.",
+      cameraMotionChoreography: "Dynamic tracking shots following athletes at competitive speeds, fluid sweeping camera maneuvers, continuous kinetic action, zero static shots.",
       soundscapeProfile: {
         energyLevel: "high",
         ambientBedStyle: "stadium",
@@ -59,6 +60,7 @@ export function getFallbackVisualBible(topic: string, domain: VideoDomain): Visu
       demographicGrammar: "Cosmopolitan international scientists and researchers, diverse demographics, zero forced stereotypes.",
       characterGrammar: "Frame researchers in medium to wide shots, authentic lab attire from behind, or silhouetted against glowing volumetric instrumentation. Ban macro facial close-ups.",
       zeroTextRules: "All computer readouts, telemetry consoles, and spectrometer charts must feature unlabeled glowing abstract panels, clean cyan/amber HUD glows, and zero legible letters or numbers.",
+      cameraMotionChoreography: "Continuous smooth forward dolly through laboratory instrumentation, orbital camera drift, living scientific processes in motion, zero static holds.",
       soundscapeProfile: {
         energyLevel: "measured",
         ambientBedStyle: "drone",
@@ -86,6 +88,7 @@ export function getFallbackVisualBible(topic: string, domain: VideoDomain): Visu
       demographicGrammar: "Authentic local field researchers or expedition naturalists, natural outdoor clothing, or zero human figures focusing on wildlife and terrain.",
       characterGrammar: "Prioritize natural physical environments, wildlife in natural motion, or expedition researchers in wide panoramic framing. Zero facial close-ups.",
       zeroTextRules: "Zero digital map outlines, zero boundary lines, zero latitude numbers in image generation.",
+      cameraMotionChoreography: "Sweeping aerial terrain glides, smooth tracking along natural currents and wildlife paths, living environmental motion with wind and water.",
       soundscapeProfile: {
         energyLevel: "contemplative",
         ambientBedStyle: "nature",
@@ -112,6 +115,7 @@ export function getFallbackVisualBible(topic: string, domain: VideoDomain): Visu
     demographicGrammar: "Authentic subjects native to the specific real-world event or diverse international professionals.",
     characterGrammar: "Documentary observational camera framing: athletic or professional subjects in authentic field gear, natural non-deformed anatomy, dynamic motion matching the topic. Zero distorted faces.",
     zeroTextRules: "Zero legible letters, zero hallucinated English words on walls, banners, screens, or uniforms. Clean physical textures only.",
+    cameraMotionChoreography: "Cinematic dynamic tracking dolly shot, fluid camera pan following environmental action, continuous living motion, zero static tripod freezes.",
     soundscapeProfile: {
       energyLevel: "high",
       ambientBedStyle: "industrial",
@@ -159,7 +163,8 @@ Return a JSON object with:
 5. "latentTrapsToBan": An array of 20-30 specific negative prompt strings that generative models frequently hallucinate for this topic (including diffusion demographic biases, cross-domain equipment, corrupt text, and unwanted geometric/religious symbols).
 6. "characterGrammar": Strict cinematic rules for human anatomy, camera angles (35mm shallow depth of field), natural lighting, authentic kit/attire, and camera framing appropriate for this topic.
 7. "zeroTextRules": Explicit rules ensuring zero legible scoreboards, digital ticker text, written letters, or hallucinatory brand logos appear in generated latents. Emphasize clean physical architectural textures, minimalist geometry, and real tactile materials native to this domain.
-8. "soundscapeProfile": {
+8. "cameraMotionChoreography": A dynamic 1-2 sentence directive specifying the topic's native kinetic optical movement (e.g. continuous tracking alongside moving vehicles/athletes, sweeping camera over facilities, drifting atmospheric weather/smoke, fluid push-in). Strictly ban 'static tripod', 'locked geometry', 'rigid motionless pose', 'still photo'. Every visual prompt must depict living physical action.
+9. "soundscapeProfile": {
   "energyLevel": "high" | "measured" | "contemplative" | "dramatic",
   "ambientBedStyle": "stadium" | "industrial" | "nature" | "orchestral" | "drone",
   "bgmGenre": "inspirational_cello" | "dramatic_strings" | "triumphant_brass" | "epic_orchestral" | "warm_serenade" | "gentle_acoustic" | "uplifting_documentary" | "contemplative_piano" | "solemn_history" | "heroic_adventure",
@@ -191,6 +196,7 @@ Return ONLY raw JSON in this structure:
   "latentTrapsToBan": ["string"],
   "characterGrammar": "string",
   "zeroTextRules": "string",
+  "cameraMotionChoreography": "string",
   "soundscapeProfile": {
     "energyLevel": "high",
     "ambientBedStyle": "industrial",

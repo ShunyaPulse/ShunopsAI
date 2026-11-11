@@ -828,9 +828,9 @@ def main():
                     "negative_prompt": neg_prompt,
                     "height": 384,
                     "width": 640,
-                    "num_frames": 33,
+                    "num_frames": 49,
                     "num_inference_steps": 25,
-                    "guidance_scale": 3.8,
+                    "guidance_scale": 5.5,
                     "generator": generator,
                 }
                 if ref_image is not None:
@@ -871,7 +871,8 @@ def main():
                 shutil.rmtree(fdir, ignore_errors=True)
 
             raw_d = clip_duration(raw_clip)
-            pts_mult = shot_dur / max(raw_d, 0.4)
+            # Smart pacing: lock motion velocity between 0.85x and 1.25x natural speed (zero slow-motion freeze)
+            pts_mult = min(1.25, max(0.85, shot_dur / max(raw_d, 0.4)))
             vf_pipeline = (
                 f"setpts={pts_mult:.4f}*PTS,"
                 f"minterpolate=fps=24:mi_mode=blend,"
@@ -1074,12 +1075,19 @@ class WanT4OptimizedEngine:
             return True
 
     def build_scene_shot_specs(self, prompt, target_dur, out_mp4, scene_idx, domain="general", visual_bible=None):
-        num_shots = 2 if target_dur > 3.0 else 1
+        # Smart shot pacing: target ~2.5s - 3.2s per shot so raw diffusion frames map directly to natural real-time playback
+        num_shots = max(1, int(math.ceil(target_dur / 3.0)))
         shot_dur = target_dur / num_shots
 
+        vb_ref = visual_bible or {}
+        motion_directive = vb_ref.get("cameraMotionChoreography", "")
+        motion_tag = f", {motion_directive[:100]}" if motion_directive else ""
+
         shot_variations = [
-            ("wide establishing shot, slow steady cinematic dolly forward on track, locked solid background geometry, modern documentary", scene_idx * 19 + 3),
-            ("close-up detailed perspective, gentle optical push-in, rigid stable architecture, modern cinema", scene_idx * 19 + 7),
+            (f"cinematic dynamic tracking dolly shot with continuous optical motion{motion_tag}, vivid atmospheric depth", scene_idx * 19 + 3),
+            (f"dynamic sweeping pan across scene action{motion_tag}, living environmental motion, fluid camera movement", scene_idx * 19 + 7),
+            (f"low-angle kinetic forward push-in{motion_tag}, active environmental atmosphere, continuous camera motion", scene_idx * 19 + 11),
+            (f"smooth continuous orbital tracking move{motion_tag}, dynamic optical perspective, fluid motion", scene_idx * 19 + 15),
         ]
 
         vb = visual_bible or {}
@@ -1114,13 +1122,12 @@ class WanT4OptimizedEngine:
 
         shots = []
         for s_idx in range(num_shots):
-            var_text, seed = shot_variations[s_idx]
+            var_text, seed = shot_variations[s_idx % len(shot_variations)]
             sub_clip = f"{TMP}/sub_{scene_idx}_{s_idx}.mp4"
 
             clean_prompt = (
                 f"{grounding_prefix}{prompt[:220]}, {var_text}, modern digital cinema, sharp high-definition focus, "
-                f"sharp crystal clear focus, vivid natural colors, documentary broadcast quality, "
-                f"subtle natural character breathing, stable non-morphing walls, rigid background structures, "
+                f"vivid natural colors, documentary broadcast quality, continuous living motion, "
                 f"unlabeled telemetry displays, zero text, zero letters, zero numbers"
             )
             neg_prompt = (
@@ -1133,7 +1140,7 @@ class WanT4OptimizedEngine:
                 "text, letters, words, writing, numbers, labels, charts, line graphs, pseudo-code, glyphs, bullet points, presentation slide, document, page with text, "
                 "garbled ui, blurry text, watermarks, symbols, subtitles, hud text, map, cartographic lines, "
                 "temporal morphing, surface rippling, breathing walls, gelatinous motion, boiling edges, "
-                "whip pan, fast zoom, motion smear, extreme motion blur, "
+                "temporal boiling, gelatinous surface warping, motion smear, extreme motion blur, "
                 "blown-out highlights, clipped cyan, hyper-neon blue glare, "
                 "vintage, old, grainy, sepia, retro, 8mm, 16mm, vhs, noisy, dusty, antique, "
                 "cartoon, anime, 3d render, cgi, plastic skin, distorted, blurry, bad anatomy, deformed"

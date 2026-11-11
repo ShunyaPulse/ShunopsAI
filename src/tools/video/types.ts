@@ -12,6 +12,7 @@ export interface VisualBible {
     demographicProfile: string;
   };
   zeroTextRules: string;
+  cameraMotionChoreography?: string;
   soundscapeProfile: {
     energyLevel: "high" | "measured" | "contemplative" | "dramatic";
     ambientBedStyle: "drone" | "stadium" | "nature" | "industrial" | "orchestral";

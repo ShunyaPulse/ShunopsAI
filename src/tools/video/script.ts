@@ -157,7 +157,7 @@ CRITICAL DIRECTIVES:
     {
       "narration": "<Exact words spoken in Hindi by voice ${voice}>",
       "caption": "<Exact English translation in pure English language and Roman alphabet for on-screen subtitles>",
-      "visual_prompt": "<Ultra-detailed cinematic video prompt in English: camera move (slow dolly/steadicam), lens, subject action matching narration, lighting, locked rigid background geometry, clean text-free screens>",
+      "visual_prompt": "<Ultra-detailed cinematic video prompt in English: active camera movement (smooth tracking dolly/forward push-in/sweeping pan), lens, continuous subject action matching narration, volumetric lighting, dynamic environmental motion, clean text-free screens>",
       "tone": "<Emotional delivery tone: exactly one of 'excited' | 'suspense' | 'dramatic' | 'somber' | 'neutral'>"
     }
   ]
