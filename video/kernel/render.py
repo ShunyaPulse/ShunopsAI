@@ -548,7 +548,8 @@ def precache_sr_rife_weights(weights_dir=None):
         for url in urls:
             try:
                 print(f"[Weights Pre-Cache] ⬇️ Downloading {fname} from {url}...", flush=True)
-                if not url.lower().startswith('https://'):
+                parsed = urllib.parse.urlparse(url)
+                if parsed.scheme != 'https':
                     raise ValueError('Insecure URL scheme')
                 from urllib.parse import urlparse
                 parsed = urlparse(url)
@@ -584,7 +585,7 @@ def precache_sr_rife_weights(weights_dir=None):
                     tmp_part = f"{dest}.part"
                     if not req.full_url.startswith("https://"):
                         raise ValueError("Insecure URL scheme")
-                    with urllib.request.urlopen(req, timeout=30) as resp, open(tmp_part, "wb") as out_f:
+                    with urllib.request.urlopen(req, timeout=30, context=__import__('ssl').create_default_context()) as resp, open(tmp_part, "wb") as out_f:
                         shutil.copyfileobj(resp, out_f)
                     if os.path.exists(tmp_part) and os.path.getsize(tmp_part) >= min_b:
                         shutil.move(tmp_part, dest)
