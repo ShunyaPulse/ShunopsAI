@@ -165,7 +165,7 @@ jobs:
           echo "🎯 [Cloud Ops] Target: $TARGET_SERVICE"
           echo "🎯 [Cloud Ops] Goal: $TASK_GOAL"
           if [ "$TARGET_SERVICE" = "code_scanning_alerts_remediation" ]; then
-            npx tsx src/tools/code-scanner-resolver.ts 10
+            npx tsx src/tools/code-scanner-resolver.ts 0
           elif [ "$TARGET_SERVICE" = "autonomous_repo_audit_and_heal" ]; then
             npx tsx src/tools/autonomous-repo-auditor.ts
           elif [ "$TARGET_SERVICE" = "pull_requests_dual_model_review" ]; then

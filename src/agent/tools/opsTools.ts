@@ -216,7 +216,7 @@ export const opsTools: ToolGroup<
     },
     execute: async (args: { limit?: number; repo?: string }) => {
       const targetRepo = extractTargetRepo(args.repo);
-      const result = await runAutoAlertResolver(args.limit ?? 5, targetRepo);
+      const result = await runAutoAlertResolver(args.limit ?? 0, targetRepo);
       return JSON.stringify(result, null, 2);
     },
   },

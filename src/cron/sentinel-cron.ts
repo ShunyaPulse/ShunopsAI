@@ -51,7 +51,7 @@ async function runSentinelCron() {
     const targetRepos = getTargetReposList();
     for (const repo of targetRepos) {
       try {
-        const alertResult = await runAutoAlertResolver(10, repo);
+        const alertResult = await runAutoAlertResolver(0, repo);
         if (alertResult.total > 0) {
           console.log(`[Sentinel Cron] ${repo} alerts handled: ${alertResult.resolved}/${alertResult.total}`);
         }

@@ -235,7 +235,7 @@ async function runSubAgent(
             }
             return null;
           })();
-          const limit = (matchLimit && matchLimit[1]) ? parseInt(matchLimit[1], 10) : 20;
+          const limit = (matchLimit && matchLimit[1]) ? parseInt(matchLimit[1], 10) : 0;
           const alertRes = await runAutoAlertResolver(limit, targetRepo, userPat);
           toolVerified = alertRes.resolved > 0;
           toolOutput = [

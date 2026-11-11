@@ -111,8 +111,8 @@ export async function resolveAlertWithAI(alert: CodeAlert): Promise<{ success: b
   fileContent = fileContent.replace(/\r\n/g, "\n");
 
   const lines = fileContent.split("\n");
-  const startIdx = Math.max(0, lineNo - 15);
-  const endIdx = Math.min(lines.length, lineNo + 15);
+  const startIdx = Math.max(0, lineNo - 30);
+  const endIdx = Math.min(lines.length, lineNo + 30);
   const snippet = lines.slice(startIdx, endIdx).join("\n");
   const isPython = filePath.endsWith(".py");
   const langTag = isPython ? "python" : "typescript";
@@ -234,7 +234,13 @@ Do NOT include any text outside the JSON.`;
     }
 
     if (!fileContent.includes(searchTarget)) {
-      return { success: false, message: `Search target not found in ${filePath}` };
+      const trimmedTarget = searchTarget.trim();
+      if (trimmedTarget && fileContent.includes(trimmedTarget)) {
+        searchTarget = trimmedTarget;
+        replaceTarget = replaceTarget.trim();
+      } else {
+        return { success: false, message: `Search target not found in ${filePath}` };
+      }
     }
 
     const patchedCode = fileContent.replace(searchTarget, replaceTarget);
@@ -275,7 +281,7 @@ Do NOT include any text outside the JSON.`;
  * Main automated loop to resolve all open code scanning alerts
  */
 export async function runAutoAlertResolver(
-  limit = 10,
+  limit = 0,
   repo = "ShunyaPulse/ShunopsAI",
   token?: string
 ): Promise<{ resolved: number; total: number }> {
@@ -337,19 +343,40 @@ export async function runAutoAlertResolver(
   console.log(`Actionable source code alerts in queue: ${actionableCodeAlerts.length}`);
 
   let resolvedCount = packageFixedCount;
-  const toProcess = actionableCodeAlerts.slice(0, limit);
+  const effectiveLimit = limit > 0 ? limit : Number.MAX_SAFE_INTEGER;
+  let pendingAlerts = actionableCodeAlerts.slice(0, effectiveLimit);
+  const maxPasses = 3;
 
-  for (const alert of toProcess) {
-    const res = await resolveAlertWithAI(alert);
-    if (res.success) {
-      resolvedCount++;
-    } else {
-      console.log(`${colors.gray}Notice on #${alert.number}: ${res.message}${colors.reset}`);
+  for (let pass = 1; pass <= maxPasses && pendingAlerts.length > 0 && resolvedCount < effectiveLimit; pass++) {
+    if (pass > 1) {
+      console.log(`\n${colors.cyan}🔄 [Pass ${pass}/${maxPasses}] Retrying ${pendingAlerts.length} remaining alerts with updated file states...${colors.reset}`);
     }
+
+    const remainingAfterPass: CodeAlert[] = [];
+    let passResolved = 0;
+
+    for (const alert of pendingAlerts) {
+      if (resolvedCount >= effectiveLimit) break;
+      const res = await resolveAlertWithAI(alert);
+      if (res.success) {
+        resolvedCount++;
+        passResolved++;
+      } else {
+        console.log(`${colors.gray}Notice on #${alert.number}: ${res.message}${colors.reset}`);
+        remainingAfterPass.push(alert);
+      }
+    }
+
+    // If this pass made zero progress, stop to avoid redundant loops
+    if (passResolved === 0) {
+      break;
+    }
+
+    pendingAlerts = remainingAfterPass;
   }
 
   if (resolvedCount > 0) {
-    console.log(`\n${colors.green}Pushing ${resolvedCount} auto-resolved security patches to main...${colors.reset}`);
+    console.log(`\n${colors.green}Pushing ${resolvedCount} auto-resolved security patches to main in a single commit...${colors.reset}`);
     try {
       const authEnv = getGitHubAuthEnv(token);
       try {
@@ -380,7 +407,7 @@ export async function runAutoAlertResolver(
           throw new Error("Git push failed and no GH_PAT / GITHUB_TOKEN available for authenticated push.");
         }
       }
-      console.log(`${colors.green}✓ All patches pushed to GitHub main successfully!${colors.reset}`);
+      console.log(`${colors.green}✓ All patches pushed to GitHub main successfully in a single batch!${colors.reset}`);
     } catch (pushErr: any) {
       console.error(`[Push failed] ${String(pushErr?.message || pushErr)}`);
     }
@@ -392,7 +419,8 @@ export async function runAutoAlertResolver(
 // CLI handler
 const isCLI = process.argv[1]?.endsWith("code-scanner-resolver.ts") || process.argv[1]?.endsWith("code-scanner-resolver.js");
 if (isCLI) {
-  const limit = parseInt(process.argv[2] || "5", 10);
+  const rawArg = process.argv[2];
+  const limit = rawArg !== undefined ? parseInt(rawArg, 10) : 0;
   runAutoAlertResolver(limit).then((res) => {
     console.log(`\nBatch complete: ${res.resolved}/${res.total} alerts resolved.`);
     process.exit(0);
