@@ -550,6 +550,10 @@ def precache_sr_rife_weights(weights_dir=None):
                 print(f"[Weights Pre-Cache] ⬇️ Downloading {fname} from {url}...", flush=True)
                 if not url.lower().startswith('https://'):
                     raise ValueError('Insecure URL scheme')
+                from urllib.parse import urlparse
+                parsed = urlparse(url)
+                if parsed.scheme != 'https' or not parsed.netloc:
+                    raise ValueError('Insecure URL scheme')
                 req = urllib.request.Request(url, headers={"User-Agent": "ShunopsAI-Kaggle-Renderer/1.0"})
                 if url.endswith(".zip"):
                     tmp_zip = f"{dest}.tmp.zip"
