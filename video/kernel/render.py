@@ -555,20 +555,12 @@ def precache_sr_rife_weights(weights_dir=None):
                 parsed = urlparse(url)
                 if parsed.scheme != 'https' or not parsed.netloc:
                     raise ValueError('Insecure URL scheme')
+                # Ensure URL uses HTTPS scheme
                 if not url.lower().startswith('https://'):
                     raise ValueError('Insecure URL scheme')
                 req = urllib.request.Request(url, headers={"User-Agent": "ShunopsAI-Kaggle-Renderer/1.0"})
                 if url.endswith(".zip"):
                     tmp_zip = f"{dest}.tmp.zip"
-                    if not req.full_url.lower().startswith('https://'): raise ValueError('Insecure URL scheme')
-                    if not req.full_url.startswith('https://'):
-                        raise ValueError("Insecure URL scheme")
-                    if not req.full_url.startswith('https://'):
-                        raise ValueError("Insecure URL scheme")
-                    if not req.full_url.startswith('https://'):
-                        raise ValueError("Insecure URL scheme")
-                    if not url.startswith('https://'):
-                        raise ValueError("Insecure URL scheme")
                     with urllib.request.urlopen(req, timeout=30) as resp, open(tmp_zip, "wb") as out_f:
                         shutil.copyfileobj(resp, out_f)
                     with zipfile.ZipFile(tmp_zip, "r") as zf:
@@ -585,7 +577,8 @@ def precache_sr_rife_weights(weights_dir=None):
                     tmp_part = f"{dest}.part"
                     if not req.full_url.startswith("https://"):
                         raise ValueError("Insecure URL scheme")
-                    with urllib.request.urlopen(req, timeout=30, context=__import__('ssl').create_default_context()) as resp, open(tmp_part, "wb") as out_f:
+                    # Ensure URL uses HTTPS (already validated) and open securely
+                    with urllib.request.urlopen(req.full_url, timeout=30, context=__import__('ssl').create_default_context()) as resp, open(tmp_part, "wb") as out_f:
                         shutil.copyfileobj(resp, out_f)
                     if os.path.exists(tmp_part) and os.path.getsize(tmp_part) >= min_b:
                         shutil.move(tmp_part, dest)

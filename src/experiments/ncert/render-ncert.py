@@ -592,7 +592,9 @@ def precache_sr_rife_weights(weights_dir=None):
                     tmp_part = f"{dest}.part"
                     if not req.full_url.startswith("https://"):
                         raise ValueError("Insecure URL scheme")
-                    with urllib.request.urlopen(req, timeout=30, context=ssl.create_default_context()) as resp, open(tmp_part, "wb") as out_f:
+                    https_handler = urllib.request.HTTPSHandler(context=ssl.create_default_context())
+                    opener = urllib.request.build_opener(https_handler)
+                    with opener.open(req, timeout=30) as resp, open(tmp_part, "wb") as out_f:
                         shutil.copyfileobj(resp, out_f)
                     if os.path.exists(tmp_part) and os.path.getsize(tmp_part) >= min_b:
                         shutil.move(tmp_part, dest)
