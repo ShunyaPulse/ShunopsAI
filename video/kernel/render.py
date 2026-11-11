@@ -901,14 +901,23 @@ class RIFEIFBlock(nn.Module):
 
 
 class RIFEIFNet(nn.Module):
-        # Practical-RIFE v4.27 / v4.26 arbitrary-timestep IFNet_HDv3 architecture.
+    # Practical-RIFE v4.27 / v4.26 / v4.25 arbitrary-timestep IFNet_HDv3 architecture.
+    # Dynamically adapts to checkpoint block channel specifications (e.g. v4.25 vs v4.26+).
     # Supports scale=0.5 optical flow estimation + full-resolution 1080p warping.
-    def __init__(self):
+    def __init__(self, block_specs=None):
         super().__init__()
-        self.block0 = RIFEIFBlock(7 + 8, c=192)
-        self.block1 = RIFEIFBlock(8 + 4 + 8 + 8, c=128)
-        self.block2 = RIFEIFBlock(8 + 4 + 8 + 8, c=64)
-        self.block3 = RIFEIFBlock(8 + 4 + 8 + 8, c=32)
+        if not block_specs or len(block_specs) < 4:
+            # Default to RIFE v4.26+ widened specs
+            block_specs = [
+                (7 + 8, 192),
+                (8 + 4 + 8 + 8, 128),
+                (8 + 4 + 8 + 8, 96),
+                (8 + 4 + 8 + 8, 64),
+            ]
+        self.block0 = RIFEIFBlock(block_specs[0][0], c=block_specs[0][1])
+        self.block1 = RIFEIFBlock(block_specs[1][0], c=block_specs[1][1])
+        self.block2 = RIFEIFBlock(block_specs[2][0], c=block_specs[2][1])
+        self.block3 = RIFEIFBlock(block_specs[3][0], c=block_specs[3][1])
         self.encode = RIFEHead()
 
     def estimate_flow_lr(self, img0_lr, img1_lr, f0_lr, f1_lr, timestep, scale_list=(8, 4, 2, 1)):
@@ -963,8 +972,9 @@ def load_blended_srvgg(weights_dir, device):
     return model
 
 
-def load_rife_v427(weights_dir, device):
-    # Practical-RIFE v4.27 / v4.26 arbitrary-timestep IFNet optical flow model.
+def load_rife_v425(weights_dir, device):
+    # Practical-RIFE v4.27 / v4.26 / v4.25 arbitrary-timestep IFNet optical flow model.
+    # Automatically inspects checkpoint weight shapes to support v4.25, v4.26, and v4.27 checkpoints.
     pkl_path = os.path.join(weights_dir, "flownet.pkl")
     if not os.path.exists(pkl_path):
         return None
@@ -974,13 +984,22 @@ def load_rife_v427(weights_dir, device):
         for k, v in raw_sd.items()
         if not k.replace("module.", "").startswith(("teacher.", "caltime."))
     }
-    model = RIFEIFNet()
+    block_specs = []
+    for i in range(4):
+        w0 = clean_sd.get(f"block{i}.conv0.0.0.weight")
+        w1 = clean_sd.get(f"block{i}.conv0.1.0.weight")
+        if w0 is not None and w1 is not None:
+            block_specs.append((int(w0.shape[1]), int(w1.shape[0])))
+        elif w0 is not None:
+            block_specs.append((int(w0.shape[1]), int(w0.shape[0] * 2)))
+
+    model = RIFEIFNet(block_specs=block_specs if len(block_specs) == 4 else None)
     model.load_state_dict(clean_sd, strict=False)
     model.eval().to(device=device, dtype=torch.float16)
     return model
 
 
-load_rife_v425 = load_rife_v427  # Backwards compatibility alias
+load_rife_v427 = load_rife_v425  # Bi-directional alias
 
 
 def render_sr_rife_nvenc_shot(
