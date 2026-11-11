@@ -499,6 +499,97 @@ def parse_srt_cues(srt_text, time_offset_sec):
 import contextlib
 import threading
 
+# ==========================================
+# Step 1: Pre-Cache Real-ESRGAN (x4v3 + wdn-x4v3) & Practical-RIFE v4.25 Weights Once
+# ==========================================
+SR_RIFE_WEIGHT_URLS = {
+    "realesr-general-x4v3.pth": [
+        "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesr-general-x4v3.pth",
+        "https://huggingface.co/techycoder/realesrgan-general-x4v3/resolve/main/realesr-general-x4v3.pth",
+    ],
+    "realesr-general-wdn-x4v3.pth": [
+        "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesr-general-wdn-x4v3.pth",
+        "https://huggingface.co/spaces/yangheng/Super-Resolution-Anime-Diffusion/resolve/main/RealESRGANv030/weights/realesr-general-wdn-x4v3.pth",
+    ],
+    "flownet.pkl": [
+        "https://huggingface.co/daydreamlive/RIFE/resolve/main/flownet.pkl",
+        "https://huggingface.co/daydreamlive/RIFE/resolve/52c19702a5c82337d4dad5410c323964605cbb8e/train_log/flownet.pkl",
+        "https://huggingface.co/r3gm/RIFE/resolve/main/RIFEv4.25_0919.zip",
+        "https://huggingface.co/Hzwer/RIFE/resolve/main/RIFEv4.25_0919.zip",
+    ],
+}
+
+
+def precache_sr_rife_weights(weights_dir=None):
+        # Downloads Real-ESRGAN (realesr-general-x4v3.pth + realesr-general-wdn-x4v3.pth, ~4.7 MB x 2)
+    # and Practical-RIFE v4.25 (flownet.pkl, ~19 MB) once into /kaggle/working/tmp/weights/
+    # before spawning GPU 0 and GPU 1 worker subprocesses.
+    import urllib.request
+    import zipfile
+
+    if weights_dir is None:
+        weights_dir = f"{TMP}/weights"
+    os.makedirs(weights_dir, exist_ok=True)
+    t0 = time.time()
+
+    min_bytes_map = {
+        "realesr-general-x4v3.pth": 4_000_000,
+        "realesr-general-wdn-x4v3.pth": 4_000_000,
+        "flownet.pkl": 10_000_000,
+    }
+
+    for fname, urls in SR_RIFE_WEIGHT_URLS.items():
+        dest = os.path.join(weights_dir, fname)
+        min_b = min_bytes_map.get(fname, 1_000_000)
+        if os.path.exists(dest) and os.path.getsize(dest) >= min_b:
+            continue
+
+        downloaded = False
+        for url in urls:
+            try:
+                print(f"[Weights Pre-Cache] ⬇️ Downloading {fname} from {url}...", flush=True)
+                req = urllib.request.Request(url, headers={"User-Agent": "ShunopsAI-Kaggle-Renderer/1.0"})
+                if url.endswith(".zip"):
+                    tmp_zip = f"{dest}.tmp.zip"
+                    with urllib.request.urlopen(req, timeout=30) as resp, open(tmp_zip, "wb") as out_f:
+                        shutil.copyfileobj(resp, out_f)
+                    with zipfile.ZipFile(tmp_zip, "r") as zf:
+                        for member in zf.namelist():
+                            if member.endswith("flownet.pkl") and not os.path.basename(member).startswith("._"):
+                                with zf.open(member) as src_m, open(dest, "wb") as dst_f:
+                                    shutil.copyfileobj(src_m, dst_f)
+                                break
+                    try:
+                        os.remove(tmp_zip)
+                    except Exception:
+                        pass
+                else:
+                    tmp_part = f"{dest}.part"
+                    with urllib.request.urlopen(req, timeout=30) as resp, open(tmp_part, "wb") as out_f:
+                        shutil.copyfileobj(resp, out_f)
+                    if os.path.exists(tmp_part) and os.path.getsize(tmp_part) >= min_b:
+                        shutil.move(tmp_part, dest)
+                    elif os.path.exists(tmp_part):
+                        os.remove(tmp_part)
+
+                if os.path.exists(dest) and os.path.getsize(dest) >= min_b:
+                    print(f"[Weights Pre-Cache] ✅ Cached {fname} ({os.path.getsize(dest) / (1024 * 1024):.2f} MB).", flush=True)
+                    downloaded = True
+                    break
+            except Exception as dl_err:
+                print(f"[Weights Pre-Cache] ⚠️ Mirror notice for {fname} ({url}): {dl_err}", flush=True)
+
+        if not downloaded:
+            print(f"[Weights Pre-Cache] ⚠️ Could not pre-cache {fname}; worker will auto-fallback if unavailable.", flush=True)
+
+    ready_all = all(
+        os.path.exists(os.path.join(weights_dir, k)) and os.path.getsize(os.path.join(weights_dir, k)) >= min_bytes_map[k]
+        for k in min_bytes_map
+    )
+    if ready_all:
+        print(f"[Weights Pre-Cache] ⚡ All Real-ESRGAN + Practical-RIFE v4.25 weights ready in {weights_dir} ({time.time() - t0:.2f}s).", flush=True)
+    return weights_dir
+
 PREENCODER_SUBPROCESS_SCRIPT = r"""
 import gc, json, os, sys, time
 import torch
@@ -664,6 +755,369 @@ def render_subpixel_kb(img_path, out_clip_path, duration_sec, shot_idx, encoder_
         ])
         return True
 
+# ==========================================
+# Step 2 & 3: Embedded Pure-PyTorch FP16 SRVGGNetCompact (Denoise-Blended) + Practical-RIFE v4.25 (IFNet)
+# ==========================================
+import torch.nn as nn
+import torch.nn.functional as F
+
+class SRVGGNetCompact(nn.Module):
+        # Pure-PyTorch Real-ESRGAN compact VGG super-resolution network
+    # (num_feat=64, num_conv=32, upscale=4, act_type='prelu').
+    def __init__(self, num_in_ch=3, num_out_ch=3, num_feat=64, num_conv=32, upscale=4, act_type="prelu"):
+        super().__init__()
+        self.num_in_ch = num_in_ch
+        self.num_out_ch = num_out_ch
+        self.num_feat = num_feat
+        self.num_conv = num_conv
+        self.upscale = upscale
+        self.act_type = act_type
+        self.body = nn.ModuleList()
+        self.body.append(nn.Conv2d(num_in_ch, num_feat, 3, 1, 1))
+        self.body.append(nn.PReLU(num_parameters=num_feat) if act_type == "prelu" else nn.LeakyReLU(0.1, inplace=True))
+        for _ in range(num_conv):
+            self.body.append(nn.Conv2d(num_feat, num_feat, 3, 1, 1))
+            self.body.append(nn.PReLU(num_parameters=num_feat) if act_type == "prelu" else nn.LeakyReLU(0.1, inplace=True))
+        self.body.append(nn.Conv2d(num_feat, num_out_ch * upscale * upscale, 3, 1, 1))
+        self.upsampler = nn.PixelShuffle(upscale)
+
+    def forward(self, x):
+        out = x
+        for layer in self.body:
+            out = layer(out)
+        out = self.upsampler(out)
+        base = F.interpolate(x, scale_factor=self.upscale, mode="nearest")
+        return out + base
+
+
+_RIFE_WARP_GRID_CACHE = {}
+
+def rife_warp(tenInput, tenFlow):
+    k = (str(tenFlow.device), str(tenFlow.dtype), tenFlow.shape[0], tenFlow.shape[2], tenFlow.shape[3])
+    if k not in _RIFE_WARP_GRID_CACHE:
+        B, _, H, W = tenFlow.shape
+        hor = torch.linspace(-1.0, 1.0, W, device=tenFlow.device, dtype=tenFlow.dtype).view(1, 1, 1, W).expand(B, -1, H, -1)
+        ver = torch.linspace(-1.0, 1.0, H, device=tenFlow.device, dtype=tenFlow.dtype).view(1, 1, H, 1).expand(B, -1, -1, W)
+        _RIFE_WARP_GRID_CACHE[k] = torch.cat([hor, ver], 1)
+    tenFlow = torch.cat([
+        tenFlow[:, 0:1, :, :] / ((tenInput.shape[3] - 1.0) / 2.0),
+        tenFlow[:, 1:2, :, :] / ((tenInput.shape[2] - 1.0) / 2.0),
+    ], 1)
+    g = (_RIFE_WARP_GRID_CACHE[k] + tenFlow).permute(0, 2, 3, 1)
+    return F.grid_sample(input=tenInput, grid=g, mode="bilinear", padding_mode="border", align_corners=True)
+
+
+def rife_conv(in_planes, out_planes, kernel_size=3, stride=1, padding=1, dilation=1):
+    return nn.Sequential(
+        nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, bias=True),
+        nn.LeakyReLU(0.2, True),
+    )
+
+
+class RIFEHead(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.cnn0 = nn.Conv2d(3, 16, 3, 2, 1)
+        self.cnn1 = nn.Conv2d(16, 16, 3, 1, 1)
+        self.cnn2 = nn.Conv2d(16, 16, 3, 1, 1)
+        self.cnn3 = nn.ConvTranspose2d(16, 4, 4, 2, 1)
+        self.relu = nn.LeakyReLU(0.2, True)
+
+    def forward(self, x, feat=False):
+        x0 = self.cnn0(x)
+        x = self.relu(x0)
+        x1 = self.cnn1(x)
+        x = self.relu(x1)
+        x2 = self.cnn2(x)
+        x = self.relu(x2)
+        x3 = self.cnn3(x)
+        if feat:
+            return [x0, x1, x2, x3]
+        return x3
+
+
+class RIFEResConv(nn.Module):
+    def __init__(self, c, dilation=1):
+        super().__init__()
+        self.conv = nn.Conv2d(c, c, 3, 1, dilation, dilation=dilation, groups=1)
+        self.beta = nn.Parameter(torch.ones((1, c, 1, 1)), requires_grad=True)
+        self.relu = nn.LeakyReLU(0.2, True)
+
+    def forward(self, x):
+        return self.relu(self.conv(x) * self.beta + x)
+
+
+class RIFEIFBlock(nn.Module):
+    def __init__(self, in_planes, c=64):
+        super().__init__()
+        self.conv0 = nn.Sequential(
+            rife_conv(in_planes, c // 2, 3, 2, 1),
+            rife_conv(c // 2, c, 3, 2, 1),
+        )
+        self.convblock = nn.Sequential(*[RIFEResConv(c) for _ in range(8)])
+        self.lastconv = nn.Sequential(
+            nn.ConvTranspose2d(c, 4 * 13, 4, 2, 1),
+            nn.PixelShuffle(2),
+        )
+
+    def forward(self, x, flow=None, scale=1):
+        if scale != 1:
+            x = F.interpolate(x, scale_factor=1.0 / scale, mode="bilinear", align_corners=False)
+        if flow is not None:
+            if scale != 1:
+                flow = F.interpolate(flow, scale_factor=1.0 / scale, mode="bilinear", align_corners=False) * (1.0 / scale)
+            x = torch.cat((x, flow), 1)
+        feat = self.conv0(x)
+        feat = self.convblock(feat)
+        tmp = self.lastconv(feat)
+        if scale != 1:
+            tmp = F.interpolate(tmp, scale_factor=scale, mode="bilinear", align_corners=False)
+        flow = tmp[:, :4] * scale
+        mask = tmp[:, 4:5]
+        feat = tmp[:, 5:]
+        return flow, mask, feat
+
+
+class RIFEIFNet(nn.Module):
+        # Practical-RIFE v4.25 arbitrary-timestep IFNet_HDv3 architecture.
+    # Supports scale=0.5 optical flow estimation + full-resolution 1080p warping.
+    def __init__(self):
+        super().__init__()
+        self.block0 = RIFEIFBlock(7 + 8, c=192)
+        self.block1 = RIFEIFBlock(8 + 4 + 8 + 8, c=128)
+        self.block2 = RIFEIFBlock(8 + 4 + 8 + 8, c=64)
+        self.block3 = RIFEIFBlock(8 + 4 + 8 + 8, c=32)
+        self.encode = RIFEHead()
+
+    def estimate_flow_lr(self, img0_lr, img1_lr, f0_lr, f1_lr, timestep, scale_list=(8, 4, 2, 1)):
+        B, _, H_lr, W_lr = img0_lr.shape
+        t_plane = torch.full((B, 1, H_lr, W_lr), float(timestep), device=img0_lr.device, dtype=img0_lr.dtype)
+        warped_img0 = img0_lr
+        warped_img1 = img1_lr
+        flow = None
+        mask = None
+        feat = None
+        blocks = [self.block0, self.block1, self.block2, self.block3]
+        for i in range(4):
+            if flow is None:
+                flow, mask, feat = blocks[i](
+                    torch.cat((img0_lr[:, :3], img1_lr[:, :3], f0_lr, f1_lr, t_plane), 1),
+                    None,
+                    scale=scale_list[i],
+                )
+            else:
+                wf0 = rife_warp(f0_lr, flow[:, :2])
+                wf1 = rife_warp(f1_lr, flow[:, 2:4])
+                fd, m0, feat = blocks[i](
+                    torch.cat((warped_img0[:, :3], warped_img1[:, :3], wf0, wf1, t_plane, mask, feat), 1),
+                    flow,
+                    scale=scale_list[i],
+                )
+                mask = m0
+                flow = flow + fd
+            if i < 3:
+                warped_img0 = rife_warp(img0_lr, flow[:, :2])
+                warped_img1 = rife_warp(img1_lr, flow[:, 2:4])
+        return flow, mask
+
+
+def load_blended_srvgg(weights_dir, device):
+    x4_path = os.path.join(weights_dir, "realesr-general-x4v3.pth")
+    wdn_path = os.path.join(weights_dir, "realesr-general-wdn-x4v3.pth")
+    if not (os.path.exists(x4_path) and os.path.exists(wdn_path)):
+        return None
+    ckpt_x4 = torch.load(x4_path, map_location="cpu", weights_only=False)
+    ckpt_wdn = torch.load(wdn_path, map_location="cpu", weights_only=False)
+    sd_x4 = ckpt_x4.get("params_ema") or ckpt_x4.get("params") or ckpt_x4
+    sd_wdn = ckpt_wdn.get("params_ema") or ckpt_wdn.get("params") or ckpt_wdn
+    blended_sd = {
+        k: (0.65 * v.float() + 0.35 * sd_wdn[k].float())
+        for k, v in sd_x4.items()
+        if k in sd_wdn
+    }
+    model = SRVGGNetCompact(num_in_ch=3, num_out_ch=3, num_feat=64, num_conv=32, upscale=4, act_type="prelu")
+    model.load_state_dict(blended_sd, strict=True)
+    model.eval().to(device=device, dtype=torch.float16)
+    return model
+
+
+def load_rife_v425(weights_dir, device):
+    pkl_path = os.path.join(weights_dir, "flownet.pkl")
+    if not os.path.exists(pkl_path):
+        return None
+    raw_sd = torch.load(pkl_path, map_location="cpu", weights_only=False)
+    clean_sd = {
+        k.replace("module.", ""): v
+        for k, v in raw_sd.items()
+        if not k.replace("module.", "").startswith(("teacher.", "caltime."))
+    }
+    model = RIFEIFNet()
+    model.load_state_dict(clean_sd, strict=False)
+    model.eval().to(device=device, dtype=torch.float16)
+    return model
+
+
+def render_sr_rife_nvenc_shot(
+    frames,
+    shot_dur,
+    sub_clip,
+    sr_model,
+    rife_model,
+    device,
+    encoder_args,
+    post_vf="unsharp=3:3:0.3:3:3:0.1,eq=contrast=1.02:brightness=0.0:saturation=1.02,format=yuv420p",
+    sr_batch_size=8,
+    ema_alpha=0.12,
+):
+        # Executes Steps 2, 3, and 4 on GPU:
+    # - Step 2: Upscale 33 native frames (640x384 -> 2560x1536) in FP16 mini-batches of 8 via Denoise-Blended
+              # SRVGGNetCompact (0.65*x4v3 + 0.35*wdn_x4v3), center-crop 16:9 (2560x1440), Lanczos downscale
+              # to 1920x1080, and apply 0.12 temporal EMA smoothing to eliminate inter-frame shimmer.
+    # - Step 3: Practical-RIFE v4.25 arbitrary-timestep interpolation across target_frames = max(24, int(round(shot_dur * 24)))
+              # using scale=0.5 flow estimation (960x540 -> padded 960x544) + full-resolution 1920x1080 optical flow warp.
+    # - Step 4: Pipe 1920x1080 @ 24 FPS RGB24 frames directly into NVENC H.264 (or libx264).
+    import cv2
+    import numpy as np
+
+    if sr_model is None or rife_model is None or not frames or len(frames) < 2:
+        return False
+
+    # 1. Convert diffusers output frames to uint8 RGB numpy arrays (640x384)
+    np_frames = []
+    for fr in frames:
+        if isinstance(fr, np.ndarray):
+            arr = (fr * 255.0).clip(0, 255).astype(np.uint8) if (fr.dtype in (np.float32, np.float16) or fr.max() <= 1.0) else fr.astype(np.uint8)
+        elif hasattr(fr, "convert"):
+            arr = np.array(fr.convert("RGB"), dtype=np.uint8)
+        else:
+            arr = np.array(fr, dtype=np.uint8)
+        np_frames.append(arr)
+
+    num_native = len(np_frames)
+    upscaled_1080p = []
+    ema_prev = None
+
+    # 2. Mini-batch FP16 Super-Resolution (batch_size=8) + 1920x1080 Lanczos + 0.12 Temporal EMA
+    with torch.inference_mode():
+        for b_start in range(0, num_native, sr_batch_size):
+            b_slice = np_frames[b_start:b_start + sr_batch_size]
+            batch_np = np.stack(b_slice, axis=0)  # (B, H, W, 3)
+            batch_t = (
+                torch.from_numpy(batch_np)
+                .to(device=device, dtype=torch.float16)
+                .permute(0, 3, 1, 2)
+                .contiguous()
+                / 255.0
+            )
+            sr_out = sr_model(batch_t).clamp_(0.0, 1.0)  # (B, 3, 1536, 2560)
+            _, _, sr_h, sr_w = sr_out.shape
+            # Center-crop 16:9 aspect ratio before Lanczos downscale to 1920x1080
+            target_crop_h = int(round(sr_w * 9.0 / 16.0))
+            if sr_h > target_crop_h:
+                cy = (sr_h - target_crop_h) // 2
+                sr_out = sr_out[:, :, cy:cy + target_crop_h, :]
+
+            sr_hwc = (sr_out.permute(0, 2, 3, 1).contiguous() * 255.0).round().to(torch.uint8).cpu().numpy()
+            del batch_t, sr_out
+
+            for k_idx in range(sr_hwc.shape[0]):
+                frame_1080 = cv2.resize(sr_hwc[k_idx], (1920, 1080), interpolation=cv2.INTER_LANCZOS4).astype(np.float32)
+                if ema_prev is None:
+                    ema_prev = frame_1080
+                else:
+                    ema_prev = (1.0 - ema_alpha) * frame_1080 + ema_alpha * ema_prev
+                upscaled_1080p.append(ema_prev.clip(0.0, 255.0).round().astype(np.uint8))
+
+    # 3 & 4. Practical-RIFE v4.25 Arbitrary-Timestep Interpolation + Direct Pipe to NVENC H.264
+    target_frames = max(24, int(round(shot_dur * 24)))
+    ffmpeg_cmd = [
+        "ffmpeg", "-y",
+        "-f", "rawvideo", "-vcodec", "rawvideo",
+        "-pix_fmt", "rgb24", "-s", "1920x1080", "-r", "24",
+        "-i", "-",
+        "-vf", post_vf,
+        "-r", "24", "-t", f"{shot_dur:.3f}",
+        *encoder_args, sub_clip
+    ]
+
+    proc = subprocess.Popen(ffmpeg_cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    cached_pair_idx = (-1, -1)
+    I0_hr = I1_hr = img0_pad = img1_pad = f0_lr = f1_lr = None
+
+    try:
+        with torch.inference_mode():
+            for m in range(target_frames):
+                pos = (m / float(max(1, target_frames - 1))) * (num_native - 1)
+                idx0 = min(int(math.floor(pos)), num_native - 2)
+                idx1 = idx0 + 1
+                timestep = float(pos - idx0)
+
+                if timestep <= 1e-4:
+                    out_rgb = upscaled_1080p[idx0]
+                elif timestep >= 1.0 - 1e-4:
+                    out_rgb = upscaled_1080p[idx1]
+                else:
+                    if cached_pair_idx != (idx0, idx1):
+                        I0_hr = (
+                            torch.from_numpy(upscaled_1080p[idx0])
+                            .to(device=device, dtype=torch.float16)
+                            .permute(2, 0, 1)
+                            .unsqueeze(0)
+                            .contiguous()
+                            / 255.0
+                        )
+                        I1_hr = (
+                            torch.from_numpy(upscaled_1080p[idx1])
+                            .to(device=device, dtype=torch.float16)
+                            .permute(2, 0, 1)
+                            .unsqueeze(0)
+                            .contiguous()
+                            / 255.0
+                        )
+                        # scale=0.5 flow estimation (960x540 padded by 4px to 960x544 for 32px alignment)
+                        img0_lr = F.interpolate(I0_hr, size=(540, 960), mode="bilinear", align_corners=False)
+                        img1_lr = F.interpolate(I1_hr, size=(540, 960), mode="bilinear", align_corners=False)
+                        img0_pad = F.pad(img0_lr, (0, 0, 0, 4), mode="replicate")
+                        img1_pad = F.pad(img1_lr, (0, 0, 0, 4), mode="replicate")
+                        f0_lr = rife_model.encode(img0_pad)
+                        f1_lr = rife_model.encode(img1_pad)
+                        cached_pair_idx = (idx0, idx1)
+
+                    flow_pad, mask_pad = rife_model.estimate_flow_lr(
+                        img0_pad, img1_pad, f0_lr, f1_lr, timestep=timestep, scale_list=(8, 4, 2, 1)
+                    )
+                    flow_lr = flow_pad[:, :, :540, :960]
+                    mask_lr = mask_pad[:, :, :540, :960]
+                    # Upscale optical flow and occlusion mask to full 1920x1080 and warp full-res frames
+                    flow_hr = F.interpolate(flow_lr, size=(1080, 1920), mode="bilinear", align_corners=False) * 2.0
+                    mask_hr = torch.sigmoid(F.interpolate(mask_lr, size=(1080, 1920), mode="bilinear", align_corners=False))
+                    w0 = rife_warp(I0_hr, flow_hr[:, :2])
+                    w1 = rife_warp(I1_hr, flow_hr[:, 2:4])
+                    merged_hr = (w0 * mask_hr + w1 * (1.0 - mask_hr)).clamp_(0.0, 1.0)
+                    out_rgb = (merged_hr[0].permute(1, 2, 0).contiguous() * 255.0).round().to(torch.uint8).cpu().numpy()
+
+                if proc.stdin:
+                    proc.stdin.write(out_rgb.tobytes())
+
+        if proc.stdin:
+            proc.stdin.close()
+            proc.stdin = None
+        _, stderr_bytes = proc.communicate(timeout=60)
+        if proc.returncode != 0:
+            raise RuntimeError(f"FFmpeg NVENC pipe exited with {proc.returncode}: {stderr_bytes.decode('utf-8', errors='ignore')[-300:]}")
+    finally:
+        del I0_hr, I1_hr, img0_pad, img1_pad, f0_lr, f1_lr
+        if proc.stdin:
+            try:
+                proc.stdin.close()
+            except Exception:
+                pass
+        if proc.poll() is None:
+            proc.kill()
+
+    return os.path.exists(sub_clip) and os.path.getsize(sub_clip) > 1000
+
+
 def main():
     tasks_path = sys.argv[1]
     cache_path = sys.argv[2]
@@ -675,6 +1129,7 @@ def main():
     model_id = meta["model_id"]
     hf_token = meta.get("hf_token") or None
     tmp_dir = meta["tmp_dir"]
+    weights_dir = meta.get("weights_dir") or os.path.join(tmp_dir, "weights")
     encoder_args = meta["encoder_args"]
     shots = meta["shots"]
 
@@ -747,6 +1202,21 @@ def main():
 
     pipe.encode_prompt = _isolated_encode_prompt
 
+    sr_model = None
+    rife_model = None
+    try:
+        t_aux = time.time()
+        sr_model = load_blended_srvgg(weights_dir, local_dev)
+        rife_model = load_rife_v425(weights_dir, local_dev)
+        if sr_model is not None and rife_model is not None:
+            print(f"[Wan2.1 Worker GPU {phys_gpu}] ⚡ Loaded FP16 SRVGGNetCompact (0.65*x4v3 + 0.35*wdn) + Practical-RIFE v4.25 on cuda:{phys_gpu} in {time.time() - t_aux:.2f}s.", flush=True)
+        else:
+            print(f"[Wan2.1 Worker GPU {phys_gpu}] ⚠️ SR/RIFE weights missing in {weights_dir}; CPU FFmpeg fallback active.", flush=True)
+    except Exception as aux_e:
+        print(f"[Wan2.1 Worker GPU {phys_gpu}] ⚠️ SR/RIFE init notice ({aux_e}); CPU FFmpeg fallback active.", flush=True)
+        sr_model = None
+        rife_model = None
+
     alloc_mb = torch.cuda.memory_allocated(0) / (1024 ** 2)
     free_gb = (torch.cuda.get_device_properties(0).total_memory - torch.cuda.memory_allocated(0)) / (1024 ** 3)
     print(f"[Wan2.1 Worker GPU {phys_gpu}] ✅ Online on physical GPU {phys_gpu} (cuda:{phys_gpu}) — VRAM Allocated: {alloc_mb:.1f} MB (~{free_gb:.1f} GB Free Headroom, float16 VAE + float32 RoPE/Norm active!).", flush=True)
@@ -808,7 +1278,7 @@ def main():
                     "negative_prompt": neg_prompt,
                     "height": 384,
                     "width": 640,
-                    "num_frames": 49,
+                    "num_frames": 33,
                     "num_inference_steps": 25,
                     "guidance_scale": 5.5,
                     "generator": generator,
@@ -832,36 +1302,62 @@ def main():
                 frames = output.frames[0]
                 torch.cuda.synchronize(local_dev)
 
-            raw_clip = os.path.join(tmp_dir, f"raw_{scene_idx}_{s_idx}.mp4")
-            try:
-                from diffusers.utils import export_to_video
-                export_to_video(frames, raw_clip, fps=16)
-            except Exception:
-                import numpy as np
-                from PIL import Image
-                fdir = os.path.join(tmp_dir, f"frames_{scene_idx}_{s_idx}")
-                os.makedirs(fdir, exist_ok=True)
-                for f_i, fr in enumerate(frames):
-                    if isinstance(fr, np.ndarray):
-                        arr = (fr * 255).astype(np.uint8) if (fr.dtype in (np.float32, np.float16) or fr.max() <= 1.0) else fr.astype(np.uint8)
-                        Image.fromarray(arr).save(f"{fdir}/f_{f_i:04d}.png")
-                    elif hasattr(fr, "save"):
-                        fr.save(f"{fdir}/f_{f_i:04d}.png")
-                run_cmd(["ffmpeg", "-y", "-framerate", "16", "-i", f"{fdir}/f_%04d.png", "-c:v", "libx264", "-pix_fmt", "yuv420p", raw_clip])
-                shutil.rmtree(fdir, ignore_errors=True)
+            t_sr_rife = time.time()
+            gpu_postproc_ok = False
+            if sr_model is not None and rife_model is not None:
+                try:
+                    gpu_postproc_ok = render_sr_rife_nvenc_shot(
+                        frames=frames,
+                        shot_dur=shot_dur,
+                        sub_clip=sub_clip,
+                        sr_model=sr_model,
+                        rife_model=rife_model,
+                        device=local_dev,
+                        encoder_args=encoder_args,
+                    )
+                    if gpu_postproc_ok:
+                        print(
+                            f"[SR+RIFE GPU ⚡] Scene {scene_idx+1} Shot {s_idx+1}: 33->1080p SR + RIFE v4.25 + NVENC completed in {time.time() - t_sr_rife:.2f}s",
+                            flush=True,
+                        )
+                except Exception as sr_rife_err:
+                    print(
+                        f"[SR+RIFE Fallback Notice] Scene {scene_idx+1} Shot {s_idx+1} GPU SR/RIFE failed ({sr_rife_err}); falling back to FFmpeg Lanczos + minterpolate...",
+                        flush=True,
+                    )
+                    gpu_postproc_ok = False
 
-            raw_d = clip_duration(raw_clip)
-            # Smart pacing: lock motion velocity between 0.85x and 1.25x natural speed (zero slow-motion freeze)
-            pts_mult = min(1.25, max(0.85, shot_dur / max(raw_d, 0.4)))
-            vf_pipeline = (
-                f"setpts={pts_mult:.4f}*PTS,"
-                f"minterpolate=fps=24:mi_mode=blend,"
-                f"scale=1920:1080:force_original_aspect_ratio=increase:flags=lanczos,crop=1920:1080,"
-                f"unsharp=3:3:0.3:3:3:0.1,"
-                f"eq=contrast=1.02:brightness=0.0:saturation=1.02,"
-                f"format=yuv420p"
-            )
-            run_cmd(["ffmpeg", "-y", "-i", raw_clip, "-vf", vf_pipeline, "-r", "24", "-t", f"{shot_dur:.3f}", *encoder_args, sub_clip])
+            if not gpu_postproc_ok:
+                raw_clip = os.path.join(tmp_dir, f"raw_{scene_idx}_{s_idx}.mp4")
+                try:
+                    from diffusers.utils import export_to_video
+                    export_to_video(frames, raw_clip, fps=16)
+                except Exception:
+                    import numpy as np
+                    from PIL import Image
+                    fdir = os.path.join(tmp_dir, f"frames_{scene_idx}_{s_idx}")
+                    os.makedirs(fdir, exist_ok=True)
+                    for f_i, fr in enumerate(frames):
+                        if isinstance(fr, np.ndarray):
+                            arr = (fr * 255).astype(np.uint8) if (fr.dtype in (np.float32, np.float16) or fr.max() <= 1.0) else fr.astype(np.uint8)
+                            Image.fromarray(arr).save(f"{fdir}/f_{f_i:04d}.png")
+                        elif hasattr(fr, "save"):
+                            fr.save(f"{fdir}/f_{f_i:04d}.png")
+                    run_cmd(["ffmpeg", "-y", "-framerate", "16", "-i", f"{fdir}/f_%04d.png", "-c:v", "libx264", "-pix_fmt", "yuv420p", raw_clip])
+                    shutil.rmtree(fdir, ignore_errors=True)
+
+                raw_d = clip_duration(raw_clip)
+                # Smart pacing: lock motion velocity between 0.85x and 1.25x natural speed (zero slow-motion freeze)
+                pts_mult = min(1.25, max(0.85, shot_dur / max(raw_d, 0.4)))
+                vf_pipeline = (
+                    f"setpts={pts_mult:.4f}*PTS,"
+                    f"minterpolate=fps=24:mi_mode=blend,"
+                    f"scale=1920:1080:force_original_aspect_ratio=increase:flags=lanczos,crop=1920:1080,"
+                    f"unsharp=3:3:0.3:3:3:0.1,"
+                    f"eq=contrast=1.02:brightness=0.0:saturation=1.02,"
+                    f"format=yuv420p"
+                )
+                run_cmd(["ffmpeg", "-y", "-i", raw_clip, "-vf", vf_pipeline, "-r", "24", "-t", f"{shot_dur:.3f}", *encoder_args, sub_clip])
 
             # Luma Gate Check (YAVG < 10.0)
             is_pitch_black = False
@@ -1239,6 +1735,7 @@ class WanT4OptimizedEngine:
                     except Exception:
                         pass
 
+        weights_dir = precache_sr_rife_weights(f"{TMP}/weights")
         tasks_json = f"{TMP}/shot_tasks.json"
         worker_py = f"{TMP}/_gpu_shot_worker.py"
         with open(tasks_json, "w", encoding="utf-8") as f:
@@ -1246,6 +1743,7 @@ class WanT4OptimizedEngine:
                 "model_id": self.model_id,
                 "hf_token": self.hf_token,
                 "tmp_dir": TMP,
+                "weights_dir": weights_dir,
                 "encoder_args": get_best_video_encoder_args(),
                 "shots": all_shots,
             }, f)
