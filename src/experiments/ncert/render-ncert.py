@@ -572,13 +572,11 @@ def precache_sr_rife_weights(weights_dir=None):
                 if parsed_url.scheme != "https":
                     raise ValueError("Insecure URL scheme")
                 if not url.startswith("https://"): raise ValueError("Insecure URL scheme")
-                req = urllib.request.Request(url, headers={"User-Agent": "ShunopsAI-Kaggle-Renderer/1.0"})
                 if url.endswith(".zip"):
+                    # Use HTTPS-only opener to enforce secure downloads
+                    https_opener = urllib.request.build_opener(urllib.request.HTTPSHandler())
                     tmp_zip = f"{dest}.tmp.zip"
-                    if not req.full_url.startswith("https://"):
-                        raise ValueError("Insecure URL scheme")
-                    if not req.full_url.startswith('https://'): raise ValueError("Insecure URL scheme")
-                    with urllib.request.urlopen(req, timeout=30) as resp, open(tmp_zip, "wb") as out_f:
+                    with https_opener.open(url, timeout=30) as resp, open(tmp_zip, "wb") as out_f:
                         shutil.copyfileobj(resp, out_f)
                     with zipfile.ZipFile(tmp_zip, "r") as zf:
                         for member in zf.namelist():
