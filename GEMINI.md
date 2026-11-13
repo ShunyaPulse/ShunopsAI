@@ -219,3 +219,23 @@
 - **Micro-Weight Health Probe Invariant (`@cf/meta/llama-3.2-1b-instruct`):**
   - Whenever checking Cloudflare Workers AI connectivity, quota availability, or operational status, ALWAYS send the probe exclusively to `@cf/meta/llama-3.2-1b-instruct` with a minimal prompt (`max_tokens <= 16`).
   - Never use 70B, 8B, or heavy models for health checks or status pings. The 1B model consumes near-zero neurons and instantly reveals whether the account is healthy (200 OK) or quota-limited (429 code 4006).
+
+## 21. Modern 2026 YouTube S-Tier High-CTR Title & 1-2 Punch Architecture Invariant
+- **Elimination of Formulaic Colon Anti-Pattern:**
+  - STRICTLY FORBIDDEN: Generating rigid, boring titles following the formula `[Topic Name] : [Vague Question]?` (e.g. `Atmosphere Gone : 10 Seconds Mein Sab Kuch Khatam?`, `Delhi AQI Crisis : Shehar Gas Chamber Kaise Bana?`, `EPFO Pension Overhaul : Naye Rules Se Kya Badla?`).
+  - These formulaic titles sound like academic textbooks or automated feeds and crater Click-Through Rate (CTR).
+- **The Four Proven High-CTR Viral Archetypes:**
+  - All documentary, science, tech, infrastructure, and sports titles must dynamically select from:
+    1. *Archetype 1 (High-Stakes Conflict / Trade-off):* `The [X] Crisis: Why [A] Is Now Competing with [B]` (e.g. *The Sulphur Crisis: Why India's Food Supply Is Now Competing with EVs*).
+    2. *Archetype 2 (The Hidden Truth / Curiosity Gap):* `Why The World Ignored [Entity]?` / `[Event]: What Really Happened?` / `What If [Shocking Event]? (The Terrifying Science)` (e.g. *NASA Rescued Voyager 1 from 24 Billion KM Away: What Really Happened?*).
+    3. *Archetype 3 (Concrete Metric / Scale / Superlative):* `[Entity]: How [Exact Metric/Scale] Changes Everything` / `[Superlative Record] EVER! [Exact Margin]` (e.g. *Ashoknagar Oil: Is This India's Big 240-Million Barrel Energy Breakthrough?*).
+    4. *Archetype 4 (Urgency & Direct Personal Consequence):* `HUGE: [Major Shift]! How It Actually Affects You` (e.g. *HUGE: New EPFO Pension Rules! Will Your Monthly Pension Double?*).
+- **The 40-Character Mobile Viewport Safety Lock:**
+  - Because 70%+ of YouTube views occur on mobile screens with ~45-50 character truncation limits, the high-curiosity hook, stakes, or primary entity MUST be front-loaded in the first 40 characters. Never bury the exciting punchline at the end.
+- **The "1-2 Punch" Title-Thumbnail Complementary Mandate:**
+  - Thumbnail text (2–4 words in ALL CAPS) is the visual billboard that arrests the scroll (e.g. `FOOD VS EVS`, `240M BARRELS`, `THE WEST COPIED INDIA?`, `10 SECONDS`).
+  - Video title MUST NOT repeat the thumbnail text verbatim. The title completes the story, explains the consequence, and compels the tap.
+- **Language & Style Guardrails:**
+  - Pure English / Roman alphabet only, 45 to 75 characters. Zero Devanagari script in titles.
+  - Strictly ban passive/academic buzzwords (`"Exploring..."`, `"A Study on..."`, `"Overview of..."`, `"Understanding..."`, `"Impact of..."`).
+

@@ -523,7 +523,7 @@ import contextlib
 import threading
 
 # ==========================================
-# Step 1: Pre-Cache Real-ESRGAN v0.3.0 (x4v3 + wdn-x4v3) & Practical-RIFE v4.27/v4.26 Weights Once
+# Step 1: Pre-Cache Real-ESRGAN v0.3.0 (x4v3 + wdn-x4v3) & Practical-RIFE v4.26 Weights Once
 # ==========================================
 SR_RIFE_WEIGHT_URLS = {
     "realesr-general-x4v3.pth": [
@@ -546,7 +546,7 @@ SR_RIFE_WEIGHT_URLS = {
 
 def precache_sr_rife_weights(weights_dir=None):
     # Downloads Real-ESRGAN v0.3.0 (realesr-general-x4v3.pth + realesr-general-wdn-x4v3.pth, ~4.7 MB x 2)
-    # and Practical-RIFE v4.27 / v4.26 (flownet.pkl, ~19-23 MB) once into /kaggle/working/tmp/weights/
+    # and Practical-RIFE v4.26 (flownet.pkl, ~19-23 MB) once into /kaggle/working/tmp/weights/
     # before spawning GPU 0 and GPU 1 worker subprocesses.
     import urllib.request
     import zipfile
@@ -616,7 +616,7 @@ def precache_sr_rife_weights(weights_dir=None):
         for k in min_bytes_map
     )
     if ready_all:
-        print(f"[Weights Pre-Cache] ⚡ All Real-ESRGAN v0.3.0 + Practical-RIFE v4.27 weights ready in {weights_dir} ({time.time() - t0:.2f}s).", flush=True)
+        print(f"[Weights Pre-Cache] ⚡ All Real-ESRGAN v0.3.0 + Practical-RIFE v4.26 weights ready in {weights_dir} ({time.time() - t0:.2f}s).", flush=True)
     return weights_dir
 
 PREENCODER_SUBPROCESS_SCRIPT = r"""
@@ -785,7 +785,7 @@ def render_subpixel_kb(img_path, out_clip_path, duration_sec, shot_idx, encoder_
         return True
 
 # ==========================================
-# Step 2 & 3: Embedded Pure-PyTorch FP16 Real-ESRGAN v0.3.0 (Denoise-Blended) + Practical-RIFE v4.27 (IFNet)
+# Step 2 & 3: Embedded Pure-PyTorch FP16 Real-ESRGAN v0.3.0 (Denoise-Blended) + Practical-RIFE v4.26 (IFNet)
 # ==========================================
 import torch.nn as nn
 import torch.nn.functional as F
@@ -908,7 +908,7 @@ class RIFEIFBlock(nn.Module):
 
 
 class RIFEIFNet(nn.Module):
-    # Practical-RIFE v4.27 / v4.26 / v4.25 arbitrary-timestep IFNet_HDv3 architecture.
+    # Practical-RIFE v4.26 / v4.25 arbitrary-timestep IFNet_HDv3 architecture.
     # Dynamically adapts to checkpoint block channel specifications (e.g. v4.25 vs v4.26+).
     # Supports scale=0.5 optical flow estimation + full-resolution 1080p warping.
     def __init__(self, block_specs=None):
@@ -980,8 +980,8 @@ def load_blended_srvgg(weights_dir, device):
 
 
 def load_rife_v425(weights_dir, device):
-    # Practical-RIFE v4.27 / v4.26 / v4.25 arbitrary-timestep IFNet optical flow model.
-    # Automatically inspects checkpoint weight shapes to support v4.25, v4.26, and v4.27 checkpoints.
+    # Practical-RIFE v4.26 / v4.25 arbitrary-timestep IFNet optical flow model.
+    # Automatically inspects checkpoint weight shapes to support v4.25 and v4.26 checkpoints.
     pkl_path = os.path.join(weights_dir, "flownet.pkl")
     if not os.path.exists(pkl_path):
         return None
@@ -1025,7 +1025,7 @@ def render_sr_rife_nvenc_shot(
     # - Step 2: Upscale 33 native frames (640x384 -> 2560x1536) in FP16 mini-batches of 8 via Real-ESRGAN v0.3.0
               # (0.65*x4v3 + 0.35*wdn_x4v3 denoise blend), center-crop 16:9 (2560x1440), Lanczos downscale
               # to 1920x1080, and apply 0.12 temporal EMA smoothing to eliminate inter-frame shimmer.
-    # - Step 3: Practical-RIFE v4.27 / v4.26 arbitrary-timestep interpolation across target_frames = max(24, int(round(shot_dur * 24)))
+    # - Step 3: Practical-RIFE v4.26 arbitrary-timestep interpolation across target_frames = max(24, int(round(shot_dur * 24)))
               # using scale=0.5 flow estimation (960x540 -> padded 960x544) + full-resolution 1920x1080 optical flow warp.
     # - Step 4: Pipe 1920x1080 @ 24 FPS RGB24 frames directly into NVENC H.264 (or libx264).
     import cv2
@@ -1080,7 +1080,7 @@ def render_sr_rife_nvenc_shot(
                     ema_prev = (1.0 - ema_alpha) * frame_1080 + ema_alpha * ema_prev
                 upscaled_1080p.append(ema_prev.clip(0.0, 255.0).round().astype(np.uint8))
 
-    # 3 & 4. Practical-RIFE v4.27 / v4.26 Arbitrary-Timestep Interpolation + Direct Pipe to NVENC H.264
+    # 3 & 4. Practical-RIFE v4.26 Arbitrary-Timestep Interpolation + Direct Pipe to NVENC H.264
     target_frames = max(24, int(round(shot_dur * 24)))
     ffmpeg_cmd = [
         "ffmpeg", "-y",
@@ -1261,7 +1261,7 @@ def main():
         sr_model = load_blended_srvgg(weights_dir, local_dev)
         rife_model = load_rife_v427(weights_dir, local_dev)
         if sr_model is not None and rife_model is not None:
-            print(f"[Wan2.1 Worker GPU {phys_gpu}] ⚡ Loaded FP16 Real-ESRGAN v0.3.0 (0.65*x4v3 + 0.35*wdn) + Practical-RIFE v4.27 on cuda:{phys_gpu} in {time.time() - t_aux:.2f}s.", flush=True)
+            print(f"[Wan2.1 Worker GPU {phys_gpu}] ⚡ Loaded FP16 Real-ESRGAN v0.3.0 (0.65*x4v3 + 0.35*wdn) + Practical-RIFE v4.26 on cuda:{phys_gpu} in {time.time() - t_aux:.2f}s.", flush=True)
         else:
             print(f"[Wan2.1 Worker GPU {phys_gpu}] ⚠️ SR/RIFE weights missing in {weights_dir}; CPU FFmpeg fallback active.", flush=True)
     except Exception as aux_e:
@@ -1369,7 +1369,7 @@ def main():
                     )
                     if gpu_postproc_ok:
                         print(
-                            f"[SR+RIFE GPU ⚡] Scene {scene_idx+1} Shot {s_idx+1}: 33->1080p Real-ESRGAN v0.3.0 + Practical-RIFE v4.27 + NVENC completed in {time.time() - t_sr_rife:.2f}s",
+                            f"[SR+RIFE GPU ⚡] Scene {scene_idx+1} Shot {s_idx+1}: 33->1080p Real-ESRGAN v0.3.0 + Practical-RIFE v4.26 + NVENC completed in {time.time() - t_sr_rife:.2f}s",
                             flush=True,
                         )
                 except Exception as sr_rife_err:

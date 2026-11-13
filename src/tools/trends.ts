@@ -321,12 +321,12 @@ CRITICAL EDITORIAL & FACT-GROUNDING GUARDRAILS (STRICT COMPLIANCE MANDATORY):
    - Step 2 (Deepen): Highlight the exact engineering constraint, mathematical anomaly, or physical mechanism that scientists or master architects had to overcome.
    - Step 3 (Curiosity Hook): Formulate an irresistible curiosity question grounded purely in authentic facts.
 
-4. OUTPUT FORMAT (OPTION A - HYBRID RULES):
+4. OUTPUT FORMAT (MODERN 2026 YOUTUBE S-TIER HIGH-CTR STANDARD):
 Return ONLY valid JSON matching this exact structure:
 {
   "selected_trend": "EVERGREEN_CONCEPT",
   "trend_reason": "<1-2 clear sentences explaining the timeless scientific or historical paradox and why it captivates minds>",
-  "documentary_topic": "<High-CTR topic strictly in English (Roman) alphabet. Hybrid format: [English Topic Keyword] : [Hinglish Curiosity Hook], NEVER Devanagari script>",
+  "documentary_topic": "<High-CTR topic strictly in English (Roman) alphabet, 45-75 chars, front-loaded hook <=40 chars, NEVER Devanagari script. Use proven viral archetypes: Conflict/Contrast ('The [X] Crisis: Why [A] Competes With [B]'), Hidden Truth ('What If Earth Lost Atmosphere for 10 Seconds?', 'Why The World Ignored [Entity]'), Concrete Metric ('[Discovery]: How [Exact Number] Changes Everything'), or Urgency/Personal Consequence ('HUGE: [Policy Shift]! What Changes for You')>",
   "category": "<Science | Space | Infrastructure & Development | Technology | Nature | History | Sports Milestone>",
   "value_hook": "<1-2 sentences explaining educational/curiosity value in pure English>",
   "language": "Hindi",
@@ -490,12 +490,12 @@ CRITICAL EDITORIAL RULES:
    - In "trend_reason", summarize ONLY the real-world milestone or breakthrough.
    - NEVER mention search counts, query volume, or Google Trends stats (e.g. DO NOT write "50K+ searches on Google", write "Kusal Mendis scored a match-winning century against Pakistan").
 
-5. OUTPUT FORMAT (OPTION A - HYBRID RULES):
+5. OUTPUT FORMAT (MODERN 2026 YOUTUBE S-TIER HIGH-CTR STANDARD):
 Return ONLY valid JSON matching this exact structure:
 {
   "selected_trend": "<exact trend keyword from the list>",
   "trend_reason": "<1-2 clear sentences explaining the EXACT real-world event/news that occurred. NEVER mention search counts or traffic metrics>",
-  "documentary_topic": "<High-CTR topic strictly in English (Roman) alphabet. Hybrid format: [English Topic Keyword] : [Hinglish Curiosity Hook about this specific event], NEVER Devanagari script>",
+  "documentary_topic": "<High-CTR topic strictly in English (Roman) alphabet, 45-75 chars, front-loaded hook <=40 chars, NEVER Devanagari script. Use proven viral archetypes: Conflict/Contrast ('The [X] Crisis: Why [A] Competes With [B]'), Hidden Truth ('What If [Event]? What Really Happened'), Concrete Metric ('[Discovery]: How [Exact Number] Changes Everything'), or Urgency/Personal Consequence ('HUGE: [Policy Shift]! What Changes for You')>",
   "category": "<Science | Space | Infrastructure & Development | Technology | Nature | History | Sports Milestone>",
   "value_hook": "<1-2 sentences explaining educational/curiosity value in pure English>",
   "language": "Hindi",

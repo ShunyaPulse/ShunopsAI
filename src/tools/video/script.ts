@@ -80,12 +80,36 @@ CRITICAL DIRECTIVES:
      * Maintain an objective, educational, inspiring, documentary tone.
      * NEVER indulge in partisan bias, NEVER mock opponents, and NEVER engage in political controversy.
 
-3. SCRIPT & SCRIPT-LANGUAGE RULES (MANDATORY - OPTION A HYBRID FORMULA):
-   - TITLE (THE HYBRID FORMULA): Must be strictly in English (Roman) alphabet. Format: "[English Topic Keyword] : [Hinglish Curiosity Question/Hook about this specific event]".
-     Example: "Aadhaar Super-Engine : 140 Crore Logo Ka Data Kaise Safe Rehta Hai?"
-     Example: "Cristiano Ronaldo 900 Goals : 40 Ki Umar Mein Aisa Record Kaise Banaya?"
-     Example: "Semiconductor Fab : India Mein Microchips Banana Itna Mushkil Kyu Hai?"
-     NEVER use Devanagari script. Maximum 70 characters.
+3. SCRIPT & SCRIPT-LANGUAGE RULES (MANDATORY - MODERN 2026 YOUTUBE S-TIER HIGH-CTR FORMULA):
+   - TITLE (MODERN 2026 YOUTUBE S-TIER HIGH-CTR STANDARD):
+     Must be strictly in English (Roman) alphabet, concise, punchy, and between 45 to 75 characters.
+     NEVER use Devanagari script in titles.
+     FRONT-LOAD THE HOOK: The main curiosity trigger, high-stakes keyword, or recognizable entity MUST be in the first 40 characters (mobile screen safe, prevents truncation).
+     STRICTLY FORBIDDEN: The boring formulaic colon template "[Generic Topic] : [Vague Question]?" (e.g. AVOID "Atmosphere Gone : Kya Hua?", "Delhi AQI Crisis : Shehar Gas Chamber Kaise Bana?").
+     INSTEAD, dynamically select the single best High-CTR Archetype matching the story:
+       * ARCHETYPE 1 (The High-Stakes Conflict / Trade-off):
+         "[The Crisis / Clash / Lawsuit]: Why [A] Is Now Competing with [B]"
+         Examples:
+           - "The Sulphur Crisis: Why India's Food Supply Is Now Competing with EVs"
+           - "AI Slowdown Lawsuit: Why Big Tech Is Facing Legal Collapse"
+       * ARCHETYPE 2 (The Hidden Truth / Curiosity Gap / What Really Happened):
+         "Why The World Ignored [Entity]?" OR "[Major Event]: What Really Happened?" OR "What If [Shocking Event]? (The Terrifying Reality)"
+         Examples:
+           - "Why The World Ignored These Indian Scientists"
+           - "NASA Rescued Voyager 1 from 24 Billion KM Away: What Really Happened?"
+           - "What If Earth Lost Atmosphere for 10 Seconds? (The Terrifying Science)"
+       * ARCHETYPE 3 (The Concrete Metric / Scale / Historic Superlative):
+         "[Entity / Discovery]: How [Exact Concrete Number/Scale] Changes Everything" OR "[Superlative Record] EVER! [Exact Margin/Score]"
+         Examples:
+           - "Ashoknagar Oil: Is This India's Big 240-Million Barrel Energy Breakthrough?"
+           - "India vs Pakistan Thriller: How India Won 4-3 in Historic Finish"
+           - "Fastest to 100 Test Wickets: The Record No One Can Beat 🏏"
+       * ARCHETYPE 4 (Urgency & Direct Personal Consequence):
+         "HUGE: [Major Policy / Tech Shift]! How It Actually Affects You" OR "India's '[Major Overhaul]' Explained: What It Actually Changes"
+         Examples:
+           - "HUGE: New EPFO Pension Rules! Will Your Monthly Pension Double?"
+           - "India's 'One Nation, One Time' Explained: What the New Rules Actually Mean"
+     BANNED TITLE PATTERNS: Never write boring academic or passive titles like "Exploring...", "A Study on...", "Overview of...", "Understanding...", "Impact of...", or "In this video we see...".
    - DESCRIPTION (PURE ENGLISH): Must be written in 100% PURE ENGLISH (English language & Roman letters). Include detailed SEO overview of the event, key technical keywords, and timestamps/chapters. No Devanagari script.
    - CHAPTER TITLES: Must be strictly in English (Roman) alphabet.
    - NARRATION (Spoken Audio & Acoustic Steering):
@@ -134,18 +158,22 @@ CRITICAL DIRECTIVES:
 
 5. HIGH-CLICKTHROUGH (CTR) TRUTHFUL THUMBNAIL CONCEPT (MODERN 2026 YOUTUBE S-TIER STANDARD):
    - Design a dedicated hero concept thumbnail that commands instant attention (Think School / Veritasium / Vox / Curious Elephant style) without cheap clickbait.
+   - THE 1-2 PUNCH COMPLEMENTARY MANDATE (CRITICAL):
+     * The thumbnail text and the video title MUST COMPLEMENT each other, NEVER repeat the exact same words!
+     * Thumbnail Text (2-4 words MAX in ALL CAPS): The visual billboard that stops the scroll (e.g. "FOOD VS EVS", "240M BARRELS", "THE WEST COPIED INDIA?", "10 SECONDS", "THE FINAL SIGNAL").
+     * Video Title: Completes the curiosity loop and compels the viewer to click.
    - HERO FOREGROUND FOCAL ELEMENT (CRITICAL):
      * The visual MUST feature a prominent, dramatic foreground hero element occupying the center-to-right portion of the frame (e.g. glowing high-tech artifact, dramatic close-up macro machine/engine, historic relic with volumetric lighting, intense celestial body, or athlete gear in dramatic stadium smoke).
      * ABSOLUTELY NEVER generate empty landscapes, blank skies, flat concrete floors, or distant wide angles where nothing is in the foreground.
      * Extreme dynamic contrast: intense volumetric rim lighting, deep shadows, rich cinematic color grade, shallow depth of field.
    - PUNCHY 2-LINE TEXT HOOK (ALL CAPS, ULTRA-SHORT):
-     * "headline": 2-3 words MAX in ALL CAPS. Must be a curiosity-inducing trigger (e.g. "THE SECRET RUNWAY", "TIME BROKE", "BENGALI DNA", "THAT'S NOT WATER", "CAPTAINCY WAR", "GHOST PARTICLES"). NEVER repeat the boring official topic name!
-     * "subheadline": 2-4 words MAX in ALL CAPS. The shocking twist or consequence (e.g. "WHY JETS STOPPED", "HAS A SECRET", "THEY TURNED IT", "WHO REPLACES ROHIT?", "IMPOSSIBLE DISCOVERY").
+     * "headline": 2-3 words MAX in ALL CAPS. Must be a curiosity-inducing trigger (e.g. "FOOD VS EVS", "240M BARRELS", "10 SECONDS", "TIME BROKE", "BENGALI DNA"). NEVER repeat the boring official topic name!
+     * "subheadline": 2-4 words MAX in ALL CAPS. The shocking twist or consequence (e.g. "WHO LOSES?", "THE FINAL SIGNAL", "WHY JETS STOPPED", "THE HIDDEN SOURCE").
      * Total combined words across headline and subheadline should be 4-7 words maximum!
 
 6. Return ONLY valid JSON in this exact structure:
 {
-  "title": "<Hybrid Title: [English Topic] : [Hinglish Curiosity Hook], Roman alphabet only, <=70 chars, NO Devanagari>",
+  "title": "<High-CTR 2026 S-Tier Title using Archetype 1-4, Roman alphabet only, front-loaded hook <=40 chars, total length 45-75 chars, NO Devanagari>",
   "description": "<Comprehensive Pure English SEO description of the event, 150-250 words with timestamps & keywords, NO Devanagari>",
   "chapters": [{"title": "<Chapter Title in English>", "start_scene": 0}],
   "thumbnail": {
