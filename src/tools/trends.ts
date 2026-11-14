@@ -398,7 +398,15 @@ export async function curateBestTrendTopic(items: TrendingItem[]): Promise<Curat
   await Promise.allSettled(
     topCandidates.map(async (item) => {
       try {
-        const liveIntel = await executeWebSearch(`${item.title} news today breaking`, { maxResults: 3 });
+        const hasSpecificHeadline = Boolean(
+          item.news_title && item.news_title.trim().toLowerCase() !== item.title.trim().toLowerCase()
+        );
+        // Anchor search by Google Trends' own headline to prevent drifting into unrelated events
+        const searchQuery = hasSpecificHeadline
+          ? `${item.title} ${item.news_title}`
+          : `${item.title} trending news India today`;
+
+        const liveIntel = await executeWebSearch(searchQuery, { maxResults: 3 });
         if (liveIntel && !liveIntel.startsWith("Error:")) {
           const lines = liveIntel.split("\n").map((l) => l.trim());
           const newsLines = lines
@@ -412,9 +420,16 @@ export async function curateBestTrendTopic(items: TrendingItem[]): Promise<Curat
             )
             .filter((l) => l.length > 10);
 
-          if (newsLines.length > 0 && newsLines[0]) {
-            item.news_title = newsLines[0];
-            item.news_snippet = newsLines.slice(0, 3).join(" | ");
+          if (newsLines.length > 0) {
+            // CRITICAL: NEVER overwrite Google Trends' authoritative headline if one was already provided
+            // (e.g. Prevents overwriting 'India vs Bhutan SAFF Semi-Final' with unrelated Bhutan lake flood news)
+            if (!hasSpecificHeadline) {
+              item.news_title = newsLines[0]!;
+            }
+            const snippetDetails = newsLines.slice(0, 3).join(" | ");
+            item.news_snippet = item.news_snippet
+              ? `${item.news_snippet} | ${snippetDetails}`
+              : snippetDetails;
           }
         }
       } catch {
