@@ -487,71 +487,82 @@ export async function auditAndHealKeyframes(
       }
     }
 
-    // Step 2: Self-Healing Loop for Flagged Scenes
-    for (const { sceneIdx, auditResult: initialAudit } of flaggedScenes) {
-      let auditResult = initialAudit;
-      const scene = script.scenes[sceneIdx]!;
-      const imgFileName = `scene_${String(sceneIdx).padStart(3, "0")}.png`;
-      const imgPath = path.join(imagesDir, imgFileName);
-      const backupPath = path.join(backupDir, `${path.parse(imgFileName).name}_orig.png`);
-
-      console.warn(
-        `[Keyframe Auditor] ⚠️ Scene ${sceneIdx + 1}/${totalAudited} flagged [${auditResult.modelUsed}]: ${auditResult.detectedAnomalies.join("; ")}`
+    // Step 2: Parallel Self-Healing Loop for Flagged Scenes
+    if (flaggedScenes.length > 0) {
+      const healingConcurrency = Math.min(flaggedScenes.length, concurrency);
+      console.log(
+        `[Keyframe Healer] 🩹 Launching Parallel Self-Healing on ${flaggedScenes.length} flagged scenes (${healingConcurrency}x concurrency across key pool)...`
       );
 
-      let healedSuccessfully = false;
-      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-        if (!auditResult.refinedVisualPrompt || auditResult.refinedVisualPrompt.trim().length === 0) {
-          break;
-        }
+      await runConcurrent(
+        flaggedScenes,
+        healingConcurrency,
+        async ({ sceneIdx, auditResult: initialAudit }) => {
+          let auditResult = initialAudit;
+          const scene = script.scenes[sceneIdx]!;
+          const imgFileName = `scene_${String(sceneIdx).padStart(3, "0")}.png`;
+          const imgPath = path.join(imagesDir, imgFileName);
+          const backupPath = path.join(backupDir, `${path.parse(imgFileName).name}_orig.png`);
 
-        console.log(
-          `[Keyframe Healer] 🩹 Repairing Scene ${sceneIdx + 1} (Attempt ${attempt}/${maxAttempts}) with refined prompt...`
-        );
+          console.warn(
+            `[Keyframe Auditor] ⚠️ Scene ${sceneIdx + 1}/${totalAudited} flagged [${auditResult.modelUsed}]: ${auditResult.detectedAnomalies.join("; ")}`
+          );
 
-        // Apply refined prompt to script scene
-        scene.visual_prompt = auditResult.refinedVisualPrompt;
+          let healedSuccessfully = false;
+          for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+            if (!auditResult.refinedVisualPrompt || auditResult.refinedVisualPrompt.trim().length === 0) {
+              break;
+            }
 
-        // Selectively regenerate ONLY this scene via Cloudflare FLUX
-        try {
-          await generateSceneKeyframes(script, imagesDir, {
-            sceneIndices: [sceneIdx],
-            forceRegenerate: true,
-          });
-        } catch (regenErr: any) {
-          console.warn(`[Keyframe Healer] FLUX regeneration attempt ${attempt} warning: ${regenErr?.message || regenErr}`);
-        }
+            console.log(
+              `[Keyframe Healer] 🩹 Repairing Scene ${sceneIdx + 1} (Attempt ${attempt}/${maxAttempts}) with refined prompt...`
+            );
 
-        // Re-verify that image exists and has valid size
-        if (!fsSync.existsSync(imgPath) || fsSync.statSync(imgPath).size < 5000) {
-          console.warn(`[Keyframe Healer] Regenerated image failed threshold. Restoring from backup...`);
-          if (fsSync.existsSync(backupPath)) {
-            await fs.copyFile(backupPath, imgPath);
+            // Apply refined prompt to script scene
+            scene.visual_prompt = auditResult.refinedVisualPrompt;
+
+            // Selectively regenerate ONLY this scene via Cloudflare FLUX
+            try {
+              await generateSceneKeyframes(script, imagesDir, {
+                sceneIndices: [sceneIdx],
+                forceRegenerate: true,
+              });
+            } catch (regenErr: any) {
+              console.warn(`[Keyframe Healer] FLUX regeneration attempt ${attempt} warning for Scene ${sceneIdx + 1}: ${regenErr?.message || regenErr}`);
+            }
+
+            // Re-verify that image exists and has valid size
+            if (!fsSync.existsSync(imgPath) || fsSync.statSync(imgPath).size < 5000) {
+              console.warn(`[Keyframe Healer] Regenerated image failed threshold for Scene ${sceneIdx + 1}. Restoring from backup...`);
+              if (fsSync.existsSync(backupPath)) {
+                await fs.copyFile(backupPath, imgPath);
+              }
+              break;
+            }
+
+            // Re-audit newly regenerated keyframe
+            const reAudit = await auditSceneKeyframe(imgPath, scene, script, sceneIdx);
+            if (reAudit.verdict === "PASS") {
+              console.log(`[Keyframe Healer] ✅ Scene ${sceneIdx + 1} successfully healed! Passed all aesthetic gates.`);
+              healedSuccessfully = true;
+              healedCount++;
+              healedScenes.push(sceneIdx);
+              reportsByScene.set(sceneIdx, reAudit);
+              break;
+            } else {
+              auditResult = reAudit;
+            }
           }
-          break;
-        }
 
-        // Re-audit newly regenerated keyframe
-        const reAudit = await auditSceneKeyframe(imgPath, scene, script, sceneIdx);
-        if (reAudit.verdict === "PASS") {
-          console.log(`[Keyframe Healer] ✅ Scene ${sceneIdx + 1} successfully healed! Passed all aesthetic gates.`);
-          healedSuccessfully = true;
-          healedCount++;
-          healedScenes.push(sceneIdx);
-          reportsByScene.set(sceneIdx, reAudit);
-          break;
-        } else {
-          auditResult = reAudit;
+          if (!healedSuccessfully) {
+            retainedOriginalCount++;
+            reportsByScene.set(sceneIdx, auditResult);
+            console.warn(
+              `[Keyframe Healer] ⚠️ Scene ${sceneIdx + 1} could not be fully perfected after ${maxAttempts} attempts. Retaining best asset to preserve pre-flight integrity.`
+            );
+          }
         }
-      }
-
-      if (!healedSuccessfully) {
-        retainedOriginalCount++;
-        reportsByScene.set(sceneIdx, auditResult);
-        console.warn(
-          `[Keyframe Healer] ⚠️ Scene ${sceneIdx + 1} could not be fully perfected after ${maxAttempts} attempts. Retaining best asset to preserve pre-flight integrity.`
-        );
-      }
+      );
     }
   }
 

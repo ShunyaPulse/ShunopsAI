@@ -37,7 +37,7 @@ jobs:
   cloud-video-generation:
     name: "Generate & Dispatch Video to Kaggle GPU"
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 50
 
     steps:
       - name: Checkout Code
